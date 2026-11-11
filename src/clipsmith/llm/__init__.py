@@ -13,11 +13,15 @@ def get_provider(config: AppConfig, secrets: Secrets, prompt_version: str = "v1"
     """Return the configured LLM provider."""
     provider = config.llm.provider
     if provider == "anthropic":
+        from campaign.budget import budget_from_settings
+        from campaign.config import load_settings
+
         return AnthropicProvider(
             secrets.anthropic_api_key,
             model=config.llm.model_anthropic,
             retry_cfg=config.llm.retry,
             prompt_version=prompt_version,
+            budget=budget_from_settings(load_settings()),
         )
     if provider == "openai":
         return OpenAIProvider(

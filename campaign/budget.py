@@ -139,3 +139,13 @@ class Budget:
             "day_cap_usd": self.day_cap,
             "by_purpose": {p: {"calls": n, "usd": float(u)} for p, n, u in rows},
         }
+
+
+def budget_from_settings(settings) -> Budget:
+    """Bygg spärren från Settings (campaign.config.load_settings)."""
+    return Budget(
+        settings.data_dir / "budget.db",
+        settings.prices_path,
+        settings.budget_month_usd,
+        settings.budget_day_usd,
+    )

@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 
 from .brain import Brain
-from .budget import Budget
+from .budget import Budget, budget_from_settings
 from .cliplog import STATUSES, ClipLog
 from .config import Settings, load_settings
 from .facit import load_facit, score
@@ -17,12 +17,7 @@ from .workflow import finish_vod, load_picks
 
 
 def _budget(settings: Settings) -> Budget:
-    return Budget(
-        settings.data_dir / "budget.db",
-        settings.prices_path,
-        settings.budget_month_usd,
-        settings.budget_day_usd,
-    )
+    return budget_from_settings(settings)
 
 
 def _log(settings: Settings) -> ClipLog:

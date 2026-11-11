@@ -9,12 +9,16 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import TYPE_CHECKING
 
 from ..models.candidates import CandidateMoment
 from ..telemetry import LLM_CALL_DURATION, llm_call_duration, llm_calls_total, tracer
 from .base import ClipPick
 from .prompts import get_system_prompt, build_candidate_prompt
 from .retry import build_retry, RetryConfig
+
+if TYPE_CHECKING:
+    from campaign.budget import Budget
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +31,7 @@ class AnthropicProvider:
         model: str = "claude-sonnet-4-6",
         retry_cfg: RetryConfig | None = None,
         prompt_version: str = "v1",
+        budget: Budget | None = None,
     ):
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY is required for the Anthropic provider")
@@ -38,6 +43,7 @@ class AnthropicProvider:
         self._model = model
         self._retry_cfg = retry_cfg or RetryConfig()
         self._system_prompt = get_system_prompt(prompt_version)
+        self._budget = budget
 
     def pick(
         self,
@@ -56,6 +62,8 @@ class AnthropicProvider:
                 "candidate_id": candidate_id,
             },
         ):
+            if self._budget is not None:
+                self._budget.check()  # BudgetExceeded stoppar körningen, fångas inte nedan
             try:
                 retry = build_retry(
                     self._retry_cfg, candidate_id=candidate_id, provider="anthropic"
@@ -99,6 +107,15 @@ class AnthropicProvider:
                     getattr(usage, "cache_creation_input_tokens", 0),
                     usage.output_tokens,
                 )
+                if self._budget is not None:
+                    self._budget.record(
+                        self._model,
+                        "valja",
+                        usage.input_tokens,
+                        usage.output_tokens,
+                        getattr(usage, "cache_read_input_tokens", 0) or 0,
+                        getattr(usage, "cache_creation_input_tokens", 0) or 0,
+                    )
                 text = next((b.text for b in response.content if b.type == "text"), "")  # type: ignore[union-attr]
                 pick = ClipPick.from_json(text)
                 elapsed = time.monotonic() - t0
