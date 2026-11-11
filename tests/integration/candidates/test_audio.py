@@ -34,6 +34,18 @@ def test_rms_series_parses_ffmpeg_output(tmp_path: Path) -> None:
     assert times[2] == 5.0
 
 
+def test_rms_series_does_not_decode_video(tmp_path: Path) -> None:
+    mp4 = tmp_path / "video.mp4"
+    mp4.touch()
+    mock_result = MagicMock()
+    mock_result.stdout = _fake_ametadata((0.0, -20.5))
+
+    with patch("clipsmith.candidates.audio.subprocess.run", return_value=mock_result) as run:
+        compute_audio_rms_series(mp4, window_s=2.0)
+
+    assert "-vn" in run.call_args.args[0]
+
+
 def test_rms_series_skips_silence(tmp_path: Path) -> None:
     fake_output = _fake_ametadata((0.0, -91.0), (2.0, -20.0), (4.0, -90.5))
     mp4 = tmp_path / "video.mp4"
