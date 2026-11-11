@@ -143,3 +143,56 @@ Production: set `APPLICATIONINSIGHTS_CONNECTION_STRING` to forward traces to Azu
 ### CI Pipeline
 
 `.github/workflows/ci.yml`: lint (ruff + mypy) → tests (pytest, no e2e) → security (bandit + pip-audit). PyPI publish is tag-triggered via OIDC trusted publisher.
+
+## Robins kampanjlager
+
+Det här är Robins fork av clipsmith. Han bygger om den till ett verktyg som gör
+kampanjklara klipp av Twitch-streams för Whop Content Rewards.
+
+### Målet
+
+Kampanjklara klipp som når 2 000 visningar, med några minuters eget arbete per klipp.
+Fyra mått, se `docs/klipp/BYGGPLAN.md`: andel klipp över 2 000 visningar, engagemang,
+träffar mot facit (minst 7 av 10) och Robins tid per postat klipp (under 5 minuter).
+
+### Så är koden uppdelad
+
+- `src/clipsmith/` är originalet: hämta VOD, transkribera, signaler, välja, klippa.
+- `campaign/` är Robins eget lager: kampanjprofil, overlay och text, caption,
+  regelkontroll, bildgranskning, godkänn-kö, klipplogg, budgetspärr.
+- `tests_campaign/` testar `campaign/`. clipsmiths egna tester ligger i `tests/`.
+- `docs/klipp/OMBYGGNAD.md` listar vad som ska byggas om i clipsmith, med fil och funktion.
+
+Lägg ny egen kod i `campaign/` när det går. Ändra i `src/clipsmith/` bara när
+uppgiften kräver det, så att `git pull upstream` fortsätter fungera.
+
+### Regler
+
+- Checka aldrig in `.env`. Skriv aldrig ut API-nycklar i terminalen eller i svar.
+- Alla Claude API-anrop ska gå via `campaign.brain.Brain` eller logga i
+  `campaign.budget.Budget`. Budgeten är 200 euro i månaden.
+- Kör `python -m pytest tests_campaign -q` efter varje ändring i `campaign/`,
+  och `python -m pytest tests/unit -q` efter ändringar i `src/clipsmith/`.
+- Använd inte `cloud:`-delen i clipsmiths `config.yaml` eller `clipsmith cloud`.
+  Originalets config har en incheckad inloggningsuppgift där. Ta bort den delen i forken.
+- Ett klipp får inte postas utan att regelkontrollen är grön och Robin har sagt ja.
+- Använd bara material från streamerns egna Twitch-streams, enligt kampanjprofilen.
+
+### Så vill Robin ha svar
+
+- Enkel och rak svenska. Förklara facktermer kort.
+- Börja med en rad **Viktigt:** som säger svaret eller vad han ska göra.
+- Korta stycken. Numrerade steg under **Att göra:** när han ska göra något.
+
+### Kommandon
+
+```bash
+clipsmith run-vod <VOD-id> --config config.timmy.yaml   # hämta, transkribera, välja, klippa
+python -m campaign finish <VOD-id> --game "Spelets namn" # overlay, text, caption, kontroll
+python -m campaign approve                                # ja eller nej per klipp
+python -m campaign posted <klipp-id> <länk>               # logga att klippet är postat
+python -m campaign stats <klipp-id> --views 2500 --likes 30
+python -m campaign status                                 # klipplogg, att göra, budget
+python -m campaign facit facit/<fil>.yaml                 # träffar mot facit
+python -m campaign check-setup                            # ffmpeg, nyckel, profil
+```

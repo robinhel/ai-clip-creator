@@ -1,0 +1,74 @@
+# clipsmith-inställningar för SkiiMaskTimmy-kampanjen.
+# Används så här:  clipsmith run-vod <VOD-id> --config config.timmy.yaml
+# Fälten följer src/clipsmith/config/models.py (läst 2026-11-11, commit c98bffc).
+#
+# OBS: clipsmiths egen config.yaml har en "cloud:"-del med en incheckad
+# inloggningsuppgift. Använd inte den delen, och ta bort den i din fork.
+
+channels:
+  - skiimasktimmy
+
+work_dir: ./work
+out_dir: ./out
+
+clip:
+  min_seconds: 15
+  max_seconds: 45
+  preroll_s: 20
+  postroll_s: 8
+  min_clip_gap_s: 90
+
+candidates:
+  density_window_s: 15
+  density_peak_multiplier: 3.0     # lägre än standard (4.0): liten kanal, gles chatt
+  existing_clip_boost: 100.0       # tittarnas egna Twitch-klipp
+  clip_command_boost: 25.0
+  dedupe_window_s: 60
+  transcript_hype_score: 20.0
+  audio_energy_enabled: true       # skrik och skratt syns även när chatten är tyst
+  audio_energy_window_s: 2.0
+  audio_energy_peak_multiplier: 2.0
+  audio_energy_boost: 15.0
+  # Engelska i stället för de spanska standardorden. clipsmith letar efter orden
+  # som delar av text ("run" träffar även "running"), så håll listan till tydliga uttryck.
+  hype_keywords:
+    - "no way"
+    - "oh my god"
+    - "omg"
+    - "holy"
+    - "what the"
+    - "wtf"
+    - "let's go"
+    - "lets go"
+    - "clutch"
+    - "insane"
+    - "unbelievable"
+    - "are you kidding"
+    - "lmao"
+    - "so close"
+    - "noooo"
+
+transcribe:
+  model: small          # börja litet och mät tiden; prova sedan medium eller large-v3
+  compute_type: int8
+  language: en
+  chunk_minutes: 30
+  chunk_overlap_s: 30
+  max_workers: 2
+
+llm:
+  provider: anthropic
+  model_anthropic: claude-sonnet-5-5
+
+caption:
+  enabled: true
+  font: Arial
+  font_size: 72
+  outline: 3
+  position: bottom
+
+reframe:
+  mode: stacked         # facecam överst, gameplay under
+  webcam_rect: null     # null = clipsmith letar upp facecam-rutan (kräver pip install -e ".[vision]")
+  gameplay_rect: null   # null = mitten av bilden
+  split_ratio: 0.4      # facecam får 40 % av höjden

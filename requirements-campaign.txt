@@ -1,0 +1,6 @@
+# Det kampanjlagret behöver utöver clipsmith.
+# clipsmith installerar redan anthropic, PyYAML och python-dotenv.
+anthropic>=0.40
+PyYAML>=6.0
+python-dotenv>=1.0
+pytest>=8

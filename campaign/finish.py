@@ -1,0 +1,92 @@
+"""Gör ett färdigt 9:16-klipp kampanjklart: overlay, text på skärmen, jämn ljudnivå.
+
+Det här är ett eget ffmpeg-pass ovanpå klippet från clipsmith. Det betyder en
+extra omkodning. Fas 2 i byggplanen flyttar in stegen i clipsmiths egen
+rendering (rendering/clipper.py) så att klippet bara kodas en gång.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from .media import find_font, need, probe, run
+from .profile import Profile
+
+WIDTH, HEIGHT = 1080, 1920
+
+ENCODER_ARGS = {
+    "libx264": ["-c:v", "libx264", "-preset", "medium", "-crf", "19"],
+    "h264_nvenc": ["-c:v", "h264_nvenc", "-preset", "p5", "-cq", "21"],
+    "h264_videotoolbox": ["-c:v", "h264_videotoolbox", "-b:v", "8M"],
+}
+
+
+def _esc(value: str) -> str:
+    """Skydda tecken som betyder något i ett ffmpeg-filter."""
+    for char in ("\\", ":", "'", "%", ",", "[", "]", ";"):
+        value = value.replace(char, "\\" + char)
+    return value
+
+
+def build_filter(profile: Profile, has_overlay: bool, has_audio: bool, font: str | None) -> str:
+    """Filtergrafen. Ingång 0 är klippet, ingång 1 är overlay-bilden om den finns."""
+    parts = ["[0:v]setsar=1[base]"]
+    last = "base"
+    if has_overlay:
+        if profile.overlay_mode == "full":
+            parts.append(f"[1:v]scale={WIDTH}:{HEIGHT}[ov]")
+            position = "0:0"
+        else:
+            parts.append(f"[1:v]scale={WIDTH}:-1[ov]")
+            position = "0:0" if profile.overlay_mode == "top" else "0:H-h"
+        parts.append(f"[{last}][ov]overlay={position}[withov]")
+        last = "withov"
+    if profile.text:
+        if profile.text_position == "top":
+            y = str(int(HEIGHT * profile.safe_top))
+        else:
+            y = f"h-text_h-{int(HEIGHT * profile.safe_bottom)}"
+        font_part = f"fontfile='{_esc(font)}':" if font else ""
+        parts.append(
+            f"[{last}]drawtext={font_part}text='{_esc(profile.text)}':"
+            f"fontsize={profile.text_font_size}:fontcolor=white:"
+            f"borderw=4:bordercolor=black@0.85:x=(w-text_w)/2:y={y}[withtext]"
+        )
+        last = "withtext"
+    parts.append(f"[{last}]format=yuv420p[vout]")
+    if has_audio:
+        parts.append(f"[0:a]loudnorm=I={profile.lufs}:TP=-1.5:LRA=11[aout]")
+    return ";".join(parts)
+
+
+def finish_clip(
+    src: Path, out: Path, profile: Profile, root: Path, encoder: str = "libx264"
+) -> dict:
+    """Rendera den kampanjklara versionen. Returnerar ett manifest om vad som gjordes."""
+    info = probe(src)
+    overlay = profile.overlay_path(root)
+    has_overlay = overlay is not None and overlay.exists()
+    font = find_font(profile.text_font_file)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    cmd = [need("ffmpeg"), "-y", "-v", "error", "-i", str(src)]
+    if has_overlay:
+        cmd += ["-i", str(overlay)]
+    cmd += [
+        "-filter_complex",
+        build_filter(profile, has_overlay, info["has_audio"], font),
+        "-map",
+        "[vout]",
+    ]
+    if info["has_audio"]:
+        cmd += ["-map", "[aout]", "-c:a", "aac", "-b:a", "160k", "-ar", "48000"]
+    cmd += ENCODER_ARGS.get(encoder, ENCODER_ARGS["libx264"])
+    cmd += ["-movflags", "+faststart", str(out)]
+    run(cmd)
+    return {
+        "source": str(src),
+        "file": str(out),
+        "overlay_applied": has_overlay,
+        "text_applied": bool(profile.text),
+        "text": profile.text,
+    }

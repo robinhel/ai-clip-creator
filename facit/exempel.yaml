@@ -1,0 +1,13 @@
+# Facit: de 10 bästa ögonblicken i en VOD, valda av dig.
+# Kopiera filen, byt namn och fyll i. Mät sedan med:
+#   python -m campaign facit facit/min-vod.yaml
+
+vod: "1234567890"        # VOD-id, siffrorna sist i twitch.tv/videos/...
+
+moments:
+  - time: "0:41:10"      # timme:minut:sekund in i VOD:en
+    note: "1v3 med pistol, skriker efteråt"
+  - time: "1:12:35"
+    note: "dör på väg ut med full väska"
+  - time: "2:03:50"
+    note: "skämt med chatten om giveaway"
