@@ -12,7 +12,9 @@ from .budget import Budget, budget_from_settings
 from .cliplog import STATUSES, ClipLog
 from .config import Settings, load_settings
 from .facit import load_facit, score
+from .media import probe
 from .profile import Profile, load_profile
+from .transcribe import EUR_PER_MINUTE, berget_post, transcribe_vod
 from .workflow import finish_vod, load_picks
 
 
@@ -51,6 +53,9 @@ def cmd_check_setup(args, settings: Settings) -> int:
     has_key = bool(settings.anthropic_api_key)
     print(f"{'OK ' if has_key else 'FEL'} ANTHROPIC_API_KEY i .env")
     ok = ok and has_key
+    has_berget = bool(settings.berget_api_key)
+    print(f"{'OK ' if has_berget else 'FEL'} BERGET_API_KEY i .env (transkribering)")
+    ok = ok and has_berget
     profile = _profile(settings, args.profile)
     problems = profile.problems(settings.root)
     print(f"{'OK ' if not problems else 'FEL'} profilen {profile.name}")
@@ -60,6 +65,31 @@ def cmd_check_setup(args, settings: Settings) -> int:
     _print_budget(_budget(settings))
     print("Allt klart." if ok else "Rätta raderna med FEL ovan.")
     return 0 if ok else 1
+
+
+def cmd_transcribe(args, settings: Settings) -> int:
+    mp4 = settings.work_dir / args.vod_id / f"{args.vod_id}.mp4"
+    out = mp4.parent / "transcript.json"
+    next_step = (f"Kör sedan: clipsmith run-vod {args.vod_id} --config config.timmy.yaml "
+                 "--skip-download --skip-transcribe")
+    if not mp4.exists():
+        raise SystemExit(f"Videon saknas: {mp4}")
+    if out.exists() and not args.overwrite:
+        print(f"{out} finns redan. Lägg till --overwrite för att göra om den.")
+        print(next_step)
+        return 0
+    if not settings.berget_api_key:
+        raise SystemExit("Fyll i BERGET_API_KEY i .env först.")
+    model = args.model or settings.transcribe_model
+    language = _profile(settings, args.profile).language
+    minutes = probe(mp4)["duration"] / 60
+    print(f"Transkriberar {minutes:.0f} minuter med {model} ({language}), "
+          f"cirka {minutes * EUR_PER_MINUTE:.2f} euro.")
+    transcript = transcribe_vod(mp4, args.vod_id, out, post=berget_post(settings.berget_api_key),
+                                model=model, language=language)
+    print(f"Klart: {len(transcript.segments)} meningar i {out}")
+    print(next_step)
+    return 0
 
 
 def cmd_finish(args, settings: Settings) -> int:
@@ -194,6 +224,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("check-setup", help="Kontrollera ffmpeg, nyckel, profil och budget")
     p.add_argument("--profile")
     p.set_defaults(func=cmd_check_setup)
+
+    p = sub.add_parser("transcribe", help="Transkribera en nedladdad VOD via Berget")
+    p.add_argument("vod_id", help="VOD-id, samma som mappnamnet i work/")
+    p.add_argument("--model", help="Bergets modell, t.ex. Systran/faster-whisper-large-v3")
+    p.add_argument("--profile")
+    p.add_argument("--overwrite", action="store_true", help="Gör om en transkribering som finns")
+    p.set_defaults(func=cmd_transcribe)
 
     p = sub.add_parser("finish", help="Gör klippen från en VOD kampanjklara")
     p.add_argument("vod_id", help="VOD-id, samma som mappnamnet i out/")
