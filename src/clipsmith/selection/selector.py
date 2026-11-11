@@ -57,14 +57,16 @@ def select_clips(
     config: ClipConfig,
     *,
     max_candidates: int = 20,
-    min_picks: int = 2,
+    min_picks: int | None = None,
 ) -> list[PickResult]:
     """Run the LLM over the top candidates and return accepted picks.
 
     Only passes the top max_candidates by score to avoid excessive API calls.
     If the LLM accepts fewer than min_picks, the top-scored remaining candidates
-    are force-accepted so every run produces at least some output.
+    are force-accepted. min_picks defaults to config.min_picks (0 = never force).
     """
+    if min_picks is None:
+        min_picks = config.min_picks
     top = _spread_candidates(
         sorted(candidates, key=lambda c: c.score, reverse=True),
         min_gap_s=config.min_clip_gap_s,
