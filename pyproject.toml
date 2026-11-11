@@ -61,7 +61,7 @@ server = [
     "psycopg2-binary>=2.9",
 ]
 vision = [
-    "opencv-python-headless>=4.9",
+    "opencv-python-headless>=4.9,<5",
 ]
 ollama = [
     "ollama>=0.3",
