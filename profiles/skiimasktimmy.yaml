@@ -1,0 +1,98 @@
+# Kampanjprofil: SkiiMaskTimmy (ClippedIn, via Content Rewards på Whop)
+# Reglerna är avskrivna från kampanjsidan 11 november 2026.
+# Kontrollera mot kampanjsidan om något har ändrats.
+
+name: skiimasktimmy
+streamer: SkiiMaskTimmy
+campaign: "$2,500 SkiiMaskTimmy Streamer Campaign (ClippedIn)"
+language: en
+
+source:
+  allowed: "Bara SkiiMaskTimmys Twitch-streams: live eller tidigare sändningar (VOD)."
+  banned:
+    - Andra streamers eller andras innehåll
+    - Speltrailers och orelaterade virala klipp
+    - Återuppladdning av Timmys egna TikToks eller Shorts
+    - Klipp från hans kanal eller hans klippkanaler
+
+clip:
+  min_seconds: 7     # kampanjens krav
+  max_seconds: 60    # eget val, kampanjen anger inget tak
+
+# Bara de här formaten är godkända.
+formats:
+  - id: clutch
+    name: Clutch plays
+    description: Multi kills, 1v3s, last-second extracts and pistol-only wins. Open on the payoff, then show how he got there.
+  - id: extraction
+    name: Extraction tension
+    description: Low health, full bag, enemies closing in on the way out. The "does he make it out" moments.
+  - id: funny
+    name: Funny moments and fails
+    description: Bad deaths, rage, self revenge, comms gone wrong. His reaction is the clip.
+  - id: first_impressions
+    name: First impressions
+    description: Timmy's honest takes and reactions on new and early access games. Lead with the hot take as on-screen text.
+  - id: reactions
+    name: Genuine reactions
+    description: Jump scares, disbelief, hype. Keep the facecam large so viewers feel it with him.
+  - id: community
+    name: Community moments
+    description: Banter with chat, giveaway hype and challenge streams that show what his live streams feel like.
+
+on_screen_text:
+  text: "twitch.tv/skiimasktimmy"
+  required: true
+  position: top      # top | bottom
+  font_size: 46
+  font_file: null    # null = verktyget letar upp ett fett typsnitt själv
+
+overlay:
+  file: overlays/skiimasktimmy.png   # ladda ner "TWITCH STREAM OVERLAY" från kampanjsidan
+  required: true
+  mode: full         # full = bilden täcker hela 1080×1920 | top | bottom
+
+facecam:
+  required: true     # Timmys facecam ska synas i varje klipp
+
+# Del av bildens höjd som ska vara fri från text.
+# Startvärden. Mät mot en skärmbild från TikTok och justera (fas 2).
+safe_zone:
+  top: 0.07
+  bottom: 0.20
+
+caption:
+  must_include:
+    - "twitch.tv/skiimasktimmy"
+  hashtags: ["#skiimasktimmy", "#twitchclips", "#fps", "#gaming"]
+  game_hashtag: true   # spelets namn läggs till som hashtag med --game
+  template: "{title} 👉 Catch him live: twitch.tv/skiimasktimmy"
+
+audio:
+  lufs: -14          # jämn ljudnivå; streamens ljud ska höras, ingen musik över rösten
+
+platforms: [tiktok, instagram_reels, youtube_shorts]
+
+# Lägsta engagemang i procent. Kampanjen anger inte formeln; fråga i kampanjchatten.
+engagement_min_percent:
+  - {views_up_to: 25000, min: 0.9}
+  - {views_up_to: 100000, min: 0.8}
+  - {views_up_to: null, min: 0.5}
+
+payment:
+  cpm_usd: 1.00
+  min_payout_usd: 2
+  max_payout_per_clip_usd: 150
+  campaign_budget_usd: 2500
+  min_views: 2000
+
+approval: >
+  Skicka in alla klipp via Content Rewards. När ett klipp passerat 2 000 visningar:
+  skicka en skärminspelning av klippets egen statistik (tittartid, alla visningsgrafer
+  och platser) i kampanjens analytics-formulär. Konto-statistik godkänns inte.
+
+other_rules:
+  - Kommentarer och gilla-markeringar ska vara påslagna
+  - Språk: engelska
+  - Publik: minst 60 % Tier 1, helst gaming
+  - Inga collabs, ingen story boosting, inget lågkvalitativt eller återanvänt material

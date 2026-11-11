@@ -32,3 +32,6 @@ chat.json
 picks.json
 candidates.json
 .coverage
+
+# Kampanjlagret
+klippdata/
