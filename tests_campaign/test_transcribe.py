@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from clipsmith.models.transcript import Transcript
-
 from campaign.transcribe import to_segments, transcribe_vod
+from clipsmith.models.transcript import Transcript
 
 from .conftest import make_clip, needs_ffmpeg
 
