@@ -17,6 +17,7 @@ clip:
   preroll_s: 20
   postroll_s: 8
   min_clip_gap_s: 90
+  min_picks: 0                     # tvinga aldrig fram klipp som Claude sa nej till
 
 candidates:
   density_window_s: 15

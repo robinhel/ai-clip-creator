@@ -14,6 +14,7 @@ class ClipConfig(BaseModel):
     preroll_s: int = 25
     postroll_s: int = 10
     min_clip_gap_s: int = 120  # minimum seconds between candidates sent to LLM
+    min_picks: int = 0  # force-accept top candidates if the LLM accepts fewer than this
 
 
 class CandidatesConfig(BaseModel):
