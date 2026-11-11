@@ -175,5 +175,5 @@ def test_select_clips_clamped_duration() -> None:
 def test_build_stream_context_contains_channel() -> None:
     ctx = build_stream_context("chuyelwuero", "Stream title", "3h21m4s")
     assert "chuyelwuero" in ctx
-    assert "Spanish" in ctx
+    assert "English" in ctx
     assert "3h21m4s" in ctx
