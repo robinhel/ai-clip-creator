@@ -1,0 +1,122 @@
+[project]
+name = "clipsmith-ai"
+version = "0.3.0"
+description = "Twitch VOD -> AI-selected vertical clips with burned-in Spanish captions."
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Ricardo García Ramírez", email = "rgr5882@gmail.com" }]
+keywords = ["twitch", "clips", "ai", "vertical-video", "whisper", "ffmpeg", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "httpx>=0.27",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "PyYAML>=6.0",
+    "typer>=0.12",
+    "rich>=13.7",
+    "python-dotenv>=1.0",
+    "faster-whisper>=1.0",
+    "chat-downloader>=0.2",
+    "twitch-dl>=3.3",
+    "openai>=1.40",
+    "anthropic>=0.40",
+    "structlog>=24.1",
+    "tenacity>=8.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/ricardogr07/clipsmith"
+Repository = "https://github.com/ricardogr07/clipsmith"
+Documentation = "https://ricardogr07.github.io/clipsmith"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "types-PyYAML>=6.0",
+    "pre-commit>=3.7",
+    "bandit>=1.7",
+    "pip-audit>=2.7",
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "alembic>=1.13",
+    "psycopg2-binary>=2.9",
+]
+server = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "psycopg2-binary>=2.9",
+]
+vision = [
+    "opencv-python-headless>=4.9",
+]
+ollama = [
+    "ollama>=0.3",
+]
+publish = [
+    "google-api-python-client>=2",
+    "google-auth-oauthlib>=1",
+]
+cloud = [
+    "azure-mgmt-containerinstance>=10",
+    "azure-mgmt-resource>=23",
+    "azure-mgmt-storage>=21",
+    "azure-storage-file-share>=12",
+    "azure-identity>=1.16",
+    "azure-keyvault-secrets>=4.8",
+    "clipsmith-ai[publish]",
+]
+observability = [
+    "opentelemetry-sdk>=1.24",
+    "opentelemetry-api>=1.24",
+    "opentelemetry-instrumentation-fastapi>=0.45b0",
+    "opentelemetry-instrumentation-httpx>=0.45b0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.24",
+    "prometheus-client>=0.20",
+    "azure-monitor-opentelemetry-exporter>=1.0.0b21",
+]
+
+[project.scripts]
+clipsmith = "clipsmith.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/clipsmith"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["tests"]
+addopts = "--import-mode=importlib"
+markers = [
+    "unit: fast, no I/O, no subprocess calls",
+    "integration: mocked external services or subprocess",
+    "smoke: CLI runner or real config/YAML loading",
+    "e2e: full pipeline against real infrastructure; skipped unless --run-e2e",
+]

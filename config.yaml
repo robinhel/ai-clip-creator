@@ -1,0 +1,122 @@
+channels: []
+
+# Polling cadence in seconds for the watcher
+poll_interval_s: 120
+
+# Where downloaded VODs, transcripts, and clip outputs go
+work_dir: ./work
+out_dir: ./out
+
+clip:
+  min_seconds: 150
+  max_seconds: 150
+  # Pre-roll/post-roll relative to LLM-picked center
+  preroll_s: 25
+  postroll_s: 10
+
+candidates:
+  # Sliding-window size (seconds) for chat density
+  density_window_s: 15
+  # Multiplier over baseline chat rate to count as a peak
+  density_peak_multiplier: 4.0
+  # Boost applied when an existing Twitch clip has its vod_offset here
+  existing_clip_boost: 100.0
+  # Boost per `!clip` chat message in the window
+  clip_command_boost: 25.0
+  # Dedupe candidates within this window (seconds)
+  dedupe_window_s: 60
+  # Score per hype keyword hit found in transcript (jaja, wow, etc.)
+  transcript_hype_score: 20.0
+  # Audio RMS energy spikes — fires when the streamer clearly raises their voice
+  audio_energy_enabled: true
+  audio_energy_window_s: 2.0         # RMS window size in seconds
+  audio_energy_peak_multiplier: 2.0  # threshold = mean + N*std (higher = fewer peaks)
+  audio_energy_boost: 15.0           # score multiplier per peak
+  # Keywords in speech that signal excitement — extend freely in config without touching source
+  hype_keywords:
+    - jaja
+    - jeje
+    - jajaj
+    - jajaja
+    - lmao
+    - lol
+    - xd
+    - xdd
+    - omg
+    - wow
+    - nooo
+    - noooo
+    - increíble
+    - increible
+    - tremendo
+    - brutal
+    - dios
+    - wtf
+    - carajo
+    - caray
+    - bestia
+    - monstro
+
+transcribe:
+  # faster-whisper model: tiny | base | small | medium | large-v3
+  model: small
+  # int8 is the recommended CPU quantization
+  compute_type: int8
+  # "auto" lets faster-whisper detect language per stream; set "es"/"en" to force
+  language: auto
+  # Parallel chunked transcription (recommended for streams > 1 hr on CPU)
+  chunk_minutes: 30    # split into 30-min chunks transcribed concurrently
+  chunk_overlap_s: 30  # overlap between chunks to avoid cutting words at boundaries
+  max_workers: 4       # number of parallel transcription threads
+
+llm:
+  # provider: openai | anthropic | ollama
+  provider: anthropic
+  model_anthropic: claude-sonnet-4-6
+  model_openai: gpt-4.1
+  # Free local option: pip install ".[ollama]" then: ollama pull llama3.1:8b
+  #provider: ollama
+  model_ollama: llama3.1:8b
+
+caption:
+  enabled: false  # set true to burn subtitles into the video
+  font: "Arial"
+  font_size: 72   # ASS pts at 1080×1920 PlayRes — adjust to taste
+  outline: 3
+  position: bottom
+
+cloud:
+  resource_group: clipsmith-rg-dev
+  location: eastus
+  aci_cpu: 4.0
+  aci_memory_gb: 16.0
+  docker_image: "clipsmithdev.azurecr.io/clipsmith:latest"
+  gpu_sku: ""                  # V100 | P100 | K80 - leave empty for CPU-only
+  acr_login_server: clipsmithdev.azurecr.io
+  acr_username: clipsmithdev
+  acr_password: ""
+  key_vault_uri: "https://clipsmith-dev-kv.vault.azure.net/"
+  secret_names: [ANTHROPIC-API-KEY]
+
+publish:
+  # Path to the OAuth2 client secret JSON from Google Cloud Console
+  youtube_credentials: credentials.json
+  # Cached access token (auto-created on first upload via browser OAuth flow)
+  youtube_token: .youtube_token.json
+  # Privacy status for uploaded clips: private | unlisted | public
+  youtube_privacy: private
+  # YouTube category ID (20 = Gaming)
+  youtube_category: 20
+
+reframe:
+  # center | webcam | stacked | face (future) | none
+  mode: none
+  # Top panel source crop [x, y, w, h] in source pixels (webcam/headshot)
+  # Used by: webcam mode and stacked mode (top panel)
+  webcam_rect: [104, 879, 114, 114]
+  # Bottom panel source crop [x, y, w, h] in source pixels (gameplay area)
+  # Used by: stacked mode only. null = center-crop fallback
+  gameplay_rect: [270, 0, 1010, 682]  # game right of webcam column, no UI bar
+  # Fraction of 1920px height for the top panel in stacked mode
+  # e.g. 0.4 → 768px webcam on top, 1152px gameplay on bottom
+  split_ratio: 0.4

@@ -1,0 +1,52 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]" mypy
+      - run: ruff check src tests
+      - run: mypy src
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7"
+      - run: terraform -chdir=infra fmt -check -recursive
+      - run: terraform -chdir=infra init -backend=false
+      - run: terraform -chdir=infra validate
+
+  tests:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: sudo apt-get install -y ffmpeg
+      - run: pip install -e ".[dev,server]"
+      - run: mkdir -p work
+      - run: alembic upgrade head
+        env:
+          DATABASE_URL: sqlite:///./work/ci_test.db
+      - run: python -m pytest tests/ -q
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --upgrade pip
+      - run: pip install -e ".[dev]"
+      - run: bandit -r src/ -ll -x tests/
+      # PYSEC-2026-89: markdown 3.10.2 — transitive dep via mkdocs (dev only, no fix available yet)
+      - run: pip-audit --skip-editable --ignore-vuln PYSEC-2026-89

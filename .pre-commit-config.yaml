@@ -1,0 +1,43 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.10
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: python -m mypy src
+        language: system
+        pass_filenames: false
+
+      - id: pytest
+        name: pytest
+        entry: python -m pytest tests/ -q
+        language: system
+        pass_filenames: false
+
+      - id: pnpm-typecheck
+        name: TypeScript (tsc --noEmit)
+        entry: bash -c "pnpm --prefix web exec tsc --noEmit"
+        language: system
+        pass_filenames: false
+        files: ^web/
+
+      - id: pnpm-cypress-component
+        name: Cypress component tests
+        entry: bash -c "CYPRESS_SKIP_VERIFY=true pnpm --prefix web cy:comp"
+        language: system
+        pass_filenames: false
+        files: ^web/
+        stages: [pre-push]
+
+      - id: pnpm-storybook-build
+        name: Storybook build
+        entry: bash -c "pnpm --prefix web storybook:build"
+        language: system
+        pass_filenames: false
+        files: ^web/
