@@ -177,3 +177,17 @@ def test_build_stream_context_contains_channel() -> None:
     assert "chuyelwuero" in ctx
     assert "English" in ctx
     assert "3h21m4s" in ctx
+
+
+def test_select_clips_default_forces_nothing() -> None:
+    candidates = [_candidate(300.0)]
+    picks = select_clips(candidates, _make_transcript_with_content(), _RejectAll(), "ctx", _cfg())  # type: ignore[arg-type]
+    assert picks == []
+
+
+def test_select_clips_min_picks_from_config() -> None:
+    candidates = [_candidate(300.0)]
+    picks = select_clips(
+        candidates, _make_transcript_with_content(), _RejectAll(), "ctx", _cfg(min_picks=1)
+    )  # type: ignore[arg-type]
+    assert len(picks) == 1
