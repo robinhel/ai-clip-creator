@@ -23,7 +23,7 @@ class Settings:
     budget_day_usd: float = 10.0
     encoder: str = "libx264"  # libx264 | h264_nvenc | h264_videotoolbox
     berget_api_key: str = ""
-    transcribe_model: str = "KBLab/kb-whisper-large"  # Bergets modell för transkribering
+    transcribe_model: str = "Systran/faster-whisper-large-v3"  # KB-Whisper översätter engelska till svenska
 
     @property
     def work_dir(self) -> Path:
@@ -67,5 +67,5 @@ def load_settings(root: str | Path | None = None) -> Settings:
         budget_day_usd=_float("BUDGET_USD_PER_DAY", 10.0),
         encoder=os.environ.get("KLIPP_ENCODER", "libx264").strip() or "libx264",
         berget_api_key=os.environ.get("BERGET_API_KEY", "").strip(),
-        transcribe_model=os.environ.get("KLIPP_TRANSCRIBE_MODEL", "").strip() or "KBLab/kb-whisper-large",
+        transcribe_model=os.environ.get("KLIPP_TRANSCRIBE_MODEL", "").strip() or "Systran/faster-whisper-large-v3",
     )
