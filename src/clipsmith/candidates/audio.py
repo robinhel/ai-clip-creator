@@ -40,6 +40,7 @@ def compute_audio_rms_series(
         "-y",
         "-i",
         str(mp4),
+        "-vn",
         "-af",
         f"aresample={sample_rate},"
         f"astats=metadata=1:reset={reset_samples},"
