@@ -117,6 +117,19 @@ export interface RunStep {
 }
 
 /** GET /campaign/runs/{id}. */
+/** GET /campaign/keys: bara om nyckeln är sparad, aldrig värdet. */
+export interface KeyGroup {
+  id: string;
+  label: string;
+  keys: { name: string; label: string; set: boolean }[];
+}
+
+/** POST /campaign/keys/test/twitch, och test i svaret på PUT när en Twitch-nyckel ändrades. */
+export interface KeyTest {
+  ok: boolean;
+  message: string;
+}
+
 /** GET /campaign/streams: senaste streams för kampanjernas kanaler, med senaste körningen. */
 export interface StreamInfo {
   vod_id: string;
@@ -131,6 +144,15 @@ export interface StreamInfo {
   run_id: number | null;
   run_status: RunStatus | null;
   clip_count: number;
+  /** Betyget för att klippa streamen. Saknas hos äldre servrar. */
+  view_count?: number;
+  viewer_clips?: number | null;
+  live?: boolean;
+  score?: number;
+  score_parts?: { clips: number; views: number; game: number };
+  /** Kort svensk text om signalerna som gav poäng. */
+  reason?: string;
+  recommended?: boolean;
 }
 
 export interface CampaignRunDetail extends CampaignRunInfo {

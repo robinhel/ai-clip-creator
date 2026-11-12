@@ -192,13 +192,20 @@ def vod_info(vod_id: str = PathParam(pattern=r"^\d{6,15}$"),
 @router.get("/streams", summary="De senaste streamsen för kampanjernas kanaler")
 def list_streams(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> list[dict]:
     campaigns: dict[str, list[str]] = {}
+    games: dict[str, set[str]] = {}  # kanal -> kampanjernas preferred_games, små bokstäver
     for profile in list_profiles(settings):
         if profile["active"] and profile["channel"]:
-            campaigns.setdefault(profile["channel"].lower(), []).append(profile["name"])
+            channel = profile["channel"].lower()
+            campaigns.setdefault(channel, []).append(profile["name"])
+            try:
+                preferred = load_profile(profile["name"], settings.profiles_dir).preferred_games
+            except (SystemExit, Exception):  # en trasig profil syns redan i list_profiles; den ger inga spel
+                preferred = []
+            games.setdefault(channel, set()).update(g.lower() for g in preferred if g)
     found, failed = [], 0
     for channel, names in campaigns.items():
         try:
-            found += [{**s, "campaigns": names} for s in streams.channel_streams(channel)]
+            found += [{**s, "campaigns": names} for s in streams.score(streams.channel_streams(channel), games[channel])]
         except Exception as error:  # twitch-dl kastar olika fel när Twitch inte svarar
             logger.warning("Twitch svarade inte för kanalen %s: %s", channel, error)
             failed += 1
@@ -213,6 +220,7 @@ def list_streams(db: Session = Depends(get_db), settings: Settings = Depends(get
         stream.update(run_id=meta["run_id"] if meta else None,
                       run_status=(run_row.status.value if run_row else "failed") if meta else None,
                       clip_count=len(_run_clips(meta, clips)) if meta else 0)
+    streams.recommend(found)
     return sorted(found, key=lambda s: s["created_at"] or "", reverse=True)
 
 

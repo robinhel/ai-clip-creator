@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Link2, Loader2, X } from "lucide-react";
 import { ProblemFix, readyText } from "@/components/CampaignsClient";
+import { scoreTone } from "@/components/ClipResultRow";
 import { ProjectCard } from "@/components/ProjectCard";
 import { api } from "@/lib/api";
 import { clock, cn, duration, parseClock, serverTime, usd } from "@/lib/utils";
@@ -61,9 +62,23 @@ function streamTag(s: StreamInfo): { text: string; tone: string } | null {
   return { text: "Pågår", tone: "bg-brand text-white" };
 }
 
+type StreamSort = "best" | "new";
+
+/** Bäst att klippa: betyg fallande, streams med körning och live sist, nyast först vid lika. */
+function sortStreams(list: StreamInfo[], by: StreamSort): StreamInfo[] {
+  const newest = (a: StreamInfo, b: StreamInfo) => serverTime(b.created_at) - serverTime(a.created_at);
+  if (by === "new") return [...list].sort(newest);
+  const late = (s: StreamInfo) => (s.run_id != null || s.live ? 1 : 0);
+  return [...list].sort((a, b) => late(a) - late(b) || (b.score ?? 0) - (a.score ?? 0) || newest(a, b));
+}
+
 /** En stream: klick fyller i fältet, eller öppnar projektet om VOD:en redan har en körning. */
 function StreamCard({ stream: s, selected, onPick }: { stream: StreamInfo; selected: boolean; onPick: (vodId: string) => void }) {
-  const tag = streamTag(s);
+  const tag = s.live
+    ? { text: "Live", tone: "bg-bad font-semibold text-white" }
+    : s.recommended
+      ? { text: "Rekommenderad", tone: "bg-brand font-semibold text-white" }
+      : streamTag(s);
   const body = (
     <>
       <div className="relative aspect-video bg-[#1f1f26]">
@@ -79,24 +94,46 @@ function StreamCard({ stream: s, selected, onPick }: { stream: StreamInfo; selec
         {tag && <span className={cn("absolute top-1.5 left-1.5 rounded-md px-1.5 py-0.5 text-[11px]", tag.tone)}>{tag.text}</span>}
         <span className="absolute right-1.5 bottom-1.5 rounded-md bg-black/70 px-1.5 text-[11px] tabular-nums">{clock(s.duration_s)}</span>
       </div>
-      <div className="space-y-0.5 px-2.5 py-2 text-left">
-        <p className="line-clamp-2 text-[13px] leading-snug font-medium break-words">{s.title}</p>
-        <p className="truncate text-xs text-muted-foreground">
-          {[s.game, streamDay.format(serverTime(s.created_at))].filter(Boolean).join(", ")}
-        </p>
+      <div className="flex gap-2.5 px-2.5 py-2 text-left">
+        {s.score != null && (
+          <p className="shrink-0 text-center" aria-label={`Betyg ${s.score} av 100`}>
+            <span data-score className={cn("block text-lg leading-none font-extrabold tabular-nums", scoreTone(s.score))}>
+              {s.score}
+            </span>
+            <span className="text-[10px] text-muted-foreground">betyg</span>
+          </p>
+        )}
+        <div className="min-w-0 space-y-0.5">
+          <p className="line-clamp-2 text-[13px] leading-snug font-medium break-words">{s.title}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {[s.game, streamDay.format(serverTime(s.created_at))].filter(Boolean).join(", ")}
+          </p>
+          {s.reason && <p className="line-clamp-2 text-xs text-muted-foreground">{s.reason}</p>}
+          {s.live && <p className="text-xs text-warn">Streamen pågår. Vänta tills den är slut.</p>}
+        </div>
       </div>
     </>
   );
   const box = cn(
-    "w-52 shrink-0 snap-start overflow-hidden rounded-xl border bg-panel transition-colors hover:border-[#3a3a44] focus-visible:outline-2 focus-visible:outline-brand",
-    selected ? "border-brand" : "border-line"
+    // flex-col: en knapp centrerar annars innehållet, och bilden hamnar mitt i kortet.
+    "flex w-52 shrink-0 snap-start flex-col overflow-hidden rounded-xl border bg-panel transition-colors hover:border-[#3a3a44] focus-visible:outline-2 focus-visible:outline-brand",
+    selected || s.recommended ? "border-brand" : "border-line",
+    s.recommended && "ring-2 ring-brand/30",
+    s.live && "cursor-not-allowed opacity-75 hover:border-line"
   );
+  if (s.live) {
+    return (
+      <button type="button" disabled data-vod={s.vod_id} title="Streamen pågår. Vänta tills den är slut." className={box}>
+        {body}
+      </button>
+    );
+  }
   return s.run_id != null ? (
     <Link href={`/runs/${s.run_id}`} data-vod={s.vod_id} className={box}>
       {body}
     </Link>
   ) : (
-    <button type="button" data-vod={s.vod_id} onClick={() => onPick(s.vod_id)} className={box}>
+    <button type="button" data-vod={s.vod_id} data-recommended={s.recommended || undefined} onClick={() => onPick(s.vod_id)} className={box}>
       {body}
     </button>
   );
@@ -114,6 +151,10 @@ export function HomeClient() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [streams, setStreams] = useState<StreamInfo[] | null>(null);
   const [streamsError, setStreamsError] = useState(false);
+  const [streamSort, setStreamSort] = useState<StreamSort>("best");
+  // Gammal server utan betyg: listan som servern skickar, nyast först.
+  const scored = streams?.some((s) => s.score != null) ?? false;
+  const shownStreams = streams && scored ? sortStreams(streams, streamSort) : streams;
 
   const [profileName, setProfileName] = useState("");
   const [game, setGame] = useState("");
@@ -510,15 +551,46 @@ export function HomeClient() {
         streams &&
         streams.length > 0 && (
           <section className="mt-9" aria-label="Senaste streams">
-            <h2 className="mb-3 text-lg font-semibold">Senaste streams</h2>
-            <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-2">
-              {streams.map((s) => (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">Senaste streams</h2>
+              {scored && (
+                <div className="flex overflow-hidden rounded-[9px] border border-line text-[13px]">
+                  {(
+                    [
+                      ["best", "Bäst att klippa"],
+                      ["new", "Nyast"],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-pressed={streamSort === id}
+                      onClick={() => setStreamSort(id)}
+                      className="px-3 py-1.5 text-muted-foreground hover:text-foreground aria-pressed:bg-panel aria-pressed:text-foreground"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pt-1 pb-2">
+              {shownStreams?.map((s) => (
                 <StreamCard key={s.vod_id} stream={s} selected={s.vod_id === vodId} onPick={(id) => {
                   setLink(id);
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }} />
               ))}
             </div>
+            {streams.every((s) => s.viewer_clips === null) && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Tittarklipp räknas inte än. Lägg in Twitch-nycklarna i{" "}
+                <Link href="/settings" className="underline underline-offset-4 hover:text-foreground">
+                  Inställningar
+                </Link>
+                .
+              </p>
+            )}
           </section>
         )
       )}

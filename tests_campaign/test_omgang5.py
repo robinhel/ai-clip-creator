@@ -7,6 +7,7 @@ import os
 import shutil
 import sqlite3
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -18,6 +19,8 @@ from .conftest import PAKET, make_clip, needs_ffmpeg
 from .test_api import _clip, client  # noqa: F401  (fixture)
 
 THUMB = "https://static-cdn.jtvnw.net/cf_vods/x/thumb/thumb0-640x360.jpg"
+OLD_FIELDS = ("vod_id", "channel", "channel_name", "title", "game", "duration_s", "created_at", "thumbnail_url",
+              "campaigns", "run_id", "run_status", "clip_count")
 
 
 def _node(vod_id: str, created: str, game: str = "Bodycam") -> dict:
@@ -47,6 +50,8 @@ def twitch_streams(client, monkeypatch) -> FakeStreams:  # noqa: F811
     fake = FakeStreams()
     monkeypatch.setattr(streams, "_cache", {})
     monkeypatch.setattr(streams.twitch, "gql_query", fake.gql)
+    # Inga Helix-nycklar: tittarklippen räknas inte och inget riktigt anrop görs.
+    monkeypatch.setattr(streams, "load_secrets", lambda: SimpleNamespace(twitch_client_id="", twitch_client_secret=""))
     return fake
 
 
@@ -83,7 +88,7 @@ def test_streams_are_newest_first_with_campaigns_and_the_latest_run(client, sett
     response = client.get("/campaign/streams")
     assert response.status_code == 200, response.text
     first, second = response.json()
-    assert first == {"vod_id": "2925991945", "channel": "skiimasktimmy", "channel_name": "SkiiMaskTimmy",
+    assert {key: first[key] for key in OLD_FIELDS} == {"vod_id": "2925991945", "channel": "skiimasktimmy", "channel_name": "SkiiMaskTimmy",
                      "title": "Stream 2925991945", "game": "Bodycam", "duration_s": 13360,
                      "created_at": "2026-11-11T18:01:44Z", "thumbnail_url": THUMB,
                      "campaigns": ["skiimasktimmy"], "run_id": None, "run_status": None, "clip_count": 0}
@@ -91,6 +96,7 @@ def test_streams_are_newest_first_with_campaigns_and_the_latest_run(client, sett
         "2925070238", run_id, "done", 1)
     assert "videos(first: 8, type: ARCHIVE, sort: TIME)" in twitch_streams.queries[0]
     assert "previewThumbnailURL(width: 640, height: 360)" in twitch_streams.queries[0]
+    assert " viewCount status " in twitch_streams.queries[0]
 
 
 
@@ -309,3 +315,14 @@ def test_summary_has_earnings_per_clip_month_and_paid(client, settings) -> None:
 def test_summary_without_clips_has_zero_earnings(client) -> None:  # noqa: F811
     assert client.get("/campaign/summary").json()["earnings"] == {
         "estimated_usd": 0.0, "paid_usd": 0.0, "by_month": [], "per_clip": []}
+
+
+def test_twitchs_placeholder_image_gives_no_image_in_the_vod_facts(monkeypatch) -> None:
+    from campaign import vodinfo
+
+    monkeypatch.setattr(vodinfo, "_cache", {})
+    monkeypatch.setattr(vodinfo.twitch, "get_video", lambda vod_id: {"title": "Live", "lengthSeconds": 60})
+    monkeypatch.setattr(vodinfo.twitch, "gql_query", lambda q: {"data": {"video": {
+        "previewThumbnailURL": "https://vod-secure.twitch.tv/_404/404_processing_640x360.png",
+        "owner": {"login": "skiimasktimmy", "displayName": "SkiiMaskTimmy"}}}})
+    assert vodinfo.vod_facts("2926877904")["thumbnail_url"] is None
