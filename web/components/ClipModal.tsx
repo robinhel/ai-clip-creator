@@ -48,7 +48,7 @@ export function ClipModal({ clip, onClose, onUpdate }: Props) {
         <button
           onClick={onClose}
           className="absolute top-3 right-3 z-10 text-muted-foreground hover:text-foreground text-xl leading-none"
-          aria-label="Close"
+          aria-label="Stäng"
         >
           ✕
         </button>
@@ -65,7 +65,7 @@ export function ClipModal({ clip, onClose, onUpdate }: Props) {
           <div className="flex items-start justify-between gap-2">
             <div>
               <p className="font-medium text-sm leading-snug">
-                {clip.title || <em className="text-muted-foreground">untitled</em>}
+                {clip.title || <em className="text-muted-foreground">utan titel</em>}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {formatTime(clip.start_s)} → {formatTime(clip.end_s)}{" "}
@@ -73,7 +73,7 @@ export function ClipModal({ clip, onClose, onUpdate }: Props) {
               </p>
             </div>
             <span className="text-xs font-mono text-muted-foreground shrink-0">
-              score {clip.score.toFixed(2)}
+              poäng {clip.score.toFixed(2)}
             </span>
           </div>
 
@@ -84,7 +84,7 @@ export function ClipModal({ clip, onClose, onUpdate }: Props) {
               onClick={() => handleApprove(true)}
               className="flex-1"
             >
-              Approve
+              Godkänn
             </Button>
             <Button
               size="sm"
@@ -92,7 +92,7 @@ export function ClipModal({ clip, onClose, onUpdate }: Props) {
               onClick={() => handleApprove(false)}
               className="flex-1"
             >
-              Reject
+              Neka
             </Button>
           </div>
         </div>

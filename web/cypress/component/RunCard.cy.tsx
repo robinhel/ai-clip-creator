@@ -14,33 +14,33 @@ const base: Run = {
 };
 
 describe("RunCard", () => {
-  it("shows Pending badge and 0 clips", () => {
+  it("shows Väntar badge and 0 klipp", () => {
     cy.mount(<RunCard run={{ ...base, status: "pending" }} />);
-    cy.contains("Pending").should("be.visible");
-    cy.contains("0 clips").should("be.visible");
+    cy.contains("Väntar").should("be.visible");
+    cy.contains("0 klipp").should("be.visible");
   });
 
-  it("shows Running badge and stage label", () => {
+  it("shows Kör badge and stage label", () => {
     cy.mount(<RunCard run={{ ...base, status: "running", stage: "transcribe" }} />);
-    cy.contains("Running").should("be.visible");
+    cy.contains("Kör").should("be.visible");
     cy.contains("transcribe…").should("be.visible");
   });
 
-  it("shows Done badge with clip count", () => {
+  it("shows Klar badge with clip count", () => {
     cy.mount(<RunCard run={{ ...base, status: "done", clip_count: 5 }} />);
-    cy.contains("Done").should("be.visible");
-    cy.contains("5 clips").should("be.visible");
+    cy.contains("Klar").should("be.visible");
+    cy.contains("5 klipp").should("be.visible");
   });
 
-  it("uses singular 'clip' for count of 1", () => {
-    cy.mount(<RunCard run={{ ...base, status: "done", clip_count: 1 }} />);
-    cy.contains("1 clip").should("be.visible");
-    cy.contains("1 clips").should("not.exist");
+  it("shows the campaign name when the run belongs to a campaign", () => {
+    const campaign = { run_id: 1, profile: "exempelkampanj", game: "Fortnite", vod_id: base.vod_id };
+    cy.mount(<RunCard run={base} campaign={campaign} />);
+    cy.contains("exempelkampanj · Fortnite").should("be.visible");
   });
 
-  it("shows Failed badge with error text", () => {
+  it("shows Misslyckades badge with error text", () => {
     cy.mount(<RunCard run={{ ...base, status: "failed", error: "oom" }} />);
-    cy.contains("Failed").should("be.visible");
+    cy.contains("Misslyckades").should("be.visible");
     cy.contains("oom").should("be.visible");
   });
 

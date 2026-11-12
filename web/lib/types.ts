@@ -36,11 +36,107 @@ export interface PipelineEvent {
   created_at: string;
 }
 
-export interface RunCreate {
+
+// Kampanjlagret (campaign/api.py)
+
+export type CampaignStatus =
+  | "renderad"
+  | "underkand"
+  | "godkand"
+  | "nekad"
+  | "postad"
+  | "inskickad"
+  | "analytics_inskickad"
+  | "betald";
+
+export type Platform = "tiktok" | "youtube_shorts" | "instagram_reels";
+
+export interface CampaignFormat {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface CampaignProfile {
+  name: string;
+  streamer: string;
+  campaign: string;
+  language: string;
+  channel: string;
+  formats: CampaignFormat[];
+  problems: string[];
+  ready: boolean;
+}
+
+export interface CampaignRunCreate {
+  profile: string;
   vod_id: string;
-  channel?: string;
-  provider?: string;
+  game?: string;
   start_s?: number;
   end_s?: number;
-  cloud?: boolean;
+}
+
+export interface CampaignRunInfo {
+  run_id: number;
+  profile: string;
+  game: string | null;
+  vod_id: string;
+}
+
+export interface CampaignClip {
+  id: number;
+  vod_id: string;
+  profile: string;
+  start_s: number | null;
+  end_s: number | null;
+  title: string;
+  format: string | null;
+  signals: string[];
+  filename: string;
+  caption: string;
+  status: CampaignStatus;
+  problems: string[];
+  warnings: string[];
+  review: Record<string, unknown> | null;
+  platform: Platform | null;
+  url: string | null;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  note: string | null;
+  created: string;
+  updated: string;
+  engagement: number | null;
+  engagement_min: number | null;
+  video_url: string;
+}
+
+export type CampaignClipPatch = Partial<
+  Pick<
+    CampaignClip,
+    | "status"
+    | "caption"
+    | "title"
+    | "format"
+    | "platform"
+    | "url"
+    | "views"
+    | "likes"
+    | "comments"
+    | "shares"
+    | "note"
+  >
+>;
+
+export interface CampaignSummary {
+  budget: {
+    month_usd: number;
+    month_cap_usd: number;
+    today_usd: number;
+    day_cap_usd: number;
+    by_purpose: Record<string, { calls: number; usd: number }>;
+  };
+  counts: Partial<Record<CampaignStatus, number>>;
+  todo: string[];
 }
