@@ -292,3 +292,15 @@ def test_finish_again_does_not_bring_back_a_rejected_clip(settings) -> None:
 
     finish_vod("123", profile, settings, log, review=False)
     assert [c["status"] for c in log.list()] == ["nekad"]
+
+
+def test_old_image_review_warnings_are_shown_as_review_notes(client, settings) -> None:
+    """Äldre klipp har bildgranskningens beskrivningar som varningar. De visas som beskrivningar, inte varningar."""
+    log = ClipLog(settings.data_dir / "klipp.db")
+    clip_id = log.add(vod_id="123", profile="skiimasktimmy", file=str(settings.out_dir / "123" / "a.mp4"),
+                      title="No way", caption=CAPTION,
+                      warnings=["Bildgranskning: Spelaren hoppar ur bilen.", "Klippet är kort."],
+                      review={"ok": True, "notes": ["Ny beskrivning."]})
+    clip = next(c for c in client.get("/campaign/clips").json() if c["id"] == clip_id)
+    assert clip["warnings"] == ["Klippet är kort."]
+    assert clip["review"]["notes"] == ["Ny beskrivning.", "Spelaren hoppar ur bilen."]
