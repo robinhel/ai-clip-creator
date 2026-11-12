@@ -10,6 +10,9 @@ language: en
 # clipsmiths inställningar för den här kampanjen: kanal, klipplängd, facecam-ruta, hype-ord.
 clipsmith_config: config.timmy.yaml
 
+# Spel som ger extra poäng när appen rekommenderar vilken stream du ska klippa.
+preferred_games: [Bodycam]
+
 source:
   allowed: "Bara SkiiMaskTimmys Twitch-streams: live eller tidigare sändningar (VOD)."
   banned:
