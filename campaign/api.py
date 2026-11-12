@@ -717,7 +717,7 @@ def summary(settings: Settings = Depends(get_settings)) -> dict:
         counts[clip["status"]] = counts.get(clip["status"], 0) + 1
     # Budgeten gäller alla kampanjer, så den räknas som förut.
     return {"budget": budget_from_settings(settings).summary(), "counts": counts, "todo": log.todo(skip=off),
-            "disk": storage(settings), "earnings": _earnings(clips, settings)}
+            "disk": storage(settings), "earnings": _earnings(clips, settings, log.posts())}
 
 
 def _payout(views: int, payment: dict) -> float:
@@ -731,8 +731,14 @@ def _payout(views: int, payment: dict) -> float:
     return round(usd, 2) if usd >= float(payment.get("min_payout_usd") or 0) else 0.0
 
 
-def _earnings(clips: list[dict], settings: Settings) -> dict:
+def _earnings(clips: list[dict], settings: Settings, posts: list[dict]) -> dict:
+    """Intäkter per klipp och månad. min_views och taket gäller varje inlägg för sig, så ett klipp med
+    inlägg räknas per inlägg. Utbetalt är vad Whop betalade när beloppet är ifyllt, annars uppskattningen.
+    Gamla klipp utan inlägg räknas på klippets egna siffror."""
     payments: dict[str, dict] = {}
+    by_clip: dict[int, list[dict]] = {}
+    for post in posts:
+        by_clip.setdefault(post["clip_id"], []).append(post)
     per_clip, months, paid = [], {}, 0.0
     for clip in clips:
         if not clip["views"]:
@@ -742,10 +748,17 @@ def _earnings(clips: list[dict], settings: Settings) -> dict:
                 payments[clip["profile"]] = load_profile(clip["profile"], settings.profiles_dir).payment
             except (SystemExit, Exception):  # kampanjen finns inte längre: inget att räkna med
                 payments[clip["profile"]] = {}
-        usd = _payout(clip["views"], payments[clip["profile"]])
+        parts = by_clip.get(clip["id"]) or [{"views": clip["views"], "status": clip["status"], "paid_usd": None}]
+        usd = 0.0
+        for part in parts:
+            estimate = _payout(part["views"] or 0, payments[clip["profile"]])
+            usd += estimate
+            if part["paid_usd"] is not None:
+                paid += float(part["paid_usd"])
+            elif part["status"] == "betald":
+                paid += estimate
+        usd = round(usd, 2)
         per_clip.append({"id": clip["id"], "views": clip["views"], "usd": usd})
-        if clip["status"] == "betald":
-            paid += usd
         if clip["created"]:
             months[clip["created"][:7]] = months.get(clip["created"][:7], 0.0) + usd
     return {"estimated_usd": round(sum(c["usd"] for c in per_clip), 2), "paid_usd": round(paid, 2),
@@ -754,4 +767,4 @@ def _earnings(clips: list[dict], settings: Settings) -> dict:
 
 
 # Vägarna för inlägg ligger i posts_api.py och registreras på samma router.
-from . import posts_api  # noqa: E402,F401
+from . import posts_api  # noqa: F401
