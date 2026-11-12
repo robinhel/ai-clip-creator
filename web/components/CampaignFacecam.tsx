@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FlipHorizontal2, Loader2, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StackedPreview } from "@/components/StackedPreview";
 import { api } from "@/lib/api";
@@ -13,10 +13,19 @@ const H = 1080;
 const MIN = 50;
 const SPLIT_MIN = 0.25;
 const SPLIT_MAX = 0.6;
+const MAX_CAMS = 4;
 
 type Kind = "webcam" | "gameplay";
+/** En kamerarutas plats i listan, eller spelrutan. */
+type Target = number | "gameplay";
+type Rects = { webcams: Rect[]; gameplay: Rect };
 type Corner = "nw" | "ne" | "sw" | "se";
-type Drag = { kind: Kind; op: "move" | Corner; startX: number; startY: number; start: Rect };
+type Drag = { target: Target; op: "move" | Corner; startX: number; startY: number; start: Rect };
+
+const kindOf = (t: Target): Kind => (t === "gameplay" ? "gameplay" : "webcam");
+const rectOf = (r: Rects, t: Target): Rect => (t === "gameplay" ? r.gameplay : r.webcams[t]);
+const withRect = (r: Rects, t: Target, next: Rect): Rects =>
+  t === "gameplay" ? { ...r, gameplay: next } : { ...r, webcams: r.webcams.map((c, i) => (i === t ? next : c)) };
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
 
@@ -68,7 +77,8 @@ const STYLE: Record<Kind, { label: string; box: string; handle: string; text: st
 export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => void }) {
   const [server, setServer] = useState<ReframeInfo | null>(null);
   const [split, setSplit] = useState(0.4);
-  const [rects, setRects] = useState<Record<Kind, Rect> | null>(null);
+  const [rects, setRects] = useState<Rects | null>(null);
+  const [sel, setSel] = useState(0);
   const [saved, setSaved] = useState<string>("");
   const [runs, setRuns] = useState<CampaignRunInfo[]>([]);
   const [vodChoice, setVodChoice] = useState("");
@@ -83,9 +93,11 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
   function apply(info: ReframeInfo) {
     setServer(info);
     const fallback = defaults(info.split_ratio);
-    const next = { webcam: info.webcam_rect ?? fallback.webcam, gameplay: info.gameplay_rect ?? fallback.gameplay };
+    const webcams = info.webcam_rects?.length ? info.webcam_rects : [info.webcam_rect ?? fallback.webcam];
+    const next = { webcams, gameplay: info.gameplay_rect ?? fallback.gameplay };
     setSplit(info.split_ratio);
     setRects(next);
+    setSel(0);
     setSaved(JSON.stringify([info.split_ratio, next]));
   }
 
@@ -110,13 +122,14 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
     return [((e.clientX - box.left) / box.width) * W, ((e.clientY - box.top) / box.height) * H];
   }
 
-  function startDrag(e: React.PointerEvent, kind: Kind, op: Drag["op"]) {
+  function startDrag(e: React.PointerEvent, target: Target, op: Drag["op"]) {
     if (!rects) return;
     e.preventDefault();
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     const [startX, startY] = toSource(e);
-    drag.current = { kind, op, startX, startY, start: rects[kind] };
+    drag.current = { target, op, startX, startY, start: rectOf(rects, target) };
+    if (target !== "gameplay") setSel(target);
     setSavedMsg(false);
   }
 
@@ -128,17 +141,34 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
     const next: Rect =
       d.op === "move"
         ? [clamp(Math.round(x + px - d.startX), 0, W - w), clamp(Math.round(y + py - d.startY), 0, H - h), w, h]
-        : resize(d.start, d.op, px, py, aspectFor(d.kind, split));
-    setRects((prev) => (prev ? { ...prev, [d.kind]: next } : prev));
+        : resize(d.start, d.op, px, py, aspectFor(kindOf(d.target), split));
+    setRects((prev) => prev && withRect(prev, d.target, next));
   }
 
-  function onKey(e: React.KeyboardEvent, kind: Kind) {
+  function onKey(e: React.KeyboardEvent, target: Target) {
     const step = e.shiftKey ? 1 : 10;
     const delta = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
     if (!delta || !rects) return;
     e.preventDefault();
-    const [x, y, w, h] = rects[kind];
-    setRects({ ...rects, [kind]: [clamp(x + delta[0], 0, W - w), clamp(y + delta[1], 0, H - h), w, h] });
+    const [x, y, w, h] = rectOf(rects, target);
+    setRects(withRect(rects, target, [clamp(x + delta[0], 0, W - w), clamp(y + delta[1], 0, H - h), w, h]));
+    setSavedMsg(false);
+  }
+
+  /** Ny kameraposition efter den valda: i mitten i sidled, eller speglad (x = 1920 - x - b). */
+  function addCam(mirror: boolean) {
+    if (!rects || rects.webcams.length >= MAX_CAMS) return;
+    const [x, y, w, h] = rects.webcams[sel];
+    const next: Rect = [mirror ? W - x - w : Math.round((W - w) / 2), y, w, h];
+    setRects({ ...rects, webcams: [...rects.webcams, next] });
+    setSel(rects.webcams.length);
+    setSavedMsg(false);
+  }
+
+  function removeCam(index: number) {
+    if (!rects || rects.webcams.length <= 1) return;
+    setRects({ ...rects, webcams: rects.webcams.filter((_, i) => i !== index) });
+    setSel((s) => (s > index || s === rects.webcams.length - 1 ? Math.max(0, s - 1) : s));
     setSavedMsg(false);
   }
 
@@ -147,7 +177,7 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
     setSavedMsg(false);
     setRects((prev) =>
       prev && {
-        webcam: fit(prev.webcam, aspectFor("webcam", value)),
+        webcams: prev.webcams.map((r) => fit(r, aspectFor("webcam", value))),
         gameplay: fit(prev.gameplay, aspectFor("gameplay", value)),
       }
     );
@@ -158,7 +188,7 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
     setBusy(true);
     setError(null);
     try {
-      apply(await api.campaign.profile.saveReframe(id, { webcam_rect: rects.webcam, gameplay_rect: rects.gameplay, split_ratio: split }));
+      apply(await api.campaign.profile.saveReframe(id, { webcam_rects: rects.webcams, gameplay_rect: rects.gameplay, split_ratio: split }));
       setSavedMsg(true);
       onSaved(); // kampanjens problem ändras när rutorna är inställda
     } catch (err) {
@@ -173,6 +203,9 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
       <p className="text-sm text-muted-foreground">
         Dra den lila ramen över streamerns kamera och den gröna över spelet. Dra i hörnen för att ändra storlek. Formen
         följer panelerna i klippet, så bilden blir aldrig utdragen.
+      </p>
+      <p className="text-sm text-muted-foreground">
+        Har streamern kameran på olika ställen? Lägg till en position per ställe. Appen väljer rätt position för varje klipp.
       </p>
       {server && server.mode !== "stacked" && (
         <p className="text-sm text-muted-foreground">
@@ -229,6 +262,50 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
         </form>
       </div>
 
+      {rects && (
+        <div className="flex flex-wrap items-center gap-2 text-sm" aria-label="Kamerapositioner">
+          {rects.webcams.map((_, i) => (
+            <span
+              key={i}
+              className={cn(
+                "inline-flex h-8 items-center rounded-full border text-[13px]",
+                i === sel ? "border-brand bg-brand/15 text-foreground" : "border-line text-muted-foreground"
+              )}
+            >
+              <button type="button" aria-pressed={i === sel} onClick={() => setSel(i)} className="h-full px-3 hover:text-foreground">
+                Kamera {i + 1}
+                {i === 0 && <span className="text-muted-foreground"> (förvald)</span>}
+              </button>
+              {rects.webcams.length > 1 && (
+                <button
+                  type="button"
+                  aria-label={`Ta bort kamera ${i + 1}`}
+                  onClick={() => removeCam(i)}
+                  className="-ml-1.5 mr-1 rounded-full p-1 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="size-3.5" aria-hidden />
+                </button>
+              )}
+            </span>
+          ))}
+          <Button variant="outline" className="h-8" disabled={rects.webcams.length >= MAX_CAMS} onClick={() => addCam(false)}>
+            <Plus aria-hidden />
+            Lägg till kameraposition
+          </Button>
+          <Button
+            variant="outline"
+            className="h-8"
+            disabled={rects.webcams.length >= MAX_CAMS}
+            onClick={() => addCam(true)}
+            title={`Lägger till kamera ${sel + 1} speglad i sidled`}
+          >
+            <FlipHorizontal2 aria-hidden />
+            Spegla
+          </Button>
+          {rects.webcams.length >= MAX_CAMS && <span className="text-xs text-muted-foreground">Högst {MAX_CAMS} positioner.</span>}
+        </div>
+      )}
+
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_240px]">
         <div className="space-y-2">
           <div
@@ -255,27 +332,36 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
               </p>
             )}
             {rects &&
-              (["gameplay", "webcam"] as const).map((kind) => {
-                const [x, y, w, h] = rects[kind];
-                const s = STYLE[kind];
+              // Spelrutan först och den valda kameran sist, så att den valda ligger överst.
+              (["gameplay", ...rects.webcams.map((_, i) => i).filter((i) => i !== sel), sel] as Target[]).map((target) => {
+                const [x, y, w, h] = rectOf(rects, target);
+                const s = STYLE[kindOf(target)];
+                const label = target === "gameplay" ? s.label : `${s.label} ${target + 1}`;
+                const dim = target !== "gameplay" && target !== sel;
                 return (
                   <div
-                    key={kind}
+                    key={target}
                     role="group"
                     tabIndex={0}
-                    aria-label={`${s.label}ruta. Flytta med piltangenterna, Skift för en pixel i taget.`}
-                    data-rect={kind}
-                    onPointerDown={(e) => startDrag(e, kind, "move")}
-                    onKeyDown={(e) => onKey(e, kind)}
-                    className={cn("absolute cursor-move border-2 outline-none focus-visible:ring-2 focus-visible:ring-white", s.box)}
+                    aria-label={`${label}, ruta. Flytta med piltangenterna, Skift för en pixel i taget.`}
+                    data-rect={target === "gameplay" ? "gameplay" : `webcam-${target}`}
+                    data-selected={target === sel || undefined}
+                    onPointerDown={(e) => startDrag(e, target, "move")}
+                    onFocus={() => target !== "gameplay" && setSel(target)}
+                    onKeyDown={(e) => onKey(e, target)}
+                    className={cn(
+                      "absolute cursor-move border-2 outline-none focus-visible:ring-2 focus-visible:ring-white",
+                      s.box,
+                      dim && "border-dashed bg-transparent opacity-70"
+                    )}
                     style={{ left: `${(x / W) * 100}%`, top: `${(y / H) * 100}%`, width: `${(w / W) * 100}%`, height: `${(h / H) * 100}%` }}
                   >
-                    <span className={cn("absolute top-0 left-0 px-1.5 py-0.5 text-[11px] font-semibold text-white", s.handle)}>{s.label}</span>
-                    {(["nw", "ne", "sw", "se"] as const).map((corner) => (
+                    <span className={cn("absolute top-0 left-0 px-1.5 py-0.5 text-[11px] font-semibold text-white", s.handle)}>{label}</span>
+                    {!dim && (["nw", "ne", "sw", "se"] as const).map((corner) => (
                       <span
                         key={corner}
                         data-corner={corner}
-                        onPointerDown={(e) => startDrag(e, kind, corner)}
+                        onPointerDown={(e) => startDrag(e, target, corner)}
                         className={cn(
                           "absolute size-3.5 rounded-sm border-2 border-white",
                           s.handle,
@@ -292,11 +378,12 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
 
           {rects && (
             <div className="grid gap-x-6 gap-y-1 text-[13px] tabular-nums sm:grid-cols-2">
-              {(["webcam", "gameplay"] as const).map((kind) => {
-                const [x, y, w, h] = rects[kind];
+              {([...rects.webcams.map((_, i) => i), "gameplay"] as Target[]).map((target) => {
+                const [x, y, w, h] = rectOf(rects, target);
+                const s = STYLE[kindOf(target)];
                 return (
-                  <p key={kind} data-numbers={kind}>
-                    <span className={cn("font-medium", STYLE[kind].text)}>{STYLE[kind].label}:</span>{" "}
+                  <p key={target} data-numbers={target === "gameplay" ? "gameplay" : `webcam-${target}`}>
+                    <span className={cn("font-medium", s.text)}>{target === "gameplay" ? s.label : `${s.label} ${target + 1}`}:</span>{" "}
                     <span className="text-muted-foreground">
                       x {x}, y {y}, b {w}, h {h}
                     </span>
@@ -326,11 +413,13 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
         <figure>
           <StackedPreview
             src={image === "ok" ? frameSrc : null}
-            webcam={rects?.webcam ?? null}
+            webcam={rects?.webcams[sel] ?? null}
             gameplay={rects?.gameplay ?? null}
             split={split}
           />
-          <figcaption className="mt-2 text-xs text-muted-foreground">Så blir klippet: kameran överst och spelet under.</figcaption>
+          <figcaption className="mt-2 text-xs text-muted-foreground">
+            Så blir klippet med kamera {sel + 1}: kameran överst och spelet under.
+          </figcaption>
         </figure>
       </div>
 
