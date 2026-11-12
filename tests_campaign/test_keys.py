@@ -156,7 +156,7 @@ def test_put_creates_env_when_it_is_missing_and_adds_a_line_break(client, env) -
     {"BERGET_API_KEY": f"{SECRET}'"},
     {"BERGET_API_KEY": f"{SECRET}#"},
     {"BERGET_API_KEY": f"{SECRET}å"},
-    {"BERGET_API_KEY": f"{SECRET}\t"},
+    {"BERGET_API_KEY": f"{SECRET}\tx"},
     {"BERGET_API_KEY": SECRET * 11},
     {"BERGET_API_KEY": 12345},
     {"ANTHROPIC_API_KEY": SECRET, "BERGET_API_KEY": f"{SECRET} x"},  # inget sparas om en är fel
