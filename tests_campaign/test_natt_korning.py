@@ -252,6 +252,20 @@ def test_each_run_writes_its_clips_and_picks_in_its_own_folder(settings, vod) ->
     assert (settings.work_dir / "123" / "picks.json").read_text() == (run_dir / "picks.json").read_text()
 
 
+def test_an_old_runs_clips_keep_their_picks_when_a_new_run_comes(settings, vod) -> None:
+    old = settings.out_dir / "123" / "clip_01_old.mp4"
+    old.parent.mkdir(parents=True)
+    old.touch()
+    old_picks = '[{"candidate": {}, "pick": {"title_es": "Old run"}}]'
+    (settings.work_dir / "123" / "picks.json").write_text(old_picks, encoding="utf-8")
+    vod.picker = FakePicker([_yes("clutch"), _no()])
+    _make(settings, vod, run_id=7)
+    assert (settings.out_dir / "123" / "picks.json").read_text(encoding="utf-8") == old_picks
+    vod.picker = FakePicker([_yes("funny"), _no()])
+    _make(settings, vod, run_id=8)
+    assert (settings.out_dir / "123" / "picks.json").read_text(encoding="utf-8") == old_picks
+
+
 def test_finish_again_uses_the_runs_folder_and_old_runs_their_vod_folder(settings, monkeypatch) -> None:
     seen: list = []
     monkeypatch.setattr(pipeline, "finish_vod", lambda *a, **k: seen.append(k["subdir"]) or [])
