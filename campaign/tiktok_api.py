@@ -8,7 +8,7 @@ from pathlib import Path
 from time import monotonic
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from clipsmith.api.deps import verify_api_key
@@ -22,12 +22,19 @@ STATE_S = 600  # inloggningen måste vara klar inom 10 minuter
 _pending: dict[str, tuple[float, str]] = {}  # state -> (när, code_verifier). Bara i minnet.
 
 
+def _only_local(request: Request) -> None:
+    """clipsmith serve lyssnar på 0.0.0.0. Ingen annan på nätverket får koppla in sitt eget konto."""
+    if request.client is None or request.client.host not in ("127.0.0.1", "::1"):
+        raise HTTPException(403, "TikTok kan bara kopplas från datorn där servern körs.")
+
+
 @router.get("/tiktok/status", summary="Är TikTok kopplat, och hur många utkast väntar")
 def tiktok_status(settings: Settings = Depends(get_settings)) -> dict:
     return TikTok(settings).status()
 
 
-@router.get("/tiktok/connect", summary="Logga in på TikTok (öppnas direkt mot :8000)")
+@router.get("/tiktok/connect", summary="Logga in på TikTok (öppnas direkt mot :8000)",
+            dependencies=[Depends(_only_local)])
 def tiktok_connect(settings: Settings = Depends(get_settings)) -> RedirectResponse:
     if not TikTok(settings).configured:
         raise HTTPException(400, "TikTok är inte inställt. Lägg in TIKTOK_CLIENT_KEY och "
@@ -51,7 +58,8 @@ def tiktok_connect(settings: Settings = Depends(get_settings)) -> RedirectRespon
     return RedirectResponse(f"{AUTH_URL}?{query}", status_code=302)
 
 
-@router.get("/tiktok/callback/", summary="TikTok leder hit efter inloggningen")
+@router.get("/tiktok/callback/", summary="TikTok leder hit efter inloggningen",
+            dependencies=[Depends(_only_local)])
 def tiktok_callback(state: str = "", code: str = "", error: str = "", error_description: str = "",
                     settings: Settings = Depends(get_settings)) -> RedirectResponse:
     def back(reason: str | None = None) -> RedirectResponse:
