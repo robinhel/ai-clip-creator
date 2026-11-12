@@ -263,6 +263,8 @@ def test_yaml_is_shown_with_comments_and_saved_exactly(client, settings) -> None
     (lambda t: t.replace("  - id: clutch\n", "  - idx: clutch\n"), "id"),
     (lambda t: t + "x: &a [1, 2]\ny: *a\n", "alias"),
     (lambda t: t.replace("clipsmith_config: config.timmy.yaml", "clipsmith_config: .env"), "clipsmith_config"),
+    (lambda t: t.replace("min_seconds: 7 ", "min_seconds: abc "), "clip.min_seconds måste vara ett tal"),
+    (lambda t: t.replace("font_size: 46", "font_size: stor"), "on_screen_text.font_size måste vara ett heltal"),
 ])
 def test_broken_yaml_is_refused_and_nothing_changes(client, settings, change, words) -> None:
     before = _profile_text(settings)
@@ -470,6 +472,7 @@ def test_a_config_with_only_webcam_rect_shows_it_as_the_only_rect(client, settin
     ([RIGHT, [0, 0, 400, 224]], "form"),
     ([RIGHT, [1700, 770, 316, 224]], "utanför"),
     ([RIGHT, [0, 0, 316]], "heltal"),
+    ([RIGHT, LEFT, RIGHT], "Facecam-ruta 3 är samma som Facecam-ruta 1"),
 ])
 def test_bad_rect_lists_are_refused(client, settings, rects, words) -> None:
     before = (settings.root / "config.timmy.yaml").read_bytes()
