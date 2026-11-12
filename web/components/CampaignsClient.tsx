@@ -34,7 +34,11 @@ export function ProblemFix({ id, problem }: { id: string; problem: string }) {
   return (
     <>
       {" "}
-      <Link href={`/campaigns/${id}?tab=${fix.tab}`} className="font-medium underline underline-offset-4 hover:text-foreground">
+      {/* relative z-10: ovanför kampanjkortets länk, som täcker hela kortet. */}
+      <Link
+        href={`/campaigns/${id}?tab=${fix.tab}`}
+        className="relative z-10 font-medium underline underline-offset-4 hover:text-foreground"
+      >
         {fix.label}
       </Link>
     </>
@@ -182,7 +186,10 @@ export function CampaignsClient({ children }: { children?: React.ReactNode }) {
                     {p.problems.map((problem) => (
                       <li key={problem} className="flex gap-2 rounded-lg border border-[#5a4416] bg-[#1b160b] px-3 py-2 text-warn">
                         <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-                        {problem}
+                        <span>
+                          {problem}
+                          <ProblemFix id={p.name} problem={problem} />
+                        </span>
                       </li>
                     ))}
                   </ul>
