@@ -6,6 +6,8 @@ from time import monotonic
 
 from twitchdl import twitch
 
+from .streams import _thumbnail
+
 CACHE_S = 600  # en VOD som fortfarande sänds blir längre, så fakta får vara högst 10 minuter gamla
 _cache: dict[str, tuple[float, dict]] = {}  # VOD-id -> (när de hämtades, fakta)
 
@@ -40,7 +42,7 @@ def vod_facts(vod_id: str, fresh: bool = False) -> dict:
         "game": (video.get("game") or {}).get("name"),
         "duration_s": int(video.get("lengthSeconds") or 0),
         "created_at": video.get("createdAt"),
-        "thumbnail_url": extra.get("previewThumbnailURL"),
+        "thumbnail_url": _thumbnail(extra.get("previewThumbnailURL")),
     }
     _cache[vod_id] = (monotonic(), facts)
     return facts
