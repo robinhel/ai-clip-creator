@@ -117,6 +117,7 @@ export default function RunDetailPage() {
   const params = useParams();
   const router = useRouter();
   const runId = Number(params.id);
+  const validId = Number.isInteger(runId) && runId > 0;
 
   const [run, setRun] = useState<CampaignRunDetail | null>(null);
   const [clips, setClips] = useState<CampaignClip[] | null>(null);
@@ -151,6 +152,10 @@ export default function RunDetailPage() {
   }, [runId]);
 
   const fetchRun = useCallback(async () => {
+    if (!validId) {
+      setError("Projektet finns inte. Kontrollera länken.");
+      return null;
+    }
     try {
       const data = await api.campaign.runs.get(runId);
       setRun(data);
@@ -160,13 +165,23 @@ export default function RunDetailPage() {
       setError(err instanceof Error ? err.message : "Kunde inte hämta projektet");
       return null;
     }
-  }, [runId]);
+  }, [runId, validId]);
 
+  // Den senaste körningen i samma projekt (samma stream och kampanj). Är det inte den här är körningen ersatt.
+  const [latestRunId, setLatestRunId] = useState<number | null>(null);
   useEffect(() => {
     fetchRun();
+    if (!validId) return;
     fetchClips();
     api.campaign.profiles().then(setProfiles).catch(() => {});
-  }, [fetchRun, fetchClips]);
+  }, [fetchRun, fetchClips, validId]);
+  useEffect(() => {
+    if (!run) return;
+    api.campaign.runs
+      .list()
+      .then((list) => setLatestRunId(list.find((r) => r.vod_id === run.vod_id && r.profile === run.profile)?.run_id ?? null))
+      .catch(() => {});
+  }, [run?.vod_id, run?.profile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Läs om var tredje sekund medan körningen pågår eller klippen görs klara igen.
   useEffect(() => {
@@ -289,8 +304,18 @@ export default function RunDetailPage() {
 
   return (
     <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
+      {latestRunId != null && latestRunId !== run.run_id && (
+        <p role="status" className="mb-5 rounded-lg border border-line bg-panel px-3 py-2 text-sm text-muted-foreground">
+          Det här är en äldre körning. Projektet har en nyare körning.{" "}
+          <Link href={`/runs/${latestRunId}`} className="font-medium text-foreground underline underline-offset-4">
+            Öppna den senaste körningen
+          </Link>
+          .
+        </p>
+      )}
       <div className="flex flex-wrap items-start gap-4">
-        <div className="min-w-0 flex-1">
+        {/* basis 20rem: på en smal skärm hamnar knappen under rubriken i stället för att trycka ihop den. */}
+        <div className="min-w-0 flex-[1_1_20rem]">
           <h1 className="text-3xl font-bold tracking-tight break-words">
             {run.title || run.vod_id}
             {clips && clips.length > 0 && (
@@ -357,7 +382,12 @@ export default function RunDetailPage() {
           {isActive && permission === "denied" && (
             <p className="mb-3 text-[13px] text-muted-foreground">Notiser är avstängda för appen i webbläsaren.</p>
           )}
-          {run.status === "failed" && (
+          {run.status === "failed" && latestRunId != null && latestRunId !== run.run_id && (
+            <p className="mb-4 max-w-[640px] text-sm text-muted-foreground">
+              Körningen misslyckades{run.error ? `: ${run.error.replace(/\.?$/, ".")}` : "."} En nyare körning finns, så den behöver inte köras igen.
+            </p>
+          )}
+          {run.status === "failed" && (latestRunId == null || latestRunId === run.run_id) && (
             <div role="alert" className="mb-4 max-w-[640px] rounded-lg border border-[#4d1d1d] bg-[#1c0f10] p-4">
               <p className="font-medium text-[#fca5a5]">Körningen misslyckades</p>
               {run.error && <p className="mt-1 font-mono text-[13px] break-words text-[#f2c4c4]">{run.error}</p>}
@@ -380,7 +410,7 @@ export default function RunDetailPage() {
       {!isActive && clips && (clips.length > 0 || run.status === "done") && (
         <section className="mt-8">
           {clips.length > 0 && <div className="mb-2 flex flex-wrap items-center gap-3 text-[13px]">
-            <div role="tablist" aria-label="Visa klipp" className="flex overflow-hidden rounded-[9px] border border-line">
+            <div role="tablist" aria-label="Visa klipp" className="flex max-w-full overflow-x-auto rounded-[9px] border border-line">
               {FILTERS.map((f) => {
                 const count = f.status ? clips.filter((c) => c.status === f.status).length : clips.length;
                 return (
@@ -389,7 +419,7 @@ export default function RunDetailPage() {
                     role="tab"
                     aria-selected={filter === f.id}
                     onClick={() => setFilter(f.id)}
-                    className="px-3 py-1.5 text-muted-foreground hover:text-foreground aria-selected:bg-panel aria-selected:text-foreground"
+                    className="px-3 py-1.5 whitespace-nowrap text-muted-foreground hover:text-foreground aria-selected:bg-panel aria-selected:text-foreground"
                   >
                     {f.label} <span className="tabular-nums">{count}</span>
                   </button>
@@ -414,24 +444,26 @@ export default function RunDetailPage() {
                 <p className="col-span-2 mt-1 text-xs text-muted-foreground">Inte när du skriver i ett fält.</p>
               </dl>
             </details>
-            <span className="text-muted-foreground">Sortera:</span>
-            <div className="flex overflow-hidden rounded-[9px] border border-line">
-              {(
-                [
-                  ["score", "Betyg"],
-                  ["time", "Tidsordning"],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  aria-pressed={sort === id}
-                  onClick={() => setSort(id)}
-                  className="px-3 py-1.5 text-muted-foreground hover:text-foreground aria-pressed:bg-panel aria-pressed:text-foreground"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <span className="flex items-center gap-3">
+              <span className="text-muted-foreground">Sortera:</span>
+              <div className="flex overflow-hidden rounded-[9px] border border-line">
+                {(
+                  [
+                    ["score", "Betyg"],
+                    ["time", "Tidsordning"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    aria-pressed={sort === id}
+                    onClick={() => setSort(id)}
+                    className="px-3 py-1.5 text-muted-foreground hover:text-foreground aria-pressed:bg-panel aria-pressed:text-foreground"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </span>
           </div>}
 
           {visible.length === 0 ? (
