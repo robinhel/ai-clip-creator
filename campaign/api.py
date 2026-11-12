@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Literal
 
@@ -21,6 +22,7 @@ from .pipeline import finish_run, run_campaign_vod
 from .profile import Profile, load_profile
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
+_start_lock = threading.Lock()  # bara en körning i taget, också när två anrop kommer samtidigt
 
 PLATFORMS = ("tiktok", "youtube_shorts", "instagram_reels")
 
@@ -48,8 +50,8 @@ def _log(settings: Settings) -> ClipLog:
 def _profile(name: str, settings: Settings) -> Profile:
     try:
         return load_profile(name, settings.profiles_dir)
-    except SystemExit as error:
-        raise HTTPException(400, f"Okänd kampanj: {name}") from error
+    except (SystemExit, Exception) as error:
+        raise HTTPException(400, f"Kampanjen {name} går inte att läsa.") from error
 
 
 def _profile_names(settings: Settings) -> list[str]:
@@ -59,39 +61,48 @@ def _profile_names(settings: Settings) -> list[str]:
 # ---------- kampanjer ----------
 
 
-@router.get("/profiles", summary="Kampanjer som går att köra")
-def list_profiles(settings: Settings = Depends(get_settings)) -> list[dict]:
+def _describe_profile(name: str, settings: Settings) -> dict:
     from clipsmith.config.loaders import load_config
 
+    profile = load_profile(name, settings.profiles_dir)
+    problems = profile.problems(settings.root)
+    blocking: list[str] = []
+    channel = profile.streamer.lower()
+    config = settings.root / profile.clipsmith_config if profile.clipsmith_config else None
+    if config is None:
+        blocking.append("Profilen saknar clipsmith_config.")
+    elif not config.exists():
+        blocking.append(f"Inställningsfilen {profile.clipsmith_config} saknas.")
+    else:
+        channels = load_config(config).channels
+        channel = channels[0] if channels else channel
+    if not settings.berget_api_key:
+        blocking.append("BERGET_API_KEY saknas i .env.")
+    if not settings.anthropic_api_key:
+        blocking.append("ANTHROPIC_API_KEY saknas i .env.")
+    return {
+        "name": profile.name,
+        "streamer": profile.streamer,
+        "campaign": profile.raw.get("campaign") or profile.raw.get("name") or profile.name,
+        "language": profile.language,
+        "channel": channel,
+        "formats": [{"id": f["id"], "name": f.get("name", f["id"]),
+                     "description": f.get("description", "")} for f in profile.formats],
+        "problems": blocking + problems,
+        "ready": not blocking,
+    }
+
+
+@router.get("/profiles", summary="Kampanjer som går att köra")
+def list_profiles(settings: Settings = Depends(get_settings)) -> list[dict]:
     result = []
     for name in _profile_names(settings):
-        profile = load_profile(name, settings.profiles_dir)
-        problems = profile.problems(settings.root)
-        blocking: list[str] = []
-        channel = profile.streamer.lower()
-        config = settings.root / profile.clipsmith_config if profile.clipsmith_config else None
-        if config is None:
-            blocking.append("Profilen saknar clipsmith_config.")
-        elif not config.exists():
-            blocking.append(f"Inställningsfilen {profile.clipsmith_config} saknas.")
-        else:
-            channels = load_config(config).channels
-            channel = channels[0] if channels else channel
-        if not settings.berget_api_key:
-            blocking.append("BERGET_API_KEY saknas i .env.")
-        if not settings.anthropic_api_key:
-            blocking.append("ANTHROPIC_API_KEY saknas i .env.")
-        result.append({
-            "name": profile.name,
-            "streamer": profile.streamer,
-            "campaign": profile.raw.get("campaign", profile.name),
-            "language": profile.language,
-            "channel": channel,
-            "formats": [{"id": f["id"], "name": f.get("name", f["id"]),
-                         "description": f.get("description", "")} for f in profile.formats],
-            "problems": blocking + problems,
-            "ready": not blocking,
-        })
+        try:
+            result.append(_describe_profile(name, settings))
+        except (SystemExit, Exception) as error:  # en trasig fil ska inte dölja de andra kampanjerna
+            result.append({"name": name, "streamer": "", "campaign": name, "language": "",
+                           "channel": "", "formats": [], "ready": False,
+                           "problems": [f"Profilen går inte att läsa: {error}"]})
     return result
 
 
@@ -116,19 +127,20 @@ def create_run(
     settings: Settings = Depends(get_settings),
 ) -> dict:
     profile = _profile(body.profile, settings)
-    ready = next(p for p in list_profiles(settings) if p["name"] == profile.name)
+    ready = _describe_profile(profile.name, settings)
     if not ready["ready"]:
-        raise HTTPException(400, " ".join(p for p in ready["problems"]))
-    if request.app.state.active_run_id is not None:
-        raise HTTPException(429, "En körning pågår redan. Vänta tills den är klar.")
+        raise HTTPException(400, " ".join(ready["problems"]))
 
     game = (body.game or "").strip() or None
-    run = Run(vod_id=body.vod_id, channel=ready["channel"], status=RunStatus.pending)
-    db.add(run)
-    db.commit()
-    db.refresh(run)
+    with _start_lock:
+        if request.app.state.active_run_id is not None:
+            raise HTTPException(429, "En körning pågår redan. Vänta tills den är klar.")
+        run = Run(vod_id=body.vod_id, channel=ready["channel"], status=RunStatus.pending)
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        request.app.state.active_run_id = run.id
     _log(settings).add_run(run.id, body.vod_id, profile.name, game)
-    request.app.state.active_run_id = run.id
     background_tasks.add_task(run_campaign_vod, run.id, body.vod_id, profile.name, game, settings,
                               start_s=body.start_s, end_s=body.end_s, app=request.app)
     return run.to_dict()
@@ -150,9 +162,10 @@ def refinish_run(
     meta = _log(settings).run(run_id)
     if meta is None:
         raise HTTPException(404, "Körningen hör inte till någon kampanj.")
-    if request.app.state.active_run_id is not None:
-        raise HTTPException(429, "En körning pågår redan. Vänta tills den är klar.")
-    request.app.state.active_run_id = run_id
+    with _start_lock:
+        if request.app.state.active_run_id is not None:
+            raise HTTPException(429, "En körning pågår redan. Vänta tills den är klar.")
+        request.app.state.active_run_id = run_id
     background_tasks.add_task(finish_run, run_id, meta["vod_id"], meta["profile"], meta["game"],
                               settings, app=request.app)
     return {"started": True}
@@ -232,6 +245,8 @@ def patch_clip(clip_id: int, body: ClipPatch, settings: Settings = Depends(get_s
     clip = _get(log, clip_id)
     profile = _profile(clip["profile"], settings)
     fields = body.model_dump(exclude_unset=True)
+    if "status" in fields and fields["status"] is None:
+        raise HTTPException(400, "Status får inte vara tom.")
 
     if "format" in fields and profile.formats and fields["format"] not in profile.format_ids:
         raise HTTPException(400, f"Formatet {fields['format']!r} finns inte i kampanjen.")
@@ -245,7 +260,8 @@ def patch_clip(clip_id: int, body: ClipPatch, settings: Settings = Depends(get_s
     if "caption" in fields:
         problems = _caption_problems(problems, fields["caption"], profile)
         fields["problems"] = problems
-        if status in ("renderad", "underkand") and body.status is None:
+        # Ett ja gäller den caption som fanns. Ändras den måste klippet godkännas igen.
+        if status in ("renderad", "underkand", "godkand") and body.status in (None, status):
             fields["status"] = "underkand" if problems else "renderad"
 
     new = body.status
@@ -260,6 +276,8 @@ def patch_clip(clip_id: int, body: ClipPatch, settings: Settings = Depends(get_s
         if new == "renderad" and problems:
             fields["status"] = "underkand"
         if new == "postad":
+            if problems:
+                raise HTTPException(400, "Klippet har problem. Det får inte postas.")
             if not (fields.get("url") or clip["url"]):
                 raise HTTPException(400, "Klistra in länken till det postade klippet.")
             if not (fields.get("platform") or clip["platform"]):

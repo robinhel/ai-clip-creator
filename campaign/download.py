@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from clipsmith.twitch.downloader import _resolve_quality
@@ -30,25 +31,31 @@ def join_segments(parts_dir: Path, out: Path) -> None:
         raise RuntimeError(f"Inga nedladdade delar i {parts_dir}.")
 
     partial = out.with_name(f"{out.stem}.del.mp4")
-    ffmpeg = subprocess.Popen(
-        [need("ffmpeg"), "-v", "error", "-y", "-f", "mp4", "-i", "pipe:0", "-c", "copy", str(partial)],
-        stdin=subprocess.PIPE, stderr=subprocess.PIPE,
-    )
-    assert ffmpeg.stdin is not None
-    try:
-        for init in inits:
-            with (parts_dir / init).open("rb") as part:
-                shutil.copyfileobj(part, ffmpeg.stdin)
-        for segment in segments:
-            with segment.open("rb") as part:
-                shutil.copyfileobj(part, ffmpeg.stdin)
-            segment.unlink()
-    finally:
-        ffmpeg.stdin.close()
-    error = ffmpeg.stderr.read().decode(errors="replace") if ffmpeg.stderr else ""
-    if ffmpeg.wait() != 0:
+    container = "mp4" if inits else "mpegts"  # fmp4-delar har en init-del, .ts-delar har ingen
+    with tempfile.TemporaryFile() as errors:
+        ffmpeg = subprocess.Popen(
+            [need("ffmpeg"), "-v", "error", "-y", "-f", container, "-i", "pipe:0", "-c", "copy",
+             "-f", "mp4", str(partial)],
+            stdin=subprocess.PIPE, stderr=errors,
+        )
+        assert ffmpeg.stdin is not None
+        try:
+            for init in inits:
+                with (parts_dir / init).open("rb") as part:
+                    shutil.copyfileobj(part, ffmpeg.stdin)
+            for segment in segments:
+                with segment.open("rb") as part:
+                    shutil.copyfileobj(part, ffmpeg.stdin)
+                segment.unlink()
+            ffmpeg.stdin.close()
+        except BrokenPipeError:
+            pass  # ffmpeg har stannat; felet står i errors
+        code = ffmpeg.wait()
+        errors.seek(0)
+        message = errors.read().decode(errors="replace")
+    if code != 0:
         partial.unlink(missing_ok=True)
-        raise RuntimeError(f"ffmpeg kunde inte slå ihop delarna:\n{error[-1500:]}")
+        raise RuntimeError(f"ffmpeg kunde inte slå ihop delarna:\n{message[-1500:]}")
     partial.replace(out)
 
 

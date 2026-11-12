@@ -93,7 +93,7 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
     safe = data.get("safe_zone") or {}
     caption = data.get("caption") or {}
     return Profile(
-        name=data["name"],
+        name=path.stem,  # filnamnet är kampanjens id; data["name"] är bara en etikett
         streamer=data["streamer"],
         language=data.get("language", "en"),
         min_seconds=float(clip.get("min_seconds", 7)),
