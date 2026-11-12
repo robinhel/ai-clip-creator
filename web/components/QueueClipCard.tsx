@@ -86,7 +86,8 @@ export function QueueClipCard({ clip, formats, runId, onUpdate }: Props) {
     <Card className="flex-col gap-5 p-4 sm:flex-row" data-clip-id={clip.id}>
       <div className="mx-auto aspect-[9/16] w-full max-w-60 shrink-0 overflow-hidden rounded-lg bg-black sm:mx-0 sm:w-48 lg:w-56">
         <video
-          src={api.campaign.videoUrl(clip)}
+          // #t=0.1 visar en bildruta i stället för svart innan uppspelning.
+          src={`${api.campaign.videoUrl(clip)}#t=0.1`}
           controls
           playsInline
           preload="metadata"
@@ -211,7 +212,7 @@ export function QueueClipCard({ clip, formats, runId, onUpdate }: Props) {
                 Ladda ner filen
               </a>
             </div>
-            <div className="grid gap-2 sm:grid-cols-[11rem_1fr]">
+            <div className="grid gap-2">
               <NativeSelect
                 aria-label="Plattform"
                 value={platform}
