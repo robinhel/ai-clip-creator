@@ -34,6 +34,7 @@ class Profile:
     lufs: float = -14.0
     engagement: list[dict] = field(default_factory=list)
     payment: dict = field(default_factory=dict)
+    clipsmith_config: str | None = None  # clipsmiths inställningar för kampanjen, t.ex. config.timmy.yaml
     raw: dict = field(default_factory=dict)
 
     @property
@@ -116,5 +117,6 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
         lufs=float((data.get("audio") or {}).get("lufs", -14)),
         engagement=list(data.get("engagement_min_percent") or []),
         payment=dict(data.get("payment") or {}),
+        clipsmith_config=data.get("clipsmith_config"),
         raw=data,
     )

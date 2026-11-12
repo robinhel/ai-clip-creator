@@ -7,6 +7,9 @@ streamer: SkiiMaskTimmy
 campaign: "$2,500 SkiiMaskTimmy Streamer Campaign (ClippedIn)"
 language: en
 
+# clipsmiths inställningar för den här kampanjen: kanal, klipplängd, facecam-ruta, hype-ord.
+clipsmith_config: config.timmy.yaml
+
 source:
   allowed: "Bara SkiiMaskTimmys Twitch-streams: live eller tidigare sändningar (VOD)."
   banned:

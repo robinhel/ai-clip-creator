@@ -112,6 +112,11 @@ app.include_router(health.router)
 app.include_router(publish.router)
 app.include_router(analytics.router)
 
+# Robins kampanjlager (campaign/): kampanjval, kö och klipplogg i webbappen.
+from campaign.api import router as campaign_router  # noqa: E402
+
+app.include_router(campaign_router)
+
 
 @app.get("/", include_in_schema=False)
 async def root() -> RedirectResponse:
