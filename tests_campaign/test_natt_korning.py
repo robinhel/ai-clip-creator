@@ -425,3 +425,16 @@ def test_make_clips_shows_the_download_in_percent_between_5_and_15(settings, vod
     hämtar = [e for e in vod.events if e[0] == "download" and e[2].startswith("Hämtar: ")]
     assert [e[2] for e in hämtar] == ["Hämtar: 0 %", "Hämtar: 25 %", "Hämtar: 50 %", "Hämtar: 100 %"]
     assert [e[1] for e in hämtar] == [5.0, 7.5, 10.0, 15.0]
+
+
+def test_a_long_vod_gives_one_download_event_per_percent(settings, vod, monkeypatch) -> None:
+    vod.picker = FakePicker([_yes("clutch"), _no()])
+
+    def fake_download(vod_id, work_dir, on_progress):
+        for done in range(1401):  # en VOD på 4 timmar har ungefär 1 400 delar
+            on_progress(done, 1400)
+        return vod.mp4
+
+    monkeypatch.setattr(pipeline, "download_vod", fake_download)
+    _make(settings, vod)
+    assert len([e for e in vod.events if e[2].startswith("Hämtar: ")]) == 101
