@@ -4,6 +4,7 @@ och gör sedan klippen kampanjklara. Allt med den valda kampanjens inställninga
 from __future__ import annotations
 
 import logging
+import shutil
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -144,6 +145,9 @@ def make_clips(
         if picks:
             emit("clip", 85.0, "")
             cut_all_clips(mp4, transcript, picks, run_dir, cfg)  # väljer webbkamera per klipp i picks
+    legacy = settings.out_dir / vod_id / "picks.json"
+    if not legacy.exists() and (mp4.parent / "picks.json").exists() and any(legacy.parent.glob("clip_*.mp4")):
+        shutil.copy(mp4.parent / "picks.json", legacy)  # gamla klipp i out/<vod>/ behåller sina val
     run_dir.mkdir(parents=True, exist_ok=True)
     for path in (run_dir / "picks.json", mp4.parent / "picks.json"):  # work/<vod>/: senaste körningen, för facit
         save_picks(picks, path)
