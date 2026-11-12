@@ -129,6 +129,15 @@ export interface StreamInfo {
   run_id: number | null;
   run_status: RunStatus | null;
   clip_count: number;
+  /** Betyget för att klippa streamen. Saknas hos äldre servrar. */
+  view_count?: number;
+  viewer_clips?: number | null;
+  live?: boolean;
+  score?: number;
+  score_parts?: { clips: number; views: number; game: number };
+  /** Kort svensk text om signalerna som gav poäng. */
+  reason?: string;
+  recommended?: boolean;
 }
 
 export interface CampaignRunDetail extends CampaignRunInfo {
