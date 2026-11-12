@@ -16,10 +16,12 @@ function errorLine(detail: string | null): number | null {
 interface Props {
   id: string;
   onUpdate: (profile: CampaignProfileDetail) => void;
+  /** true när texten har ändringar som inte är sparade. */
+  onDirty?: (dirty: boolean) => void;
 }
 
 /** Kampanjens profilfil som text, för det som formulären inte täcker. */
-export function CampaignYaml({ id, onUpdate }: Props) {
+export function CampaignYaml({ id, onUpdate, onDirty }: Props) {
   const [saved, setSaved] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -38,6 +40,12 @@ export function CampaignYaml({ id, onUpdate }: Props) {
   }, [id]);
 
   const dirty = saved !== null && text !== saved;
+
+  useEffect(() => {
+    onDirty?.(dirty);
+    return () => onDirty?.(false);
+  }, [dirty, onDirty]);
+
   const bad = errorLine(error);
   const lines = text.split("\n").length;
 
