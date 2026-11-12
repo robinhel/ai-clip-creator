@@ -63,6 +63,7 @@ function ClipRow({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (clip: Camp
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const posted = !["renderad", "underkand", "godkand", "nekad"].includes(clip.status);
   const dirty = STATS.some(({ key }) => stats[key] !== (clip[key]?.toString() ?? ""));
   const low = clip.engagement != null && clip.engagement_min != null && clip.engagement < clip.engagement_min;
 
@@ -116,19 +117,23 @@ function ClipRow({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (clip: Camp
       </td>
       {STATS.map(({ key, label }) => (
         <td key={key} className="py-3 pr-2">
-          <Input
-            aria-label={`${label} för klipp ${clip.id}`}
-            type="number"
-            min="0"
-            inputMode="numeric"
-            value={stats[key]}
-            onChange={(e) => setStats((prev) => ({ ...prev, [key]: e.target.value }))}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && dirty) saveStats();
-            }}
-            disabled={busy}
-            className="h-7 w-24 text-right tabular-nums"
-          />
+          {posted ? (
+            <Input
+              aria-label={`${label} för klipp ${clip.id}`}
+              type="number"
+              min="0"
+              inputMode="numeric"
+              value={stats[key]}
+              onChange={(e) => setStats((prev) => ({ ...prev, [key]: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && dirty) saveStats();
+              }}
+              disabled={busy}
+              className="h-7 w-24 text-right tabular-nums"
+            />
+          ) : (
+            <span className="text-muted-foreground">–</span>
+          )}
         </td>
       ))}
       <td className="py-3 pr-4 text-right tabular-nums">
