@@ -191,3 +191,12 @@ def test_select_clips_min_picks_from_config() -> None:
         candidates, _make_transcript_with_content(), _RejectAll(), "ctx", _cfg(min_picks=1)
     )  # type: ignore[arg-type]
     assert len(picks) == 1
+
+
+def test_build_stream_context_says_focus_and_target_length() -> None:
+    ctx = build_stream_context("timmy", "t", "1h", focus="jump scares", clip_range=(15, 30))
+    assert "especially looking for: jump scares" in ctx
+    assert "15-30 seconds" in ctx
+    plain = build_stream_context("timmy", "t", "1h")
+    assert "looking for" not in plain
+    assert "Target clip length" not in plain
