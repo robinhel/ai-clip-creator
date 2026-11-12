@@ -48,7 +48,7 @@ def _original(raw: Path) -> tuple[Path, Path]:
     return folder / raw.name, folder / f"{raw.stem}.json"
 
 
-def _meta(raw: Path) -> dict | None:
+def edit_meta(raw: Path) -> dict | None:
     """Trimningen i original/clip_NN.json, om den hör till råklippet som ligger där nu."""
     original, meta_path = _original(raw)
     try:
@@ -63,7 +63,7 @@ def _meta(raw: Path) -> dict | None:
 
 def source_path(raw: Path) -> Path:
     """Originalet om klippet har trimmats, annars råklippet."""
-    return _original(raw)[0] if _meta(raw) else raw
+    return _original(raw)[0] if edit_meta(raw) else raw
 
 
 def limits(profile: Profile) -> tuple[float, float]:
@@ -84,7 +84,7 @@ def why_not(clip: dict, raw: Path | None) -> str | None:
 def _state(clip: dict, raw: Path) -> dict:
     """Originalets längd och början i VOD:en, och nuvarande trimning. Skriver inget."""
     duration = round(probe(source_path(raw))["duration"], 2)
-    meta = _meta(raw) or {}
+    meta = edit_meta(raw) or {}
     start = meta.get("start_s", clip["start_s"])
     return {"duration_s": duration, "start_s": start, "in_s": meta.get("in_s", 0.0),
             "out_s": meta.get("out_s", duration)}
