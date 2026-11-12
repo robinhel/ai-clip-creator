@@ -329,13 +329,16 @@ def _describe_run(meta: dict, db: Session, clips: list[dict], steps: bool = Fals
     return out
 
 
-@router.get("/runs", summary="Projekten, nyast först")
+@router.get("/runs", summary="Projekten, ett per stream och kampanj, nyast först")
 def list_runs(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> list[dict]:
     log = _log(settings)
     clips = log.list()
     off = _turned_off(settings)
-    return [_describe_run(_with_facts(meta, log), db, clips) for meta in reversed(log.runs())
-            if meta["profile"] not in off]
+    # Ett projekt per stream och kampanj: Kör igen och en ny körning på samma VOD visas som samma projekt,
+    # med den senaste körningen. Klippen delas redan per VOD och kampanj (_run_clips).
+    latest = {(meta["vod_id"], meta["profile"]): meta for meta in log.runs() if meta["profile"] not in off}
+    return [_describe_run(_with_facts(meta, log), db, clips)
+            for meta in sorted(latest.values(), key=lambda m: m["run_id"], reverse=True)]
 
 
 @router.get("/runs/{run_id}", summary="En körning med förloppet per steg")

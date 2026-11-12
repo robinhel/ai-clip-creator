@@ -130,6 +130,11 @@ export function HomeClient() {
   const vodId = candidate && /^\d{6,15}$/.test(candidate) ? candidate : null;
   const [pollTick, setPollTick] = useState(0);
 
+  function loadStreams() {
+    setStreamsError(false);
+    api.campaign.streams().then(setStreams).catch(() => setStreamsError(true));
+  }
+
   useEffect(() => {
     Promise.all([api.campaign.profiles(), api.campaign.summary(), api.campaign.runs.list()])
       .then(([p, s, r]) => {
@@ -139,7 +144,7 @@ export function HomeClient() {
       })
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Kunde inte hämta startsidan"));
     // Egen hämtning: Twitch kan vara långsam, och ett fel här ska inte stoppa resten av sidan.
-    api.campaign.streams().then(setStreams).catch(() => setStreamsError(true));
+    loadStreams();
   }, []);
 
   // Läs om projekten var femte sekund medan något projekt pågår, också efter ett misslyckat anrop.
@@ -240,6 +245,8 @@ export function HomeClient() {
     if (focus.length > FOCUS_MAX) blockers.push(`Leta efter får vara högst ${FOCUS_MAX} tecken.`);
   }
   const canStart = !!vod && !!profile && blockers.length === 0 && !starting;
+  // Samma stream och kampanj är samma projekt. En ny körning hamnar i det projektet.
+  const existing = vod && profile ? runs?.find((r) => r.vod_id === vod.vod_id && r.profile === profile.name) : undefined;
 
   async function handleStart() {
     if (!vod || !profile || !canStart) return;
@@ -347,8 +354,18 @@ export function HomeClient() {
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-[10px] bg-[#fafafa] p-4 text-[17px] font-semibold text-[#111] transition-opacity focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-40"
           >
             {starting && <Loader2 className="size-4 animate-spin" aria-hidden />}
-            {starting ? "Startar…" : "Hämta klipp"}
+            {starting ? "Startar…" : existing ? "Hämta fler klipp" : "Hämta klipp"}
           </button>
+
+          {existing && (
+            <p className="mt-2 text-left text-sm text-muted-foreground">
+              Streamen har redan ett projekt.{" "}
+              <Link href={`/runs/${existing.run_id}`} className="font-medium text-foreground underline underline-offset-4">
+                Öppna projektet
+              </Link>
+              . Hämta fler klipp gör nya klipp i samma projekt.
+            </p>
+          )}
 
           {vod && (
             <>
@@ -483,7 +500,12 @@ export function HomeClient() {
       </section>
 
       {streamsError ? (
-        <p className="mx-auto mt-6 max-w-[720px] text-center text-xs text-muted-foreground">Kunde inte hämta de senaste streamsen från Twitch.</p>
+        <p className="mx-auto mt-6 max-w-[720px] text-center text-xs text-muted-foreground">
+          Kunde inte hämta de senaste streamsen från Twitch.{" "}
+          <button type="button" onClick={loadStreams} className="font-medium text-foreground underline underline-offset-4">
+            Försök igen
+          </button>
+        </p>
       ) : (
         streams &&
         streams.length > 0 && (
