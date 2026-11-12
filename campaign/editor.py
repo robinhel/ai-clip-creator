@@ -27,7 +27,6 @@ from .rules import check_clip
 
 lock = threading.Lock()  # en redigering åt gången
 LOCKED = ("postad", "inskickad", "analytics_inskickad", "betald")
-MARGIN_S = 0.5
 
 
 def raw_path(clip: dict, settings: Settings) -> Path | None:
@@ -137,8 +136,9 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
             raise ValueError(f"Start och slut måste ligga inom klippet: 0 till {state['duration_s']:g} s, "
                              "och starten före slutet.")
         min_s, max_s = limits(profile, settings)
-        if not min_s - MARGIN_S <= new_out - new_in <= max_s + MARGIN_S:
-            raise ValueError(f"Klippet blir {new_out - new_in:.1f} s. Kampanjen tillåter {min_s:g}–{max_s:g} s.")
+        length = round(new_out - new_in, 3)  # exakt kampanjens gränser, som i webben
+        if not min_s <= length <= max_s:
+            raise ValueError(f"Klippet blir {length:.1f} s. Kampanjen tillåter {min_s:g}–{max_s:g} s.")
     new_title = clip["title"] if title is None else title.strip()
     if not new_title:
         raise ValueError("Rubriken får inte vara tom.")

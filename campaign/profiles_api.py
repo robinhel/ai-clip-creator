@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import re
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -17,11 +17,10 @@ from urllib.parse import urlparse
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from twitchdl import twitch
 
 from clipsmith.api.deps import verify_api_key
-from clipsmith.config.loaders import load_config
 
 from . import profile_edit as edit
 from .api import _describe_profile, _log, get_settings
@@ -33,7 +32,7 @@ router = APIRouter(prefix="/campaign", tags=["campaign"])
 _write_lock = threading.Lock()  # en ändring av kampanjfilerna i taget
 _frame_lock = threading.Lock()
 OVERLAY_MAX = 10 * 1024 * 1024
-IMAGE_MAX = 10 * 1024 * 1024
+IMAGE_MAX = 5 * 1024 * 1024  # Twitchs bild i 1920x1080 är cirka 250 kB
 TEMPLATE_CONFIG = "config.timmy.yaml"  # mallen för nya kampanjers config-fil
 THUMB_HOST = "static-cdn.jtvnw.net"  # bilder hämtas bara härifrån
 VOD_ID = re.compile(r"\d{6,15}")
@@ -65,32 +64,40 @@ def _load(profile_id: str, settings: Settings) -> Profile:
 
 def _overlay_target(profile: Profile, settings: Settings) -> Path | None:
     """Overlay-bildens sökväg. Den måste ligga under overlays/ och vara en .png."""
-    if not profile.overlay_file:
-        return None
-    target = (settings.root / str(profile.overlay_file)).resolve()
-    if not target.is_relative_to((settings.root / "overlays").resolve()) or target.suffix.lower() != ".png":
-        raise ValueError(f"overlay.file är {profile.overlay_file}. Den måste ligga under overlays/ och sluta på .png.")
-    return target
+    return edit.overlay_target(settings.root, profile.overlay_file) if profile.overlay_file else None
 
 
 def _config_path(profile: Profile, settings: Settings) -> Path:
-    path = (settings.root / str(profile.clipsmith_config or "")).resolve()
-    if not profile.clipsmith_config or not path.is_relative_to(settings.root.resolve()) or not path.is_file():
-        raise HTTPException(400, f"Kampanjen saknar sin config-fil ({profile.clipsmith_config}).")
-    return path
+    try:
+        return edit.config_file(settings.root, profile.clipsmith_config)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
 
 
 def _check_config(expected: dict | None = None) -> Callable[[Path], None]:
     """Kontroll av en ny config-fil innan den ersätter den gamla."""
     def check(tmp: Path) -> None:
-        try:
-            cfg = load_config(tmp)
-        except Exception as error:  # yaml- eller pydantic-fel
-            raise ValueError(f"Config-filen går inte att läsa efter ändringen: {error}") from error
+        cfg = edit.read_config(tmp)
         for key, value in (expected or {}).items():
             if getattr(cfg.reframe, key) != value:
                 raise ValueError(f"reframe.{key} blev inte rätt i config-filen. Ändra den för hand.")
     return check
+
+
+def _check_answer(profile_id: str, settings: Settings) -> Callable[[Path], None]:
+    """Kontroll av en ny profil innan den ersätter den gamla: svaret måste gå att räkna fram."""
+    def check(tmp: Path) -> None:
+        try:
+            _describe_profile(profile_id, settings, path=tmp)
+        except (SystemExit, Exception) as error:  # SystemExit från load_profile, typfel m.m.
+            raise ValueError(f"Kampanjen går inte att läsa efter ändringen: {error}") from None
+    return check
+
+
+def _latest_vod(profile_id: str, settings: Settings) -> str | None:
+    runs = [r for r in _log(settings).runs() if r["profile"] == profile_id]
+    vod_id = str(runs[-1]["vod_id"]) if runs else ""
+    return vod_id if VOD_ID.fullmatch(vod_id) else None
 
 
 def _detail(profile_id: str, settings: Settings) -> dict:
@@ -193,15 +200,34 @@ def put_yaml(profile_id: str, body: YamlBody, settings: Settings = Depends(get_s
     path = _profile_path(profile_id, settings)
     try:
         edit.check_profile_text(body.yaml, profile_id, settings.root)
+        with _write_lock:
+            old = path.read_bytes()
+            # Texten som den är, så att kommentarerna finns kvar. Tmp-filen kontrolleras som svaret innan bytet,
+            # så att en 400 aldrig lämnar en ändrad fil.
+            edit.write_atomic(path, body.yaml.encode("utf-8"), check=_check_answer(profile_id, settings))
+            edit.write_atomic(settings.profiles_dir / f".{profile_id}.yaml.bak", old)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
-    with _write_lock:
-        edit.write_atomic(settings.profiles_dir / f".{profile_id}.yaml.bak", path.read_bytes())
-        edit.write_atomic(path, body.yaml.encode("utf-8"))  # texten som den är, så kommentarerna finns kvar
     return _detail(profile_id, settings)
 
 
 # ---------- ny kampanj ----------
+
+
+class NewFormat(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=1000)
+
+
+def _texts(value: object) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, list | tuple):
+        for item in value:
+            yield from _texts(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _texts(item)
 
 
 class NewCampaign(BaseModel):
@@ -219,11 +245,18 @@ class NewCampaign(BaseModel):
     must_include: list[str] | None = None
     hashtags: list[str] | None = None
     caption_template: str | None = None
-    formats: list[dict] = Field(default_factory=list)
+    formats: list[NewFormat] = Field(default_factory=list)
     cpm_usd: float | None = None
     min_views: int | None = None
     max_payout_per_clip_usd: float | None = None
     engagement_min_percent: float | None = None
+
+    @model_validator(mode="after")
+    def _no_control_characters(self) -> NewCampaign:
+        """En radbrytning kan annars lägga in egna fält i profilens YAML eller i kommentaren överst."""
+        if any(edit.CONTROL.search(text) for text in _texts(self.model_dump())):
+            raise ValueError("Texten får inte ha radbrytningar, tabbar eller andra styrtecken.")
+        return self
 
 
 def _check_channel(login: str) -> None:
@@ -283,20 +316,40 @@ class ReframeBody(BaseModel):
     split_ratio: float
 
 
-def _reframe(path: Path) -> dict:
+def _local_mp4(profile_id: str, settings: Settings, vod_id: str | None) -> Path | None:
+    vod_id = vod_id or _latest_vod(profile_id, settings)
+    mp4 = settings.work_dir / vod_id / f"{vod_id}.mp4" if vod_id else None
+    return mp4 if mp4 is not None and mp4.is_file() else None
+
+
+def _reframe(path: Path, mp4: Path | None) -> dict:
+    """Rutorna och formerna. Finns VOD:en på disken visas dess verkliga storlek, med en varning om den
+    inte är 1920x1080, eftersom rutorna mäts i en bild i 1920x1080."""
     try:
-        reframe = load_config(path).reframe
-    except Exception as error:  # yaml- eller pydantic-fel
-        raise HTTPException(400, f"Config-filen går inte att läsa: {error}") from error
+        reframe = edit.read_config(path).reframe
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
     webcam_aspect, gameplay_aspect = edit.panel_aspects(reframe.split_ratio)
+    width, height, warning = edit.SOURCE_W, edit.SOURCE_H, None
+    if mp4 is not None:
+        try:
+            info = probe(mp4)
+            width, height = info["width"], info["height"]
+        except (RuntimeError, SystemExit):
+            pass  # filen går inte att läsa: visa standardstorleken
+    if (width, height) != (edit.SOURCE_W, edit.SOURCE_H):
+        warning = (f"VOD:en är {width}x{height}, inte {edit.SOURCE_W}x{edit.SOURCE_H}. Rutorna mäts i "
+                   f"{edit.SOURCE_W}x{edit.SOURCE_H} och hamnar fel i den här VOD:en. Ladda ner den i 1080p.")
     return {"mode": reframe.mode, "split_ratio": reframe.split_ratio, "webcam_rect": reframe.webcam_rect,
-            "gameplay_rect": reframe.gameplay_rect, "source_width": edit.SOURCE_W, "source_height": edit.SOURCE_H,
-            "webcam_aspect": webcam_aspect, "gameplay_aspect": gameplay_aspect}
+            "gameplay_rect": reframe.gameplay_rect, "source_width": width, "source_height": height,
+            "webcam_aspect": webcam_aspect, "gameplay_aspect": gameplay_aspect, "warning": warning}
 
 
 @router.get("/profiles/{profile_id}/reframe", summary="Facecam- och spelrutan")
-def get_reframe(profile_id: str, settings: Settings = Depends(get_settings)) -> dict:
-    return _reframe(_config_path(_load(profile_id, settings), settings))
+def get_reframe(profile_id: str, vod_id: str | None = Query(default=None, pattern=r"^\d{6,15}$"),
+                settings: Settings = Depends(get_settings)) -> dict:
+    path = _config_path(_load(profile_id, settings), settings)
+    return _reframe(path, _local_mp4(profile_id, settings, vod_id))
 
 
 @router.put("/profiles/{profile_id}/reframe", summary="Spara facecam- och spelrutan",
@@ -312,10 +365,11 @@ def put_reframe(profile_id: str, body: ReframeBody, settings: Settings = Depends
         with _write_lock:
             text = edit.reframe_text(path.read_bytes().decode("utf-8"), webcam, gameplay, body.split_ratio)
             edit.write_atomic(path, text.encode("utf-8"), check=_check_config(
-                {"webcam_rect": webcam, "gameplay_rect": gameplay, "split_ratio": body.split_ratio}))
+                {"mode": "stacked", "webcam_rect": webcam, "gameplay_rect": gameplay,
+                 "split_ratio": body.split_ratio}))
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
-    return _reframe(path)
+    return _reframe(path, _local_mp4(profile_id, settings, None))
 
 
 # ---------- bild från VOD:en ----------
@@ -344,17 +398,27 @@ def _frame_from_twitch(vod_id: str, frame: Path) -> None:
     parsed = urlparse(url)
     if parsed.scheme != "https" or parsed.hostname != THUMB_HOST:
         raise HTTPException(404, f"Twitch har ingen bild för VOD {vod_id}.")
+    too_big = HTTPException(502, "Bilden från Twitch är större än 5 MB.")
+    data = bytearray()
     try:
-        with http_client() as http:
-            response = http.get(url)
+        with http_client() as http, http.stream("GET", url) as response:
+            if response.status_code != 200:
+                raise HTTPException(502, "Twitch skickade ingen bild.")
+            if int(response.headers.get("content-length") or 0) > IMAGE_MAX:
+                raise too_big
+            for chunk in response.iter_bytes():  # storleken kontrolleras under hämtningen
+                data += chunk
+                if len(data) > IMAGE_MAX:
+                    raise too_big
     except httpx.HTTPError as error:
         raise HTTPException(502, "Twitch svarar inte. Försök igen om en stund.") from error
-    if response.status_code != 200 or not response.content or len(response.content) > IMAGE_MAX:
+    if not data:
         raise HTTPException(502, "Twitch skickade ingen bild.")
     src = frame.with_name(f".{frame.stem}.src.jpg")
     try:
-        src.write_bytes(response.content)
-        _ffmpeg(["-i", str(src)], frame)  # ffmpeg skalar och kontrollerar samtidigt att det är en bild
+        src.write_bytes(bytes(data))
+        # image2 läser filen bara som en bild, aldrig som till exempel en spellista med andra adresser.
+        _ffmpeg(["-f", "image2", "-pattern_type", "none", "-i", str(src)], frame)
     finally:
         src.unlink(missing_ok=True)
 
@@ -363,22 +427,22 @@ def _frame_from_twitch(vod_id: str, frame: Path) -> None:
 def get_frame(profile_id: str, vod_id: str | None = Query(default=None, pattern=r"^\d{6,15}$"),
               settings: Settings = Depends(get_settings)) -> FileResponse:
     _load(profile_id, settings)
-    if vod_id is None:
-        runs = [r for r in _log(settings).runs() if r["profile"] == profile_id]
-        vod_id = runs[-1]["vod_id"] if runs else None
-        if not vod_id or not VOD_ID.fullmatch(str(vod_id)):
-            raise HTTPException(404, "Kampanjen har ingen körning än. Ange en VOD.")
-    frame = settings.work_dir / "frames" / f"{vod_id}.jpg"
+    vod_id = vod_id or _latest_vod(profile_id, settings)
+    if not vod_id:
+        raise HTTPException(404, "Kampanjen har ingen körning än. Ange en VOD.")
+    frames = settings.work_dir / "frames"
+    from_vod, from_twitch = frames / f"{vod_id}.vod.jpg", frames / f"{vod_id}.twitch.jpg"
+    mp4 = settings.work_dir / vod_id / f"{vod_id}.mp4"
     with _frame_lock:
-        if not frame.exists():
-            frame.parent.mkdir(parents=True, exist_ok=True)
-            mp4 = settings.work_dir / vod_id / f"{vod_id}.mp4"
-            if mp4.exists():
-                try:
-                    seconds = probe(mp4)["duration"] * 0.25  # en bit in, förbi startskärmen
-                except (RuntimeError, SystemExit) as error:
-                    raise HTTPException(500, "VOD-filen går inte att läsa.") from error
-                _ffmpeg(["-ss", f"{seconds:.2f}", "-i", str(mp4)], frame)
-            else:
-                _frame_from_twitch(vod_id, frame)
-    return FileResponse(frame, media_type="image/jpeg")
+        frames.mkdir(parents=True, exist_ok=True)
+        if mp4.is_file() and not from_vod.exists():  # VOD:en på disken går före Twitchs bild
+            try:
+                seconds = probe(mp4)["duration"] * 0.25  # en bit in, förbi startskärmen
+            except (RuntimeError, SystemExit) as error:
+                raise HTTPException(500, "VOD-filen går inte att läsa.") from error
+            _ffmpeg(["-ss", f"{seconds:.2f}", "-i", str(mp4)], from_vod)
+        if from_vod.exists():
+            return FileResponse(from_vod, media_type="image/jpeg")
+        if not from_twitch.exists():
+            _frame_from_twitch(vod_id, from_twitch)
+    return FileResponse(from_twitch, media_type="image/jpeg")
