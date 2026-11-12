@@ -16,10 +16,22 @@ interface Props {
 }
 
 /** Koppla TikTok-kontot, så att godkända klipp kan skickas som utkast till inkorgen. */
-export function TikTokCard({ result, reason }: Props) {
+export function TikTokCard({ result: fromUrl, reason: reasonFromUrl }: Props) {
+  // Svaret från callbacken sparas här, så att meddelandet står kvar när ?tiktok= tas bort ur adressen.
+  const [{ result, reason }] = useState({ result: fromUrl, reason: reasonFromUrl });
   const [status, setStatus] = useState<TikTokStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // När meddelandet har visats: ta bort ?tiktok= och ?orsak=, så att det inte visas igen vid omladdning.
+  useEffect(() => {
+    if (!result || (!status && !error)) return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("tiktok")) return;
+    url.searchParams.delete("tiktok");
+    url.searchParams.delete("orsak");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+  }, [result, status, error]);
 
   const load = useCallback(() => {
     api.campaign.tiktok
@@ -50,7 +62,7 @@ export function TikTokCard({ result, reason }: Props) {
     <section className="mt-10">
       <h2 className="mb-3 text-lg font-semibold">TikTok</h2>
 
-      {result === "ok" && (
+      {result === "ok" && status?.connected && (
         <p role="status" className="mb-3 flex items-center gap-2 rounded-lg border border-[#174a2a] bg-[#0d1a12] px-3 py-2 text-sm text-good">
           <CheckCircle2 className="size-4 shrink-0" aria-hidden />
           TikTok är kopplat.
