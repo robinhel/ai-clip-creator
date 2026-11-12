@@ -147,7 +147,11 @@ def build_stream_context(
         f"Platform: Twitch (clips for TikTok/YouTube Shorts)\n"
     )
     if clip_range:
-        context += f"Target clip length: {clip_range[0]}-{clip_range[1]} seconds\n"
+        context += (
+            f"Clip length for this run: end_offset_s must be {clip_range[0]}-{clip_range[1]} "
+            f"seconds after start_offset_s. This applies instead of the clip length in the "
+            f"instructions.\n"
+        )
     if focus.strip():
         context += f"The user is especially looking for: {focus.strip()}\n"
     return context

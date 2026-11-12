@@ -122,9 +122,9 @@ def _mp4(vod_id: str, settings: Settings) -> Path:
     return settings.work_dir / vod_id / f"{vod_id}.mp4"
 
 
-def _facts(vod_id: str) -> dict:
+def _facts(vod_id: str, fresh: bool = False) -> dict:
     try:
-        return vod_facts(vod_id)
+        return vod_facts(vod_id, fresh)
     except VodNotFound as error:
         raise HTTPException(404, f"Hittar ingen VOD med id {vod_id} på Twitch.") from error
     except Exception as error:  # twitch-dl kastar olika fel när Twitch inte svarar
@@ -142,7 +142,8 @@ def _estimate(facts: dict, settings: Settings) -> dict:
 def vod_info(vod_id: str = PathParam(pattern=r"^\d{6,15}$"),
              settings: Settings = Depends(get_settings)) -> dict:
     facts = _facts(vod_id)
-    campaigns = [p["name"] for p in list_profiles(settings) if p["channel"].lower() == facts["channel"]]
+    campaigns = [p["name"] for p in list_profiles(settings)
+                 if p["channel"] and p["channel"].lower() == facts["channel"]]
     return {**facts, **_estimate(facts, settings), "campaigns": campaigns}
 
 
@@ -176,12 +177,12 @@ def create_run(
 
     low, high = ready["clip_min_s"], ready["clip_max_s"]
     min_s, max_s = body.min_s or low, body.max_s or high
-    if not low <= min_s < max_s <= high:
+    if not low <= min_s <= max_s <= high:
         raise HTTPException(400, f"Klippens längd måste ligga mellan {low} och {high} sekunder, "
-                                 "och den kortaste längden måste vara kortare än den längsta.")
-    facts = _facts(body.vod_id)
-    if facts["channel"] != ready["channel"].lower():
-        raise HTTPException(400, f"VOD:en är från {facts['channel_name'] or facts['channel']}, inte från "
+                                 "och den kortaste längden får inte vara längre än den längsta.")
+    facts = _facts(body.vod_id, fresh=True)  # färska fakta, så att diskkollen har rätt längd
+    if not facts["channel"] or facts["channel"] != ready["channel"].lower():
+        raise HTTPException(400, f"VOD:en är från {facts['channel_name'] or 'en okänd kanal'}, inte från "
                                  f"kampanjens kanal {ready['channel']}. Kampanjen får bara använda "
                                  "streamerns egna streams.")
     space = _estimate(facts, settings)
@@ -216,6 +217,19 @@ def _run_clips(meta: dict, clips: list[dict]) -> list[dict]:
     return [c for c in clips if c["vod_id"] == meta["vod_id"] and c["profile"] == meta["profile"]]
 
 
+def _with_facts(meta: dict, log: ClipLog) -> dict:
+    """Körningar från före VOD-fakta: hämta och spara dem. Svarar inte Twitch visas körningen som förut."""
+    if meta["title"] is not None:
+        return meta
+    try:
+        facts = vod_facts(meta["vod_id"])
+    except Exception:  # twitch-dl kastar olika fel; utan fakta visar webben VOD-numret
+        return meta
+    fields = {key: facts[key] for key in ("title", "channel_name", "thumbnail_url", "duration_s")}
+    log.set_run_facts(meta["run_id"], **fields)
+    return {**meta, **fields}
+
+
 def _describe_run(meta: dict, db: Session, clips: list[dict], steps: bool = False) -> dict:
     run = db.get(Run, meta["run_id"])
     if run is None:
@@ -242,7 +256,7 @@ def _describe_run(meta: dict, db: Session, clips: list[dict], steps: bool = Fals
 def list_runs(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> list[dict]:
     log = _log(settings)
     clips = log.list()
-    return [_describe_run(meta, db, clips) for meta in reversed(log.runs())]
+    return [_describe_run(_with_facts(meta, log), db, clips) for meta in reversed(log.runs())]
 
 
 @router.get("/runs/{run_id}", summary="En körning med förloppet per steg")
@@ -252,7 +266,7 @@ def get_run(run_id: int, db: Session = Depends(get_db),
     meta = log.run(run_id)
     if meta is None:
         raise HTTPException(404, "Körningen finns inte.")
-    return _describe_run(meta, db, log.list(), steps=True)
+    return _describe_run(_with_facts(meta, log), db, log.list(), steps=True)
 
 
 @router.post("/runs/{run_id}/finish", status_code=202, summary="Gör klippen kampanjklara igen",
@@ -322,9 +336,12 @@ def clip_transcript(clip_id: int, settings: Settings = Depends(get_settings)) ->
     start, end = clip["start_s"], clip["end_s"]
     if start is None or end is None or not path.exists():
         return {"text": "", "segments": []}
-    segments = [{"start": s["start"], "end": s["end"], "text": s["text"].strip()}
-                for s in json.loads(path.read_text(encoding="utf-8")).get("segments", [])
-                if s["end"] > start and s["start"] < end]
+    try:
+        segments = [{"start": s["start"], "end": s["end"], "text": s["text"].strip()}
+                    for s in json.loads(path.read_text(encoding="utf-8")).get("segments", [])
+                    if s["end"] > start and s["start"] < end]
+    except (ValueError, KeyError, TypeError, AttributeError):  # trasig fil: visa inget i stället för 500
+        return {"text": "", "segments": []}
     return {"text": " ".join(s["text"] for s in segments), "segments": segments}
 
 
@@ -380,6 +397,8 @@ def patch_clip(clip_id: int, body: ClipPatch, settings: Settings = Depends(get_s
     problems = clip["problems"] or []
     status = clip["status"]
     if "caption" in fields:
+        if fields["caption"] != clip["caption"] and body.status not in (None, status, "nekad"):
+            raise HTTPException(400, "Spara captionen först. Sedan behövs ett nytt ja.")
         problems = _caption_problems(problems, fields["caption"], profile)
         fields["problems"] = problems
         # Ett ja gäller den caption som fanns. Ändras den måste klippet godkännas igen.

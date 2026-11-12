@@ -59,7 +59,11 @@ class ClipLog:
                 have = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
                 for name, kind in columns.items():
                     if name not in have:
-                        db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+                        try:
+                            db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
+                        except sqlite3.OperationalError as error:  # en annan process hann före
+                            if "duplicate column" not in str(error):
+                                raise
 
     def _db(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.db_path)
@@ -180,6 +184,13 @@ class ClipLog:
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (run_id, vod_id, profile, game, focus, min_s, max_s, title, channel_name,
                  thumbnail_url, duration_s, _now()))
+
+    def set_run_facts(self, run_id: int, *, title: str, channel_name: str, thumbnail_url: str | None,
+                      duration_s: int) -> None:
+        """Spara VOD-fakta på en körning som saknar dem, t.ex. en från före fakta fanns."""
+        with self._db() as db:
+            db.execute("UPDATE runs SET title = ?, channel_name = ?, thumbnail_url = ?, duration_s = ? "
+                       "WHERE run_id = ?", (title, channel_name, thumbnail_url, duration_s, run_id))
 
     def runs(self) -> list[dict]:
         with self._db() as db:

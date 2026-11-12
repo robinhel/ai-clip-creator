@@ -402,7 +402,7 @@ def test_vod_cache_expires_and_a_new_run_fetches_fresh_facts(client, fake_twitch
     from campaign import vodinfo
 
     clock = {"t": 1000.0}
-    monkeypatch.setattr(vodinfo.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(vodinfo, "monotonic", lambda: clock["t"])
     client.get(f"/campaign/vod/{VOD}")
     clock["t"] += 9 * 60
     client.get(f"/campaign/vod/{VOD}")
@@ -414,7 +414,7 @@ def test_vod_cache_expires_and_a_new_run_fetches_fresh_facts(client, fake_twitch
     fake_twitch.videos[VOD]["lengthSeconds"] = 18150
     assert client.post("/campaign/runs", json={"profile": "skiimasktimmy", "vod_id": VOD}).status_code == 201
     assert fake_twitch.calls == 3
-    _, kwargs = started[0]
+    assert len(started) == 1
     assert ClipLog(client.app.dependency_overrides[api.get_settings]().data_dir / "klipp.db").runs()[-1][
         "duration_s"] == 18150
 
