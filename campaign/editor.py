@@ -2,7 +2,8 @@
 
 Klippet trimmas ur clipsmiths råklipp out/<vod>/clip_NN.mp4 (före overlay och text). Första gången
 sparas råklippet som out/<vod>/original/clip_NN.mp4, med trimningen i original/clip_NN.json, så att
-varje ny trimning utgår från originalet. Sedan görs klippet kampanjklart igen med finish_clip och
+varje ny trimning utgår från originalet. clipsmith tömmer inte out/<vod>/ vid en ny körning, så json-filen
+har också råklippets storlek och ändringstid: stämmer de inte är råklippet nytt och originalet gäller inte. Sedan görs klippet kampanjklart igen med finish_clip och
 regelkontrollen körs med den sparade bildgranskningen.
 
 Fel ger ValueError med svensk text.
@@ -21,12 +22,16 @@ from .cliplog import ClipLog
 from .config import Settings
 from .finish import ENCODER_ARGS, finish_clip
 from .media import need, probe, run
-from .pipeline import clipsmith_config
 from .profile import Profile
 from .rules import check_clip
 
 lock = threading.Lock()  # en redigering åt gången
 LOCKED = ("postad", "inskickad", "analytics_inskickad", "betald")
+ROUNDING_S = 0.05  # webben avrundar till tiondelar
+
+
+class EditConflict(Exception):
+    """Klippet ändrades under redigeringen, till exempel postades. Ger 409."""
 
 
 def raw_path(clip: dict, settings: Settings) -> Path | None:
@@ -43,19 +48,27 @@ def _original(raw: Path) -> tuple[Path, Path]:
     return folder / raw.name, folder / f"{raw.stem}.json"
 
 
+def _meta(raw: Path) -> dict | None:
+    """Trimningen i original/clip_NN.json, om den hör till råklippet som ligger där nu."""
+    original, meta_path = _original(raw)
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        stat = raw.stat()
+    except (OSError, ValueError):
+        return None
+    same = (isinstance(meta, dict) and meta.get("raw_size") == stat.st_size
+            and meta.get("raw_mtime_ns") == stat.st_mtime_ns)
+    return meta if same and original.is_file() else None
+
+
 def source_path(raw: Path) -> Path:
     """Originalet om klippet har trimmats, annars råklippet."""
-    original, _ = _original(raw)
-    return original if original.exists() else raw
+    return _original(raw)[0] if _meta(raw) else raw
 
 
-def limits(profile: Profile, settings: Settings) -> tuple[float, float]:
-    """Kampanjens längd ur clipsmiths config, som vid start av en körning. Annars profilens."""
-    try:
-        clip = clipsmith_config(profile, settings).clip
-        return clip.min_seconds, clip.max_seconds
-    except ValueError:
-        return profile.min_seconds, profile.max_seconds
+def limits(profile: Profile) -> tuple[float, float]:
+    """Profilens längd, samma gränser som regelkontrollen (check_clip) använder."""
+    return profile.min_seconds, profile.max_seconds
 
 
 def why_not(clip: dict, raw: Path | None) -> str | None:
@@ -70,9 +83,8 @@ def why_not(clip: dict, raw: Path | None) -> str | None:
 
 def _state(clip: dict, raw: Path) -> dict:
     """Originalets längd och början i VOD:en, och nuvarande trimning. Skriver inget."""
-    _, meta_path = _original(raw)
     duration = round(probe(source_path(raw))["duration"], 2)
-    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    meta = _meta(raw) or {}
     start = meta.get("start_s", clip["start_s"])
     return {"duration_s": duration, "start_s": start, "in_s": meta.get("in_s", 0.0),
             "out_s": meta.get("out_s", duration)}
@@ -81,7 +93,7 @@ def _state(clip: dict, raw: Path) -> dict:
 def edit_info(clip: dict, profile: Profile, settings: Settings) -> dict:
     raw = raw_path(clip, settings)
     reason = why_not(clip, raw)
-    min_s, max_s = limits(profile, settings)
+    min_s, max_s = limits(profile)
     original = trim = None
     if raw is not None and raw.is_file():
         state = _state(clip, raw)
@@ -119,6 +131,28 @@ def _trim(src: Path, out: Path, in_s: float, out_s: float, encoder: str) -> None
          "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(out)])
 
 
+def _write_atomic(path: Path, data: bytes) -> None:
+    tmp = path.with_name(f".{path.name}.tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _new_trim(state: dict, in_s: float | None, out_s: float | None) -> tuple[float, float]:
+    """Webben avrundar till tiondelar: ett slut strax efter originalet kapas till dess längd, och värden
+    nära nuvarande trimning räknas som oförändrade, så att ett rubrikbyte inte kodar om klippet."""
+    duration = state["duration_s"]
+    new_in = state["in_s"] if in_s is None or abs(in_s - state["in_s"]) < ROUNDING_S else in_s
+    new_out = state["out_s"] if out_s is None else out_s
+    if duration < new_out <= duration + ROUNDING_S:
+        new_out = duration
+    if abs(new_out - state["out_s"]) < ROUNDING_S:
+        new_out = state["out_s"]
+    return new_in, new_out
+
+
 def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
               in_s: float | None = None, out_s: float | None = None, title: str | None = None) -> None:
     """Trimma och/eller byt rubrik. Anroparen håller `lock`."""
@@ -128,14 +162,13 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
         raise ValueError(reason)
     assert raw is not None
     state = _state(clip, raw)
-    new_in = state["in_s"] if in_s is None else in_s
-    new_out = state["out_s"] if out_s is None else out_s
-    trimmed = abs(new_in - state["in_s"]) > 0.005 or abs(new_out - state["out_s"]) > 0.005
+    new_in, new_out = _new_trim(state, in_s, out_s)
+    trimmed = (new_in, new_out) != (state["in_s"], state["out_s"])
     if trimmed:
         if not 0 <= new_in < new_out <= state["duration_s"]:
             raise ValueError(f"Start och slut måste ligga inom klippet: 0 till {state['duration_s']:g} s, "
                              "och starten före slutet.")
-        min_s, max_s = limits(profile, settings)
+        min_s, max_s = limits(profile)
         length = round(new_out - new_in, 3)  # exakt kampanjens gränser, som i webben
         if not min_s <= length <= max_s:
             raise ValueError(f"Klippet blir {length:.1f} s. Kampanjen tillåter {min_s:g}–{max_s:g} s.")
@@ -146,26 +179,39 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
     done = raw.parent / "klara" / raw.name
     caption = _caption(clip, new_title, profile, _game(log, clip))
     rendered = None
-    if trimmed or not done.exists():
-        original, meta_path = _original(raw)
-        tmp_raw, tmp_done = _tmp(raw, "trim"), _tmp(done, "edit")
-        try:
+    original, meta_path = _original(raw)
+    tmp_raw, tmp_done = _tmp(raw, "trim"), _tmp(done, "edit")
+    tmp_original = original.with_name(f".{original.name}.tmp")
+    try:
+        if trimmed or not done.exists():
             if trimmed:
                 _trim(source_path(raw), tmp_raw, new_in, new_out, settings.encoder)
             rendered = finish_clip(tmp_raw if trimmed else raw, tmp_done, profile, settings.root, settings.encoder)
-            if trimmed and not original.exists():
+
+        # Precis före bytet: klippet kan ha postats under tiden. Sedan tas ett gammalt ja bort, så att
+        # inget godkännande gäller den nya filen om något går fel efteråt.
+        now = log.get(clip["id"])
+        reason = why_not(now, raw)
+        if reason:
+            raise EditConflict(f"Klippet ändrades under redigeringen. {reason}")
+        log.update(clip["id"], status="renderad")
+
+        if trimmed:
+            if source_path(raw) == raw:  # första trimningen av det här råklippet: spara det som original
                 original.parent.mkdir(exist_ok=True)
-                shutil.copy2(raw, original.with_name(f".{original.name}.tmp"))
-                os.replace(original.with_name(f".{original.name}.tmp"), original)
-            if trimmed:
-                meta_path.write_text(json.dumps({"start_s": state["start_s"], "in_s": new_in, "out_s": new_out}),
-                                     encoding="utf-8")
-                os.replace(tmp_raw, raw)
+                shutil.copy2(raw, tmp_original)
+                os.replace(tmp_original, original)
+            os.replace(tmp_raw, raw)
+            stat = raw.stat()
+            _write_atomic(meta_path, json.dumps({
+                "start_s": state["start_s"], "in_s": new_in, "out_s": new_out,
+                "raw_size": stat.st_size, "raw_mtime_ns": stat.st_mtime_ns}).encode("utf-8"))
+        if rendered:
             os.replace(tmp_done, done)
-        finally:
-            tmp_raw.unlink(missing_ok=True)
-            tmp_done.unlink(missing_ok=True)
-            original.with_name(f".{original.name}.tmp").unlink(missing_ok=True)
+    finally:
+        tmp_raw.unlink(missing_ok=True)
+        tmp_done.unlink(missing_ok=True)
+        tmp_original.unlink(missing_ok=True)
     manifest = {"overlay_applied": rendered["overlay_applied"], "text_applied": rendered["text_applied"]} \
         if rendered else {"overlay_applied": _has_overlay(profile, settings), "text_applied": bool(profile.text)}
     problems, warnings = check_clip(probe(done), manifest, profile, caption, clip["format"], clip["review"])

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from urllib.parse import quote
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -11,7 +9,7 @@ from pydantic import BaseModel, Field
 from clipsmith.api.deps import verify_api_key
 
 from . import editor
-from .api import _get, _log, _profile, _public, get_settings
+from .api import _get, _log, _profile, _public, _start_lock, get_settings
 from .config import Settings
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
@@ -41,21 +39,21 @@ class EditBody(BaseModel):
              dependencies=[Depends(verify_api_key)])
 def post_edit(clip_id: int, body: EditBody, request: Request, settings: Settings = Depends(get_settings)) -> dict:
     log = _log(settings)
-    if getattr(request.app.state, "active_run_id", None) is not None:
-        raise HTTPException(409, "En körning pågår. Vänta tills den är klar.")
     if not editor.lock.acquire(blocking=False):
         raise HTTPException(409, "En annan redigering pågår. Vänta tills den är klar.")
     try:
+        with _start_lock:  # samma lås som när en körning startar, så att de inte kan börja samtidigt
+            if getattr(request.app.state, "active_run_id", None) is not None:
+                raise HTTPException(409, "En körning pågår. Vänta tills den är klar.")
         clip = _get(log, clip_id)  # läs inuti låset
         profile = _profile(clip["profile"], settings)
         editor.edit_clip(clip, profile, settings, log, in_s=body.in_s, out_s=body.out_s, title=body.title)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
+    except editor.EditConflict as error:
+        raise HTTPException(409, str(error)) from error
     except RuntimeError as error:  # ffmpeg misslyckades
         raise HTTPException(500, f"Klippet gick inte att göra om: {error}") from error
     finally:
         editor.lock.release()
-    clip = log.get(clip_id)
-    out = _public(clip, settings)
-    out["video_url"] += f"?v={quote(clip['updated'])}"  # nytt innehåll, så webbläsaren inte visar det gamla
-    return out
+    return _public(log.get(clip_id), settings)

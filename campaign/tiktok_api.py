@@ -13,6 +13,7 @@ from fastapi.responses import RedirectResponse
 
 from clipsmith.api.deps import verify_api_key
 
+from . import editor
 from .api import _get, _log, get_settings
 from .config import Settings
 from .tiktok import AUTH_URL, SCOPES, TikTok, TikTokError
@@ -89,6 +90,8 @@ def tiktok_disconnect(settings: Settings = Depends(get_settings)) -> dict:
 @router.post("/clips/{clip_id}/tiktok", status_code=202, summary="Ladda upp klippet som utkast i TikTok",
              dependencies=[Depends(verify_api_key)])
 def upload_clip(clip_id: int, settings: Settings = Depends(get_settings)) -> dict:
+    if editor.lock.locked():  # filen kan bytas mitt i uppladdningen
+        raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
     clip = _get(_log(settings), clip_id)
     if clip["status"] != "godkand":
         raise HTTPException(400, "Bara godkända klipp kan laddas upp till TikTok.")
