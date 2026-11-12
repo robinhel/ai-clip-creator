@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 
 import pytest
@@ -25,14 +26,15 @@ RAW = "clip_01_no_way.mp4"
 
 @pytest.fixture
 def setup(settings, monkeypatch):
-    """En kampanj med gränserna 3–8 s, overlay, en körning med spel och ett färdigt klipp på 10 s."""
+    """En kampanj med gränserna 3–8 s, overlay, en körning med spel och ett färdigt klipp på 10 s
+    (för långt, så det är underkänt tills det trimmas)."""
     monkeypatch.setitem(finish.ENCODER_ARGS, "libx264", ["-c:v", "libx264", "-preset", "ultrafast"])  # snabbare test
     config = (PAKET / "config.timmy.yaml").read_text(encoding="utf-8")
     config = config.replace("min_seconds: 15", "min_seconds: 3").replace("max_seconds: 45", "max_seconds: 8")
     (settings.root / "config.timmy.yaml").write_text(config, encoding="utf-8")
     profile_path = settings.profiles_dir / "skiimasktimmy.yaml"
-    profile_path.write_text(profile_path.read_text(encoding="utf-8").replace("min_seconds: 7 ", "min_seconds: 3 "),
-                            encoding="utf-8")
+    profile_path.write_text(profile_path.read_text(encoding="utf-8").replace("min_seconds: 7 ", "min_seconds: 3 ")
+                            .replace("max_seconds: 60 ", "max_seconds: 8  "), encoding="utf-8")
     make_overlay(settings.root / "overlays" / "skiimasktimmy.png")
     make_clip(settings.out_dir / "123" / RAW, seconds=10)
     picks = settings.work_dir / "123" / "picks.json"
@@ -115,7 +117,7 @@ def test_bad_ranges_are_refused_and_change_nothing(setup, settings, body) -> Non
 # ---------- 3. postade och nekade ----------
 
 
-@pytest.mark.parametrize("status", ["postad", "inskickad", "betald", "nekad"])
+@pytest.mark.parametrize("status", ["postad", "inskickad", "analytics_inskickad", "betald", "nekad"])
 def test_posted_and_rejected_clips_cannot_be_edited(setup, settings, status) -> None:
     client, log, clip_id = setup
     log.update(clip_id, status=status)
@@ -143,7 +145,7 @@ def test_clip_without_its_raw_clip_cannot_be_edited(setup, settings) -> None:
 
 def test_approved_clip_must_be_approved_again(setup, settings) -> None:
     client, log, clip_id = setup
-    assert log.get(clip_id)["status"] == "renderad"
+    assert log.get(clip_id)["status"] == "underkand"  # 10 s, kampanjen tillåter 8
     log.update(clip_id, status="godkand")
     response = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0})
     assert response.json()["status"] == "renderad"
@@ -253,3 +255,155 @@ def test_finish_again_keeps_the_edited_title_and_times(setup, settings) -> None:
     clip = log.get(clip_id)
     assert (clip["title"], clip["start_s"], clip["end_s"]) == ("Huge clutch", 101.0, 107.0)
     assert probe(done)["duration"] == pytest.approx(6.0, abs=0.1)
+
+
+# ---------- granskningen av redigeraren ----------
+
+
+def _state(settings, log, clip_id):
+    raw, done, original = _paths(settings)
+    return log.get(clip_id)["status"], raw.read_bytes(), done.read_bytes(), original.parent.exists()
+
+
+def test_rounded_end_from_the_web_is_accepted_and_does_not_re_encode(setup, settings) -> None:
+    client, log, _ = setup
+    raw = make_clip(settings.out_dir / "124" / "clip_01_long.mp4", seconds=31.27)
+    done = raw.parent / "klara" / raw.name
+    done.parent.mkdir()
+    shutil.copy(raw, done)
+    clip_id = log.add(vod_id="124", profile="skiimasktimmy", file=str(done), title="Long", caption="c",
+                      start_s=500.0, end_s=531.27)
+    duration = client.get(f"/campaign/clips/{clip_id}/edit").json()["original"]["duration_s"]
+    assert abs(duration - 31.27) < 0.04
+    mtime = done.stat().st_mtime_ns
+    for body in ({"in_s": 0.0, "out_s": 31.3}, {"in_s": 0.0, "out_s": 31.3, "title": "Longer"}):
+        response = client.post(f"/campaign/clips/{clip_id}/edit", json=body)
+        assert response.status_code == 200, response.text
+        assert done.stat().st_mtime_ns == mtime  # inget kodades om
+        assert not (raw.parent / "original").exists()
+    assert log.get(clip_id)["title"] == "Longer"
+    assert client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 0.0, "out_s": 31.4}).status_code == 400
+
+
+def test_end_a_little_past_the_original_is_cut_to_its_length(setup, settings) -> None:
+    client, log, clip_id = setup
+    duration = client.get(f"/campaign/clips/{clip_id}/edit").json()["original"]["duration_s"]
+    response = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 3.0, "out_s": round(duration + 0.04, 2)})
+    assert response.status_code == 200, response.text
+    assert log.get(clip_id)["end_s"] == pytest.approx(100.0 + duration, abs=0.001)
+    assert client.get(f"/campaign/clips/{clip_id}/edit").json()["trim"]["out_s"] == duration
+
+
+def test_a_failing_check_after_the_swap_leaves_no_old_yes(setup, settings, monkeypatch) -> None:
+    client, log, clip_id = setup
+    log.update(clip_id, status="godkand")
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("trasig")
+
+    monkeypatch.setattr(editor, "check_clip", broken)
+    response = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0})
+    assert response.status_code == 500
+    assert log.get(clip_id)["status"] != "godkand"
+
+
+@pytest.mark.parametrize("step", ["_trim", "finish_clip"])
+def test_failed_render_changes_nothing(setup, settings, monkeypatch, step) -> None:
+    client, log, clip_id = setup
+    log.update(clip_id, status="godkand")
+    before = _state(settings, log, clip_id)
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("ffmpeg misslyckades")
+
+    monkeypatch.setattr(editor, step, broken)
+    assert client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0}).status_code == 500
+    assert _state(settings, log, clip_id) == before
+    assert not [p for p in settings.out_dir.rglob(".*")]
+
+
+def test_title_only_on_an_approved_clip_needs_a_new_yes(setup) -> None:
+    client, log, clip_id = setup
+    assert client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0}).json()["status"] == "renderad"
+    log.update(clip_id, status="godkand")
+    assert client.post(f"/campaign/clips/{clip_id}/edit", json={"title": "Ny"}).json()["status"] == "renderad"
+
+
+def test_clip_posted_during_the_edit_is_not_changed(setup, settings, monkeypatch) -> None:
+    client, log, clip_id = setup
+    raw, done, _ = _paths(settings)
+    before = (raw.read_bytes(), done.read_bytes())
+    real = editor.finish_clip
+
+    def finish_and_post(*args, **kwargs):
+        result = real(*args, **kwargs)
+        log.update(clip_id, status="postad")  # som om klippet postades under tiden
+        return result
+
+    monkeypatch.setattr(editor, "finish_clip", finish_and_post)
+    response = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0})
+    assert response.status_code == 409
+    assert log.get(clip_id)["status"] == "postad"
+    assert (raw.read_bytes(), done.read_bytes()) == before
+    assert not _paths(settings)[2].parent.exists()
+
+
+def test_other_writes_wait_for_a_running_edit(setup, settings, fake_twitch, monkeypatch) -> None:
+    from campaign import estimate, tiktok_api
+
+    client, log, clip_id = setup
+    client.app.include_router(tiktok_api.router)
+    settings.anthropic_api_key = settings.berget_api_key = "test"
+    monkeypatch.setattr(estimate, "disk_gb", lambda path: (100.0, 228.0))
+    monkeypatch.setattr(api, "run_campaign_vod", lambda *a, **k: None)
+    monkeypatch.setattr(api, "finish_run", lambda *a, **k: None)
+    log.update(clip_id, status="godkand")
+    assert editor.lock.acquire(blocking=False)
+    try:
+        assert client.patch(f"/campaign/clips/{clip_id}", json={"status": "nekad"}).status_code == 409
+        assert client.patch(f"/campaign/clips/{clip_id}", json={"caption": "x"}).status_code == 409
+        assert client.patch(f"/campaign/clips/{clip_id}", json={"note": "bra"}).status_code == 200
+        assert client.post(f"/campaign/clips/{clip_id}/tiktok").status_code == 409
+        run = {"profile": "skiimasktimmy", "vod_id": "2925991945"}
+        assert client.post("/campaign/runs", json=run).status_code == 409
+        assert client.post("/campaign/runs/1/finish").status_code == 409
+        assert client.app.state.active_run_id is None
+    finally:
+        editor.lock.release()
+    assert log.get(clip_id)["status"] == "godkand"
+    assert client.patch(f"/campaign/clips/{clip_id}", json={"status": "nekad"}).status_code == 200
+    assert client.post("/campaign/runs/1/finish").status_code == 202
+
+
+def test_limits_are_the_same_as_in_the_rule_check(setup, settings) -> None:
+    client, _, clip_id = setup
+    config = settings.root / "config.timmy.yaml"
+    config.write_text(config.read_text().replace("max_seconds: 8", "max_seconds: 45"))
+    info = client.get(f"/campaign/clips/{clip_id}/edit").json()
+    assert (info["min_s"], info["max_s"]) == (3, 8)  # profilens, som check_clip använder
+
+
+def test_the_original_json_is_written_after_the_raw_clip(setup, settings) -> None:
+    client, _, clip_id = setup
+    raw, _, original = _paths(settings)
+    client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0})
+    meta = json.loads(original.with_suffix(".json").read_text())
+    assert (meta["raw_size"], meta["raw_mtime_ns"]) == (raw.stat().st_size, raw.stat().st_mtime_ns)
+
+
+def test_an_old_original_is_not_used_for_a_new_raw_clip(setup, settings) -> None:
+    client, _, clip_id = setup
+    raw, _, original = _paths(settings)
+    client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0})
+    old_original = original.read_bytes()
+    # En ny körning av samma VOD skriver ett nytt råklipp med samma namn (clipsmith tömmer inte out/<vod>/).
+    os.remove(raw)
+    make_clip(raw, seconds=5)
+    info = client.get(f"/campaign/clips/{clip_id}/edit").json()
+    assert info["original"]["duration_s"] == pytest.approx(5.0, abs=0.1)
+    assert info["trim"] == {"in_s": 0.0, "out_s": info["original"]["duration_s"]}
+    assert client.get(f"/campaign/clips/{clip_id}/original").content == raw.read_bytes()
+
+    new_raw = raw.read_bytes()
+    assert client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 0.5, "out_s": 4.5}).status_code == 200
+    assert original.read_bytes() == new_raw != old_original
