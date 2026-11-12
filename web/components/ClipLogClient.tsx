@@ -53,7 +53,73 @@ function BudgetCard({ title, spent, cap }: { title: string; spent: number; cap: 
   );
 }
 
-function ClipRow({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (clip: CampaignClip) => void }) {
+type Earnings = NonNullable<CampaignSummary["earnings"]>;
+const monthName = new Intl.DateTimeFormat("sv-SE", { month: "short", year: "2-digit" });
+
+/** Staplar per månad i SVG, med beloppet ovanför varje stapel. */
+function MonthChart({ months }: { months: Earnings["by_month"] }) {
+  const shown = months.slice(-12);
+  const top = Math.max(...shown.map((m) => m.usd), 0);
+  const H = 120;
+  const bar = 34;
+  const gap = 18;
+  const width = shown.length * (bar + gap);
+  return (
+    <svg role="img" aria-label="Uppskattad intäkt per månad" viewBox={`0 0 ${width} ${H + 40}`} className="h-44 max-w-full" style={{ width }}>
+      {shown.map((m, i) => {
+        const h = top > 0 ? Math.max(2, (m.usd / top) * H) : 2;
+        const x = i * (bar + gap) + gap / 2;
+        const [y, mo] = m.month.split("-").map(Number);
+        return (
+          <g key={m.month} data-month={m.month}>
+            <rect x={x} y={18 + H - h} width={bar} height={h} rx={5} className={m.usd > 0 ? "fill-brand" : "fill-line"} />
+            <text x={x + bar / 2} y={12 + H - h} textAnchor="middle" className="fill-foreground text-[10px] tabular-nums">
+              {usd.format(m.usd)}
+            </text>
+            <text x={x + bar / 2} y={H + 34} textAnchor="middle" className="fill-muted-foreground text-[10px]">
+              {monthName.format(new Date(y, mo - 1, 1))}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function EarningsCards({ earnings }: { earnings: Earnings }) {
+  // Per klipp är beloppet 0 under kampanjens minsta visningar.
+  const over = earnings.per_clip.filter((c) => c.usd > 0).length;
+  const cards: [string, string, string][] = [
+    ["Uppskattad intäkt", usd.format(earnings.estimated_usd), "Visningar gånger kampanjens pris, med taket per klipp."],
+    ["Utbetalt", usd.format(earnings.paid_usd), "Klipp med status Betald."],
+    ["Klipp över minsta visningar", `${over} av ${earnings.per_clip.length}`, "Bara de här klippen ger pengar."],
+  ];
+  return (
+    <section aria-label="Intäkter" className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+        {cards.map(([label, value, hint]) => (
+          <div key={label} className="rounded-2xl border border-line bg-panel px-4 py-3">
+            <p className="text-[13px] text-muted-foreground">{label}</p>
+            <p data-earning={label} className="text-2xl font-bold tabular-nums">{value}</p>
+            <p className="text-xs text-muted-foreground">{hint}</p>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-2xl border border-line bg-panel p-4">
+        <p className="mb-2 text-[13px] text-muted-foreground">Uppskattad intäkt per månad</p>
+        {earnings.by_month.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">Inga klipp med visningar än.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <MonthChart months={earnings.by_month} />
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ClipRow({ clip, estimate, onUpdate }: { clip: CampaignClip; estimate?: number; onUpdate: (clip: CampaignClip) => void }) {
   const [stats, setStats] = useState<Record<StatKey, string>>(() => ({
     views: clip.views?.toString() ?? "",
     likes: clip.likes?.toString() ?? "",
@@ -159,6 +225,9 @@ function ClipRow({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (clip: Camp
           </span>
         )}
       </td>
+      <td className="py-3 pr-4 text-right tabular-nums" data-estimate={clip.id}>
+        {estimate == null ? <span className="text-muted-foreground">–</span> : usd.format(estimate)}
+      </td>
       <td className="py-3">
         <div className="flex flex-wrap justify-end gap-1.5">
           {dirty && (
@@ -226,6 +295,7 @@ export function ClipLogClient({ initialSummary = null, initialClips = null }: Pr
 
   const visible = clips?.filter((c) => !filter || c.status === filter) ?? [];
   const purposes = Object.entries(summary?.budget.by_purpose ?? {});
+  const estimates = new Map(summary?.earnings?.per_clip.map((c) => [c.id, c.usd]) ?? []);
 
   return (
     <main className="w-full max-w-[1180px] space-y-8 px-6 py-9 md:px-11">
@@ -252,6 +322,8 @@ export function ClipLogClient({ initialSummary = null, initialClips = null }: Pr
       )}
 
       {!summary && !error && <p className="text-sm text-muted-foreground">Hämtar klipploggen…</p>}
+
+      {summary?.earnings && <EarningsCards earnings={summary.earnings} />}
 
       {summary && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -338,6 +410,7 @@ export function ClipLogClient({ initialSummary = null, initialClips = null }: Pr
                       </th>
                     ))}
                     <th className="py-2 pr-4 text-right font-medium">Engagemang</th>
+                    <th className="py-2 pr-4 text-right font-medium">Uppskattat</th>
                     <th className="py-2 pr-4">
                       <span className="sr-only">Åtgärder</span>
                     </th>
@@ -345,7 +418,12 @@ export function ClipLogClient({ initialSummary = null, initialClips = null }: Pr
                 </thead>
                 <tbody className="[&_td:first-child]:pl-4 [&_td:last-child]:pr-4">
                   {visible.map((clip) => (
-                    <ClipRow key={`${clip.id}-${clip.updated}`} clip={clip} onUpdate={handleUpdate} />
+                    <ClipRow
+                      key={`${clip.id}-${clip.updated}`}
+                      clip={clip}
+                      estimate={estimates.get(clip.id)}
+                      onUpdate={handleUpdate}
+                    />
                   ))}
                 </tbody>
               </table>

@@ -7,8 +7,8 @@ import { AlertTriangle, Link2, Loader2, X } from "lucide-react";
 import { ProblemFix, readyText } from "@/components/CampaignsClient";
 import { ProjectCard } from "@/components/ProjectCard";
 import { api } from "@/lib/api";
-import { clock, cn, duration, parseClock, usd } from "@/lib/utils";
-import type { CampaignProfile, CampaignRunInfo, CampaignSummary, VodInfo } from "@/lib/types";
+import { clock, cn, duration, parseClock, serverTime, usd } from "@/lib/utils";
+import type { CampaignProfile, CampaignRunInfo, CampaignSummary, StreamInfo, VodInfo } from "@/lib/types";
 
 const FOCUS_MAX = 300;
 const RUNS_POLL_MS = 5000;
@@ -52,6 +52,53 @@ function TodoCard({ count, label, href, cta }: { count: number; label: string; h
   );
 }
 
+const streamDay = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" });
+
+function streamTag(s: StreamInfo): { text: string; tone: string } | null {
+  if (s.run_id == null || !s.run_status) return null;
+  if (s.run_status === "failed") return { text: "Misslyckades", tone: "bg-bad font-semibold text-white" };
+  if (s.run_status === "done") return { text: `Klar, ${s.clip_count} klipp`, tone: "bg-black/70" };
+  return { text: "Pågår", tone: "bg-brand text-white" };
+}
+
+/** En stream: klick fyller i fältet, eller öppnar projektet om VOD:en redan har en körning. */
+function StreamCard({ stream: s, selected, onPick }: { stream: StreamInfo; selected: boolean; onPick: (vodId: string) => void }) {
+  const tag = streamTag(s);
+  const body = (
+    <>
+      <div className="relative aspect-video bg-[#1f1f26]">
+        {s.thumbnail_url ? (
+          // eslint-disable-next-line @next/next/no-img-element -- Twitch-bild.
+          <img src={s.thumbnail_url} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <div className="grid h-full place-items-center text-xs text-muted-foreground tabular-nums">VOD {s.vod_id}</div>
+        )}
+        {tag && <span className={cn("absolute top-1.5 left-1.5 rounded-md px-1.5 py-0.5 text-[11px]", tag.tone)}>{tag.text}</span>}
+        <span className="absolute right-1.5 bottom-1.5 rounded-md bg-black/70 px-1.5 text-[11px] tabular-nums">{clock(s.duration_s)}</span>
+      </div>
+      <div className="space-y-0.5 px-2.5 py-2 text-left">
+        <p className="line-clamp-2 text-[13px] leading-snug font-medium break-words">{s.title}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {[s.game, streamDay.format(serverTime(s.created_at))].filter(Boolean).join(", ")}
+        </p>
+      </div>
+    </>
+  );
+  const box = cn(
+    "w-52 shrink-0 snap-start overflow-hidden rounded-xl border bg-panel transition-colors hover:border-[#3a3a44] focus-visible:outline-2 focus-visible:outline-brand",
+    selected ? "border-brand" : "border-line"
+  );
+  return s.run_id != null ? (
+    <Link href={`/runs/${s.run_id}`} data-vod={s.vod_id} className={box}>
+      {body}
+    </Link>
+  ) : (
+    <button type="button" data-vod={s.vod_id} onClick={() => onPick(s.vod_id)} className={box}>
+      {body}
+    </button>
+  );
+}
+
 export function HomeClient() {
   const router = useRouter();
   const [link, setLink] = useState("");
@@ -62,6 +109,8 @@ export function HomeClient() {
   const [summary, setSummary] = useState<CampaignSummary | null>(null);
   const [runs, setRuns] = useState<CampaignRunInfo[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [streams, setStreams] = useState<StreamInfo[] | null>(null);
+  const [streamsError, setStreamsError] = useState(false);
 
   const [profileName, setProfileName] = useState("");
   const [game, setGame] = useState("");
@@ -86,6 +135,8 @@ export function HomeClient() {
         setRuns(r);
       })
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Kunde inte hämta startsidan"));
+    // Egen hämtning: Twitch kan vara långsam, och ett fel här ska inte stoppa resten av sidan.
+    api.campaign.streams().then(setStreams).catch(() => setStreamsError(true));
   }, []);
 
   // Läs om projekten var femte sekund medan något projekt pågår, också efter ett misslyckat anrop.
@@ -427,6 +478,25 @@ export function HomeClient() {
           )}
         </form>
       </section>
+
+      {streamsError ? (
+        <p className="mx-auto mt-6 max-w-[720px] text-center text-xs text-muted-foreground">Kunde inte hämta de senaste streamsen från Twitch.</p>
+      ) : (
+        streams &&
+        streams.length > 0 && (
+          <section className="mt-9" aria-label="Senaste streams">
+            <h2 className="mb-3 text-lg font-semibold">Senaste streams</h2>
+            <div className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-2">
+              {streams.map((s) => (
+                <StreamCard key={s.vod_id} stream={s} selected={s.vod_id === vodId} onPick={(id) => {
+                  setLink(id);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }} />
+              ))}
+            </div>
+          </section>
+        )
+      )}
 
       {loadError && (
         <p role="alert" className="mt-8 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">

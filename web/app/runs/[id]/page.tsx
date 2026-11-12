@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Check, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
+import { Bell, Check, Keyboard, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ClipResultRow } from "@/components/ClipResultRow";
+import { ClipResultRow, ignoreKey } from "@/components/ClipResultRow";
+import { clipTotal } from "@/components/ProjectCard";
 import { api } from "@/lib/api";
 import { clock, cn, duration, serverTime, usd } from "@/lib/utils";
 import type { CampaignClip, CampaignProfile, CampaignRunDetail, CampaignStatus, Run, RunStep } from "@/lib/types";
@@ -45,6 +46,39 @@ function stepTime(step: RunStep, now: number): string {
   return "";
 }
 
+/** Tunn stapel när steget säger "Del N av M", som transkriberingen gör per del till Berget. */
+function PartBar({ message }: { message?: string | null }) {
+  const m = message?.match(/^Del (\d+) av (\d+)$/);
+  if (!m || Number(m[2]) === 0) return null;
+  const pct = Math.min(100, (Number(m[1]) / Number(m[2])) * 100);
+  return (
+    <div
+      role="progressbar"
+      aria-label="Delar klara"
+      aria-valuenow={Math.round(pct)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      className="mt-1.5 h-1 w-48 overflow-hidden rounded-full bg-line"
+    >
+      <div className="h-full rounded-full bg-brand transition-[width]" style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+const KEYS: [string, string][] = [
+  ["J", "nästa klipp"],
+  ["K", "föregående klipp"],
+  ["Y", "ja"],
+  ["N", "nej"],
+  ["E", "redigera"],
+  ["C", "kopiera caption"],
+];
+
+/** Notisens läge i webbläsaren, eller null om webbläsaren saknar notiser. */
+function notifyPermission(): NotificationPermission | null {
+  return typeof window !== "undefined" && "Notification" in window ? Notification.permission : null;
+}
+
 function Steps({ steps }: { steps: RunStep[] }) {
   const now = Date.now();
   return (
@@ -66,7 +100,9 @@ function Steps({ steps }: { steps: RunStep[] }) {
             <p className={cn("font-semibold", step.status === "waiting" && "text-muted-foreground")}>{step.label}</p>
             <p className="text-[13px] text-muted-foreground">
               {{ waiting: "Väntar", running: "Pågår", done: "Klart", failed: "Misslyckades" }[step.status]}
+              {step.status === "running" && step.message ? `: ${step.message}` : ""}
             </p>
+            {step.status === "running" && <PartBar message={step.message} />}
           </div>
           <span className="ml-auto text-[13px] whitespace-nowrap text-muted-foreground tabular-nums">
             {stepTime(step, now)}
@@ -92,6 +128,9 @@ export default function RunDetailPage() {
   const [legacyRun, setLegacyRun] = useState<Run | null>(null);
   const [finishStartedAt, setFinishStartedAt] = useState<number | null>(null);
   const [finishError, setFinishError] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const [permission, setPermission] = useState<NotificationPermission | null>(null);
+  const wasActive = useRef(false);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
   // Räknas upp efter varje omläsning, så att nästa startar också när anropet misslyckades.
@@ -154,6 +193,26 @@ export default function RunDetailPage() {
     }
   }
 
+  useEffect(() => setPermission(notifyPermission()), []);
+  useEffect(() => {
+    if (!run) return;
+    if (isActive) {
+      wasActive.current = true;
+      return;
+    }
+    if (!wasActive.current || run.status !== "done") return;
+    wasActive.current = false;
+    document.title = "✓ Klar";
+    if (notifyPermission() === "granted") {
+      const n = clipTotal(run);
+      new Notification("✓ Klar", { body: `${run.title || `VOD ${run.vod_id}`}: ${n} klipp att granska.` });
+    }
+  }, [run, isActive]);
+
+  async function askPermission() {
+    setPermission(await Notification.requestPermission());
+  }
+
   async function handleRetry() {
     setRetrying(true);
     setRetryError(null);
@@ -174,6 +233,26 @@ export default function RunDetailPage() {
   const active = FILTERS.find((f) => f.id === filter) ?? FILTERS[0];
   const visible = sorted.filter((c) => !active.status || c.status === active.status);
   const formats = profiles.find((p) => p.name === run?.profile)?.formats ?? [];
+
+  // J och K flyttar mellan klippen i listan som den visas, rullar dit och markerar raden.
+  const order = useRef<number[]>([]);
+  order.current = visible.map((c) => c.id);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const key = e.key.toLowerCase();
+      if ((key !== "j" && key !== "k") || ignoreKey(e) || order.current.length === 0) return;
+      e.preventDefault();
+      setActiveId((current) => {
+        const i = current == null ? -1 : order.current.indexOf(current);
+        const next = key === "j" ? Math.min(i + 1, order.current.length - 1) : Math.max(i - 1, 0);
+        const id = order.current[next];
+        document.querySelector(`[data-clip-id="${id}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+        return id;
+      });
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   if (error && !run) {
     return (
@@ -263,6 +342,21 @@ export default function RunDetailPage() {
               Du kan stänga sidan. Klippen dyker upp här när de är klara.
             </p>
           )}
+          {isActive && permission === "default" && (
+            <Button variant="outline" className="mb-3 h-8" onClick={askPermission}>
+              <Bell aria-hidden />
+              Få en notis när körningen är klar
+            </Button>
+          )}
+          {isActive && permission === "granted" && (
+            <p className="mb-3 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+              <Bell className="size-3.5" aria-hidden />
+              Du får en notis när körningen är klar, om sidan är öppen.
+            </p>
+          )}
+          {isActive && permission === "denied" && (
+            <p className="mb-3 text-[13px] text-muted-foreground">Notiser är avstängda för appen i webbläsaren.</p>
+          )}
           {run.status === "failed" && (
             <div role="alert" className="mb-4 max-w-[640px] rounded-lg border border-[#4d1d1d] bg-[#1c0f10] p-4">
               <p className="font-medium text-[#fca5a5]">Körningen misslyckades</p>
@@ -303,6 +397,23 @@ export default function RunDetailPage() {
               })}
             </div>
             <span className="flex-1" />
+            <details className="relative">
+              <summary className="flex cursor-pointer items-center gap-1.5 rounded-[9px] border border-line px-3 py-1.5 text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
+                <Keyboard className="size-3.5" aria-hidden />
+                Tangenter
+              </summary>
+              <dl className="absolute right-0 z-10 mt-1.5 grid w-56 grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 rounded-xl border border-line bg-panel p-3 shadow-lg">
+                {KEYS.map(([key, label]) => (
+                  <div key={key} className="contents">
+                    <dt>
+                      <kbd className="inline-grid min-w-6 place-items-center rounded-md border border-line bg-background px-1.5 font-mono text-xs">{key}</kbd>
+                    </dt>
+                    <dd className="text-muted-foreground">{label}</dd>
+                  </div>
+                ))}
+                <p className="col-span-2 mt-1 text-xs text-muted-foreground">Inte när du skriver i ett fält.</p>
+              </dl>
+            </details>
             <span className="text-muted-foreground">Sortera:</span>
             <div className="flex overflow-hidden rounded-[9px] border border-line">
               {(
@@ -335,6 +446,7 @@ export default function RunDetailPage() {
                 clip={clip}
                 number={sorted.indexOf(clip) + 1}
                 formats={formats}
+                active={clip.id === activeId}
                 onUpdate={handleUpdate}
               />
             ))
