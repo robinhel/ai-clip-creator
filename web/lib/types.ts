@@ -241,6 +241,8 @@ export interface ReframeInfo {
   mode: string;
   split_ratio: number;
   webcam_rect: Rect | null;
+  /** Kamerans positioner, den första förvald. Saknas hos äldre servrar; då gäller webcam_rect. */
+  webcam_rects?: Rect[] | null;
   gameplay_rect: Rect | null;
   source_width: number;
   source_height: number;
