@@ -10,6 +10,7 @@ import type {
   CampaignStatus,
   CampaignSummary,
   KeyGroup,
+  SetupCheck,
   KeyTest,
   ClipEditInfo,
   ClipPostPatch,
@@ -158,6 +159,7 @@ export const api = {
       connectUrl: `${DIRECT}/campaign/tiktok/connect`,
     },
     summary: () => apiFetch<CampaignSummary>("/campaign/summary"),
+    setup: () => apiFetch<{ checks: SetupCheck[] }>("/campaign/setup"),
     keys: {
       list: () => apiFetch<{ groups: KeyGroup[] }>("/campaign/keys"),
       // Värdena skickas bara i den här kroppen och sparas inte i webbläsaren.

@@ -104,22 +104,21 @@ def test_campaign_run_passes_focus_and_its_own_clip_length(settings, monkeypatch
     mp4.touch()
     (mp4.parent / "transcript.json").write_text("{}", encoding="utf-8")
     calls: dict = {}
-    monkeypatch.setattr(pipeline, "download_vod", lambda vod_id, work_dir: mp4)
+    monkeypatch.setattr(pipeline, "download_vod", lambda vod_id, work_dir, **k: mp4)
     monkeypatch.setattr(pipeline, "process_vod", lambda video, cfg, secrets, **k: calls.update(
-        process=(cfg, k)))
+        process=(cfg, k)) or (mp4.parent / "candidates.json").write_text("[]"))
     monkeypatch.setattr(pipeline, "finish_vod", lambda *a, **k: [])
 
     profile = load_profile("skiimasktimmy", settings.profiles_dir)
     pipeline.make_clips("123", profile, settings, game=None, emit=lambda *a: None,
                         focus="jump scares", min_s=15, max_s=30)
     cfg, kwargs = calls["process"]
-    assert kwargs["focus"] == "jump scares"
+    assert kwargs["skip_select"]  # kampanjlagret väljer själv; focus till Claude provas i test_natt_korning.py
     assert (cfg.clip.min_seconds, cfg.clip.max_seconds) == (15, 30)
     assert pipeline.clipsmith_config(profile, settings).clip.max_seconds == 45  # filen är orörd
 
     pipeline.make_clips("123", profile, settings, game=None, emit=lambda *a: None)
     cfg, kwargs = calls["process"]
-    assert kwargs["focus"] == ""
     assert cfg.clip.max_seconds == 45
 
 
@@ -149,6 +148,7 @@ def test_vod_facts_estimate_and_campaigns(client, settings, fake_twitch, monkeyp
     mp4 = settings.work_dir / VOD / f"{VOD}.mp4"
     mp4.parent.mkdir(parents=True)
     mp4.touch()
+    monkeypatch.setattr(api, "probe", lambda path: {"duration": 13950.0})  # hela VOD:en finns
     vod = client.get(f"/campaign/vod/{VOD}").json()
     assert vod["downloaded"] is True
     assert vod["estimate"]["fits"] is True
@@ -207,6 +207,7 @@ def test_new_run_checks_channel_length_and_disk(client, settings, fake_twitch, s
     mp4 = settings.work_dir / VOD / f"{VOD}.mp4"
     mp4.parent.mkdir(parents=True)
     mp4.touch()
+    monkeypatch.setattr(api, "probe", lambda path: {"duration": 13950.0})  # hela VOD:en finns
     assert client.post("/campaign/runs", json=body).status_code == 201  # redan nedladdad
 
 
@@ -346,7 +347,8 @@ def test_clip_transcript_is_the_part_inside_the_clip(client, settings) -> None: 
 
 def test_summary_has_disk_space(client, monkeypatch) -> None:  # noqa: F811
     monkeypatch.setattr(estimate, "disk_gb", lambda path: (9.7, 228.0))
-    assert client.get("/campaign/summary").json()["disk"] == {"free_gb": 9.7, "total_gb": 228.0}
+    assert client.get("/campaign/summary").json()["disk"] == {"free_gb": 9.7, "total_gb": 228.0, "connected": True,
+                                                              "problem": None}
 
 
 def test_disk_gb_works_before_the_work_folder_exists(tmp_path) -> None:
