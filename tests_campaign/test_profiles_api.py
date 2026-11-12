@@ -29,12 +29,12 @@ VOD = "2925991945"
 THUMB = "https://static-cdn.jtvnw.net/cf_vods/x/thumb/thumb0-1920x1080.jpg"
 
 
-def _png(width: int, height: int) -> bytes:
-    """En riktig PNG-fil, gjord utan bildbibliotek."""
+def _png(width: int, height: int, pixel: bytes = bytes(4)) -> bytes:
+    """En riktig PNG-fil i en enda färg (RGBA), gjord utan bildbibliotek."""
     def chunk(kind: bytes, data: bytes) -> bytes:
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
 
-    raw = b"".join(b"\x00" + bytes(width * 4) for _ in range(height))
+    raw = b"".join(b"\x00" + pixel * width for _ in range(height))
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
 
@@ -146,6 +146,38 @@ def test_bad_overlays_are_refused(client, settings) -> None:
     assert response.status_code == 400
     assert "overlays/" in response.json()["detail"]
     assert not (settings.root.parent / "evil.png").exists()
+
+
+@needs_ffmpeg
+def test_a_banner_is_placed_in_the_seam_of_a_full_overlay(client, settings) -> None:
+    """Kampanjens TWITCH STREAM OVERLAY är en remsa i 1756x288. Med mode: full blir den en bild i
+    1080x1920, 880 px bred och centrerad på skarven mellan kameran och spelet (split_ratio 0.4 -> y 768)."""
+    banner = _png(1756, 288, b"\xff\x00\x00\xff")  # helt röd och täckande
+    response = client.put("/campaign/profiles/skiimasktimmy/overlay", content=banner)
+    assert response.status_code == 200, response.text
+    overlay = response.json()["overlay"]
+    assert (overlay["width"], overlay["height"]) == (1080, 1920)
+
+    saved = settings.root / "overlays" / "skiimasktimmy.png"
+    alpha = subprocess.run(["ffmpeg", "-v", "error", "-i", str(saved), "-vf", "alphaextract", "-f", "rawvideo",
+                            "-pix_fmt", "gray", "-"], capture_output=True, check=True).stdout
+    assert len(alpha) == 1080 * 1920
+
+    def opaque(x: int, y: int) -> bool:
+        return alpha[y * 1080 + x] > 128
+
+    # 1756x288 skalas till 880x144 och ligger på y 696–840, x 100–980.
+    assert opaque(540, 768) and opaque(110, 700) and opaque(970, 836)
+    assert not opaque(540, 690) and not opaque(540, 846) and not opaque(95, 768) and not opaque(985, 768)
+    assert not opaque(540, 100) and not opaque(540, 1800)
+
+    # Skarven följer kampanjens split_ratio: 0.5 -> y 960.
+    config = settings.root / "config.timmy.yaml"
+    config.write_text(config.read_text().replace("split_ratio: 0.4 ", "split_ratio: 0.5 "))
+    assert client.put("/campaign/profiles/skiimasktimmy/overlay", content=banner).status_code == 200
+    alpha = subprocess.run(["ffmpeg", "-v", "error", "-i", str(saved), "-vf", "alphaextract", "-f", "rawvideo",
+                            "-pix_fmt", "gray", "-"], capture_output=True, check=True).stdout
+    assert opaque(540, 960) and opaque(540, 890) and not opaque(540, 768 - 80)
 
 
 def test_overlay_top_needs_width_1080(client, settings) -> None:

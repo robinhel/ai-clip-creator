@@ -155,6 +155,10 @@ async def put_overlay(profile_id: str, request: Request, settings: Settings = De
     path = settings.profiles_dir / f"{profile_id}.yaml"
     try:
         edit.check_overlay(bytes(data), profile.overlay_mode)
+        size = edit.png_size(bytes(data[:24]))
+        if profile.overlay_mode == "full" and size != (edit.PANEL_W, edit.PANEL_H):  # en banner
+            split = edit.read_config(_config_path(profile, settings)).reframe.split_ratio
+            data = bytearray(edit.banner_to_full(bytes(data), round(split * edit.PANEL_H)))
         with _write_lock:
             target = _overlay_target(profile, settings)
             if target is None:  # profilen saknar overlay.file: lägg till en rad, resten av filen är orörd
@@ -206,6 +210,24 @@ def put_yaml(profile_id: str, body: YamlBody, settings: Settings = Depends(get_s
             # så att en 400 aldrig lämnar en ändrad fil.
             edit.write_atomic(path, body.yaml.encode("utf-8"), check=_check_answer(profile_id, settings))
             edit.write_atomic(settings.profiles_dir / f".{profile_id}.yaml.bak", old)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return _detail(profile_id, settings)
+
+
+class ActiveBody(BaseModel):
+    active: bool
+
+
+@router.put("/profiles/{profile_id}/active", summary="Slå på eller stäng av kampanjen i appen",
+            dependencies=[Depends(verify_api_key)])
+def put_active(profile_id: str, body: ActiveBody, settings: Settings = Depends(get_settings)) -> dict:
+    path = _profile_path(profile_id, settings)
+    try:
+        with _write_lock:
+            text = edit.set_active(path.read_bytes().decode("utf-8"), body.active)
+            edit.check_profile_text(text, profile_id, settings.root)
+            edit.write_atomic(path, text.encode("utf-8"))
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
     return _detail(profile_id, settings)

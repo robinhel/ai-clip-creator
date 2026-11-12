@@ -92,6 +92,11 @@ export const api = {
           body: file,
           headers: { "Content-Type": "image/png" },
         }),
+      setActive: (id: string, active: boolean) =>
+        apiFetch<CampaignProfileDetail>(`/campaign/profiles/${id}/active`, {
+          method: "PUT",
+          body: JSON.stringify({ active }),
+        }),
       yaml: (id: string) => apiFetch<{ yaml: string }>(`/campaign/profiles/${id}/yaml`),
       saveYaml: (id: string, yaml: string) =>
         apiFetch<CampaignProfileDetail>(`/campaign/profiles/${id}/yaml`, {
