@@ -271,6 +271,12 @@ export type TextPosition = "top" | "bottom";
 
 /** GET /campaign/profiles/{id}: en rad i listan plus detaljerna. */
 export interface CampaignProfileDetail extends CampaignProfile {
+  /** other_rules i profilen, till exempel "Kommentarer och gilla-markeringar ska vara påslagna". */
+  rules: string[];
+  /** Hur klippen godkänns, ur profilens approval. */
+  approval: string | null;
+  /** https-länkar ur profilens links, annars null. */
+  links: { content_rewards: string | null; analytics_form: string | null };
   overlay: {
     file: string | null;
     required: boolean;
