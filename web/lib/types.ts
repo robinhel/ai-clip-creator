@@ -114,6 +114,9 @@ export interface RunStep {
 
 /** GET /campaign/runs/{id}. */
 export interface CampaignRunDetail extends CampaignRunInfo {
+  /** Del av VOD:en i sekunder. 0 och 0 betyder hela VOD:en; end_s 0 betyder till slutet. */
+  start_s?: number | null;
+  end_s?: number | null;
   steps: RunStep[];
   eta_s: number | null;
   cost_estimate_usd: number | null;

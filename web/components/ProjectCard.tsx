@@ -51,8 +51,8 @@ export function ProjectCard({ run }: { run: CampaignRunInfo }) {
           </div>
         )}
         <span
-          className={`absolute top-2.5 left-2.5 rounded-md bg-black/70 px-2 py-0.5 text-xs ${
-            run.status === "failed" ? "text-bad" : ""
+          className={`absolute top-2.5 left-2.5 rounded-md px-2 py-0.5 text-xs ${
+            run.status === "failed" ? "bg-bad font-semibold text-white" : "bg-black/70"
           }`}
         >
           {statusTag(run)}

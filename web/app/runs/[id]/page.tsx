@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { Check, Loader2, Sparkles, X } from "lucide-react";
+import { useParams, useRouter } from "next/navigation";
+import { Check, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClipResultRow } from "@/components/ClipResultRow";
 import { api } from "@/lib/api";
-import { cn, duration, serverTime, usd } from "@/lib/utils";
+import { clock, cn, duration, serverTime, usd } from "@/lib/utils";
 import type { CampaignClip, CampaignProfile, CampaignRunDetail, CampaignStatus, Run, RunStep } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 3000;
@@ -22,6 +22,9 @@ const FILTERS: { id: string; label: string; status?: CampaignStatus }[] = [
 ];
 
 type Sort = "score" | "time";
+
+/** Alltid t:mm:ss, som "0:00:00". */
+const hms = (s: number) => `${Math.floor(s / 3600)}:${clock(s % 3600).padStart(5, "0")}`;
 
 /** Betyg först, klipp utan betyg sist. Tidsordning efter start i VOD:en. */
 function sortClips(clips: CampaignClip[], sort: Sort): CampaignClip[] {
@@ -76,6 +79,7 @@ function Steps({ steps }: { steps: RunStep[] }) {
 
 export default function RunDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const runId = Number(params.id);
 
   const [run, setRun] = useState<CampaignRunDetail | null>(null);
@@ -88,6 +92,8 @@ export default function RunDetailPage() {
   const [legacyRun, setLegacyRun] = useState<Run | null>(null);
   const [finishStartedAt, setFinishStartedAt] = useState<number | null>(null);
   const [finishError, setFinishError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
   // Räknas upp efter varje omläsning, så att nästa startar också när anropet misslyckades.
   const [pollTick, setPollTick] = useState(0);
 
@@ -148,6 +154,18 @@ export default function RunDetailPage() {
     }
   }
 
+  async function handleRetry() {
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      const { id } = await api.campaign.runs.retry(runId);
+      router.push(`/runs/${id}`);
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : "Kunde inte starta körningen igen");
+      setRetrying(false);
+    }
+  }
+
   function handleUpdate(updated: CampaignClip) {
     setClips((prev) => prev?.map((c) => (c.id === updated.id ? updated : c)) ?? null);
   }
@@ -184,6 +202,11 @@ export default function RunDetailPage() {
     run.created ? day.format(serverTime(run.created)) : null,
     run.duration_s ? duration(run.duration_s) : null,
   ].filter(Boolean);
+  const start = run.start_s ?? 0;
+  const end = run.end_s ?? 0;
+  // end_s 0 betyder till slutet av VOD:en.
+  const part = start || end ? `${hms(start)}–${end ? hms(end) : run.duration_s ? hms(run.duration_s) : "slutet"}` : null;
+  const failedStep = run.steps.find((s) => s.status === "failed")?.id ?? run.stage;
 
   return (
     <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
@@ -199,6 +222,7 @@ export default function RunDetailPage() {
           <p className="text-sm text-muted-foreground">
             Kampanj: {run.profile}, VOD {run.vod_id}
           </p>
+          {part && <p className="text-sm text-muted-foreground tabular-nums">Del av VOD:en: {part}</p>}
           {run.focus && <p className="mt-1 text-sm text-muted-foreground">Letade efter: {run.focus}</p>}
         </div>
         <Button
@@ -242,7 +266,17 @@ export default function RunDetailPage() {
           {run.status === "failed" && (
             <div role="alert" className="mb-4 max-w-[640px] rounded-lg border border-[#4d1d1d] bg-[#1c0f10] p-4">
               <p className="font-medium text-[#fca5a5]">Körningen misslyckades</p>
-              {run.error && <p className="mt-1 text-sm break-words text-muted-foreground">{run.error}</p>}
+              {run.error && <p className="mt-1 font-mono text-[13px] break-words text-[#f2c4c4]">{run.error}</p>}
+              <p className="mt-3 text-sm text-muted-foreground">
+                {failedStep === "transcribe"
+                  ? "Klara delar är sparade. Kör igen fortsätter där körningen stoppade."
+                  : "Kör igen startar om körningen med samma val."}
+              </p>
+              <Button className="mt-3 h-9" onClick={handleRetry} disabled={retrying}>
+                {retrying ? <Loader2 className="animate-spin" aria-hidden /> : <RotateCcw aria-hidden />}
+                {retrying ? "Startar…" : "Kör igen"}
+              </Button>
+              {retryError && <p className="mt-2 text-sm text-[#fca5a5]">{retryError}</p>}
             </div>
           )}
           <Steps steps={run.steps} />
