@@ -209,3 +209,61 @@ export interface TikTokUpload {
   /** Bara i svaret på POST. */
   message?: string;
 }
+
+export type OverlayMode = "full" | "top" | "bottom";
+export type TextPosition = "top" | "bottom";
+
+/** GET /campaign/profiles/{id}: en rad i listan plus detaljerna. */
+export interface CampaignProfileDetail extends CampaignProfile {
+  overlay: {
+    file: string | null;
+    required: boolean;
+    mode: OverlayMode;
+    exists: boolean;
+    url: string;
+    width: number | null;
+    height: number | null;
+  };
+  on_screen_text: { text: string; position: TextPosition; required: boolean };
+  safe_zone: { top: number; bottom: number };
+  caption: { template: string; hashtags: string[]; must_include: string[] };
+  payment: { cpm_usd: number | null; min_views: number | null; max_payout_per_clip_usd: number | null };
+  clipsmith_config: string | null;
+}
+
+/** [x, y, bredd, höjd] i källbildens pixlar (1920x1080). */
+export type Rect = [number, number, number, number];
+
+export interface ReframeInfo {
+  mode: string;
+  split_ratio: number;
+  webcam_rect: Rect | null;
+  gameplay_rect: Rect | null;
+  source_width: number;
+  source_height: number;
+  webcam_aspect: number;
+  gameplay_aspect: number;
+}
+
+/** POST /campaign/profiles. Bara channel och streamer krävs. */
+export interface CampaignProfileCreate {
+  channel: string;
+  streamer: string;
+  campaign?: string;
+  language?: string;
+  clip_min_s?: number;
+  clip_max_s?: number;
+  on_screen_text?: string;
+  text_position?: TextPosition;
+  overlay_required?: boolean;
+  overlay_mode?: OverlayMode;
+  facecam_required?: boolean;
+  must_include?: string[];
+  hashtags?: string[];
+  caption_template?: string;
+  formats?: { name: string; description: string }[];
+  cpm_usd?: number;
+  min_views?: number;
+  max_payout_per_clip_usd?: number;
+  engagement_min_percent?: number;
+}

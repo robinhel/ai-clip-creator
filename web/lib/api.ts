@@ -2,12 +2,16 @@ import type {
   CampaignClip,
   CampaignClipPatch,
   CampaignProfile,
+  CampaignProfileCreate,
+  CampaignProfileDetail,
   CampaignRunCreate,
   CampaignRunDetail,
   CampaignRunInfo,
   CampaignStatus,
   CampaignSummary,
   ClipTranscript,
+  Rect,
+  ReframeInfo,
   Run,
   TikTokStatus,
   TikTokUpload,
@@ -73,6 +77,29 @@ export const api = {
   },
   campaign: {
     profiles: () => apiFetch<CampaignProfile[]>("/campaign/profiles"),
+    profile: {
+      get: (id: string) => apiFetch<CampaignProfileDetail>(`/campaign/profiles/${id}`),
+      create: (body: CampaignProfileCreate) =>
+        apiFetch<CampaignProfileDetail>("/campaign/profiles", { method: "POST", body: JSON.stringify(body) }),
+      // Själva PNG-filen som body, inget multipart.
+      uploadOverlay: (id: string, file: Blob) =>
+        apiFetch<CampaignProfileDetail>(`/campaign/profiles/${id}/overlay`, {
+          method: "PUT",
+          body: file,
+          headers: { "Content-Type": "image/png" },
+        }),
+      yaml: (id: string) => apiFetch<{ yaml: string }>(`/campaign/profiles/${id}/yaml`),
+      saveYaml: (id: string, yaml: string) =>
+        apiFetch<CampaignProfileDetail>(`/campaign/profiles/${id}/yaml`, {
+          method: "PUT",
+          body: JSON.stringify({ yaml }),
+        }),
+      reframe: (id: string) => apiFetch<ReframeInfo>(`/campaign/profiles/${id}/reframe`),
+      saveReframe: (id: string, body: { webcam_rect: Rect; gameplay_rect: Rect; split_ratio: number }) =>
+        apiFetch<ReframeInfo>(`/campaign/profiles/${id}/reframe`, { method: "PUT", body: JSON.stringify(body) }),
+      frameUrl: (id: string, vodId?: string) =>
+        `${PROXY}/campaign/profiles/${id}/frame${vodId ? `?vod_id=${vodId}` : ""}`,
+    },
     vod: (vodId: string) => apiFetch<VodInfo>(`/campaign/vod/${vodId}`),
     runs: {
       list: () => apiFetch<CampaignRunInfo[]>("/campaign/runs"),
@@ -105,6 +132,8 @@ export const api = {
       connectUrl: `${DIRECT}/campaign/tiktok/connect`,
     },
     summary: () => apiFetch<CampaignSummary>("/campaign/summary"),
+    /** En sökväg från servern (till exempel overlay.url) via proxyn. */
+    proxied: (path: string) => `${PROXY}${path}`,
     videoUrl: (clip: CampaignClip) => `${PROXY}${clip.video_url}`,
     downloadUrl: (clip: CampaignClip) => `${PROXY}${clip.video_url}?download=1`,
   },
