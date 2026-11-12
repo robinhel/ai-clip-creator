@@ -67,7 +67,7 @@ class Profile:
         if self.overlay_required and (overlay is None or not overlay.exists()):
             found.append(
                 f"Overlay-bilden saknas: {self.overlay_file}. "
-                "Ladda ner den från kampanjen och lägg den där."
+                "Ladda ner den från kampanjen. Ladda upp den under Overlay."
             )
         if self.text_position not in ("top", "bottom"):
             found.append("on_screen_text.position måste vara top eller bottom.")
