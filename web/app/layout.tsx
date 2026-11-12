@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "clipsmith",
+  title: "Klipp",
   description: "Kampanjklipp från Twitch-streams",
 };
 
@@ -26,11 +26,12 @@ export default function RootLayout({
   return (
     <html
       lang="sv"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // Appen är alltid mörk; klassen slår på shadcn:s dark:-varianter.
+      className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="min-h-full md:grid md:grid-cols-[220px_minmax(0,1fr)]">
         <SiteNav />
-        {children}
+        <div className="flex min-w-0 flex-col">{children}</div>
       </body>
     </html>
   );

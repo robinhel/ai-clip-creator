@@ -3,20 +3,18 @@ import type {
   CampaignClipPatch,
   CampaignProfile,
   CampaignRunCreate,
+  CampaignRunDetail,
   CampaignRunInfo,
   CampaignStatus,
   CampaignSummary,
-  Clip,
+  ClipTranscript,
   Run,
+  VodInfo,
 } from "./types";
 
 // JSON API calls go through the Next.js rewrite proxy (/api/* → FastAPI).
 // This avoids CORS and removes the need for NEXT_PUBLIC_API_BASE in the browser.
 const PROXY = "/api";
-
-// SSE and file downloads bypass the proxy — they need a persistent/streaming
-// connection that the Next.js rewrite layer doesn't guarantee.
-const DIRECT = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
 const FIELD_LABEL: Record<string, string> = {
   views: "visningar",
@@ -65,27 +63,25 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const api = {
   runs: {
-    list: () => apiFetch<Run[]>("/runs"),
+    // clipsmiths körning; projektsidan läser updated_at för att se när klippen gjorts klara igen.
     get: (id: number) => apiFetch<Run>(`/runs/${id}`),
-    delete: (id: number) => apiFetch<void>(`/runs/${id}`, { method: "DELETE" }),
-  },
-  clips: {
-    list: (runId: number) => apiFetch<Clip[]>(`/runs/${runId}/clips`),
-    patch: (id: number, body: { approved?: boolean; title?: string }) =>
-      apiFetch<Clip>(`/clips/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   },
   campaign: {
     profiles: () => apiFetch<CampaignProfile[]>("/campaign/profiles"),
+    vod: (vodId: string) => apiFetch<VodInfo>(`/campaign/vod/${vodId}`),
     runs: {
       list: () => apiFetch<CampaignRunInfo[]>("/campaign/runs"),
+      get: (runId: number) => apiFetch<CampaignRunDetail>(`/campaign/runs/${runId}`),
       create: (body: CampaignRunCreate) =>
-        apiFetch<Run>("/campaign/runs", { method: "POST", body: JSON.stringify(body) }),
+        apiFetch<{ id: number }>("/campaign/runs", { method: "POST", body: JSON.stringify(body) }),
       finish: (runId: number) =>
         apiFetch<{ started: boolean }>(`/campaign/runs/${runId}/finish`, { method: "POST" }),
     },
     clips: {
-      list: (filter: { status?: CampaignStatus; vod_id?: string } = {}) => {
-        const query = new URLSearchParams(filter).toString();
+      list: (filter: { status?: CampaignStatus; vod_id?: string; run_id?: number } = {}) => {
+        const query = new URLSearchParams(
+          Object.entries(filter).map(([key, value]) => [key, String(value)])
+        ).toString();
         return apiFetch<CampaignClip[]>(`/campaign/clips${query ? `?${query}` : ""}`);
       },
       patch: (id: number, body: CampaignClipPatch) =>
@@ -93,14 +89,10 @@ export const api = {
           method: "PATCH",
           body: JSON.stringify(body),
         }),
+      transcript: (id: number) => apiFetch<ClipTranscript>(`/campaign/clips/${id}/transcript`),
     },
     summary: () => apiFetch<CampaignSummary>("/campaign/summary"),
     videoUrl: (clip: CampaignClip) => `${PROXY}${clip.video_url}`,
     downloadUrl: (clip: CampaignClip) => `${PROXY}${clip.video_url}?download=1`,
   },
-  sseUrl: (runId: number) => `${DIRECT}/runs/${runId}/progress`,
-  // File downloads go through the proxy (same origin) to avoid mixed-content
-  // blocks when the dashboard is served over HTTPS but the API is plain HTTP.
-  fileUrl: (runId: number, filename: string) =>
-    `${PROXY}/runs/${runId}/clips/file/${encodeURIComponent(filename)}`,
 };

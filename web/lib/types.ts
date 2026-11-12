@@ -13,30 +13,6 @@ export interface Run {
   clip_count: number;
 }
 
-export interface Clip {
-  id: number;
-  run_id: number;
-  filename: string;
-  title: string;
-  start_s: number;
-  end_s: number;
-  score: number;
-  approved: boolean | null;
-  published_url: string | null;
-  signal_breakdown: Record<string, number> | null;
-  created_at: string;
-}
-
-export interface PipelineEvent {
-  id: number;
-  run_id: number;
-  stage: string;
-  pct: number;
-  message: string;
-  created_at: string;
-}
-
-
 // Kampanjlagret (campaign/api.py)
 
 export type CampaignStatus =
@@ -66,6 +42,9 @@ export interface CampaignProfile {
   formats: CampaignFormat[];
   problems: string[];
   ready: boolean;
+  /** Kampanjens tillåtna klipplängd i sekunder. */
+  clip_min_s: number;
+  clip_max_s: number;
 }
 
 export interface CampaignRunCreate {
@@ -74,13 +53,75 @@ export interface CampaignRunCreate {
   game?: string;
   start_s?: number;
   end_s?: number;
+  focus?: string;
+  min_s?: number;
+  max_s?: number;
 }
 
+/** GET /campaign/vod/{id}: fakta om en Twitch-VOD innan körningen. */
+export interface VodInfo {
+  vod_id: string;
+  title: string;
+  channel: string;
+  channel_name: string;
+  game: string | null;
+  duration_s: number;
+  created_at: string;
+  thumbnail_url: string | null;
+  downloaded: boolean;
+  estimate: {
+    download_gb: number;
+    disk_free_gb: number;
+    fits: boolean;
+    minutes: number;
+    cost_usd: number;
+  };
+  /** Kampanjer vars kanal är VOD:ens kanal. */
+  campaigns: string[];
+}
+
+/** En rad i GET /campaign/runs. Äldre körningar saknar titel, bild och längd. */
 export interface CampaignRunInfo {
   run_id: number;
+  vod_id: string;
   profile: string;
   game: string | null;
-  vod_id: string;
+  focus: string | null;
+  min_s: number | null;
+  max_s: number | null;
+  title: string | null;
+  channel_name: string | null;
+  thumbnail_url: string | null;
+  duration_s: number | null;
+  created: string;
+  status: RunStatus;
+  stage: string | null;
+  pct: number | null;
+  error: string | null;
+  clip_counts: Partial<Record<CampaignStatus, number>>;
+}
+
+export type StepStatus = "waiting" | "running" | "done" | "failed";
+
+export interface RunStep {
+  id: string;
+  label: string;
+  status: StepStatus;
+  started_at: string | null;
+  finished_at: string | null;
+  estimate_s: number | null;
+}
+
+/** GET /campaign/runs/{id}. */
+export interface CampaignRunDetail extends CampaignRunInfo {
+  steps: RunStep[];
+  eta_s: number | null;
+  cost_estimate_usd: number | null;
+}
+
+export interface ClipTranscript {
+  text: string;
+  segments: { start: number; end: number; text: string }[];
 }
 
 export interface CampaignClip {
@@ -110,6 +151,10 @@ export interface CampaignClip {
   engagement: number | null;
   engagement_min: number | null;
   video_url: string;
+  /** Claudes betyg 0–99, null för äldre klipp. */
+  score: number | null;
+  /** Claudes motivering, tom för äldre klipp. */
+  reason: string;
 }
 
 export type CampaignClipPatch = Partial<
@@ -139,4 +184,5 @@ export interface CampaignSummary {
   };
   counts: Partial<Record<CampaignStatus, number>>;
   todo: string[];
+  disk?: { free_gb: number; total_gb: number };
 }
