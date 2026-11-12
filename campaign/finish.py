@@ -41,7 +41,8 @@ def build_filter(profile: Profile, has_overlay: bool, has_audio: bool, font: str
             position = "0:0" if profile.overlay_mode == "top" else "0:H-h"
         parts.append(f"[{last}][ov]overlay={position}[withov]")
         last = "withov"
-    if profile.text:
+    # Overlayen har redan kanalens text, så den vita texten ritas bara utan overlay.
+    if profile.text and not has_overlay:
         if profile.text_position == "top":
             y = str(int(HEIGHT * profile.safe_top))
         else:
