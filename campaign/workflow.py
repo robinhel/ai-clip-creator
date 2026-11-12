@@ -32,6 +32,8 @@ def load_picks(path: Path) -> list[dict]:
                 "title": pick.get("title") or pick.get("title_es") or "",
                 "format": pick.get("format"),
                 "signals": item.get("candidate", {}).get("sources", []),
+                "score": pick.get("score"),  # None för picks från före betyget
+                "reason": pick.get("reason") or "",
             }
         )
     return picks
@@ -52,7 +54,7 @@ def _save(log: ClipLog, redo: dict | None, common: dict, **fields) -> int | None
         return log.add(**common, **fields)
     if log.get(redo["id"])["status"] != "underkand":
         return None
-    picked = {"title": common["title"], "start_s": common["start_s"], "end_s": common["end_s"]}
+    picked = {key: common[key] for key in ("title", "start_s", "end_s", "score", "reason")}
     if common.get("clip_format"):
         picked["format"] = common["clip_format"]
     log.update(redo["id"], **picked, **fields)
@@ -100,6 +102,7 @@ def finish_vod(
         common = dict(
             vod_id=vod_id, profile=profile.name, title=title, start_s=start, end_s=end,
             clip_format=pick.get("format"), signals=pick.get("signals"),
+            score=pick.get("score"), reason=pick.get("reason", ""),
         )
 
         source_problems = check_source(probe(src))

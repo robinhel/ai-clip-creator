@@ -31,6 +31,7 @@ class ClipPick:
     end_offset_s: float
     title_es: str
     reason: str
+    score: int = 0  # 0-99: hook, flow and chance to go viral on TikTok. 0 for old answers.
 
     @property
     def duration_s(self) -> float:
@@ -47,6 +48,7 @@ class ClipPick:
             end_offset_s=float(d.get("end_offset_s", 0.0)),
             title_es=str(d.get("title_es", "")),
             reason=str(d.get("reason", "")),
+            score=min(max(round(float(d.get("score") or 0)), 0), 99),
         )
 
     @classmethod
