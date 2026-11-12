@@ -236,13 +236,14 @@ def test_new_run_saves_vod_facts_and_passes_focus_and_length(client, settings, s
 # ---------- förloppet ----------
 
 
-def _run_with_events(settings, stages: list[str], status: str = "running", minutes_ago: int = 30) -> int:
+def _run_with_events(settings, stages: list[str], status: str = "running", minutes_ago: int = 30,
+                     vod: str = VOD) -> int:
     from clipsmith.db.models import PipelineEvent, Run, RunStatus
     from clipsmith.db.session import get_session
 
     db = get_session()
     start = datetime.now(UTC) - timedelta(minutes=minutes_ago)
-    run = Run(vod_id=VOD, channel="skiimasktimmy", status=RunStatus(status), created_at=start)
+    run = Run(vod_id=vod, channel="skiimasktimmy", status=RunStatus(status), created_at=start)
     db.add(run)
     db.commit()
     for i, stage in enumerate(stages):
@@ -252,7 +253,7 @@ def _run_with_events(settings, stages: list[str], status: str = "running", minut
     db.commit()
     run_id = run.id
     db.close()
-    ClipLog(settings.data_dir / "klipp.db").add_run(run_id, VOD, "skiimasktimmy", "Bodycam",
+    ClipLog(settings.data_dir / "klipp.db").add_run(run_id, vod, "skiimasktimmy", "Bodycam",
                                                      duration_s=13950, title="T")
     return run_id
 
@@ -291,11 +292,12 @@ def test_done_and_failed_runs_have_no_eta(client, settings) -> None:  # noqa: F8
 
 
 def test_run_list_is_newest_first_with_status_and_clip_counts(client, settings) -> None:  # noqa: F811
-    old = _run_with_events(settings, ["download", "done"], "done")
+    # Olika streams: samma stream och kampanj visas som ett projekt (den senaste körningen).
+    old = _run_with_events(settings, ["download", "done"], "done", vod="2925070238")
     new = _run_with_events(settings, ["download"], "running")
     log = ClipLog(settings.data_dir / "klipp.db")
     for status in ("renderad", "renderad", "godkand"):
-        log.add(vod_id=VOD, profile="skiimasktimmy", file=f"/x/{status}.mp4", title="t", caption="c",
+        log.add(vod_id="2925070238", profile="skiimasktimmy", file=f"/x/{status}.mp4", title="t", caption="c",
                 status=status, score=70, reason="Good.")
     runs = client.get("/campaign/runs").json()
     assert [r["run_id"] for r in runs] == [new, old]
