@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,7 +16,7 @@ import {
 } from "@/components/CampaignStatusBadge";
 import { api } from "@/lib/api";
 import { cn, serverTime, SUMMARY_CHANGED } from "@/lib/utils";
-import type { CampaignClip, CampaignStatus, CampaignSummary, ClipPost } from "@/lib/types";
+import type { CampaignClip, CampaignRunInfo, CampaignStatus, CampaignSummary, ClipPost } from "@/lib/types";
 
 const usd = new Intl.NumberFormat("sv-SE", { style: "currency", currency: "USD" });
 const date = new Intl.DateTimeFormat("sv-SE", { dateStyle: "medium" });
@@ -132,11 +133,17 @@ function ClipRow({
   clip,
   post,
   estimate,
+  runId,
+  hidden,
   onUpdate,
 }: {
   clip: CampaignClip;
   post?: ClipPost;
   estimate?: number;
+  /** Projektet klippet kommer från. */
+  runId?: number;
+  /** Dold av filtret. Raden finns kvar, så att osparade siffror inte försvinner. */
+  hidden: boolean;
   onUpdate: (clip: CampaignClip) => void;
 }) {
   // Raden visar och ändrar inlägget när det finns, annars klippet.
@@ -216,9 +223,17 @@ function ClipRow({
   }
 
   return (
-    <tr className="border-b align-top last:border-0">
+    <tr hidden={hidden} className="border-b align-top last:border-0">
       <td className="py-3 pr-4">
-        <p className="max-w-48 font-medium leading-snug break-words">{clip.title || "utan titel"}</p>
+        <p className="max-w-48 font-medium leading-snug break-words">
+          {runId ? (
+            <Link href={`/runs/${runId}`} className="underline-offset-4 hover:underline">
+              {clip.title || "utan titel"}
+            </Link>
+          ) : (
+            clip.title || "utan titel"
+          )}
+        </p>
         <p className="text-xs text-muted-foreground">
           {clip.profile} · VOD {clip.vod_id} · {date.format(serverTime(clip.created))}
         </p>
@@ -348,6 +363,9 @@ export function ClipLogClient({ initialSummary = null, initialClips = null }: Pr
   const [summary, setSummary] = useState<CampaignSummary | null>(initialSummary);
   const [clips, setClips] = useState<CampaignClip[] | null>(initialClips);
   const [filter, setFilter] = useState<CampaignStatus | "">("");
+  const [campaign, setCampaign] = useState("");
+  const [search, setSearch] = useState("");
+  const [runs, setRuns] = useState<CampaignRunInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -360,6 +378,8 @@ export function ClipLogClient({ initialSummary = null, initialClips = null }: Pr
       ]);
       setSummary(summaryData);
       setClips(clipData);
+      // Länken till projektet är extra; listan ska visas ändå.
+      api.campaign.runs.list().then(setRuns).catch(() => {});
       setError(null);
       window.dispatchEvent(new Event(SUMMARY_CHANGED));
     } catch (err) {
@@ -373,7 +393,32 @@ export function ClipLogClient({ initialSummary = null, initialClips = null }: Pr
   const hasInitial = initialSummary !== null && initialClips !== null;
   useEffect(() => {
     if (!hasInitial) load();
+    else api.campaign.runs.list().then(setRuns).catch(() => {});
   }, [load, hasInitial]);
+
+  // Filtret står i adressen (?status=…&kampanj=…), så att en länk eller omladdning visar samma lista.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("status") as CampaignStatus | null;
+    if (status && STATUS_ORDER.includes(status)) setFilter(status);
+    setCampaign(params.get("kampanj") ?? "");
+  }, []);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    for (const [key, value] of [["status", filter], ["kampanj", campaign]] as const) {
+      if (value) params.set(key, value);
+      else params.delete(key);
+    }
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+  }, [filter, campaign]);
+
+  function runIdFor(clip: CampaignClip): number | undefined {
+    // Senaste projektet för samma VOD och kampanj, som i Att posta.
+    return runs
+      .filter((r) => r.vod_id === clip.vod_id && r.profile === clip.profile)
+      .reduce<number | undefined>((latest, r) => Math.max(latest ?? 0, r.run_id), undefined);
+  }
 
   function handleUpdate(updated: CampaignClip) {
     setClips((prev) => prev?.map((c) => (c.id === updated.id ? updated : c)) ?? null);
@@ -385,7 +430,13 @@ export function ClipLogClient({ initialSummary = null, initialClips = null }: Pr
   const rows = (clips ?? []).flatMap((clip): { clip: CampaignClip; post?: ClipPost; status: CampaignStatus }[] =>
     clip.posts?.length ? clip.posts.map((post) => ({ clip, post, status: post.status as CampaignStatus })) : [{ clip, post: undefined, status: clip.status }]
   );
-  const visible = rows.filter((r) => !filter || r.status === filter);
+  const campaigns = [...new Set((clips ?? []).map((c) => c.profile))].sort();
+  const needle = search.trim().toLowerCase();
+  const shows = (r: (typeof rows)[number]) =>
+    (!filter || r.status === filter) &&
+    (!campaign || r.clip.profile === campaign) &&
+    (!needle || r.clip.title.toLowerCase().includes(needle) || r.clip.vod_id.includes(needle));
+  const visible = rows.filter(shows);
   const purposes = Object.entries(summary?.budget.by_purpose ?? {});
   const estimates = new Map(summary?.earnings?.per_clip.map((c) => [c.id, c.usd]) ?? []);
 
@@ -469,26 +520,47 @@ export function ClipLogClient({ initialSummary = null, initialClips = null }: Pr
             <h2 className="text-lg font-semibold">
               Alla klipp och inlägg <span className="font-normal text-muted-foreground">({visible.length})</span>
             </h2>
-            <NativeSelect
-              aria-label="Visa status"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value as CampaignStatus | "")}
-              className="w-48"
-            >
-              <option value="">Alla statusar</option>
-              {STATUS_ORDER.map((status) => (
-                <option key={status} value={status}>
-                  {STATUS_LABEL[status]}
-                </option>
-              ))}
-            </NativeSelect>
+            <div className="flex flex-wrap gap-2">
+              <Input
+                aria-label="Sök på titel eller VOD"
+                type="search"
+                placeholder="Sök titel eller VOD"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-48"
+              />
+              {campaigns.length > 1 && (
+                <NativeSelect aria-label="Visa kampanj" value={campaign} onChange={(e) => setCampaign(e.target.value)} className="w-44">
+                  <option value="">Alla kampanjer</option>
+                  {campaigns.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </NativeSelect>
+              )}
+              <NativeSelect
+                aria-label="Visa status"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value as CampaignStatus | "")}
+                className="w-44"
+              >
+                <option value="">Alla statusar</option>
+                {STATUS_ORDER.map((status) => (
+                  <option key={status} value={status}>
+                    {STATUS_LABEL[status]}
+                  </option>
+                ))}
+              </NativeSelect>
+            </div>
           </div>
-          {visible.length === 0 ? (
+          {visible.length === 0 && (
             <p className="rounded-xl border border-dashed px-4 py-12 text-center text-sm text-muted-foreground">
-              {clips.length === 0 ? "Inga klipp i loggen än. Starta en körning för att få klipp." : "Inga klipp med den statusen."}
+              {clips.length === 0 ? "Inga klipp i loggen än. Starta en körning för att få klipp." : "Inga klipp passar filtret."}
             </p>
-          ) : (
-            <div className="relative overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+          )}
+          {rows.length > 0 && (
+            <div hidden={visible.length === 0} className="relative overflow-x-auto rounded-xl ring-1 ring-foreground/10">
               <table className="w-full min-w-[56rem] text-sm">
                 <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
                   <tr>
@@ -512,12 +584,14 @@ export function ClipLogClient({ initialSummary = null, initialClips = null }: Pr
                   </tr>
                 </thead>
                 <tbody className="[&_td:first-child]:pl-4 [&_td:last-child]:pr-4">
-                  {visible.map(({ clip, post }) => (
+                  {rows.map((row) => (
                     <ClipRow
-                      key={`${clip.id}-${post?.id ?? "klipp"}-${clip.updated}-${post?.updated ?? ""}`}
-                      clip={clip}
-                      post={post}
-                      estimate={estimates.get(clip.id)}
+                      key={`${row.clip.id}-${row.post?.id ?? "klipp"}-${row.clip.updated}-${row.post?.updated ?? ""}`}
+                      clip={row.clip}
+                      post={row.post}
+                      estimate={estimates.get(row.clip.id)}
+                      runId={runIdFor(row.clip)}
+                      hidden={!shows(row)}
                       onUpdate={handleUpdate}
                     />
                   ))}
