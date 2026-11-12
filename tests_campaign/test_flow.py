@@ -546,3 +546,71 @@ def test_created_falls_back_to_clipsmiths_time(client, settings) -> None:  # noq
         db.execute("UPDATE runs SET created = NULL WHERE run_id = ?", (run_id,))
     assert client.get(f"/campaign/runs/{run_id}").json()["created"]
     assert client.get("/campaign/runs").json()[0]["created"]
+
+
+# ---------- försök igen ----------
+
+
+def _fail_run(run_id: int) -> None:
+    from clipsmith.db.models import Run, RunStatus
+    from clipsmith.db.session import get_session
+
+    db = get_session()
+    db.get(Run, run_id).status = RunStatus.failed
+    db.commit()
+    db.close()
+
+
+def test_retry_of_a_failed_run_starts_a_new_run_with_the_same_values(client, settings, started) -> None:  # noqa: F811
+    body = {"profile": "skiimasktimmy", "vod_id": VOD, "game": "Bodycam", "start_s": 600.0, "end_s": 7200.0,
+            "focus": "jump scares", "min_s": 20, "max_s": 30}
+    first = client.post("/campaign/runs", json=body).json()["id"]
+    assert client.get(f"/campaign/runs/{first}").json()["start_s"] == 600.0
+    client.app.state.active_run_id = None  # bakgrundsjobbet är låtsat och släpper inte själv
+    _fail_run(first)
+
+    response = client.post(f"/campaign/runs/{first}/retry")
+    assert response.status_code == 201, response.text
+    new = response.json()
+    assert new["id"] != first
+    assert (new["vod_id"], new["channel"], new["status"]) == (VOD, "skiimasktimmy", "pending")
+    _, (args2, kwargs2) = started
+    assert args2[0] == new["id"]
+    assert args2[1:4] == (VOD, "skiimasktimmy", "Bodycam")
+    assert {k: kwargs2[k] for k in ("start_s", "end_s", "focus", "min_s", "max_s")} == {
+        "start_s": 600.0, "end_s": 7200.0, "focus": "jump scares", "min_s": 20, "max_s": 30}
+    run = client.get(f"/campaign/runs/{new['id']}").json()
+    assert (run["start_s"], run["end_s"], run["focus"], run["min_s"], run["max_s"], run["game"]) == (
+        600.0, 7200.0, "jump scares", 20, 30, "Bodycam")
+
+
+def test_retry_of_an_old_run_without_values_uses_the_defaults(client, settings, started) -> None:  # noqa: F811
+    run_id = _run_with_events(settings, ["download"], "failed")
+    assert (client.get(f"/campaign/runs/{run_id}").json()["start_s"],
+            client.get(f"/campaign/runs/{run_id}").json()["end_s"]) == (0, 0)
+    assert client.post(f"/campaign/runs/{run_id}/retry").status_code == 201
+    (_, kwargs), = started
+    assert {k: kwargs[k] for k in ("start_s", "end_s", "focus", "min_s", "max_s")} == {
+        "start_s": 0.0, "end_s": 0.0, "focus": "", "min_s": 15, "max_s": 45}
+
+
+def test_retry_only_for_failed_runs(client, settings, started) -> None:  # noqa: F811
+    done = _run_with_events(settings, ["download", "done"], "done")
+    response = client.post(f"/campaign/runs/{done}/retry")
+    assert response.status_code == 400
+    assert response.json()["detail"]
+    running = _run_with_events(settings, ["download"], "running")
+    assert client.post(f"/campaign/runs/{running}/retry").status_code == 400
+    assert client.post("/campaign/runs/999/retry").status_code == 404
+    assert started == []
+
+
+def test_retry_needs_the_key_and_waits_for_a_running_run(client, settings, started, monkeypatch) -> None:  # noqa: F811
+    failed = _run_with_events(settings, ["download"], "failed")
+    monkeypatch.setenv("CLIPSMITH_API_KEY", "nyckel")
+    assert client.post(f"/campaign/runs/{failed}/retry").status_code == 401
+    client.app.state.active_run_id = 77
+    response = client.post(f"/campaign/runs/{failed}/retry", headers={"X-Api-Key": "nyckel"})
+    assert response.status_code == 429
+    assert started == []
+    assert len(ClipLog(settings.data_dir / "klipp.db").runs()) == 1
