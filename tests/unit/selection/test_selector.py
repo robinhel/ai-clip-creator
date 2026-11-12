@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from helpers import _seg, _transcript
-from clipsmith.llm.base import ClipPick
+from clipsmith.llm.base import ClipPick, LLMUnavailable
 from clipsmith.llm.prompts import build_stream_context
 from clipsmith.models.candidates import CandidateMoment
 from clipsmith.selection.selector import (
@@ -130,12 +130,12 @@ def test_select_clips_reject_all() -> None:
     assert picks == []
 
 
-def test_select_clips_fail_treated_as_skip() -> None:
+def test_select_clips_all_failed_stops_instead_of_no_clips() -> None:
     candidates = [_candidate(300.0)]
-    picks = select_clips(
-        candidates, _make_transcript_with_content(), _FailAll(), "ctx", _cfg(), min_picks=0
-    )  # type: ignore[arg-type]
-    assert picks == []
+    with pytest.raises(LLMUnavailable):
+        select_clips(
+            candidates, _make_transcript_with_content(), _FailAll(), "ctx", _cfg(), min_picks=0
+        )  # type: ignore[arg-type]
 
 
 def test_select_clips_respects_max_candidates() -> None:
