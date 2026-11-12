@@ -76,10 +76,10 @@ def test_approving_needs_a_format_from_the_campaign(client, settings) -> None:
 def test_status_follows_the_flow_and_posting_needs_a_link(client, settings) -> None:
     clip_id = _clip(settings, status="godkand", clip_format="funny")
     other = _clip(settings, clip_format="funny")
-    assert client.patch(f"/campaign/clips/{other}", json={"status": "postad", "url": "https://x.y/1",
+    assert client.patch(f"/campaign/clips/{other}", json={"status": "postad", "url": "https://www.tiktok.com/@me/video/1",
                                                           "platform": "tiktok"}).status_code == 400
     assert client.patch(f"/campaign/clips/{clip_id}", json={"status": "postad"}).status_code == 400
-    assert client.patch(f"/campaign/clips/{clip_id}", json={"status": "postad", "url": "https://x.y/1",
+    assert client.patch(f"/campaign/clips/{clip_id}", json={"status": "postad", "url": "https://www.tiktok.com/@me/video/1",
                                                             "platform": "myspace"}).status_code == 400
 
     posted = client.patch(f"/campaign/clips/{clip_id}", json={
@@ -254,7 +254,7 @@ def test_changing_caption_on_an_approved_clip_needs_a_new_yes(client, settings) 
     changed = client.patch(f"/campaign/clips/{clip_id}", json={"caption": "No way #fps"}).json()
     assert changed["status"] == "underkand"
     assert client.patch(f"/campaign/clips/{clip_id}", json={
-        "status": "postad", "url": "https://x.y/1", "platform": "tiktok"}).status_code == 400
+        "status": "postad", "url": "https://www.tiktok.com/@me/video/1", "platform": "tiktok"}).status_code == 400
 
     again = client.patch(f"/campaign/clips/{clip_id}", json={"caption": CAPTION}).json()
     assert again["status"] == "renderad"
