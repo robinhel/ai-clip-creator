@@ -160,10 +160,31 @@ export function NewCampaignClient({ channel: initialChannel, streamer: initialSt
 
   const numbers = { minS: Number(minS), maxS: Number(maxS), cpm: Number(cpm), minViews: Number(minViews), maxPayout: Number(maxPayout), engagement: Number(engagement) };
   const problems: string[] = [];
-  if (!/^[a-z0-9_]{2,40}$/.test(channel)) problems.push("Skriv kanalens namn som i länken twitch.tv/<kanal>: små bokstäver, siffror och _.");
+  // Samma regel som servern (campaign/profile_edit.py ID): kanalen blir kampanjens filnamn.
+  if (!/^[a-z0-9][a-z0-9_]{1,39}$/.test(channel)) {
+    problems.push("Skriv kanalens namn som i länken twitch.tv/<kanal>: 2–40 små bokstäver, siffror och _, och inte _ först.");
+  }
   if (!streamer.trim()) problems.push("Skriv streamerns namn.");
-  if (!Number.isInteger(numbers.minS) || !Number.isInteger(numbers.maxS) || numbers.minS < 1 || numbers.minS >= numbers.maxS) {
-    problems.push("Klipplängden ska vara hela sekunder, och kortast måste vara mindre än längst.");
+  const wholes = [["Kortast (s)", minS, "15"], ["Längst (s)", maxS, "45"], ["Minsta visningar", minViews, "2000"]];
+  for (const [label, value, example] of wholes) {
+    if (!/^\d+$/.test(value.trim())) problems.push(`${label}: skriv ett helt tal utan decimaler, till exempel ${example}.`);
+  }
+  if (/^\d+$/.test(minS.trim()) && /^\d+$/.test(maxS.trim()) && (numbers.minS < 1 || numbers.minS >= numbers.maxS)) {
+    problems.push("Klipplängden: kortast måste vara minst 1 och mindre än längst.");
+  }
+  const texts: [string, string][] = [
+    ["Streamerns namn", streamer],
+    ["Kampanjens namn", campaign],
+    ["Språk", language],
+    ["Text på skärmen", onScreenText],
+    ["Caption-mallen", template],
+    ...mustInclude.map((v): [string, string] => ["Måste innehålla", v]),
+    ...hashtags.map((v): [string, string] => ["Hashtags", v]),
+    ...formats.flatMap((f, i): [string, string][] => [[`Format ${i + 1}`, f.name], [`Format ${i + 1}`, f.description]]),
+  ];
+  // Fälten är en rad; en radbrytning kan komma in via adressen (?streamer=) och servern skriver texten i YAML-filen.
+  for (const label of new Set(texts.filter(([, v]) => /[\r\n]/.test(v)).map(([l]) => l))) {
+    problems.push(`${label}: ta bort radbrytningen. Texten ska stå på en rad.`);
   }
   if (!template.includes("{title}")) problems.push("Caption-mallen måste innehålla {title}, där klippets rubrik hamnar.");
   if ([numbers.cpm, numbers.minViews, numbers.maxPayout, numbers.engagement].some((n) => !Number.isFinite(n) || n < 0)) {
@@ -237,10 +258,10 @@ export function NewCampaignClient({ channel: initialChannel, streamer: initialSt
         <Section step={2} title="Klipplängd">
           <div className="flex items-end gap-3">
             <Field label="Kortast (s)" className="w-28">
-              <input value={minS} onChange={(e) => setMinS(e.target.value)} inputMode="numeric" className={cn(field, "tabular-nums")} />
+              <input value={minS} onChange={(e) => setMinS(e.target.value)} type="number" min="1" step="1" inputMode="numeric" className={cn(field, "tabular-nums")} />
             </Field>
             <Field label="Längst (s)" className="w-28">
-              <input value={maxS} onChange={(e) => setMaxS(e.target.value)} inputMode="numeric" className={cn(field, "tabular-nums")} />
+              <input value={maxS} onChange={(e) => setMaxS(e.target.value)} type="number" min="1" step="1" inputMode="numeric" className={cn(field, "tabular-nums")} />
             </Field>
           </div>
         </Section>
@@ -321,7 +342,7 @@ export function NewCampaignClient({ channel: initialChannel, streamer: initialSt
               <input value={cpm} onChange={(e) => setCpm(e.target.value)} inputMode="decimal" className={cn(field, "tabular-nums")} />
             </Field>
             <Field label="Minsta visningar">
-              <input value={minViews} onChange={(e) => setMinViews(e.target.value)} inputMode="numeric" className={cn(field, "tabular-nums")} />
+              <input value={minViews} onChange={(e) => setMinViews(e.target.value)} type="number" min="0" step="1" inputMode="numeric" className={cn(field, "tabular-nums")} />
             </Field>
             <Field label="Tak per klipp (US$)">
               <input value={maxPayout} onChange={(e) => setMaxPayout(e.target.value)} inputMode="decimal" className={cn(field, "tabular-nums")} />
