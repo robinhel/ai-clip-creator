@@ -3,13 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Link2, Loader2, X } from "lucide-react";
+import { AlertTriangle, Link2, Loader2, Send, X } from "lucide-react";
 import { ProblemFix, readyText } from "@/components/CampaignsClient";
 import { scoreTone } from "@/components/ClipResultRow";
 import { ProjectCard } from "@/components/ProjectCard";
 import { api } from "@/lib/api";
 import { clock, cn, duration, parseClock, serverTime, usd } from "@/lib/utils";
-import type { CampaignProfile, CampaignRunInfo, CampaignSummary, StreamInfo, VodInfo } from "@/lib/types";
+import type { CampaignProfile, CampaignRunInfo, CampaignStatus, CampaignSummary, StreamInfo, VodInfo } from "@/lib/types";
 
 const FOCUS_MAX = 300;
 const RUNS_POLL_MS = 5000;
@@ -53,7 +53,40 @@ function TodoCard({ count, label, href, cta }: { count: number; label: string; h
   );
 }
 
+/** Projektet med flest klipp med statusen, med filtret på projektsidan. Inga sådana klipp: alla projekt. */
+function busiestHref(runs: CampaignRunInfo[] | null, status: CampaignStatus, filter: string): string {
+  const count = (r: CampaignRunInfo | null) => r?.clip_counts[status] ?? 0;
+  const top = runs?.reduce<CampaignRunInfo | null>((best, r) => (count(r) > count(best) ? r : best), null);
+  return top ? `/runs/${top.run_id}?filter=${filter}` : "/projects";
+}
+
+function WhopCard({ count }: { count: number }) {
+  return (
+    <section
+      aria-label="Skicka in på Whop"
+      className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl border border-brand/60 bg-brand/10 px-4 py-3.5"
+    >
+      <Send className="size-5 shrink-0 text-brand" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <h3 className="font-semibold">Skicka in på Whop</h3>
+        <p className="text-[13px] text-muted-foreground">
+          {count === 1 ? "1 postat klipp är inte inskickat än." : `${count} postade klipp är inte inskickade än.`} Skicka
+          in länkarna för att få betalt.
+        </p>
+      </div>
+      <Link
+        href="/queue"
+        className="inline-flex h-9 items-center rounded-lg bg-brand px-3.5 text-sm font-medium text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      >
+        Öppna Att posta
+      </Link>
+    </section>
+  );
+}
+
 const streamDay = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" });
+/** Twitch kan sakna datumet; då sorteras streamen sist bland de nyaste. */
+const streamTime = (s: StreamInfo) => (s.created_at ? serverTime(s.created_at) : 0);
 
 function streamTag(s: StreamInfo): { text: string; tone: string } | null {
   if (s.run_id == null || !s.run_status) return null;
@@ -66,7 +99,7 @@ type StreamSort = "best" | "new";
 
 /** Bäst att klippa: betyg fallande, streams med körning och live sist, nyast först vid lika. */
 function sortStreams(list: StreamInfo[], by: StreamSort): StreamInfo[] {
-  const newest = (a: StreamInfo, b: StreamInfo) => serverTime(b.created_at) - serverTime(a.created_at);
+  const newest = (a: StreamInfo, b: StreamInfo) => streamTime(b) - streamTime(a);
   if (by === "new") return [...list].sort(newest);
   const late = (s: StreamInfo) => (s.run_id != null || s.live ? 1 : 0);
   return [...list].sort((a, b) => late(a) - late(b) || (b.score ?? 0) - (a.score ?? 0) || newest(a, b));
@@ -106,7 +139,7 @@ function StreamCard({ stream: s, selected, onPick }: { stream: StreamInfo; selec
         <div className="min-w-0 space-y-0.5">
           <p className="line-clamp-2 text-[13px] leading-snug font-medium break-words">{s.title}</p>
           <p className="truncate text-xs text-muted-foreground">
-            {[s.game, streamDay.format(serverTime(s.created_at))].filter(Boolean).join(", ")}
+            {[s.game, s.created_at && streamDay.format(streamTime(s))].filter(Boolean).join(", ")}
           </p>
           {s.reason && <p className="line-clamp-2 text-xs text-muted-foreground">{s.reason}</p>}
           {s.live && <p className="text-xs text-warn">Streamen pågår. Vänta tills den är slut.</p>}
@@ -257,6 +290,8 @@ export function HomeClient() {
   const max = Number(maxS);
   const blockers: string[] = [];
   if (vod) {
+    // Serverns hinder (live-stream, SSD:n saknas). Äldre servrar skickar bara live.
+    blockers.push(...(vod.problems ?? (vod.live ? ["Streamen pågår. Vänta tills den är slut."] : [])));
     if (matching.length === 0) {
       blockers.push(`Ingen kampanj passar kanalen ${vod.channel_name}. Skapa en kampanj för kanalen först.`);
     } else if (!profile) {
@@ -507,7 +542,8 @@ export function HomeClient() {
                       </span>
                     </li>
                   ))}
-                  {profile?.ready && profile.problems.length > 0 && (
+                  {/* "Går att köra" stämmer inte när något annat stoppar körningen, till exempel en live-stream. */}
+                  {profile?.ready && profile.problems.length > 0 && blockers.length === 0 && (
                     <li className="px-1 pt-1 font-medium text-warn">{readyText(profile)}.</li>
                   )}
                   {profile?.problems.map((text) => (
@@ -601,13 +637,16 @@ export function HomeClient() {
         </p>
       )}
 
-      <h2 className="mt-12 mb-3 text-lg font-semibold">Det här väntar på dig</h2>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <TodoCard count={counts.renderad ?? 0} label="klipp att granska" href="/projects" cta="Granska" />
-        <TodoCard count={counts.godkand ?? 0} label="godkända klipp att posta" href="/queue" cta="Posta" />
-        <TodoCard count={counts.underkand ?? 0} label="underkända klipp att rätta" href="/projects" cta="Rätta" />
-        <TodoCard count={counts.inskickad ?? 0} label="inskickade, fyll i statistik" href="/log" cta="Fyll i visningar" />
-      </div>
+      <section aria-label="Det här väntar på dig">
+        <h2 className="mt-12 mb-3 text-lg font-semibold">Det här väntar på dig</h2>
+        {(counts.postad ?? 0) > 0 && <WhopCard count={counts.postad ?? 0} />}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <TodoCard count={counts.renderad ?? 0} label="klipp att granska" href={busiestHref(runs, "renderad", "granska")} cta="Granska" />
+          <TodoCard count={counts.godkand ?? 0} label="godkända klipp att posta" href="/queue" cta="Posta" />
+          <TodoCard count={counts.underkand ?? 0} label="underkända klipp att rätta" href={busiestHref(runs, "underkand", "underkanda")} cta="Rätta" />
+          <TodoCard count={counts.inskickad ?? 0} label="inskickade, fyll i statistik" href="/log" cta="Fyll i visningar" />
+        </div>
+      </section>
 
       <div className="mt-9 mb-3 flex items-baseline justify-between gap-4">
         <h2 className="text-lg font-semibold">Senaste projekten</h2>
