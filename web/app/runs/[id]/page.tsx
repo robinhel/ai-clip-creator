@@ -16,7 +16,7 @@ const day = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" })
 
 const FILTERS: { id: string; label: string; status?: CampaignStatus }[] = [
   { id: "alla", label: "Alla" },
-  { id: "att_granska", label: "Att granska", status: "renderad" },
+  { id: "granska", label: "Att granska", status: "renderad" },
   { id: "godkanda", label: "Godkända", status: "godkand" },
   { id: "nekade", label: "Nekade", status: "nekad" },
   { id: "underkanda", label: "Underkända", status: "underkand" },
@@ -198,7 +198,7 @@ export default function RunDetailPage() {
     return () => clearTimeout(timer);
   }, [isActive, finishing, pollTick, finishStartedAt, runId, fetchRun, fetchClips]);
 
-  // Fliken i adressen (?filter=att_granska), så att andra sidor kan länka till rätt flik.
+  // Fliken i adressen (?filter=granska), så att andra sidor kan länka till rätt flik.
   useEffect(() => {
     const wanted = new URLSearchParams(window.location.search).get("filter");
     if (wanted && FILTERS.some((f) => f.id === wanted)) setFilter(wanted);
@@ -231,13 +231,16 @@ export default function RunDetailPage() {
     if (finishing || !beforeFinish.current || !clips) return;
     const before = beforeFinish.current;
     beforeFinish.current = null;
+    // Servern skriver hur många klipp som gjordes om och hoppades över, med orsak, i körningens message.
+    if (run?.message && /gjordes om/.test(run.message)) return setFinishResult(run.message);
+    // Äldre server: räkna själv på vilka klipp som ändrades.
     const redone = clips.filter((c) => before.has(c.id) && before.get(c.id) !== c.updated).length;
     const skipped = clips.filter((c) => before.has(c.id)).length - redone;
     setFinishResult(
       `${redone} klipp gjordes om.` +
         (skipped ? ` ${skipped} klipp rördes inte, till exempel klipp som väntar på ditt ja, så att en ändrad caption inte skrivs över.` : "")
     );
-  }, [finishing, clips]);
+  }, [finishing, clips, run?.message]);
 
   useEffect(() => setPermission(notifyPermission()), []);
   useEffect(() => {
