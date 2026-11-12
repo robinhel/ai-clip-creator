@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import os
 import stat
@@ -146,7 +147,7 @@ def test_five_pending_drafts_in_24_hours_gives_429(client, settings, fake, monke
 
 def test_tiktoks_own_spam_limit_gives_429(client, settings, fake) -> None:
     _connect(settings)
-    fake.init_error = (403, "spam_risk_too_many_pending_share")
+    fake.init_error = ("spam_risk_too_many_pending_share", 403)
     response = client.post(f"/campaign/clips/{_clip(settings)}/tiktok")
     assert response.status_code == 429
     assert response.json()["detail"]
@@ -163,7 +164,7 @@ def test_chunks_follow_tiktoks_rules() -> None:
     assert len(parts) == 15 == 150_000_123 // size
     assert parts[0] == (0, 9_999_999)
     assert parts[-1] == (140_000_000, 150_000_122)  # sista delen tar resten
-    assert all(b + 1 == c for (_, b), (c, _) in zip(parts, parts[1:], strict=False))
+    assert all(b + 1 == c for (_, b), (c, _) in itertools.pairwise(parts))
 
 
 def test_upload_sends_the_file_in_parts_with_content_range(client, settings, fake, monkeypatch) -> None:

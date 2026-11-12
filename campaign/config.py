@@ -24,6 +24,10 @@ class Settings:
     encoder: str = "libx264"  # libx264 | h264_nvenc | h264_videotoolbox
     berget_api_key: str = ""
     transcribe_model: str = "Systran/faster-whisper-large-v3"  # KB-Whisper översätter engelska till svenska
+    tiktok_client_key: str = ""
+    tiktok_client_secret: str = ""
+    tiktok_redirect_uri: str = "http://127.0.0.1:8000/campaign/tiktok/callback/"
+    web_url: str = "http://localhost:3000"  # dit TikTok-inloggningen leder tillbaka
 
     @property
     def work_dir(self) -> Path:
@@ -68,4 +72,9 @@ def load_settings(root: str | Path | None = None) -> Settings:
         encoder=os.environ.get("KLIPP_ENCODER", "libx264").strip() or "libx264",
         berget_api_key=os.environ.get("BERGET_API_KEY", "").strip(),
         transcribe_model=os.environ.get("KLIPP_TRANSCRIBE_MODEL", "").strip() or "Systran/faster-whisper-large-v3",
+        tiktok_client_key=os.environ.get("TIKTOK_CLIENT_KEY", "").strip(),
+        tiktok_client_secret=os.environ.get("TIKTOK_CLIENT_SECRET", "").strip(),
+        tiktok_redirect_uri=os.environ.get("TIKTOK_REDIRECT_URI", "").strip()
+        or "http://127.0.0.1:8000/campaign/tiktok/callback/",
+        web_url=os.environ.get("KLIPP_WEB_URL", "").strip().rstrip("/") or "http://localhost:3000",
     )
