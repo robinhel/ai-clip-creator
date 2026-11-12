@@ -294,6 +294,12 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
         </h3>
         <CampaignStatusBadge status={clip.status} />
         {clip.format && <Badge variant="outline">{formatName}</Badge>}
+        {/* Utanför projektsidan, till exempel i Att posta, går det att öppna projektet klippet kommer från. */}
+        {runId && (
+          <Link href={`/runs/${runId}`} className="text-[13px] text-muted-foreground underline underline-offset-4 hover:text-foreground">
+            Öppna projektet
+          </Link>
+        )}
       </header>
 
       <div className="relative col-start-2 aspect-[9/16] w-full max-w-[230px] overflow-hidden rounded-xl bg-black lg:col-start-auto">
