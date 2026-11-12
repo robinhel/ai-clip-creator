@@ -176,9 +176,14 @@ function ClipRow({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (clip: Camp
   );
 }
 
-export function ClipLogClient() {
-  const [summary, setSummary] = useState<CampaignSummary | null>(null);
-  const [clips, setClips] = useState<CampaignClip[] | null>(null);
+interface Props {
+  initialSummary?: CampaignSummary | null;
+  initialClips?: CampaignClip[] | null;
+}
+
+export function ClipLogClient({ initialSummary = null, initialClips = null }: Props) {
+  const [summary, setSummary] = useState<CampaignSummary | null>(initialSummary);
+  const [clips, setClips] = useState<CampaignClip[] | null>(initialClips);
   const [filter, setFilter] = useState<CampaignStatus | "">("");
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -200,9 +205,11 @@ export function ClipLogClient() {
     }
   }, []);
 
+  // Servern har oftast redan hämtat datan; hämta bara här om den inte kunde.
+  const hasInitial = initialSummary !== null && initialClips !== null;
   useEffect(() => {
-    load();
-  }, [load]);
+    if (!hasInitial) load();
+  }, [load, hasInitial]);
 
   function handleUpdate(updated: CampaignClip) {
     setClips((prev) => prev?.map((c) => (c.id === updated.id ? updated : c)) ?? null);
