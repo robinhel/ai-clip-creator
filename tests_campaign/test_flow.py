@@ -192,7 +192,7 @@ def test_new_run_checks_channel_length_and_disk(client, settings, fake_twitch, s
     wrong = client.post("/campaign/runs", json={**body, "vod_id": "111111111"})
     assert wrong.status_code == 400
     assert "SomeoneElse" in wrong.json()["detail"]
-    for lengths in ({"min_s": 10, "max_s": 30}, {"min_s": 30, "max_s": 20}, {"max_s": 60}, {"min_s": 45}):
+    for lengths in ({"min_s": 10, "max_s": 30}, {"min_s": 30, "max_s": 20}, {"max_s": 60}, {"min_s": 46}):
         response = client.post("/campaign/runs", json={**body, **lengths})
         assert response.status_code == 400, lengths
         assert "15" in response.json()["detail"] and "45" in response.json()["detail"]
@@ -350,3 +350,199 @@ def test_summary_has_disk_space(client, monkeypatch) -> None:  # noqa: F811
 def test_disk_gb_works_before_the_work_folder_exists(tmp_path) -> None:
     free, total = estimate.disk_gb(tmp_path / "work" / "missing")
     assert 0 < free <= total
+
+
+# ---------- granskningens fynd ----------
+
+
+def test_stream_context_says_the_runs_length_replaces_the_instructions() -> None:
+    from clipsmith.llm.prompts import build_stream_context
+
+    ctx = build_stream_context("timmy", "t", "1h", clip_range=(20, 30))
+    assert "end_offset_s must be 20-30 seconds after start_offset_s" in ctx
+    assert "instead of the clip length in the instructions" in ctx
+
+
+def test_finish_again_after_done_counts_steps_from_the_new_events() -> None:
+    start = datetime(2026, 11, 12, 10, 0, tzinfo=UTC)
+    first = [(stage, 10.0, start + timedelta(minutes=i)) for i, stage in
+             enumerate(["download", "transcribe", "chat", "select", "clip", "finish", "done"])]
+    again = start + timedelta(hours=2)
+    progress = estimate.progress("running", [*first, ("finish", 90.0, again)], 13950, now=again)
+    steps = {s["id"]: s for s in progress["steps"]}
+    assert steps["finish"]["status"] == "running"
+    assert steps["finish"]["started_at"] == again.isoformat()
+    assert [s["status"] for s in progress["steps"]][:5] == ["done"] * 5
+    assert progress["stage"] == "finish"
+
+    finished = estimate.progress("done", [*first, ("finish", 90.0, again), ("done", 100.0, again)], 13950)
+    assert {s["id"]: s for s in finished["steps"]}["finish"]["started_at"] == again.isoformat()
+
+
+def test_run_that_fails_before_any_event_fails_the_first_step() -> None:
+    progress = estimate.progress("failed", [], 13950)
+    assert [s["status"] for s in progress["steps"]] == ["failed"] + ["waiting"] * 5
+    assert progress["eta_s"] is None
+
+
+def test_new_caption_and_a_new_status_in_one_patch_is_refused(client, settings) -> None:  # noqa: F811
+    from .test_api import CAPTION, _clip
+
+    clip_id = _clip(settings, status="godkand", clip_format="funny")
+    response = client.patch(f"/campaign/clips/{clip_id}", json={
+        "caption": CAPTION + " #new", "status": "postad", "url": "https://x.y/1", "platform": "tiktok"})
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Spara captionen först. Sedan behövs ett nytt ja."
+    assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["caption"] == CAPTION
+    assert client.patch(f"/campaign/clips/{clip_id}", json={"caption": "x", "status": "nekad"}).status_code == 200
+
+
+def test_vod_cache_expires_and_a_new_run_fetches_fresh_facts(client, fake_twitch, started,  # noqa: F811
+                                                             monkeypatch) -> None:
+    from campaign import vodinfo
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(vodinfo.time, "monotonic", lambda: clock["t"])
+    client.get(f"/campaign/vod/{VOD}")
+    clock["t"] += 9 * 60
+    client.get(f"/campaign/vod/{VOD}")
+    assert fake_twitch.calls == 1
+    clock["t"] += 2 * 60
+    client.get(f"/campaign/vod/{VOD}")
+    assert fake_twitch.calls == 2
+
+    fake_twitch.videos[VOD]["lengthSeconds"] = 18150
+    assert client.post("/campaign/runs", json={"profile": "skiimasktimmy", "vod_id": VOD}).status_code == 201
+    assert fake_twitch.calls == 3
+    _, kwargs = started[0]
+    assert ClipLog(client.app.dependency_overrides[api.get_settings]().data_dir / "klipp.db").runs()[-1][
+        "duration_s"] == 18150
+
+
+def test_vod_without_owner_matches_no_campaign(client, settings, fake_twitch, started) -> None:  # noqa: F811
+    (settings.profiles_dir / "trasig.yaml").write_text("name: [", encoding="utf-8")  # kanal "" i /profiles
+    fake_twitch.videos["333333333"] = {"title": "x", "lengthSeconds": 60, "createdAt": "", "game": None,
+                                       "owner": None}
+    vod = client.get("/campaign/vod/333333333").json()
+    assert vod["channel"] == ""
+    assert vod["campaigns"] == []
+    response = client.post("/campaign/runs", json={"profile": "skiimasktimmy", "vod_id": "333333333"})
+    assert response.status_code == 400
+    assert "kanal" in response.json()["detail"]
+    assert started == []
+
+
+def test_twitch_down_when_starting_a_run_gives_502_and_no_run(client, fake_twitch, started) -> None:  # noqa: F811
+    from clipsmith.db.models import Run
+    from clipsmith.db.session import get_session
+
+    fake_twitch.error = OSError("nere")
+    response = client.post("/campaign/runs", json={"profile": "skiimasktimmy", "vod_id": VOD})
+    assert response.status_code == 502
+    assert started == []
+    db = get_session()
+    assert db.query(Run).count() == 0
+    db.close()
+    assert client.get("/campaign/runs").json() == []
+    assert client.app.state.active_run_id is None
+
+
+def test_adding_columns_that_another_process_just_added_is_fine(tmp_path, monkeypatch) -> None:
+    from campaign import cliplog
+
+    path = tmp_path / "klipp.db"
+    ClipLog(path)
+    # Låtsas att en annan process lade till kolumnen mellan PRAGMA och ALTER TABLE.
+    monkeypatch.setitem(cliplog.NEW_COLUMNS, "clips", {"score": "INTEGER", "reason": "TEXT"})
+    real = sqlite3.connect
+
+    def connect(*args, **kwargs):
+        db = real(*args, **kwargs)
+        db.row_factory = sqlite3.Row
+        return _NoColumns(db)
+
+    monkeypatch.setattr(cliplog.sqlite3, "connect", connect)
+    ClipLog(path)
+
+
+class _NoColumns:
+    """sqlite-anslutning där PRAGMA table_info säger att inga kolumner finns."""
+
+    def __init__(self, db):
+        self.db = db
+        self.row_factory = None
+
+    def execute(self, sql, *args):
+        if sql.startswith("PRAGMA table_info"):
+            return []
+        return self.db.execute(sql, *args)
+
+    def __enter__(self):
+        self.db.__enter__()
+        return self
+
+    def __exit__(self, *exc):
+        return self.db.__exit__(*exc)
+
+
+def test_broken_transcript_gives_an_empty_answer(client, settings) -> None:  # noqa: F811
+    log = ClipLog(settings.data_dir / "klipp.db")
+    clip_id = log.add(vod_id="123", profile="skiimasktimmy", file="/x/a.mp4", title="a", caption="c",
+                      start_s=10.0, end_s=40.0)
+    transcript = settings.work_dir / "123" / "transcript.json"
+    transcript.parent.mkdir(parents=True)
+    for broken in ("{not json", '{"segments": [{"start": 12}]}', "[]"):
+        transcript.write_text(broken, encoding="utf-8")
+        response = client.get(f"/campaign/clips/{clip_id}/transcript")
+        assert response.status_code == 200, broken
+        assert response.json() == {"text": "", "segments": []}
+
+
+def test_same_min_and_max_length_is_allowed(client, started) -> None:  # noqa: F811
+    response = client.post("/campaign/runs", json={"profile": "skiimasktimmy", "vod_id": VOD,
+                                                   "min_s": 30, "max_s": 30})
+    assert response.status_code == 201
+    _, kwargs = started[0]
+    assert (kwargs["min_s"], kwargs["max_s"]) == (30, 30)
+
+
+def test_old_run_gets_its_vod_facts_when_shown(client, settings, fake_twitch) -> None:  # noqa: F811
+    run_id = _run_with_events(settings, ["download", "done"], "done")
+    log = ClipLog(settings.data_dir / "klipp.db")
+    log.add_run(run_id, VOD, "skiimasktimmy", "Bodycam")  # som en gammal körning: inga fakta
+
+    fake_twitch.error = OSError("nere")
+    assert client.get(f"/campaign/runs/{run_id}").json()["title"] is None
+    assert client.get("/campaign/runs").status_code == 200
+
+    fake_twitch.error = None
+    run = client.get("/campaign/runs").json()[0]
+    assert run["title"] == "3x Playtest Key GIVEAWAY"
+    assert run["thumbnail_url"].endswith(".jpg")
+    saved = log.run(run_id)
+    assert (saved["title"], saved["channel_name"], saved["duration_s"]) == (
+        "3x Playtest Key GIVEAWAY", "SkiiMaskTimmy", 13950)
+    assert saved["game"] == "Bodycam"
+    calls = fake_twitch.calls
+    client.get(f"/campaign/runs/{run_id}")
+    assert fake_twitch.calls == calls  # sparat, hämtas inte igen
+
+
+def test_force_accepted_picks_have_no_score_from_claude(tmp_path) -> None:
+    from campaign.workflow import load_picks
+
+    picks = tmp_path / "picks.json"
+    picks.write_text(json.dumps([{"candidate": {}, "pick": {
+        "start_offset_s": 1, "end_offset_s": 20, "title_es": "Momento destacado", "score": 0,
+        "reason": "Force-accepted: LLM accepted fewer than min_picks candidates."}}]), encoding="utf-8")
+    (pick,) = load_picks(picks)
+    assert pick["score"] is None
+    assert pick["reason"] == "Claude valde inte klippet. Det togs med för att nå min_picks."
+
+
+def test_created_falls_back_to_clipsmiths_time(client, settings) -> None:  # noqa: F811
+    run_id = _run_with_events(settings, ["download"])
+    with sqlite3.connect(settings.data_dir / "klipp.db") as db:
+        db.execute("UPDATE runs SET created = NULL WHERE run_id = ?", (run_id,))
+    assert client.get(f"/campaign/runs/{run_id}").json()["created"]
+    assert client.get("/campaign/runs").json()[0]["created"]
