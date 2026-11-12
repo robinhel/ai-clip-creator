@@ -88,6 +88,42 @@ def test_status_follows_the_flow_and_posting_needs_a_link(client, settings) -> N
     assert client.patch(f"/campaign/clips/{clip_id}", json={"status": "inskickad"}).status_code == 200
 
 
+def test_a_wrong_click_can_be_undone_one_step_back(client, settings) -> None:
+    clip_id = _clip(settings, status="godkand", clip_format="funny")
+    url = f"/campaign/clips/{clip_id}"
+    link = {"url": "https://www.tiktok.com/@me/video/1", "platform": "tiktok"}
+    for step, back in [("postad", "godkand"), ("inskickad", "postad"), ("analytics_inskickad", "inskickad"),
+                       ("betald", "analytics_inskickad")]:
+        assert client.patch(url, json={"status": step, **link}).status_code == 200, step
+        assert client.patch(url, json={"status": back}).json()["status"] == back
+        assert client.patch(url, json={"status": step}).status_code == 200
+    log = ClipLog(settings.data_dir / "klipp.db")
+    log.update(clip_id, status="inskickad")
+    assert client.patch(url, json={"status": "betald"}).status_code == 200
+    assert client.patch(url, json={"status": "inskickad"}).json()["status"] == "inskickad"
+    assert client.patch(url, json={"status": "renderad"}).status_code == 400  # bara ett steg bakåt
+
+
+def test_the_posted_link_must_be_a_real_link_to_the_platform(client, settings) -> None:
+    clip_id = _clip(settings, status="godkand", clip_format="funny")
+    url = f"/campaign/clips/{clip_id}"
+    for bad, platform in [("https://", "tiktok"), ("http://www.tiktok.com/@me/video/1", "tiktok"),
+                          ("https://www.youtube.com/shorts/abc", "tiktok"), ("https://tiktok", "tiktok"),
+                          ("https://evil.com/www.tiktok.com/x", "tiktok"),
+                          ("https://www.tiktok.com/@me/video/1", "instagram_reels")]:
+        response = client.patch(url, json={"status": "postad", "url": bad, "platform": platform})
+        assert response.status_code == 400, bad
+    assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["status"] == "godkand"
+    for good, platform in [("https://vm.tiktok.com/ZMabc/", "tiktok"), ("https://youtu.be/abc", "youtube_shorts"),
+                           ("https://www.youtube.com/shorts/abc", "youtube_shorts"),
+                           ("https://www.instagram.com/reel/abc/", "instagram_reels")]:
+        assert client.patch(url, json={"url": good, "platform": platform}).status_code == 200, good
+    # Länken går att byta på ett postat klipp, men samma kontroll gäller.
+    client.patch(url, json={"status": "postad", "url": "https://www.tiktok.com/@me/video/1", "platform": "tiktok"})
+    assert client.patch(url, json={"url": "https://www.tiktok.com/@me/video/2"}).json()["url"].endswith("/2")
+    assert client.patch(url, json={"url": "https://"}).status_code == 400
+
+
 def test_changed_caption_is_checked_again(client, settings) -> None:
     clip_id = _clip(settings)
     broken = client.patch(f"/campaign/clips/{clip_id}", json={"caption": "No way #fps"}).json()
