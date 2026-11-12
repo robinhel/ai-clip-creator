@@ -116,6 +116,8 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
   const image = loaded?.src !== frameSrc ? "loading" : loaded.ok ? "ok" : "error";
 
   const dirty = rects !== null && JSON.stringify([split, rects]) !== saved;
+  // Servern har inga rutor än: de förvalda rutorna går att spara utan att flyttas först.
+  const unsaved = server !== null && (!server.webcam_rects?.length || !server.gameplay_rect);
 
   function toSource(e: React.PointerEvent): [number, number] {
     const box = area.current!.getBoundingClientRect();
@@ -435,7 +437,7 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
         </p>
       )}
       <div className="flex flex-wrap gap-2">
-        <Button className="h-9" disabled={!dirty || busy} onClick={save}>
+        <Button className="h-9" disabled={!(dirty || unsaved) || busy} onClick={save}>
           {busy && <Loader2 className="animate-spin" aria-hidden />}
           Spara rutorna
         </Button>
