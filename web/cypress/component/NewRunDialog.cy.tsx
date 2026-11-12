@@ -1,4 +1,4 @@
-import { NewRunDialog, parseTime } from "../../components/NewRunDialog";
+import { NewRunDialog, parseTime, parseVodId } from "../../components/NewRunDialog";
 import { api } from "../../lib/api";
 import type { CampaignProfile, Run } from "../../lib/types";
 
@@ -41,6 +41,14 @@ describe("parseTime", () => {
     expect(parseTime("1:30")).to.equal(90);
     expect(parseTime("1:02:30")).to.equal(3750);
     expect(parseTime("abc")).to.be.NaN;
+  });
+});
+
+describe("parseVodId", () => {
+  it("reads an id or a Twitch link", () => {
+    expect(parseVodId("2345678901")).to.equal("2345678901");
+    expect(parseVodId("https://www.twitch.tv/videos/2345678901?t=1h")).to.equal("2345678901");
+    expect(parseVodId("abc")).to.equal(null);
   });
 });
 

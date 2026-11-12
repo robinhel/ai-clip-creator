@@ -10,6 +10,7 @@ import { ClipCard } from "@/components/ClipCard";
 import { ProgressStream } from "@/components/ProgressStream";
 import { RUN_STATUS_LABEL } from "@/components/RunCard";
 import { api } from "@/lib/api";
+import { serverTime } from "@/lib/utils";
 import type { CampaignRunInfo, Clip, Run } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 3000;
@@ -26,11 +27,15 @@ export default function RunDetailPage() {
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [campaign, setCampaign] = useState<CampaignRunInfo | null>(null);
-  const [finishing, setFinishing] = useState(false);
+  const [finishStartedAt, setFinishStartedAt] = useState<number | null>(null);
   const [finishError, setFinishError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isActive = run?.status === "pending" || run?.status === "running";
+  // Klar när körningen har ändrats efter att vi startade och inte längre är aktiv.
+  const finishing =
+    finishStartedAt !== null &&
+    (isActive || !run || serverTime(run.updated_at) < finishStartedAt);
 
   const fetchClips = useCallback(async () => {
     try {
@@ -128,14 +133,13 @@ export default function RunDetailPage() {
     setFinishError(null);
     try {
       await api.campaign.runs.finish(runId);
-      setFinishing(true);
+      setFinishStartedAt(Date.now() - 1000);
     } catch (err) {
       setFinishError(err instanceof Error ? err.message : "Kunde inte starta");
     }
   }
 
   function handleSseDone() {
-    setFinishing(false);
     setTimeout(() => {
       fetchRun();
       fetchClips();
