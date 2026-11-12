@@ -2,24 +2,28 @@
 
 from __future__ import annotations
 
+import json
 import threading
 from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import Path as PathParam
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from clipsmith.api.deps import get_db, verify_api_key
-from clipsmith.db.models import Run, RunStatus
+from clipsmith.db.models import PipelineEvent, Run, RunStatus
 
+from . import estimate
 from .budget import budget_from_settings
 from .caption import check_caption
 from .cliplog import STATUSES, ClipLog
 from .config import Settings, load_settings
 from .pipeline import finish_run, run_campaign_vod
 from .profile import Profile, load_profile
+from .vodinfo import VodNotFound, vod_facts
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
 _start_lock = threading.Lock()  # bara en körning i taget, också när två anrop kommer samtidigt
@@ -68,14 +72,16 @@ def _describe_profile(name: str, settings: Settings) -> dict:
     problems = profile.problems(settings.root)
     blocking: list[str] = []
     channel = profile.streamer.lower()
+    clip_min_s = clip_max_s = None
     config = settings.root / profile.clipsmith_config if profile.clipsmith_config else None
     if config is None:
         blocking.append("Profilen saknar clipsmith_config.")
     elif not config.exists():
         blocking.append(f"Inställningsfilen {profile.clipsmith_config} saknas.")
     else:
-        channels = load_config(config).channels
-        channel = channels[0] if channels else channel
+        cfg = load_config(config)
+        channel = cfg.channels[0] if cfg.channels else channel
+        clip_min_s, clip_max_s = cfg.clip.min_seconds, cfg.clip.max_seconds
     if not settings.berget_api_key:
         blocking.append("BERGET_API_KEY saknas i .env.")
     if not settings.anthropic_api_key:
@@ -86,6 +92,8 @@ def _describe_profile(name: str, settings: Settings) -> dict:
         "campaign": profile.raw.get("campaign") or profile.raw.get("name") or profile.name,
         "language": profile.language,
         "channel": channel,
+        "clip_min_s": clip_min_s,
+        "clip_max_s": clip_max_s,
         "formats": [{"id": f["id"], "name": f.get("name", f["id"]),
                      "description": f.get("description", "")} for f in profile.formats],
         "problems": blocking + problems,
@@ -101,9 +109,41 @@ def list_profiles(settings: Settings = Depends(get_settings)) -> list[dict]:
             result.append(_describe_profile(name, settings))
         except (SystemExit, Exception) as error:  # en trasig fil ska inte dölja de andra kampanjerna
             result.append({"name": name, "streamer": "", "campaign": name, "language": "",
-                           "channel": "", "formats": [], "ready": False,
+                           "channel": "", "clip_min_s": None, "clip_max_s": None,
+                           "formats": [], "ready": False,
                            "problems": [f"Profilen går inte att läsa: {error}"]})
     return result
+
+
+# ---------- VOD ----------
+
+
+def _mp4(vod_id: str, settings: Settings) -> Path:
+    return settings.work_dir / vod_id / f"{vod_id}.mp4"
+
+
+def _facts(vod_id: str) -> dict:
+    try:
+        return vod_facts(vod_id)
+    except VodNotFound as error:
+        raise HTTPException(404, f"Hittar ingen VOD med id {vod_id} på Twitch.") from error
+    except Exception as error:  # twitch-dl kastar olika fel när Twitch inte svarar
+        raise HTTPException(502, "Twitch svarar inte. Försök igen om en stund.") from error
+
+
+def _estimate(facts: dict, settings: Settings) -> dict:
+    downloaded = _mp4(facts["vod_id"], settings).exists()
+    free_gb, _ = estimate.disk_gb(settings.work_dir)
+    return {"downloaded": downloaded,
+            "estimate": estimate.estimate(facts["duration_s"], free_gb, downloaded)}
+
+
+@router.get("/vod/{vod_id}", summary="Fakta om en Twitch-VOD före körningen")
+def vod_info(vod_id: str = PathParam(pattern=r"^\d{6,15}$"),
+             settings: Settings = Depends(get_settings)) -> dict:
+    facts = _facts(vod_id)
+    campaigns = [p["name"] for p in list_profiles(settings) if p["channel"].lower() == facts["channel"]]
+    return {**facts, **_estimate(facts, settings), "campaigns": campaigns}
 
 
 # ---------- körningar ----------
@@ -115,6 +155,9 @@ class CampaignRunCreate(BaseModel):
     game: str | None = None
     start_s: float = 0.0
     end_s: float = 0.0
+    focus: str = Field(default="", max_length=300)
+    min_s: int | None = None
+    max_s: int | None = None
 
 
 @router.post("/runs", status_code=201, summary="Starta en körning för en kampanj",
@@ -131,6 +174,23 @@ def create_run(
     if not ready["ready"]:
         raise HTTPException(400, " ".join(ready["problems"]))
 
+    low, high = ready["clip_min_s"], ready["clip_max_s"]
+    min_s, max_s = body.min_s or low, body.max_s or high
+    if not low <= min_s < max_s <= high:
+        raise HTTPException(400, f"Klippens längd måste ligga mellan {low} och {high} sekunder, "
+                                 "och den kortaste längden måste vara kortare än den längsta.")
+    facts = _facts(body.vod_id)
+    if facts["channel"] != ready["channel"].lower():
+        raise HTTPException(400, f"VOD:en är från {facts['channel_name'] or facts['channel']}, inte från "
+                                 f"kampanjens kanal {ready['channel']}. Kampanjen får bara använda "
+                                 "streamerns egna streams.")
+    space = _estimate(facts, settings)
+    if not space["estimate"]["fits"]:
+        need = space["estimate"]["download_gb"] * 1.1 + 1
+        raise HTTPException(400, f"Disken räcker inte. VOD:en behöver ungefär {need:.1f} GB med marginal, "
+                                 f"och det finns {space['estimate']['disk_free_gb']} GB ledigt.")
+
+    focus = body.focus.strip()
     game = (body.game or "").strip() or None
     with _start_lock:
         if request.app.state.active_run_id is not None:
@@ -140,15 +200,59 @@ def create_run(
         db.commit()
         db.refresh(run)
         request.app.state.active_run_id = run.id
-    _log(settings).add_run(run.id, body.vod_id, profile.name, game)
+    _log(settings).add_run(run.id, body.vod_id, profile.name, game, focus=focus or None,
+                           min_s=min_s, max_s=max_s, title=facts["title"],
+                           channel_name=facts["channel_name"], thumbnail_url=facts["thumbnail_url"],
+                           duration_s=facts["duration_s"])
     background_tasks.add_task(run_campaign_vod, run.id, body.vod_id, profile.name, game, settings,
-                              start_s=body.start_s, end_s=body.end_s, app=request.app)
+                              start_s=body.start_s, end_s=body.end_s, focus=focus, min_s=min_s,
+                              max_s=max_s, app=request.app)
     return run.to_dict()
 
 
-@router.get("/runs", summary="Vilken kampanj varje körning hör till")
-def list_runs(settings: Settings = Depends(get_settings)) -> list[dict]:
-    return _log(settings).runs()
+def _run_clips(meta: dict, clips: list[dict]) -> list[dict]:
+    """Klippen från en körning. shortcut: klipploggen vet inte run_id, så det är klippen från samma
+    VOD och kampanj. Två körningar av samma VOD delar klipp; spara run_id per klipp om det behövs."""
+    return [c for c in clips if c["vod_id"] == meta["vod_id"] and c["profile"] == meta["profile"]]
+
+
+def _describe_run(meta: dict, db: Session, clips: list[dict], steps: bool = False) -> dict:
+    run = db.get(Run, meta["run_id"])
+    if run is None:
+        status, error, created, events = "failed", "Körningen saknas i clipsmiths databas.", None, []
+    else:
+        status, error, created = run.status.value, run.error, run.created_at.isoformat()
+        events = [(e.stage, e.pct, e.created_at) for e in db.query(PipelineEvent)
+                  .filter(PipelineEvent.run_id == run.id).order_by(PipelineEvent.id)]
+    progress = estimate.progress(status, events, meta["duration_s"])
+    counts: dict[str, int] = {}
+    for clip in _run_clips(meta, clips):
+        counts[clip["status"]] = counts.get(clip["status"], 0) + 1
+    out = {key: meta[key] for key in ("run_id", "vod_id", "profile", "game", "focus", "min_s", "max_s",
+                                      "title", "channel_name", "thumbnail_url", "duration_s")}
+    out.update(created=meta["created"] or created, status=status, stage=progress["stage"],
+               pct=progress["pct"], error=error, clip_counts=counts)
+    if steps:
+        out.update(steps=progress["steps"], eta_s=progress["eta_s"],
+                   cost_estimate_usd=estimate.cost_usd(meta["duration_s"]))
+    return out
+
+
+@router.get("/runs", summary="Projekten, nyast först")
+def list_runs(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> list[dict]:
+    log = _log(settings)
+    clips = log.list()
+    return [_describe_run(meta, db, clips) for meta in reversed(log.runs())]
+
+
+@router.get("/runs/{run_id}", summary="En körning med förloppet per steg")
+def get_run(run_id: int, db: Session = Depends(get_db),
+            settings: Settings = Depends(get_settings)) -> dict:
+    log = _log(settings)
+    meta = log.run(run_id)
+    if meta is None:
+        raise HTTPException(404, "Körningen finns inte.")
+    return _describe_run(meta, db, log.list(), steps=True)
 
 
 @router.post("/runs/{run_id}/finish", status_code=202, summary="Gör klippen kampanjklara igen",
@@ -180,6 +284,7 @@ def _public(clip: dict, settings: Settings) -> dict:
     out["problems"] = clip["problems"] or []
     out["warnings"] = clip["warnings"] or []
     out["signals"] = clip["signals"] or []
+    out["reason"] = clip["reason"] or ""
     out["engagement"] = ClipLog.engagement(clip)
     try:
         profile = load_profile(clip["profile"], settings.profiles_dir)
@@ -198,12 +303,29 @@ def _get(log: ClipLog, clip_id: int) -> dict:
 
 
 @router.get("/clips", summary="Klipp i klipploggen")
-def list_clips(status: str | None = None, vod_id: str | None = None,
+def list_clips(status: str | None = None, vod_id: str | None = None, run_id: int | None = None,
                settings: Settings = Depends(get_settings)) -> list[dict]:
-    clips = _log(settings).list(status or None)
+    log = _log(settings)
+    clips = log.list(status or None)
     if vod_id:
         clips = [c for c in clips if c["vod_id"] == vod_id]
+    if run_id is not None:
+        meta = log.run(run_id)
+        clips = _run_clips(meta, clips) if meta else []
     return [_public(c, settings) for c in clips]
+
+
+@router.get("/clips/{clip_id}/transcript", summary="Det som sägs i klippet")
+def clip_transcript(clip_id: int, settings: Settings = Depends(get_settings)) -> dict:
+    clip = _get(_log(settings), clip_id)
+    path = settings.work_dir / clip["vod_id"] / "transcript.json"
+    start, end = clip["start_s"], clip["end_s"]
+    if start is None or end is None or not path.exists():
+        return {"text": "", "segments": []}
+    segments = [{"start": s["start"], "end": s["end"], "text": s["text"].strip()}
+                for s in json.loads(path.read_text(encoding="utf-8")).get("segments", [])
+                if s["end"] > start and s["start"] < end]
+    return {"text": " ".join(s["text"] for s in segments), "segments": segments}
 
 
 @router.get("/clips/{clip_id}/file", summary="Spela upp eller ladda ner ett klipp")
@@ -297,4 +419,6 @@ def summary(settings: Settings = Depends(get_settings)) -> dict:
     counts: dict[str, int] = {}
     for clip in log.list():
         counts[clip["status"]] = counts.get(clip["status"], 0) + 1
-    return {"budget": budget_from_settings(settings).summary(), "counts": counts, "todo": log.todo()}
+    free_gb, total_gb = estimate.disk_gb(settings.work_dir)
+    return {"budget": budget_from_settings(settings).summary(), "counts": counts, "todo": log.todo(),
+            "disk": {"free_gb": free_gb, "total_gb": total_gb}}

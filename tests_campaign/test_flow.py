@@ -26,11 +26,6 @@ def started(monkeypatch) -> list:
     return calls
 
 
-@pytest.fixture
-def roomy_disk(monkeypatch):
-    monkeypatch.setattr(estimate, "disk_gb", lambda path: (100.0, 228.0))
-
-
 # ---------- klipploggen ----------
 
 
@@ -215,8 +210,7 @@ def test_new_run_checks_channel_length_and_disk(client, settings, fake_twitch, s
     assert client.post("/campaign/runs", json=body).status_code == 201  # redan nedladdad
 
 
-def test_new_run_saves_vod_facts_and_passes_focus_and_length(client, settings, started,  # noqa: F811
-                                                             roomy_disk) -> None:
+def test_new_run_saves_vod_facts_and_passes_focus_and_length(client, settings, started) -> None:  # noqa: F811
     response = client.post("/campaign/runs", json={
         "profile": "skiimasktimmy", "vod_id": VOD, "game": "Bodycam",
         "focus": "  funny fails  ", "min_s": 15, "max_s": 30})
