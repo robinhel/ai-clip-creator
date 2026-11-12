@@ -28,7 +28,8 @@ COLUMNS = (
 NEW_COLUMNS = {
     "clips": {"score": "INTEGER", "reason": "TEXT"},
     "runs": {"focus": "TEXT", "min_s": "INTEGER", "max_s": "INTEGER", "title": "TEXT",
-             "channel_name": "TEXT", "thumbnail_url": "TEXT", "duration_s": "INTEGER", "created": "TEXT"},
+             "channel_name": "TEXT", "thumbnail_url": "TEXT", "duration_s": "INTEGER", "created": "TEXT",
+             "start_s": "REAL", "end_s": "REAL"},
 }
 
 
@@ -175,15 +176,16 @@ class ClipLog:
     def add_run(self, run_id: int, vod_id: str, profile: str, game: str | None, *,
                 focus: str | None = None, min_s: int | None = None, max_s: int | None = None,
                 title: str | None = None, channel_name: str | None = None,
-                thumbnail_url: str | None = None, duration_s: int | None = None) -> None:
+                thumbnail_url: str | None = None, duration_s: int | None = None,
+                start_s: float = 0.0, end_s: float = 0.0) -> None:
         """Spara vilken kampanj en körning i appen hör till, och fakta om VOD:en."""
         with self._db() as db:
             db.execute(
                 """INSERT OR REPLACE INTO runs (run_id, vod_id, profile, game, focus, min_s, max_s,
-                   title, channel_name, thumbnail_url, duration_s, created)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   title, channel_name, thumbnail_url, duration_s, created, start_s, end_s)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (run_id, vod_id, profile, game, focus, min_s, max_s, title, channel_name,
-                 thumbnail_url, duration_s, _now()))
+                 thumbnail_url, duration_s, _now(), start_s, end_s))
 
     def set_run_facts(self, run_id: int, *, title: str, channel_name: str, thumbnail_url: str | None,
                       duration_s: int) -> None:
