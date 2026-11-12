@@ -14,7 +14,7 @@ import {
   STATUS_ORDER,
 } from "@/components/CampaignStatusBadge";
 import { api } from "@/lib/api";
-import { cn, serverTime } from "@/lib/utils";
+import { cn, serverTime, SUMMARY_CHANGED } from "@/lib/utils";
 import type { CampaignClip, CampaignStatus, CampaignSummary } from "@/lib/types";
 
 const usd = new Intl.NumberFormat("sv-SE", { style: "currency", currency: "USD" });
@@ -35,6 +35,14 @@ const NEXT_STEPS: Partial<Record<CampaignStatus, { status: CampaignStatus; label
     { status: "betald", label: "Betald" },
   ],
   analytics_inskickad: [{ status: "betald", label: "Betald" }],
+};
+
+// Ett steg bakåt, så att ett felklick går att ångra. Samma steg som servern tillåter (campaign/api.py).
+const BACK: Partial<Record<CampaignStatus, CampaignStatus>> = {
+  postad: "godkand",
+  inskickad: "postad",
+  analytics_inskickad: "inskickad",
+  betald: "inskickad",
 };
 
 function BudgetCard({ title, spent, cap }: { title: string; spent: number; cap: number }) {
@@ -138,6 +146,7 @@ function ClipRow({ clip, estimate, onUpdate }: { clip: CampaignClip; estimate?: 
     setError(null);
     try {
       onUpdate(await api.campaign.clips.patch(clip.id, body));
+      window.dispatchEvent(new Event(SUMMARY_CHANGED));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Det gick inte att spara");
     } finally {
@@ -146,10 +155,13 @@ function ClipRow({ clip, estimate, onUpdate }: { clip: CampaignClip; estimate?: 
   }
 
   function saveStats() {
-    const body: Partial<Record<StatKey, number>> = {};
+    const body: Partial<Record<StatKey, number | null>> = {};
     for (const { key, label } of STATS) {
       const text = stats[key].trim();
-      if (text === "") continue;
+      if (text === "") {
+        if (clip[key] != null) body[key] = null; // ett tömt fält tar bort talet
+        continue;
+      }
       if (!/^\d+$/.test(text)) {
         setError(`${label}: skriv ett helt tal utan decimaler, till exempel 2500.`);
         return;
@@ -162,13 +174,12 @@ function ClipRow({ clip, estimate, onUpdate }: { clip: CampaignClip; estimate?: 
   return (
     <tr className="border-b align-top last:border-0">
       <td className="py-3 pr-4">
-        <p className="max-w-64 font-medium leading-snug break-words">{clip.title || "utan titel"}</p>
+        <p className="max-w-48 font-medium leading-snug break-words">{clip.title || "utan titel"}</p>
         <p className="text-xs text-muted-foreground">
-          VOD {clip.vod_id} · {date.format(serverTime(clip.created))}
+          {clip.profile} · VOD {clip.vod_id} · {date.format(serverTime(clip.created))}
         </p>
-        {error && <p className="mt-1 max-w-64 text-xs text-destructive">{error}</p>}
+        {error && <p className="mt-1 max-w-48 text-xs text-destructive">{error}</p>}
       </td>
-      <td className="py-3 pr-4 text-muted-foreground">{clip.profile}</td>
       <td className="py-3 pr-4">
         <CampaignStatusBadge status={clip.status} />
       </td>
@@ -202,7 +213,7 @@ function ClipRow({ clip, estimate, onUpdate }: { clip: CampaignClip; estimate?: 
                 if (e.key === "Enter" && dirty) saveStats();
               }}
               disabled={busy}
-              className="h-7 w-24 text-right tabular-nums"
+              className="h-7 w-[4.5rem] text-right tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             />
           ) : (
             <span className="text-muted-foreground">–</span>
@@ -228,7 +239,8 @@ function ClipRow({ clip, estimate, onUpdate }: { clip: CampaignClip; estimate?: 
       <td className="py-3 pr-4 text-right tabular-nums" data-estimate={clip.id}>
         {estimate == null ? <span className="text-muted-foreground">–</span> : usd.format(estimate)}
       </td>
-      <td className="py-3">
+      {/* Knapparna står fast till höger, så att de syns också när tabellen är bredare än sidan. */}
+      <td className="sticky right-0 bg-background py-3 pl-2 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.6)]">
         <div className="flex flex-wrap justify-end gap-1.5">
           {dirty && (
             <Button size="sm" onClick={saveStats} disabled={busy}>
@@ -246,6 +258,11 @@ function ClipRow({ clip, estimate, onUpdate }: { clip: CampaignClip; estimate?: 
               {step.label}
             </Button>
           ))}
+          {BACK[clip.status] && (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => patch({ status: BACK[clip.status] })}>
+              Ångra
+            </Button>
+          )}
         </div>
       </td>
     </tr>
@@ -274,6 +291,7 @@ export function ClipLogClient({ initialSummary = null, initialClips = null }: Pr
       setSummary(summaryData);
       setClips(clipData);
       setError(null);
+      window.dispatchEvent(new Event(SUMMARY_CHANGED));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Kunde inte hämta klipploggen");
     } finally {
@@ -396,12 +414,11 @@ export function ClipLogClient({ initialSummary = null, initialClips = null }: Pr
               {clips.length === 0 ? "Inga klipp i loggen än. Starta en körning för att få klipp." : "Inga klipp med den statusen."}
             </p>
           ) : (
-            <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
-              <table className="w-full min-w-[64rem] text-sm">
+            <div className="relative overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+              <table className="w-full min-w-[56rem] text-sm">
                 <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
                   <tr>
                     <th className="py-2 pl-4 pr-4 font-medium">Klipp</th>
-                    <th className="py-2 pr-4 font-medium">Kampanj</th>
                     <th className="py-2 pr-4 font-medium">Status</th>
                     <th className="py-2 pr-4 font-medium">Plattform</th>
                     {STATS.map(({ key, label }) => (

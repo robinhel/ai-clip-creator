@@ -13,7 +13,7 @@ import { ClipEditor } from "@/components/ClipEditor";
 import { CopyButton } from "@/components/CopyButton";
 import { TikTokSend } from "@/components/TikTokSend";
 import { api } from "@/lib/api";
-import { clock, cn } from "@/lib/utils";
+import { clock, cn, SUMMARY_CHANGED } from "@/lib/utils";
 import type { CampaignClip, CampaignClipPatch, CampaignFormat, ClipEditInfo, ClipTranscript, Platform } from "@/lib/types";
 
 // Längsta caption på TikTok och Instagram.
@@ -26,6 +26,7 @@ const EDITABLE: CampaignClip["status"][] = ["renderad", "underkand", "godkand"];
 
 // Klippet får laddas ner och captionen kopieras först när Robin har sagt ja.
 const CAN_POST: CampaignClip["status"][] = ["godkand", "postad", "inskickad", "analytics_inskickad", "betald"];
+const POSTED: CampaignClip["status"][] = ["postad", "inskickad", "analytics_inskickad", "betald"];
 
 /** Färg efter betyg, som i skissen: grönt från 80, gult från 60. */
 export function scoreTone(score: number | null): string {
@@ -149,6 +150,7 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
   const [editing, setEditing] = useState(false);
   const [platform, setPlatform] = useState<Platform | "">(clip.platform ?? "");
   const [url, setUrl] = useState(clip.url ?? "");
+  const [editingLink, setEditingLink] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -186,13 +188,17 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
   }
   const length = clip.start_s != null && clip.end_s != null ? clip.end_s - clip.start_s : null;
 
-  async function patch(body: CampaignClipPatch) {
+  /** true när ändringen sparades. */
+  async function patch(body: CampaignClipPatch): Promise<boolean> {
     setBusy(true);
     setError(null);
     try {
       onUpdate(await api.campaign.clips.patch(clip.id, body));
+      window.dispatchEvent(new Event(SUMMARY_CHANGED));
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Det gick inte att spara");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -304,14 +310,14 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
           </p>
         )}
 
-        {needsFormat && clip.status !== "postad" && (
+        {canEditCaption && formats.length > 0 && (
           <div className="space-y-1.5">
             <label htmlFor={`format-${clip.id}`} className="text-[13px] text-muted-foreground">
               Format
             </label>
             <NativeSelect
               id={`format-${clip.id}`}
-              value=""
+              value={clip.format ?? ""}
               disabled={busy}
               onChange={(e) => patch({ format: e.target.value })}
             >
@@ -412,7 +418,7 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
           </p>
         )}
 
-        {clip.status === "postad" && clip.url && (
+        {POSTED.includes(clip.status) && clip.url && !editingLink && (
           <p className="flex flex-wrap items-center gap-1.5 text-sm">
             <span className="text-muted-foreground">{clip.platform ? PLATFORM_LABEL[clip.platform] : "Postad"}:</span>
             <a
@@ -424,7 +430,49 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
               {clip.url}
               <ExternalLink className="size-3.5 shrink-0" aria-hidden />
             </a>
+            {clip.status === "postad" && (
+              <button
+                type="button"
+                className="text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                onClick={() => {
+                  setPlatform(clip.platform ?? "");
+                  setUrl(clip.url ?? "");
+                  setEditingLink(true);
+                }}
+              >
+                Ändra länk
+              </button>
+            )}
           </p>
+        )}
+        {editingLink && (
+          <div className="space-y-2 rounded-[10px] border border-line bg-panel p-3">
+            <NativeSelect aria-label="Plattform" value={platform} onChange={(e) => setPlatform(e.target.value as Platform | "")} disabled={busy}>
+              <option value="" disabled>
+                Plattform…
+              </option>
+              {Object.entries(PLATFORM_LABEL).map(([id, label]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </NativeSelect>
+            <Input aria-label="Ny länk till det postade klippet" type="url" value={url} onChange={(e) => setUrl(e.target.value)} disabled={busy} />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                disabled={busy || !platform || !url.trim()}
+                onClick={async () => {
+                  if (await patch({ platform: platform as Platform, url: url.trim() })) setEditingLink(false);
+                }}
+              >
+                Spara länken
+              </Button>
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditingLink(false)}>
+                Avbryt
+              </Button>
+            </div>
+          </div>
         )}
 
         <Transcript clipId={clip.id} />
@@ -532,9 +580,19 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
           </div>
         )}
         {clip.status === "postad" && (
-          <Button className="h-auto min-h-9 py-2 whitespace-normal" disabled={busy} onClick={() => patch({ status: "inskickad" })}>
-            <Send aria-hidden />
-            Inskickad i Content Rewards
+          <>
+            <Button className="h-auto min-h-9 py-2 whitespace-normal" disabled={busy} onClick={() => patch({ status: "inskickad" })}>
+              <Send aria-hidden />
+              Inskickad i Content Rewards
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => patch({ status: "godkand" })}>
+              Ångra postning
+            </Button>
+          </>
+        )}
+        {clip.status === "nekad" && (
+          <Button className="h-9 justify-start" variant="outline" disabled={busy} onClick={() => patch({ status: "renderad" })}>
+            Ångra nej
           </Button>
         )}
 
