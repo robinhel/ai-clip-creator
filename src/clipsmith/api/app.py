@@ -114,10 +114,12 @@ app.include_router(analytics.router)
 
 # Robins kampanjlager (campaign/): kampanjval, kö och klipplogg i webbappen.
 from campaign.api import router as campaign_router  # noqa: E402
+from campaign.profiles_api import router as profiles_router  # noqa: E402
 from campaign.tiktok_api import router as tiktok_router  # noqa: E402
 
 app.include_router(campaign_router)
 app.include_router(tiktok_router)
+app.include_router(profiles_router)
 
 
 @app.get("/", include_in_schema=False)
