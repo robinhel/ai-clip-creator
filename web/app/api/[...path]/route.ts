@@ -28,8 +28,8 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
     });
     const contentType = upstream.headers.get("content-type") ?? "application/json";
     const responseHeaders: Record<string, string> = { "Content-Type": contentType };
-    // Pass through range/streaming headers so video playback works correctly
-    for (const h of ["Content-Range", "Accept-Ranges", "Content-Length"]) {
+    // Pass through range/streaming headers so video playback works, and the file name for downloads
+    for (const h of ["Content-Range", "Accept-Ranges", "Content-Length", "Content-Disposition"]) {
       const v = upstream.headers.get(h);
       if (v) responseHeaders[h] = v;
     }

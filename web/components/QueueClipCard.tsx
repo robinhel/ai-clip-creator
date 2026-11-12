@@ -171,8 +171,18 @@ export function QueueClipCard({ clip, formats, runId, onUpdate }: Props) {
             disabled={busy}
             className="min-h-24"
           />
+          {clip.status === "godkand" && (
+            <p className="text-xs text-muted-foreground">
+              Ändrar du captionen måste klippet godkännas igen.
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
-            <CopyButton text={caption} label="Kopiera caption" />
+            {/* Kopiera alltid den sparade captionen, den som regelkontrollen har godkänt. */}
+            <CopyButton
+              text={clip.caption ?? ""}
+              label={captionDirty ? "Spara först" : "Kopiera caption"}
+              disabled={captionDirty}
+            />
             {captionDirty && canEditCaption && (
               <>
                 <Button size="sm" variant="secondary" disabled={busy} onClick={() => patch({ caption })}>
@@ -289,7 +299,14 @@ export function QueueClipCard({ clip, formats, runId, onUpdate }: Props) {
           {clip.status === "godkand" && (
             <>
               <Button
-                disabled={busy || !platform || !url.trim()}
+                disabled={busy || hasProblems || captionDirty || !platform || !url.trim()}
+                title={
+                  hasProblems
+                    ? "Klippet har problem som måste rättas först"
+                    : captionDirty
+                      ? "Spara eller ångra captionen först"
+                      : undefined
+                }
                 onClick={() => patch({ status: "postad", platform: platform as Platform, url: url.trim() })}
               >
                 <Check />
