@@ -42,6 +42,8 @@ export interface CampaignProfile {
   formats: CampaignFormat[];
   problems: string[];
   ready: boolean;
+  /** false = avstängd: kampanjen syns bara under Kampanjer, inte på Hem, Projekt, Att posta och Statistik. */
+  active: boolean;
   /** Kampanjens tillåtna klipplängd i sekunder. null om inställningsfilen saknas. */
   clip_min_s: number | null;
   clip_max_s: number | null;
