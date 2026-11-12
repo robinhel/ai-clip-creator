@@ -12,9 +12,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from .routes import analytics, clips, files, health, publish, runs, stream
-from ..db.session import init_db
+from ..db.models import Run, RunStatus
+from ..db.session import get_session, init_db
 from ..settings import load_config
 from ..telemetry import tracer  # noqa: F401 — side-effect: initialises OTel SDK
+
+
+def _fail_interrupted_runs() -> None:
+    """Background runs die with the server, so a run still marked as going can never finish."""
+    db = get_session()
+    try:
+        db.query(Run).filter(Run.status.in_([RunStatus.pending, RunStatus.running])).update(
+            {"status": RunStatus.failed, "error": "Servern startades om mitt i körningen. Tryck Kör igen."},
+            synchronize_session=False,
+        )
+        db.commit()
+    finally:
+        db.close()
 
 
 @asynccontextmanager
@@ -23,6 +37,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     db_path = cfg.work_dir.expanduser() / "clipsmith.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     init_db(db_path)
+    _fail_interrupted_runs()
     app.state.active_run_id = None  # int | None; cleared by worker on completion
     try:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor

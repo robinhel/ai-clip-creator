@@ -4,6 +4,7 @@ och gör sedan klippen kampanjklara. Allt med den valda kampanjens inställninga
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -76,7 +77,8 @@ def make_clips(
         transcribe_vod(mp4, vod_id, transcript, post=berget_post(settings.berget_api_key),
                        model=settings.transcribe_model, language=profile.language,
                        on_part=lambda n, total: emit("transcribe", 15.0 + 25.0 * (n - 1) / total,
-                                                     f"Del {n} av {total}"))
+                                                     f"Del {n} av {total}"),
+                       budget=budget_from_settings(settings))
 
     video = Video(id=vod_id, user_id="", user_login=channel, title=vod_id, created_at="",
                   published_at="", url=f"https://www.twitch.tv/videos/{vod_id}", duration="",
@@ -145,14 +147,25 @@ def run_campaign_vod(
             app.state.active_run_id = None
 
 
+def finish_summary(results: list[dict]) -> str:
+    """Vad Gör klippen kampanjklara igen gjorde. Blir körningens meddelande."""
+    done = sum(1 for result in results if "id" in result)
+    skipped = Counter(result["skipped"] for result in results if "skipped" in result)
+    text = f"{done} klipp gjordes om." if done else "Inga klipp gjordes om."
+    if skipped:
+        reasons = ", ".join(f"{reason}: {count}" for reason, count in skipped.most_common())
+        text += f" {sum(skipped.values())} hoppades över ({reasons})."
+    return text
+
+
 def finish_run(run_id: int, vod_id: str, profile_name: str, game: str | None, settings: Settings,
                app: Any = None) -> None:
     """Bakgrundsjobb för POST /campaign/runs/{id}/finish: gör klippen kampanjklara igen."""
     db = get_session()
     try:
         _emit(db, run_id, "finish", 90.0, "Gör klippen kampanjklara igen")
-        finish(vod_id, load_profile(profile_name, settings.profiles_dir), settings, game)
-        _emit(db, run_id, "done", 100.0, "Klart", status=RunStatus.done)
+        results = finish(vod_id, load_profile(profile_name, settings.profiles_dir), settings, game)
+        _emit(db, run_id, "done", 100.0, finish_summary(results), status=RunStatus.done)
     except BaseException as error:
         _fail(db, run_id, error)
         if not isinstance(error, Exception | SystemExit):
