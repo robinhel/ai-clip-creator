@@ -64,7 +64,8 @@ def _link_problem(link: str, platform: str | None) -> str | None:
         return "Länken måste vara en hel adress som börjar med https://, till exempel https://www.tiktok.com/@du/video/123."
     hosts = PLATFORM_HOSTS.get(platform or "", ())
     if hosts and not any(host == h or host.endswith("." + h) for h in hosts):
-        return f"Länken går till {host}, men plattformen är {PLATFORM_NAMES.get(platform or "", platform)}. Kontrollera länken och plattformen."
+        name = PLATFORM_NAMES.get(platform or "", platform)
+        return f"Länken går till {host}, men plattformen är {name}. Kontrollera länken och plattformen."
     return None
 
 
