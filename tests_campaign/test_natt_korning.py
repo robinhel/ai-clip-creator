@@ -438,3 +438,40 @@ def test_a_long_vod_gives_one_download_event_per_percent(settings, vod, monkeypa
     monkeypatch.setattr(pipeline, "download_vod", fake_download)
     _make(settings, vod)
     assert len([e for e in vod.events if e[2].startswith("Hämtar: ")]) == 101
+
+
+def test_clipsmith_gets_the_channels_id_and_the_vods_start_so_viewer_clips_are_counted(
+        settings, vod, monkeypatch) -> None:
+    """Med tomt user_id hoppade clipsmith över tittarnas klipp, den starkaste signalen (+100)."""
+    monkeypatch.setenv("TWITCH_CLIENT_ID", "id")
+    monkeypatch.setenv("TWITCH_CLIENT_SECRET", "secret")
+
+    class FakeTwitch:
+        def __init__(self, client_id, client_secret):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return None
+
+        def get_user_id(self, login):
+            return {"skiimasktimmy": "318314979"}[login]
+
+    monkeypatch.setattr(pipeline, "TwitchClient", FakeTwitch)
+    monkeypatch.setattr(pipeline, "vod_facts", lambda vod_id: {"created_at": "2026-11-04T18:00:00Z"})
+    vod.picker = FakePicker([_no(), _no()])
+    _make(settings, vod)
+    video, _ = vod.process
+    assert (video.user_id, video.created_at) == ("318314979", "2026-11-04T18:00:00Z")
+
+
+def test_without_twitch_keys_the_run_still_works_without_viewer_clips(settings, vod, monkeypatch) -> None:
+    monkeypatch.setenv("TWITCH_CLIENT_ID", "")
+    monkeypatch.setenv("TWITCH_CLIENT_SECRET", "")
+    monkeypatch.setattr(pipeline, "vod_facts", lambda vod_id: (_ for _ in ()).throw(ConnectionError("nere")))
+    vod.picker = FakePicker([_no(), _no()])
+    _make(settings, vod)
+    video, _ = vod.process
+    assert video.user_id == ""
