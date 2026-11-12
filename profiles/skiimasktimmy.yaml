@@ -102,3 +102,8 @@ other_rules:
   - Språk: engelska
   - Publik: minst 60 % Tier 1, helst gaming
   - Inga collabs, ingen story boosting, inget lågkvalitativt eller återanvänt material
+
+# Länkar som Att posta visar. Klistra in dem från kampanjsidan på Whop.
+links:
+  content_rewards: null   # kampanjen i Content Rewards, där du skickar in länkarna
+  analytics_form: null    # analytics-formuläret för klipp över 2 000 visningar

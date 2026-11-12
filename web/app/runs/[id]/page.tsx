@@ -50,7 +50,8 @@ function stepTime(step: RunStep, now: number): string {
 function PartBar({ message }: { message?: string | null }) {
   const m = message?.match(/^Del (\d+) av (\d+)$/);
   if (!m || Number(m[2]) === 0) return null;
-  const pct = Math.min(100, (Number(m[1]) / Number(m[2])) * 100);
+  // Meddelandet kommer när del N börjar, så N - 1 delar är klara.
+  const pct = Math.min(100, ((Number(m[1]) - 1) / Number(m[2])) * 100);
   return (
     <div
       role="progressbar"
@@ -117,6 +118,7 @@ export default function RunDetailPage() {
   const params = useParams();
   const router = useRouter();
   const runId = Number(params.id);
+  const validId = Number.isInteger(runId) && runId > 0;
 
   const [run, setRun] = useState<CampaignRunDetail | null>(null);
   const [clips, setClips] = useState<CampaignClip[] | null>(null);
@@ -151,6 +153,10 @@ export default function RunDetailPage() {
   }, [runId]);
 
   const fetchRun = useCallback(async () => {
+    if (!validId) {
+      setError("Projektet finns inte. Kontrollera länken.");
+      return null;
+    }
     try {
       const data = await api.campaign.runs.get(runId);
       setRun(data);
@@ -160,13 +166,23 @@ export default function RunDetailPage() {
       setError(err instanceof Error ? err.message : "Kunde inte hämta projektet");
       return null;
     }
-  }, [runId]);
+  }, [runId, validId]);
 
+  // Den senaste körningen i samma projekt (samma stream och kampanj). Är det inte den här är körningen ersatt.
+  const [latestRunId, setLatestRunId] = useState<number | null>(null);
   useEffect(() => {
     fetchRun();
+    if (!validId) return;
     fetchClips();
     api.campaign.profiles().then(setProfiles).catch(() => {});
-  }, [fetchRun, fetchClips]);
+  }, [fetchRun, fetchClips, validId]);
+  useEffect(() => {
+    if (!run) return;
+    api.campaign.runs
+      .list()
+      .then((list) => setLatestRunId(list.find((r) => r.vod_id === run.vod_id && r.profile === run.profile)?.run_id ?? null))
+      .catch(() => {});
+  }, [run?.vod_id, run?.profile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Läs om var tredje sekund medan körningen pågår eller klippen görs klara igen.
   useEffect(() => {
@@ -182,16 +198,49 @@ export default function RunDetailPage() {
     return () => clearTimeout(timer);
   }, [isActive, finishing, pollTick, finishStartedAt, runId, fetchRun, fetchClips]);
 
+  // Fliken i adressen (?filter=granska), så att andra sidor kan länka till rätt flik.
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("filter");
+    if (wanted && FILTERS.some((f) => f.id === wanted)) setFilter(wanted);
+  }, []);
+  function chooseFilter(id: string) {
+    setFilter(id);
+    const url = new URL(window.location.href);
+    if (id === "alla") url.searchParams.delete("filter");
+    else url.searchParams.set("filter", id);
+    window.history.replaceState(null, "", url);
+  }
+
+  // Klippens updated före "Gör klippen kampanjklara igen", för att räkna vilka som gjordes om.
+  const beforeFinish = useRef<Map<number, string> | null>(null);
+  const [finishResult, setFinishResult] = useState<string | null>(null);
   async function handleFinish() {
     setFinishError(null);
+    setFinishResult(null);
+    beforeFinish.current = new Map((clips ?? []).map((c) => [c.id, c.updated]));
     try {
       await api.campaign.runs.finish(runId);
       setLegacyRun(null);
       setFinishStartedAt(Date.now() - 1000);
     } catch (err) {
+      beforeFinish.current = null;
       setFinishError(err instanceof Error ? err.message : "Kunde inte starta");
     }
   }
+  useEffect(() => {
+    if (finishing || !beforeFinish.current || !clips) return;
+    const before = beforeFinish.current;
+    beforeFinish.current = null;
+    // Servern skriver hur många klipp som gjordes om och hoppades över, med orsak, i körningens message.
+    if (run?.message && /gjordes om/.test(run.message)) return setFinishResult(run.message);
+    // Äldre server: räkna själv på vilka klipp som ändrades.
+    const redone = clips.filter((c) => before.has(c.id) && before.get(c.id) !== c.updated).length;
+    const skipped = clips.filter((c) => before.has(c.id)).length - redone;
+    setFinishResult(
+      `${redone} klipp gjordes om.` +
+        (skipped ? ` ${skipped} klipp rördes inte, till exempel klipp som väntar på ditt ja, så att en ändrad caption inte skrivs över.` : "")
+    );
+  }, [finishing, clips, run?.message]);
 
   useEffect(() => setPermission(notifyPermission()), []);
   useEffect(() => {
@@ -200,13 +249,27 @@ export default function RunDetailPage() {
       wasActive.current = true;
       return;
     }
-    if (!wasActive.current || run.status !== "done") return;
+    if (!wasActive.current || (run.status !== "done" && run.status !== "failed")) return;
     wasActive.current = false;
-    document.title = "✓ Klar";
+    const done = run.status === "done";
+    const title = done ? "✓ Klar" : "✗ Misslyckades";
+    const name = run.title || `VOD ${run.vod_id}`;
+    const previous = document.title;
+    document.title = title;
     if (notifyPermission() === "granted") {
-      const n = clipTotal(run);
-      new Notification("✓ Klar", { body: `${run.title || `VOD ${run.vod_id}`}: ${n} klipp att granska.` });
+      new Notification(title, { body: done ? `${name}: ${clipTotal(run)} klipp att granska.` : `${name}: körningen stoppade. Öppna projektet för att se felet.` });
     }
+    // Fliktiteln visar resultatet tills du tittar på sidan igen.
+    function restore() {
+      if (document.visibilityState === "visible") document.title = previous;
+    }
+    const timer = setTimeout(restore, 10000);
+    document.addEventListener("visibilitychange", restore);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", restore);
+      document.title = previous;
+    };
   }, [run, isActive]);
 
   async function askPermission() {
@@ -289,8 +352,18 @@ export default function RunDetailPage() {
 
   return (
     <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
+      {latestRunId != null && latestRunId !== run.run_id && (
+        <p role="status" className="mb-5 rounded-lg border border-line bg-panel px-3 py-2 text-sm text-muted-foreground">
+          Det här är en äldre körning. Projektet har en nyare körning.{" "}
+          <Link href={`/runs/${latestRunId}`} className="font-medium text-foreground underline underline-offset-4">
+            Öppna den senaste körningen
+          </Link>
+          .
+        </p>
+      )}
       <div className="flex flex-wrap items-start gap-4">
-        <div className="min-w-0 flex-1">
+        {/* basis 20rem: på en smal skärm hamnar knappen under rubriken i stället för att trycka ihop den. */}
+        <div className="min-w-0 flex-[1_1_20rem]">
           <h1 className="text-3xl font-bold tracking-tight break-words">
             {run.title || run.vod_id}
             {clips && clips.length > 0 && (
@@ -304,22 +377,30 @@ export default function RunDetailPage() {
           {part && <p className="text-sm text-muted-foreground tabular-nums">Del av VOD:en: {part}</p>}
           {run.focus && <p className="mt-1 text-sm text-muted-foreground">Letade efter: {run.focus}</p>}
         </div>
-        <Button
-          variant="outline"
-          className="h-9"
-          onClick={handleFinish}
-          disabled={isActive || finishing}
-          title="Lägger på overlay och text, skriver caption och kör regelkontrollen igen"
-        >
-          {finishing ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
-          {finishing ? "Gör klippen klara…" : "Gör klippen kampanjklara igen"}
-        </Button>
+        {/* En misslyckad körning har inga klipp att göra om; servern svarar 400. */}
+        {run.status !== "failed" && (
+          <Button
+            variant="outline"
+            className="h-9"
+            onClick={handleFinish}
+            disabled={isActive || finishing}
+            title="Lägger på overlay och text, skriver caption och kör regelkontrollen igen"
+          >
+            {finishing ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
+            {finishing ? "Gör klippen klara…" : "Gör klippen kampanjklara igen"}
+          </Button>
+        )}
       </div>
 
       {error && (
         <p role="status" className="mt-3 text-sm text-muted-foreground">
           Kunde inte läsa om projektet: {error}
           {isActive || finishing ? " Försöker igen om några sekunder." : ""}
+        </p>
+      )}
+      {finishResult && (
+        <p role="status" className="mt-4 rounded-lg border border-[#174a2a] bg-[#0d1a12] px-3 py-2 text-sm text-good">
+          {finishResult}
         </p>
       )}
       {finishError && (
@@ -357,7 +438,12 @@ export default function RunDetailPage() {
           {isActive && permission === "denied" && (
             <p className="mb-3 text-[13px] text-muted-foreground">Notiser är avstängda för appen i webbläsaren.</p>
           )}
-          {run.status === "failed" && (
+          {run.status === "failed" && latestRunId != null && latestRunId !== run.run_id && (
+            <p className="mb-4 max-w-[640px] text-sm text-muted-foreground">
+              Körningen misslyckades{run.error ? `: ${run.error.replace(/\.?$/, ".")}` : "."} En nyare körning finns, så den behöver inte köras igen.
+            </p>
+          )}
+          {run.status === "failed" && (latestRunId == null || latestRunId === run.run_id) && (
             <div role="alert" className="mb-4 max-w-[640px] rounded-lg border border-[#4d1d1d] bg-[#1c0f10] p-4">
               <p className="font-medium text-[#fca5a5]">Körningen misslyckades</p>
               {run.error && <p className="mt-1 font-mono text-[13px] break-words text-[#f2c4c4]">{run.error}</p>}
@@ -380,7 +466,7 @@ export default function RunDetailPage() {
       {!isActive && clips && (clips.length > 0 || run.status === "done") && (
         <section className="mt-8">
           {clips.length > 0 && <div className="mb-2 flex flex-wrap items-center gap-3 text-[13px]">
-            <div role="tablist" aria-label="Visa klipp" className="flex overflow-hidden rounded-[9px] border border-line">
+            <div role="tablist" aria-label="Visa klipp" className="flex max-w-full overflow-x-auto rounded-[9px] border border-line">
               {FILTERS.map((f) => {
                 const count = f.status ? clips.filter((c) => c.status === f.status).length : clips.length;
                 return (
@@ -388,8 +474,8 @@ export default function RunDetailPage() {
                     key={f.id}
                     role="tab"
                     aria-selected={filter === f.id}
-                    onClick={() => setFilter(f.id)}
-                    className="px-3 py-1.5 text-muted-foreground hover:text-foreground aria-selected:bg-panel aria-selected:text-foreground"
+                    onClick={() => chooseFilter(f.id)}
+                    className="px-3 py-1.5 whitespace-nowrap text-muted-foreground hover:text-foreground aria-selected:bg-panel aria-selected:text-foreground"
                   >
                     {f.label} <span className="tabular-nums">{count}</span>
                   </button>
@@ -414,24 +500,26 @@ export default function RunDetailPage() {
                 <p className="col-span-2 mt-1 text-xs text-muted-foreground">Inte när du skriver i ett fält.</p>
               </dl>
             </details>
-            <span className="text-muted-foreground">Sortera:</span>
-            <div className="flex overflow-hidden rounded-[9px] border border-line">
-              {(
-                [
-                  ["score", "Betyg"],
-                  ["time", "Tidsordning"],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  aria-pressed={sort === id}
-                  onClick={() => setSort(id)}
-                  className="px-3 py-1.5 text-muted-foreground hover:text-foreground aria-pressed:bg-panel aria-pressed:text-foreground"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <span className="flex items-center gap-3">
+              <span className="text-muted-foreground">Sortera:</span>
+              <div className="flex overflow-hidden rounded-[9px] border border-line">
+                {(
+                  [
+                    ["score", "Betyg"],
+                    ["time", "Tidsordning"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    aria-pressed={sort === id}
+                    onClick={() => setSort(id)}
+                    className="px-3 py-1.5 text-muted-foreground hover:text-foreground aria-pressed:bg-panel aria-pressed:text-foreground"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </span>
           </div>}
 
           {visible.length === 0 ? (

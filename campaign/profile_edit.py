@@ -311,7 +311,12 @@ def check_rects(rects: object, aspect: float) -> list[list[int]]:
     """1 till 4 kamerarutor. clipsmith väljer per klipp den ruta där ansiktet syns."""
     if not (isinstance(rects, list) and 1 <= len(rects) <= MAX_WEBCAM_RECTS):
         raise ValueError(f"webcam_rects måste vara en lista med 1 till {MAX_WEBCAM_RECTS} rutor.")
-    return [check_rect(rect, aspect, f"Facecam-ruta {i}") for i, rect in enumerate(rects, 1)]
+    checked = [check_rect(rect, aspect, f"Facecam-ruta {i}") for i, rect in enumerate(rects, 1)]
+    for i, rect in enumerate(checked, 1):
+        if rect in checked[:i - 1]:
+            raise ValueError(f"Facecam-ruta {i} är samma som Facecam-ruta {checked.index(rect) + 1}. "
+                             "Flytta den eller ta bort den.")
+    return checked
 
 
 def reframe_text(text: str, webcams: list[list[int]], gameplay: list[int], split_ratio: float) -> str:

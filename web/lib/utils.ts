@@ -37,3 +37,6 @@ export function duration(seconds: number): string {
 }
 
 export const usd = new Intl.NumberFormat("sv-SE", { style: "currency", currency: "USD", maximumFractionDigits: 2 })
+
+/** Händelse när ett klipp har ändrats, så att sidomenyns siffror läses om. */
+export const SUMMARY_CHANGED = "klipp:summary-changed"

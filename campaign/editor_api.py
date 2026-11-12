@@ -41,6 +41,7 @@ def post_edit(clip_id: int, body: EditBody, request: Request, settings: Settings
     log = _log(settings)
     if not editor.lock.acquire(blocking=False):
         raise HTTPException(409, "En annan redigering pågår. Vänta tills den är klar.")
+    editor.editing = clip_id
     try:
         with _start_lock:  # samma lås som när en körning startar, så att de inte kan börja samtidigt
             if getattr(request.app.state, "active_run_id", None) is not None:
@@ -55,5 +56,6 @@ def post_edit(clip_id: int, body: EditBody, request: Request, settings: Settings
     except RuntimeError as error:  # ffmpeg misslyckades
         raise HTTPException(500, f"Klippet gick inte att göra om: {error}") from error
     finally:
+        editor.editing = None
         editor.lock.release()
     return _public(log.get(clip_id), settings)

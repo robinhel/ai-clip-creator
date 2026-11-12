@@ -402,7 +402,8 @@ def test_missing_file_is_refused(client, settings) -> None:
 
 
 def test_connect_and_callback_only_from_this_computer(client, settings, fake) -> None:
-    for host in ("127.0.0.1", "::1"):
+    # ::ffff:127.0.0.1 är samma dator, sedd genom IPv6. Servern får den adressen när den lyssnar på ::.
+    for host in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
         local = TestClient(client.app, follow_redirects=False, client=(host, 50000))
         assert local.get("/campaign/tiktok/connect").status_code == 302
     state = parse_qs(urlparse(client.get("/campaign/tiktok/connect").headers["location"]).query)["state"][0]

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Clapperboard, FolderOpen, Home, Megaphone, Send, Settings } from "lucide-react";
 import { api } from "@/lib/api";
-import { cn, usd } from "@/lib/utils";
+import { cn, SUMMARY_CHANGED, usd } from "@/lib/utils";
 import type { CampaignSummary } from "@/lib/types";
 
 const LINKS = [
@@ -43,9 +43,12 @@ export function SiteNav() {
   const pathname = usePathname();
   const [summary, setSummary] = useState<CampaignSummary | null>(null);
 
-  // Läs om vid varje sidbyte, så att antal, budget och disk följer med.
+  // Läs om vid varje sidbyte och när ett klipp ändras, så att antal, budget och disk följer med.
   useEffect(() => {
-    api.campaign.summary().then(setSummary).catch(() => setSummary(null));
+    const load = () => api.campaign.summary().then(setSummary).catch(() => setSummary(null));
+    load();
+    window.addEventListener(SUMMARY_CHANGED, load);
+    return () => window.removeEventListener(SUMMARY_CHANGED, load);
   }, [pathname]);
 
   const toPost = summary?.counts.godkand ?? 0;
@@ -94,7 +97,11 @@ export function SiteNav() {
                 tone={budgetPct >= 90 ? "bad" : budgetPct >= 70 ? "warn" : "good"}
               />
             )}
-            {disk && (
+            {disk?.connected === false ? (
+              <p role="alert" className="rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-2.5 py-2 text-xs text-[#fca5a5]">
+                {disk.problem || "SSD:n är inte ansluten."}
+              </p>
+            ) : disk && (
               <Meter
                 label={`Disk ledigt: ${gb.format(disk.free_gb)} GB`}
                 pct={diskFreePct}

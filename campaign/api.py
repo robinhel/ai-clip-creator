@@ -10,7 +10,7 @@ import threading
 import uuid
 from pathlib import Path
 from typing import Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi import Path as PathParam
@@ -24,7 +24,7 @@ from clipsmith.db.models import PipelineEvent, Run, RunStatus
 from . import editor, estimate, streams
 from .budget import BudgetExceeded, budget_from_settings
 from .caption import check_caption
-from .cliplog import STATUSES, ClipLog
+from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog
 from .config import Settings, load_settings
 from .media import need, probe, run
 from .pipeline import finish_run, run_campaign_vod
@@ -38,16 +38,34 @@ _start_lock = threading.Lock()  # bara en körning i taget, också när två anr
 PLATFORMS = ("tiktok", "youtube_shorts", "instagram_reels")
 
 # Vilka steg ett klipp får ta. Från underkand kommer man bara vidare genom att rätta problemen.
+# Efter postningen går det att ta ett steg bakåt, så att ett felklick går att ångra.
 NEXT_STATUS: dict[str, set[str]] = {
     "renderad": {"godkand", "nekad"},
     "underkand": {"nekad"},
     "godkand": {"postad", "nekad", "renderad"},
     "nekad": {"renderad"},
-    "postad": {"inskickad"},
-    "inskickad": {"analytics_inskickad", "betald"},
-    "analytics_inskickad": {"betald"},
-    "betald": set(),
+    "postad": {"inskickad", "godkand"},
+    "inskickad": {"analytics_inskickad", "betald", "postad"},
+    "analytics_inskickad": {"betald", "inskickad"},
+    "betald": {"inskickad", "analytics_inskickad"},
 }
+
+# Postlänkens domän per plattform.
+PLATFORM_HOSTS = {"tiktok": ("tiktok.com",), "youtube_shorts": ("youtube.com", "youtu.be"),
+                  "instagram_reels": ("instagram.com",)}
+PLATFORM_NAMES = {"tiktok": "TikTok", "youtube_shorts": "YouTube Shorts", "instagram_reels": "Instagram Reels"}
+
+
+def _link_problem(link: str, platform: str | None) -> str | None:
+    """Felet i postlänken, eller None. En riktig https-adress, på plattformens domän om den är vald."""
+    parts = urlparse(link)
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "https" or "." not in host:
+        return "Länken måste vara en hel adress som börjar med https://, till exempel https://www.tiktok.com/@du/video/123."
+    hosts = PLATFORM_HOSTS.get(platform or "", ())
+    if hosts and not any(host == h or host.endswith("." + h) for h in hosts):
+        return f"Länken går till {host}, men plattformen är {PLATFORM_NAMES.get(platform or "", platform)}. Kontrollera länken och plattformen."
+    return None
 
 
 def get_settings() -> Settings:
@@ -441,24 +459,47 @@ def refinish_run(
 # ---------- klipp ----------
 
 
+REVIEW_PREFIX = "Bildgranskning: "
+
+
 def _public(clip: dict, settings: Settings) -> dict:
     out = {k: v for k, v in clip.items() if k != "file"}
     out["filename"] = Path(clip["file"] or "").name
     out["problems"] = clip["problems"] or []
-    out["warnings"] = clip["warnings"] or []
+    # Äldre klipp har bildgranskningens beskrivningar som varningar. De visas med bildgranskningen i stället.
+    old_notes = [w.removeprefix(REVIEW_PREFIX) for w in clip["warnings"] or [] if w.startswith(REVIEW_PREFIX)]
+    out["warnings"] = [w for w in clip["warnings"] or [] if not w.startswith(REVIEW_PREFIX)]
+    if old_notes:
+        review = dict(clip["review"] or {})
+        review["notes"] = [*(review.get("notes") or []), *old_notes]
+        out["review"] = review
     out["signals"] = clip["signals"] or []
     out["reason"] = clip["reason"] or ""
     out["engagement"] = ClipLog.engagement(clip)
     try:
         profile = load_profile(clip["profile"], settings.profiles_dir)
         out["engagement_min"] = profile.engagement_min(clip["views"] or 0)
+        out["min_views"] = profile.min_views
     except SystemExit:
         out["engagement_min"] = None
+        out["min_views"] = None
     # ?v= byts när klippet ändras, så att webbläsaren inte visar en gammal version efter en redigering.
     version = quote(clip.get("updated") or "")
+    out["posts"] = _public_posts(clip, settings)
     out["video_url"] = f"/campaign/clips/{clip['id']}/file?v={version}"
     out["poster_url"] = f"/campaign/clips/{clip['id']}/poster?v={version}"
     return out
+
+
+def _public_posts(clip: dict, settings: Settings) -> list[dict]:
+    """Klippets inlägg med engagemang och uppskattad intäkt per inlägg."""
+    try:
+        payment = load_profile(clip["profile"], settings.profiles_dir).payment
+    except (SystemExit, Exception):  # kampanjen finns inte längre: ingen uppskattning
+        payment = {}
+    return [{**post, "engagement": ClipLog.engagement(post),
+             "estimate_usd": _payout(post["views"] or 0, payment) if post["views"] else None}
+            for post in _log(settings).posts(clip["id"])]
 
 
 def _get(log: ClipLog, clip_id: int) -> dict:
@@ -560,7 +601,9 @@ def patch_clip(clip_id: int, body: ClipPatch, settings: Settings = Depends(get_s
     # Status och caption kan byta klippets status, så de väntar inte in en redigering som pågår.
     changes_status = bool({"status", "caption"} & body.model_fields_set)
     if changes_status and not editor.lock.acquire(blocking=False):
-        raise HTTPException(409, "Klippet redigeras just nu. Försök igen när redigeringen är klar.")
+        if editor.editing == clip_id:
+            raise HTTPException(409, "Klippet redigeras just nu. Försök igen när redigeringen är klar.")
+        changes_status = False  # låset gäller ett annat klipp: det här klippet rörs inte av redigeringen
     try:
         return _patch_clip(clip_id, body, settings)
     finally:
@@ -580,8 +623,10 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
         raise HTTPException(400, f"Formatet {fields['format']!r} finns inte i kampanjen.")
     if "platform" in fields and fields["platform"] not in PLATFORMS:
         raise HTTPException(400, "Plattformen måste vara tiktok, youtube_shorts eller instagram_reels.")
-    if "url" in fields and fields["url"] and not fields["url"].startswith(("https://", "http://")):
-        raise HTTPException(400, "Länken måste börja med https://.")
+    if "url" in fields and fields["url"]:
+        problem = _link_problem(fields["url"], fields.get("platform") or clip["platform"])
+        if problem:
+            raise HTTPException(400, problem)
 
     problems = clip["problems"] or []
     status = clip["status"]
@@ -612,10 +657,50 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
                 raise HTTPException(400, "Klistra in länken till det postade klippet.")
             if not (fields.get("platform") or clip["platform"]):
                 raise HTTPException(400, "Välj plattform.")
+        if new == "analytics_inskickad":
+            _check_min_views(fields.get("views", clip["views"]), profile)
 
+    _apply_to_posts(log, clip, fields)
     if fields:
         log.update(clip_id, **fields)
     return _public(log.get(clip_id), settings)
+
+
+def _check_min_views(views: int | None, profile: Profile) -> None:
+    """Statistik inskickad går först när inlägget har nått kampanjens min_views."""
+    if (views or 0) < profile.min_views:
+        raise HTTPException(400, f"Statistiken skickas in först vid {profile.min_views} visningar. "
+                                 f"Inlägget har {views or 0}.")
+
+
+def _apply_to_posts(log: ClipLog, clip: dict, fields: dict) -> None:
+    """Ändringar på klippnivå som egentligen gäller inläggen. Ett klipp med ett inlägg fungerar som förut.
+    Det som gäller inläggen tas bort ur `fields`; klippets värden räknas sedan fram ur inläggen."""
+    posts = log.posts(clip["id"])
+    new = fields.get("status")
+    if new == "postad" and clip["status"] == "godkand":  # första inlägget, som förut med en länk
+        log.add_post(clip["id"], fields.pop("platform", None) or clip["platform"], fields.pop("url", None) or clip["url"])
+        fields.pop("status")
+    elif new == "godkand" and clip["status"] == "postad":  # ångra postningen: inläggen tas bort
+        for post in posts:
+            log.delete_post(post["id"])
+        fields.pop("status")
+        # Länken står kvar i klippet, så att samma postning går att göra igen med ett klick.
+        fields.setdefault("url", clip["url"])
+        fields.setdefault("platform", clip["platform"])
+        posts = []
+    elif new in POST_STATUSES and posts:  # ett steg för klippet gäller alla dess inlägg
+        for post in posts:
+            log.update_post(post["id"], status=new)
+        fields.pop("status")
+    link = {key: fields.pop(key) for key in ("url", "platform") if key in fields}
+    stats = {key: fields.pop(key) for key in STAT_KEYS if key in fields}
+    if (link or stats) and posts:
+        if len(posts) > 1:
+            raise HTTPException(400, "Klippet har flera inlägg. Ändra länk och siffror per inlägg.")
+        log.update_post(posts[0]["id"], **link, **stats)
+    elif link or stats:
+        fields.update(link, **stats)
 
 
 # ---------- översikt ----------
@@ -665,3 +750,7 @@ def _earnings(clips: list[dict], settings: Settings) -> dict:
     return {"estimated_usd": round(sum(c["usd"] for c in per_clip), 2), "paid_usd": round(paid, 2),
             "by_month": [{"month": m, "usd": round(usd, 2)} for m, usd in sorted(months.items())],
             "per_clip": per_clip}
+
+
+# Vägarna för inlägg ligger i posts_api.py och registreras på samma router.
+from . import posts_api  # noqa: E402,F401
