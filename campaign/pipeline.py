@@ -13,11 +13,11 @@ from clipsmith.db.models import Run, RunStatus
 from clipsmith.db.session import get_session
 from clipsmith.models.twitch import Video
 from clipsmith.pipeline import process_vod
-from clipsmith.twitch.downloader import download_vod
 
 from .brain import Brain
 from .budget import budget_from_settings
 from .cliplog import ClipLog
+from .download import download_vod
 from .config import Settings
 from .profile import Profile, load_profile
 from .transcribe import berget_post, transcribe_vod
@@ -57,7 +57,7 @@ def make_clips(
     channel = cfg.channels[0] if cfg.channels else profile.streamer.lower()
 
     emit("download", 5.0, "Hämtar VOD:en")
-    mp4 = download_vod(vod_id, cfg.work_dir.expanduser()).mp4_path
+    mp4 = download_vod(vod_id, cfg.work_dir.expanduser())
 
     transcript = mp4.parent / "transcript.json"
     if not transcript.exists():
