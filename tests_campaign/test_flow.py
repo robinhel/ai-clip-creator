@@ -346,7 +346,8 @@ def test_clip_transcript_is_the_part_inside_the_clip(client, settings) -> None: 
 
 def test_summary_has_disk_space(client, monkeypatch) -> None:  # noqa: F811
     monkeypatch.setattr(estimate, "disk_gb", lambda path: (9.7, 228.0))
-    assert client.get("/campaign/summary").json()["disk"] == {"free_gb": 9.7, "total_gb": 228.0}
+    assert client.get("/campaign/summary").json()["disk"] == {"free_gb": 9.7, "total_gb": 228.0, "connected": True,
+                                                              "problem": None}
 
 
 def test_disk_gb_works_before_the_work_folder_exists(tmp_path) -> None:

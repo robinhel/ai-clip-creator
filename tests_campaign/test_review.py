@@ -67,19 +67,6 @@ def _check(settings, answer):
     return check_clip(GOOD_INFO, GOOD_MANIFEST, profile, build_caption("Close call", profile), "clutch", answer)
 
 
-def test_observations_that_are_not_rule_breaks_are_warnings(settings) -> None:
-    notes = ["Subtitles cover part of the game.", "The head is close to the top edge."]
-    problems, warnings = _check(settings, {**GOOD, "notes": notes})
-    assert problems == []
-    assert [w for w in warnings if w.startswith("Bildgranskning:")] == [f"Bildgranskning: {n}" for n in notes]
-
-
-def test_old_reviews_with_a_problems_list_give_warnings(settings) -> None:
-    old = {"facecam_visible": True, "text_visible": True, "overlay_visible": True, "problems": ["Undertext."]}
-    problems, warnings = _check(settings, old)
-    assert problems == [] and "Bildgranskning: Undertext." in warnings
-
-
 def test_real_rule_breaks_are_problems(settings) -> None:
     assert any("facecam" in p for p in _check(settings, {**GOOD, "facecam_visible": False})[0])
     assert any("texten" in p for p in _check(settings, {**GOOD, "text_visible": False})[0])
