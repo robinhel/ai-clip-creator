@@ -459,11 +459,20 @@ def refinish_run(
 # ---------- klipp ----------
 
 
+REVIEW_PREFIX = "Bildgranskning: "
+
+
 def _public(clip: dict, settings: Settings) -> dict:
     out = {k: v for k, v in clip.items() if k != "file"}
     out["filename"] = Path(clip["file"] or "").name
     out["problems"] = clip["problems"] or []
-    out["warnings"] = clip["warnings"] or []
+    # Äldre klipp har bildgranskningens beskrivningar som varningar. De visas med bildgranskningen i stället.
+    old_notes = [w.removeprefix(REVIEW_PREFIX) for w in clip["warnings"] or [] if w.startswith(REVIEW_PREFIX)]
+    out["warnings"] = [w for w in clip["warnings"] or [] if not w.startswith(REVIEW_PREFIX)]
+    if old_notes:
+        review = dict(clip["review"] or {})
+        review["notes"] = [*(review.get("notes") or []), *old_notes]
+        out["review"] = review
     out["signals"] = clip["signals"] or []
     out["reason"] = clip["reason"] or ""
     out["engagement"] = ClipLog.engagement(clip)
