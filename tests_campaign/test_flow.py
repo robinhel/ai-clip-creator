@@ -365,17 +365,17 @@ def test_stream_context_says_the_runs_length_replaces_the_instructions() -> None
 
 def test_finish_again_after_done_counts_steps_from_the_new_events() -> None:
     start = datetime(2026, 11, 12, 10, 0, tzinfo=UTC)
-    first = [(stage, 10.0, start + timedelta(minutes=i)) for i, stage in
+    first = [(stage, 10.0, start + timedelta(minutes=i), "") for i, stage in
              enumerate(["download", "transcribe", "chat", "select", "clip", "finish", "done"])]
     again = start + timedelta(hours=2)
-    progress = estimate.progress("running", [*first, ("finish", 90.0, again)], 13950, now=again)
+    progress = estimate.progress("running", [*first, ("finish", 90.0, again, "")], 13950, now=again)
     steps = {s["id"]: s for s in progress["steps"]}
     assert steps["finish"]["status"] == "running"
     assert steps["finish"]["started_at"] == again.isoformat()
     assert [s["status"] for s in progress["steps"]][:5] == ["done"] * 5
     assert progress["stage"] == "finish"
 
-    finished = estimate.progress("done", [*first, ("finish", 90.0, again), ("done", 100.0, again)], 13950)
+    finished = estimate.progress("done", [*first, ("finish", 90.0, again, ""), ("done", 100.0, again, "")], 13950)
     assert {s["id"]: s for s in finished["steps"]}["finish"]["started_at"] == again.isoformat()
 
 
