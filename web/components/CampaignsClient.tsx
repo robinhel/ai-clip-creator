@@ -5,6 +5,19 @@ import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { api } from "@/lib/api";
 import type { CampaignProfile } from "@/lib/types";
 
+// Profilens problem som gör varje klipp underkänt i regelkontrollen (campaign/rules.py).
+const FAILS_CLIPS = ["Overlay-bilden saknas", "on_screen_text.text är tom"];
+
+/** Vad kampanjens läge betyder för körningen. */
+export function readyText(p: CampaignProfile): string {
+  if (!p.ready) return "Inte redo";
+  if (p.problems.length === 0) return "Redo";
+  if (p.problems.some((problem) => FAILS_CLIPS.some((start) => problem.startsWith(start)))) {
+    return "Går att köra, men klippen blir underkända tills varningarna är rättade";
+  }
+  return "Går att köra, men rätta varningarna i kampanjens inställningar först";
+}
+
 export function CampaignsClient() {
   const [profiles, setProfiles] = useState<CampaignProfile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +62,7 @@ export function CampaignsClient() {
               ) : (
                 <span className="inline-flex items-center gap-1 rounded-full border border-[#5a4416] px-2.5 py-0.5 text-xs text-warn">
                   <AlertTriangle className="size-3.5" aria-hidden />
-                  {p.ready ? "Redo, med varningar" : "Inte redo"}
+                  {readyText(p)}
                 </span>
               )}
             </div>

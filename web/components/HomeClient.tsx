@@ -4,18 +4,20 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Link2, Loader2, X } from "lucide-react";
+import { readyText } from "@/components/CampaignsClient";
 import { ProjectCard } from "@/components/ProjectCard";
 import { api } from "@/lib/api";
 import { clock, cn, duration, parseClock, usd } from "@/lib/utils";
 import type { CampaignProfile, CampaignRunInfo, CampaignSummary, VodInfo } from "@/lib/types";
 
 const FOCUS_MAX = 300;
+const RUNS_POLL_MS = 5000;
 const gb = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
 
-/** VOD-id ur en Twitch-länk eller bara siffrorna. */
-export function vodIdFrom(text: string): string | null {
+/** Siffrorna ur en Twitch-länk, eller texten om den bara är siffror. */
+function vodCandidate(text: string): string | null {
   const value = text.trim();
-  if (/^\d{5,}$/.test(value)) return value;
+  if (/^\d+$/.test(value)) return value;
   return value.match(/twitch\.tv\/videos\/(\d+)/)?.[1] ?? null;
 }
 
@@ -71,7 +73,10 @@ export function HomeClient() {
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
 
-  const vodId = vodIdFrom(link);
+  const candidate = vodCandidate(link);
+  // Samma gräns som servern: 6–15 siffror.
+  const vodId = candidate && /^\d{6,15}$/.test(candidate) ? candidate : null;
+  const [pollTick, setPollTick] = useState(0);
 
   useEffect(() => {
     Promise.all([api.campaign.profiles(), api.campaign.summary(), api.campaign.runs.list()])
@@ -82,6 +87,20 @@ export function HomeClient() {
       })
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Kunde inte hämta startsidan"));
   }, []);
+
+  // Läs om projekten var femte sekund medan något projekt pågår, också efter ett misslyckat anrop.
+  const anyActive = runs?.some((r) => r.status === "pending" || r.status === "running") ?? false;
+  useEffect(() => {
+    if (!anyActive) return;
+    const timer = setTimeout(() => {
+      api.campaign.runs
+        .list()
+        .then(setRuns)
+        .catch(() => {})
+        .finally(() => setPollTick((t) => t + 1));
+    }, RUNS_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [anyActive, pollTick]);
 
   // Hämta VOD:en så fort en giltig länk står i fältet.
   useEffect(() => {
@@ -127,8 +146,8 @@ export function HomeClient() {
   const profile = matching.find((p) => p.name === profileName) ?? null;
 
   useEffect(() => {
-    setMinS(profile ? String(profile.clip_min_s) : "");
-    setMaxS(profile ? String(profile.clip_max_s) : "");
+    setMinS(profile?.clip_min_s != null ? String(profile.clip_min_s) : "");
+    setMaxS(profile?.clip_max_s != null ? String(profile.clip_max_s) : "");
   }, [profile]);
 
   // Det som stoppar körningen, i den ordning det behöver rättas.
@@ -152,7 +171,7 @@ export function HomeClient() {
         )} GB är ledigt. Frigör plats och försök igen.`
       );
     }
-    if (profile && (!Number.isInteger(min) || !Number.isInteger(max) || min < profile.clip_min_s || max > profile.clip_max_s || min >= max)) {
+    if (profile && profile.clip_min_s != null && profile.clip_max_s != null && (!Number.isInteger(min) || !Number.isInteger(max) || min < profile.clip_min_s || max > profile.clip_max_s || min >= max)) {
       blockers.push(
         `Klipplängden måste ligga inom ${profile.clip_min_s}–${profile.clip_max_s} s, och kortast måste vara mindre än längst.`
       );
@@ -180,8 +199,8 @@ export function HomeClient() {
         start_s: startS ?? 0,
         end_s: endS ?? 0,
         focus: focus.trim() || undefined,
-        min_s: min,
-        max_s: max,
+        min_s: minS ? min : undefined,
+        max_s: maxS ? max : undefined,
       });
       router.push(`/runs/${run.id}`);
     } catch (err) {
@@ -228,9 +247,14 @@ export function HomeClient() {
             )}
           </div>
 
-          {link.trim() && !vodId && (
+          {link.trim() && !candidate && (
             <p className="mt-2 text-left text-sm text-warn">
               Det ser inte ut som en Twitch-VOD. Klistra in en länk som https://www.twitch.tv/videos/2925991945.
+            </p>
+          )}
+          {candidate && !vodId && (
+            <p role="alert" className="mt-2 text-left text-sm text-bad">
+              VOD-id:t {candidate} har {candidate.length} siffror. Ett VOD-id har 6–15 siffror, till exempel 2925991945.
             </p>
           )}
           {vodError && (
@@ -253,7 +277,8 @@ export function HomeClient() {
                   {vod.channel_name}, {vod.game ?? "okänt spel"}, {duration(vod.duration_s)}
                 </p>
                 <p className="text-[13px] text-muted-foreground">
-                  Cirka {vod.estimate.minutes} min och {usd.format(vod.estimate.cost_usd)} att göra klart.{" "}
+                  Cirka {vod.estimate.minutes} min
+                  {vod.estimate.cost_usd != null ? ` och ${usd.format(vod.estimate.cost_usd)}` : ", okänd kostnad,"} att göra klart.{" "}
                   {vod.downloaded
                     ? "VOD:en finns redan på disken."
                     : `Hämtar ${gb.format(vod.estimate.download_gb)} GB, ${gb.format(vod.estimate.disk_free_gb)} GB ledigt.`}
@@ -304,7 +329,7 @@ export function HomeClient() {
                     className={cn(chipField, "w-28 placeholder:text-muted-foreground")}
                   />
                 </Chip>
-                {profile && (
+                {profile?.clip_min_s != null && profile.clip_max_s != null && (
                   <Chip label="Längd:">
                     <input
                       aria-label="Kortaste klipp i sekunder"
@@ -370,6 +395,9 @@ export function HomeClient() {
                       </span>
                     </li>
                   ))}
+                  {profile?.ready && profile.problems.length > 0 && (
+                    <li className="px-1 pt-1 font-medium text-warn">{readyText(profile)}.</li>
+                  )}
                   {profile?.problems.map((text) => (
                     <li key={text} className="flex gap-2 rounded-lg border border-[#5a4416] bg-[#1b160b] px-3 py-2 text-warn">
                       <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />

@@ -54,51 +54,54 @@ export function SiteNav() {
   const diskUsedPct = disk && disk.total_gb > 0 ? 100 - (disk.free_gb / disk.total_gb) * 100 : 0;
 
   return (
-    <aside className="sticky top-0 flex h-auto flex-col gap-1 border-b border-line bg-background px-3.5 py-4 md:h-screen md:border-r md:border-b-0 md:py-5">
-      <Link href="/" className="flex items-center gap-2 px-2 pb-4 text-lg font-bold tracking-tight">
-        <Clapperboard className="size-5 text-brand" aria-hidden />
-        Klipp
-      </Link>
-      <nav aria-label="Huvudmeny" className="flex flex-wrap gap-1 md:flex-col">
-        {LINKS.map(({ href, label, icon: Icon }) => (
-          <Link
-            key={href}
-            href={href}
-            aria-current={isActive(pathname, href) ? "page" : undefined}
-            className={cn(
-              "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground",
-              "aria-[current=page]:bg-panel aria-[current=page]:text-foreground focus-visible:outline-2 focus-visible:outline-brand"
-            )}
-          >
-            <Icon className="size-4" aria-hidden />
-            <span className="flex-1">{label}</span>
-            {href === "/queue" && toPost > 0 && (
-              <span className="rounded-full bg-brand px-1.5 text-xs font-medium text-white tabular-nums">
-                {toPost}
-              </span>
-            )}
-          </Link>
-        ))}
-      </nav>
+    // Kolumnen går hela sidans höjd och ritar kanten; menyn i den står fast i fönstret.
+    <div className="contents md:block md:border-r md:border-line">
+      <aside className="sticky top-0 z-30 flex h-auto flex-col gap-1 border-b border-line bg-background px-3.5 py-4 md:h-screen md:border-b-0 md:py-5">
+        <Link href="/" className="flex items-center gap-2 px-2 pb-4 text-lg font-bold tracking-tight">
+          <Clapperboard className="size-5 text-brand" aria-hidden />
+          Klipp
+        </Link>
+        <nav aria-label="Huvudmeny" className="flex flex-wrap gap-1 md:flex-col">
+          {LINKS.map(({ href, label, icon: Icon }) => (
+            <Link
+              key={href}
+              href={href}
+              aria-current={isActive(pathname, href) ? "page" : undefined}
+              className={cn(
+                "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground",
+                "aria-[current=page]:bg-panel aria-[current=page]:text-foreground focus-visible:outline-2 focus-visible:outline-brand"
+              )}
+            >
+              <Icon className="size-4" aria-hidden />
+              <span className="flex-1">{label}</span>
+              {href === "/queue" && toPost > 0 && (
+                <span className="rounded-full bg-brand px-1.5 text-xs font-medium text-white tabular-nums">
+                  {toPost}
+                </span>
+              )}
+            </Link>
+          ))}
+        </nav>
 
-      {summary && (
-        <div className="mt-auto hidden space-y-4 border-t border-line pt-4 md:block">
-          {budget && (
-            <Meter
-              label={`Claude denna månad: ${usd.format(budget.month_usd)} av ${usd.format(budget.month_cap_usd)}`}
-              pct={budgetPct}
-              tone={budgetPct >= 90 ? "bad" : budgetPct >= 70 ? "warn" : "good"}
-            />
-          )}
-          {disk && (
-            <Meter
-              label={`Disk ledigt: ${gb.format(disk.free_gb)} GB`}
-              pct={diskUsedPct}
-              tone={disk.free_gb < 20 ? "bad" : disk.free_gb < 50 ? "warn" : "good"}
-            />
-          )}
-        </div>
-      )}
-    </aside>
+        {summary && (
+          <div className="mt-auto hidden space-y-4 border-t border-line pt-4 md:block">
+            {budget && (
+              <Meter
+                label={`Claude denna månad: ${usd.format(budget.month_usd)} av ${usd.format(budget.month_cap_usd)}`}
+                pct={budgetPct}
+                tone={budgetPct >= 90 ? "bad" : budgetPct >= 70 ? "warn" : "good"}
+              />
+            )}
+            {disk && (
+              <Meter
+                label={`Disk ledigt: ${gb.format(disk.free_gb)} GB`}
+                pct={diskUsedPct}
+                tone={disk.free_gb < 20 ? "bad" : disk.free_gb < 50 ? "warn" : "good"}
+              />
+            )}
+          </div>
+        )}
+      </aside>
+    </div>
   );
 }

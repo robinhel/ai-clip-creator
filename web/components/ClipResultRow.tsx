@@ -17,6 +17,9 @@ import type { CampaignClip, CampaignClipPatch, CampaignFormat, ClipTranscript, P
 // Längsta caption på TikTok och Instagram.
 const CAPTION_MAX = 2200;
 
+// Klippet får laddas ner och captionen kopieras först när Robin har sagt ja.
+const CAN_POST: CampaignClip["status"][] = ["godkand", "postad", "inskickad", "analytics_inskickad", "betald"];
+
 /** Färg efter betyg, som i skissen: grönt från 80, gult från 60. */
 export function scoreTone(score: number | null): string {
   if (score == null) return "text-muted-foreground";
@@ -104,6 +107,7 @@ export function ClipResultRow({ clip, number, formats, runId, onUpdate }: Props)
   const needsFormat = formats.length > 0 && !clip.format;
   const formatName = formats.find((f) => f.id === clip.format)?.name ?? clip.format;
   const hasProblems = clip.problems.length > 0;
+  const approved = CAN_POST.includes(clip.status);
   const length = clip.start_s != null && clip.end_s != null ? clip.end_s - clip.start_s : null;
 
   async function patch(body: CampaignClipPatch) {
@@ -172,7 +176,8 @@ export function ClipResultRow({ clip, number, formats, runId, onUpdate }: Props)
       <div className="col-start-2 flex min-w-0 flex-col gap-3 lg:col-start-auto">
         {clip.reason && (
           <p className="rounded-[10px] border border-[#2c2440] bg-[#16131f] px-3 py-2.5 text-[13px] text-[#cfc8ea]">
-            <span className="font-medium text-[#e4defb]">Claude: </span>
+            {/* Utan betyg har Claude inte valt klippet; motiveringen säger varför. */}
+            {clip.score != null && <span className="font-medium text-[#e4defb]">Claude: </span>}
             {clip.reason}
           </p>
         )}
@@ -331,21 +336,25 @@ export function ClipResultRow({ clip, number, formats, runId, onUpdate }: Props)
             Ändra caption
           </Button>
         )}
-        {/* Kopiera alltid den sparade captionen, den som regelkontrollen har godkänt. */}
-        <CopyButton
-          text={clip.caption ?? ""}
-          label={captionDirty ? "Spara först" : "Kopiera caption"}
-          disabled={captionDirty}
-          className="h-9 justify-start"
-        />
-        <a
-          href={api.campaign.downloadUrl(clip)}
-          download
-          className={buttonVariants({ variant: "outline", className: "h-9 justify-start" })}
-        >
-          <Download aria-hidden />
-          Ladda ner
-        </a>
+        {approved && (
+          <>
+            {/* Kopiera alltid den sparade captionen, den som regelkontrollen har godkänt. */}
+            <CopyButton
+              text={clip.caption ?? ""}
+              label={captionDirty ? "Spara först" : "Kopiera caption"}
+              disabled={captionDirty}
+              className="h-9 justify-start"
+            />
+            <a
+              href={api.campaign.downloadUrl(clip)}
+              download
+              className={buttonVariants({ variant: "outline", className: "h-9 justify-start" })}
+            >
+              <Download aria-hidden />
+              Ladda ner
+            </a>
+          </>
+        )}
 
         {clip.status === "godkand" && (
           <div className="mt-1 space-y-2 border-t border-line pt-3">
