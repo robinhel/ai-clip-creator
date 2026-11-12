@@ -17,11 +17,16 @@ from .prompts import (
 __all__ = [
     "ClipPick",
     "ClipPicker",
+    "LLMUnavailable",
     "SYSTEM_PROMPT",
     "CLIP_PICK_JSON_SCHEMA",
     "build_candidate_prompt",
     "build_stream_context",
 ]
+
+
+class LLMUnavailable(RuntimeError):
+    """The LLM cannot answer (wrong key, down, overloaded). Stops the run instead of giving no clips."""
 
 
 @dataclass
@@ -32,6 +37,7 @@ class ClipPick:
     title_es: str
     reason: str
     score: int = 0  # 0-99: hook, flow and chance to go viral on TikTok. 0 for old answers.
+    format: str | None = None  # id of the campaign format the clip fits, when formats were given
 
     @property
     def duration_s(self) -> float:
@@ -49,6 +55,7 @@ class ClipPick:
             title_es=str(d.get("title_es", "")),
             reason=str(d.get("reason", "")),
             score=min(max(round(float(d.get("score") or 0)), 0), 99),
+            format=str(d["format"]) if d.get("format") else None,
         )
 
     @classmethod
@@ -58,7 +65,10 @@ class ClipPick:
         if text.startswith("```"):
             lines = text.splitlines()
             text = "\n".join(line for line in lines if not line.startswith("```")).strip()
-        return cls.from_dict(json.loads(text))
+        # Text after the JSON object (a short explanation) is ignored.
+        start = text.find("{")
+        obj, _ = json.JSONDecoder().raw_decode(text, max(start, 0))
+        return cls.from_dict(obj)
 
 
 @runtime_checkable

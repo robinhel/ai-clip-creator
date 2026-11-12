@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from ..models.candidates import CandidateMoment
 from ..telemetry import LLM_CALL_DURATION, llm_call_duration, llm_calls_total, tracer
-from .base import ClipPick
+from .base import ClipPick, LLMUnavailable
 from .prompts import get_system_prompt, build_candidate_prompt
 from .retry import build_retry, RetryConfig
 
@@ -21,6 +21,29 @@ if TYPE_CHECKING:
     from campaign.budget import Budget
 
 log = logging.getLogger(__name__)
+
+# Seconds before each new try at 429, 5xx (529 overloaded) and network errors. Replaces retry_cfg's backoff.
+WAITS_S = (5, 15, 30)
+
+
+def _reason(exc: Exception) -> str:
+    """Short Swedish cause of an Anthropic error, for the run's error text."""
+    import anthropic
+
+    if isinstance(exc, anthropic.APIConnectionError):
+        return "Anthropic gick inte att nå (nätverket)"
+    status = getattr(exc, "status_code", None)
+    if status == 401:
+        return "fel API-nyckel (401)"
+    if status == 403:
+        return "nyckeln får inte använda Claude (403)"
+    if status == 429:
+        return "för många anrop (429)"
+    if status == 529:
+        return "Claude är överbelastat (529)"
+    body = getattr(exc, "body", None)
+    message = body.get("error", {}).get("message") if isinstance(body, dict) else None
+    return f"fel {status}, {message[:150]}" if message else f"fel {status}"
 
 
 class AnthropicProvider:
@@ -39,7 +62,8 @@ class AnthropicProvider:
             import anthropic as _anthropic
         except ImportError as exc:
             raise ImportError("anthropic package required: pip install anthropic") from exc
-        self._client = _anthropic.Anthropic(api_key=api_key)
+        self._client = _anthropic.Anthropic(api_key=api_key, max_retries=0)  # WAITS_S does the retries
+        self._api_error = _anthropic.APIError
         self._model = model
         self._retry_cfg = retry_cfg or RetryConfig()
         self._system_prompt = get_system_prompt(prompt_version)
@@ -66,14 +90,14 @@ class AnthropicProvider:
                 self._budget.check()  # BudgetExceeded stoppar körningen, fångas inte nedan
             try:
                 retry = build_retry(
-                    self._retry_cfg, candidate_id=candidate_id, provider="anthropic"
+                    self._retry_cfg, candidate_id=candidate_id, provider="anthropic", waits=WAITS_S
                 )
                 response = None
                 for attempt in retry:
                     with attempt:
                         response = self._client.messages.create(
                             model=self._model,
-                            max_tokens=512,
+                            max_tokens=1024,
                             system=[
                                 {
                                     "type": "text",
@@ -117,6 +141,9 @@ class AnthropicProvider:
                         getattr(usage, "cache_creation_input_tokens", 0) or 0,
                     )
                 text = next((b.text for b in response.content if b.type == "text"), "")  # type: ignore[union-attr]
+                if getattr(response, "stop_reason", None) == "max_tokens":
+                    log.warning("llm_cut provider=anthropic candidate=%s: svaret klipptes av vid max_tokens",
+                                candidate_id)
                 pick = ClipPick.from_json(text)
                 elapsed = time.monotonic() - t0
                 llm_call_duration.record(elapsed, {"provider": "anthropic"})
@@ -133,9 +160,10 @@ class AnthropicProvider:
                 return pick
             except Exception as exc:
                 log.warning(
-                    "llm_failed provider=anthropic candidate=%s attempts=%d error=%s",
-                    candidate_id,
-                    self._retry_cfg.max_attempts,
-                    exc,
+                    "llm_failed provider=anthropic candidate=%s error=%s", candidate_id, exc
                 )
-                return None
+                if isinstance(exc, self._api_error):  # key, account or Anthropic: every candidate would fail
+                    raise LLMUnavailable(
+                        f"Claude svarade inte: {_reason(exc)}. Kör igen när det fungerar."
+                    ) from exc
+                return None  # an answer that is not valid JSON: skip only this candidate

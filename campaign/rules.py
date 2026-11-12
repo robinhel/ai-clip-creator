@@ -62,6 +62,6 @@ def check_clip(
             problems.append("Bildgranskningen kunde inte läsa texten på skärmen.")
         if review.get("face_covered", False):
             problems.append("Bildgranskningen såg text över ansiktet.")
-        # Övriga iakttagelser är inga regelbrott. "problems" finns i granskningar från före "notes".
-        warnings += [f"Bildgranskning: {n}" for n in review.get("notes", review.get("problems", []))]
+        # Claudes beskrivningar (notes, och problems i äldre granskningar) är inga avvikelser. De sparas i
+        # granskningen och visas för sig, så att varningarna bara är sådant du ska göra något åt.
     return problems, warnings

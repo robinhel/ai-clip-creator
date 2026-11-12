@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import threading
 import uuid
 from pathlib import Path
@@ -21,11 +22,11 @@ from clipsmith.api.deps import get_db, verify_api_key
 from clipsmith.db.models import PipelineEvent, Run, RunStatus
 
 from . import editor, estimate, streams
-from .budget import budget_from_settings
+from .budget import BudgetExceeded, budget_from_settings
 from .caption import check_caption
 from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog
 from .config import Settings, load_settings
-from .media import need, run
+from .media import need, probe, run
 from .pipeline import finish_run, run_campaign_vod
 from .profile import Profile, load_profile
 from .vodinfo import VodNotFound, vod_facts
@@ -161,6 +162,10 @@ def list_profiles(settings: Settings = Depends(get_settings)) -> list[dict]:
 # ---------- VOD ----------
 
 
+LIVE = "Streamen pågår. Vänta tills den är slut."
+SSD_MISSING = "SSD:n är inte ansluten."
+
+
 def _mp4(vod_id: str, settings: Settings) -> Path:
     return settings.work_dir / vod_id / f"{vod_id}.mp4"
 
@@ -174,20 +179,49 @@ def _facts(vod_id: str, fresh: bool = False) -> dict:
         raise HTTPException(502, "Twitch svarar inte. Försök igen om en stund.") from error
 
 
-def _estimate(facts: dict, settings: Settings) -> dict:
-    downloaded = _mp4(facts["vod_id"], settings).exists()
-    free_gb, _ = estimate.disk_gb(settings.work_dir)
+def storage(settings: Settings) -> dict:
+    """Ledigt utrymme där work/ ligger. work/ och out/ kan vara länkar till SSD:n. En trasig länk betyder
+    att SSD:n inte sitter i: då visar appen det, och ingen körning startar."""
+    if any(path.is_symlink() and not path.exists() for path in (settings.work_dir, settings.out_dir)):
+        return {"free_gb": 0.0, "total_gb": 0.0, "connected": False, "problem": SSD_MISSING}
+    free_gb, total_gb = estimate.disk_gb(settings.work_dir)  # disk_gb följer länken till SSD:n
+    return {"free_gb": free_gb, "total_gb": total_gb, "connected": True, "problem": None}
+
+
+def _downloaded(facts: dict, settings: Settings) -> bool:
+    """Hela VOD:en finns på disken. En fil som hämtades medan streamen pågick är kortare och räknas inte."""
+    mp4 = _mp4(facts["vod_id"], settings)
+    if not mp4.exists():
+        return False
+    try:
+        return probe(mp4)["duration"] >= facts["duration_s"] - 60
+    except RuntimeError:  # ffprobe kan inte läsa filen: den är trasig eller halv
+        return False
+
+
+def _remove_half_download(vod_id: str, settings: Settings) -> None:
+    """En halv video och det som gjordes av den. Körningen hämtar och gör om allt."""
+    folder = settings.work_dir / vod_id
+    for name in (f"{vod_id}.mp4", "transcript.json", "chat.json"):
+        (folder / name).unlink(missing_ok=True)
+    shutil.rmtree(folder / "berget", ignore_errors=True)
+
+
+def _estimate(facts: dict, settings: Settings, disk: dict) -> dict:
+    downloaded = _downloaded(facts, settings)
     return {"downloaded": downloaded,
-            "estimate": estimate.estimate(facts["duration_s"], free_gb, downloaded)}
+            "estimate": estimate.estimate(facts["duration_s"], disk["free_gb"], downloaded)}
 
 
 @router.get("/vod/{vod_id}", summary="Fakta om en Twitch-VOD före körningen")
 def vod_info(vod_id: str = PathParam(pattern=r"^\d{6,15}$"),
              settings: Settings = Depends(get_settings)) -> dict:
     facts = _facts(vod_id)
+    disk = storage(settings)
+    problems = [text for text, hit in ((LIVE, facts["live"]), (SSD_MISSING, not disk["connected"])) if hit]
     campaigns = [p["name"] for p in list_profiles(settings)
                  if p["active"] and p["channel"] and p["channel"].lower() == facts["channel"]]
-    return {**facts, **_estimate(facts, settings), "campaigns": campaigns}
+    return {**facts, **_estimate(facts, settings, disk), "campaigns": campaigns, "problems": problems}
 
 
 @router.get("/streams", summary="De senaste streamsen för kampanjernas kanaler")
@@ -258,12 +292,22 @@ def create_run(
     if not low <= min_s <= max_s <= high:
         raise HTTPException(400, f"Klippens längd måste ligga mellan {low} och {high} sekunder, "
                                  "och den kortaste längden får inte vara längre än den längsta.")
+    disk = storage(settings)
+    if not disk["connected"]:
+        raise HTTPException(400, SSD_MISSING)
+    try:
+        budget_from_settings(settings).check()  # dags- och månadstaket, innan 15 GB hämtas
+    except BudgetExceeded as error:
+        raise HTTPException(400, f"{error} Körningen startar inte. Vänta tills taket går över, "
+                                 "eller höj det i .env.") from error
     facts = _facts(body.vod_id, fresh=True)  # färska fakta, så att diskkollen har rätt längd
+    if facts["live"]:
+        raise HTTPException(400, LIVE)
     if not facts["channel"] or facts["channel"] != ready["channel"].lower():
         raise HTTPException(400, f"VOD:en är från {facts['channel_name'] or 'en okänd kanal'}, inte från "
                                  f"kampanjens kanal {ready['channel']}. Kampanjen får bara använda "
                                  "streamerns egna streams.")
-    space = _estimate(facts, settings)
+    space = _estimate(facts, settings, disk)
     if not space["estimate"]["fits"]:
         need = space["estimate"]["download_gb"] * 1.1 + 1
         raise HTTPException(400, f"Disken räcker inte. VOD:en behöver ungefär {need:.1f} GB med marginal, "
@@ -276,15 +320,24 @@ def create_run(
             raise HTTPException(429, "En körning pågår redan. Vänta tills den är klar.")
         if editor.lock.locked():  # redigeraren kollar active_run_id under samma lås
             raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
+        # Kollas igen här, där ingen annan körning kan skriva filen: en halv video används aldrig.
+        if _mp4(body.vod_id, settings).exists() and not _downloaded(facts, settings):
+            _remove_half_download(body.vod_id, settings)
         run = Run(vod_id=body.vod_id, channel=ready["channel"], status=RunStatus.pending)
         db.add(run)
         db.commit()
         db.refresh(run)
         request.app.state.active_run_id = run.id
-    _log(settings).add_run(run.id, body.vod_id, profile.name, game, focus=focus or None,
-                           min_s=min_s, max_s=max_s, title=facts["title"],
-                           channel_name=facts["channel_name"], thumbnail_url=facts["thumbnail_url"],
-                           duration_s=facts["duration_s"], start_s=body.start_s, end_s=body.end_s)
+    try:
+        _log(settings).add_run(run.id, body.vod_id, profile.name, game, focus=focus or None,
+                               min_s=min_s, max_s=max_s, title=facts["title"],
+                               channel_name=facts["channel_name"], thumbnail_url=facts["thumbnail_url"],
+                               duration_s=facts["duration_s"], start_s=body.start_s, end_s=body.end_s)
+    except Exception:  # annars står körningen som pågående, och appen säger 429 tills servern startas om
+        run.status, run.error = RunStatus.failed, "Körningen kunde inte sparas i klipploggen. Försök igen."
+        db.commit()
+        request.app.state.active_run_id = None
+        raise
     background_tasks.add_task(run_campaign_vod, run.id, body.vod_id, profile.name, game, settings,
                               start_s=body.start_s, end_s=body.end_s, focus=focus, min_s=min_s,
                               max_s=max_s, app=request.app)
@@ -383,11 +436,15 @@ def refinish_run(
     run_id: int,
     request: Request,
     background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
     meta = _log(settings).run(run_id)
     if meta is None:
         raise HTTPException(404, "Körningen hör inte till någon kampanj.")
+    run = db.get(Run, run_id)
+    if run is not None and run.status == RunStatus.failed:
+        raise HTTPException(400, "Körningen misslyckades. Tryck Kör igen.")
     with _start_lock:
         if request.app.state.active_run_id is not None:
             raise HTTPException(429, "En körning pågår redan. Vänta tills den är klar.")
@@ -648,10 +705,9 @@ def summary(settings: Settings = Depends(get_settings)) -> dict:
     counts: dict[str, int] = {}
     for clip in clips:
         counts[clip["status"]] = counts.get(clip["status"], 0) + 1
-    free_gb, total_gb = estimate.disk_gb(settings.work_dir)
     # Budgeten gäller alla kampanjer, så den räknas som förut.
     return {"budget": budget_from_settings(settings).summary(), "counts": counts, "todo": log.todo(skip=off),
-            "disk": {"free_gb": free_gb, "total_gb": total_gb}, "earnings": _earnings(clips, settings)}
+            "disk": storage(settings), "earnings": _earnings(clips, settings)}
 
 
 def _payout(views: int, payment: dict) -> float:

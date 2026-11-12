@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from typing import Callable
 
 import structlog
@@ -37,6 +38,14 @@ def save_picks(picks: list[PickResult], path: Path) -> None:
         json.dumps([p.to_dict() for p in picks], ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+
+def _parse_time(value: str) -> datetime | None:
+    """Twitch's createdAt ("2026-11-04T18:00:00Z"), or None when it is missing or unreadable."""
+    try:
+        return datetime.fromisoformat(value) if value else None
+    except ValueError:
+        return None
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -75,7 +84,9 @@ def process_vod(
 
     if secrets.twitch_client_id and secrets.twitch_client_secret and video.user_id:
         with TwitchClient(secrets.twitch_client_id, secrets.twitch_client_secret) as tc:
-            existing_clips = tc.get_clips_for_vod(video.user_id, video_id)
+            existing_clips = tc.get_clips_for_vod(
+                video.user_id, video_id, started_at=_parse_time(video.created_at)
+            )
     else:
         existing_clips = []
         log.info("skipping existing-clips fetch (no Twitch credentials or local mode)")

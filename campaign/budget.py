@@ -103,6 +103,15 @@ class Budget:
             )
         return usd
 
+    def record_audio(self, model: str, minutes: float) -> float:
+        """Spara en transkribering via Berget. Priset per minut ljud står under transcription i priser.yaml.
+        En modell som inte står där kostar 0, eftersom priset inte är känt."""
+        usd = minutes * float((self.prices.get("transcription") or {}).get(model, 0.0))
+        with self._db() as db:
+            db.execute("INSERT INTO usage VALUES (?,?,?,?,?,?,?,?)",
+                       (self._now().isoformat(), model, "transkribering", 0, 0, 0, 0, usd))
+        return usd
+
     def _spent(self, prefix: str) -> float:
         with self._db() as db:
             row = db.execute(

@@ -5,9 +5,13 @@ Ett nyckelvärde skickas aldrig tillbaka, loggas aldrig och står aldrig i ett f
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
+import shutil
+import subprocess
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -19,9 +23,11 @@ from pydantic import BaseModel
 from clipsmith.api.deps import verify_api_key
 from clipsmith.twitch.client import TwitchClient
 
-from . import streams
-from .api import get_settings
+from . import estimate, streams
+from .api import SSD_MISSING, _profile_names, get_settings, storage
+from .budget import BudgetExceeded, budget_from_settings
 from .config import Settings
+from .profile import load_profile
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
 
@@ -33,19 +39,30 @@ GROUPS = [
 ]
 NAMES = {name: label for _, _, keys in GROUPS for name, label in keys}
 TWITCH = ("TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET")
-VALUE = re.compile(r"[!$-&(-~]{1,300}")  # synliga ASCII-tecken utom " ' och #; inga blanksteg
+# Synliga ASCII-tecken utom " ' # och $ (python-dotenv byter ${X} mot en annan variabel); inga blanksteg.
+VALUE = re.compile(r"[!%&(-~]{1,300}")
+_env_lock = threading.Lock()  # två Spara samtidigt får inte skriva över varandras rader i .env
 
 
 def _only_local(request: Request) -> None:
     """clipsmith serve lyssnar på 0.0.0.0. Ingen annan på nätverket får byta nycklarna."""
-    if request.client is None or request.client.host not in ("127.0.0.1", "::1"):
+    try:
+        address = ipaddress.ip_address(request.client.host if request.client else "")
+    except ValueError:  # inte en IP-adress, till exempel testclient
+        address = None
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:  # ::ffff:127.0.0.1
+        address = address.ipv4_mapped
+    if address is None or not address.is_loopback:
         raise HTTPException(403, "Nycklarna kan bara ändras från datorn där servern körs.")
 
 
 def _value(name: str, root: Path) -> str:
     """Värdet i processen, annars i .env. En tom variabel i processen räknas som saknad."""
     env = root / ".env"
-    return os.environ.get(name, "").strip() or ((dotenv_values(env).get(name) or "").strip() if env.exists() else "")
+    if os.environ.get(name, "").strip():
+        return os.environ[name].strip()
+    with _env_lock:
+        return (dotenv_values(env).get(name) or "").strip() if env.exists() else ""
 
 
 def _groups(root: Path) -> list[dict]:
@@ -64,17 +81,19 @@ def _check(values: dict[str, Any]) -> dict[str, str]:
             raise HTTPException(400, f"{name} är tom. Klistra in nyckeln.")
         if not VALUE.fullmatch(value):
             raise HTTPException(400, f"{name} ser inte ut som en nyckel. Den får inte ha blanksteg, radbrytningar, "
-                                     "citattecken eller #, och högst 300 tecken.")
+                                     "citattecken, # eller $, och högst 300 tecken.")
         clean[name] = value
     return clean
 
 
 def _write_env(path: Path, values: dict[str, str]) -> None:
-    """Byt den första raden NAME= (även # NAME=) eller lägg till den sist. Övriga rader är orörda."""
+    """Byt den första raden NAME=, annars den första # NAME=, annars läggs den till sist. Övriga rader är orörda.
+    Anropas under _env_lock."""
     lines = path.read_text(encoding="utf-8").splitlines(keepends=True) if path.exists() else []
     for name, value in values.items():
-        pattern = re.compile(rf"\s*#?\s*{name}\s*=")
-        i = next((i for i, line in enumerate(lines) if pattern.match(line)), None)
+        real, comment = re.compile(rf"\s*{name}\s*="), re.compile(rf"\s*#\s*{name}\s*=")
+        i = next((i for i, line in enumerate(lines) if real.match(line)),
+                 next((i for i, line in enumerate(lines) if comment.match(line)), None))
         if i is None:
             if lines and not lines[-1].endswith("\n"):
                 lines[-1] += "\n"
@@ -118,9 +137,10 @@ class KeysBody(BaseModel):
 @router.put("/keys", summary="Spara nycklar i .env", dependencies=[Depends(verify_api_key), Depends(_only_local)])
 def put_keys(body: KeysBody, settings: Settings = Depends(get_settings)) -> dict:
     values = _check(body.values)
-    _write_env(settings.root / ".env", values)
-    # load_dotenv skriver inte över en variabel som redan finns i processen, så den sätts här.
-    os.environ.update(values)
+    with _env_lock:
+        _write_env(settings.root / ".env", values)
+        # load_dotenv skriver inte över en variabel som redan finns i processen, så den sätts här.
+        os.environ.update(values)
     twitch_changed = any(name in values for name in TWITCH)
     if twitch_changed:
         streams._cache.clear()  # tittarklippen räknas om med de nya nycklarna
@@ -131,3 +151,84 @@ def put_keys(body: KeysBody, settings: Settings = Depends(get_settings)) -> dict
              dependencies=[Depends(verify_api_key), Depends(_only_local)])
 def post_test_twitch(settings: Settings = Depends(get_settings)) -> dict:
     return check_twitch(settings.root)
+
+
+# ---------- kontroll: samma som python -m campaign check-setup, plus SSD:n ----------
+
+FILTERS = ("drawtext", "subtitles")  # finish.py ritar texten med drawtext; clipsmith bränner in undertexter
+HOURS_OK = 4  # en vanlig stream: ledigt utrymme som räcker för den räknas som ok
+
+
+def _ffmpeg_filters(ffmpeg: str) -> str:
+    try:
+        return subprocess.run([ffmpeg, "-hide_banner", "-filters"], capture_output=True, text=True, check=False,
+                              timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def _row(check_id: str, label: str, ok: bool, detail: str) -> dict:
+    return {"id": check_id, "label": label, "ok": ok, "detail": detail}
+
+
+def _tools() -> list[dict]:
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        rows = [_row("ffmpeg", "ffmpeg", False, "ffmpeg hittades inte. Installera det: brew install ffmpeg-full.")]
+    else:
+        names = {line.split()[1] for line in _ffmpeg_filters(ffmpeg).splitlines() if len(line.split()) > 1}
+        missing = [name for name in FILTERS if name not in names]
+        rows = [_row("ffmpeg", "ffmpeg", not missing,
+                     f"ffmpeg saknar {' och '.join(missing)}. Installera ffmpeg-full: brew install ffmpeg-full."
+                     if missing else "Hittad, med drawtext och subtitles.")]
+    found = shutil.which("ffprobe") is not None
+    return [*rows, _row("ffprobe", "ffprobe", found,
+                        "Hittad." if found else "ffprobe hittades inte. Installera det: brew install ffmpeg-full.")]
+
+
+def _campaigns(settings: Settings) -> list[dict]:
+    rows = []
+    for name in _profile_names(settings):
+        try:
+            profile = load_profile(name, settings.profiles_dir)
+        except (SystemExit, Exception):  # felets text kan citera filen, så den visas inte
+            rows.append(_row(f"profile:{name}", f"Kampanjen {name}", False, "Profilen går inte att läsa."))
+            continue
+        if profile.active:
+            problems = profile.problems(settings.root)
+            rows.append(_row(f"profile:{name}", f"Kampanjen {name}", not problems, " ".join(problems) or "Redo."))
+    return rows
+
+
+def _budget(settings: Settings) -> dict:
+    budget = budget_from_settings(settings)
+    try:
+        budget.check()
+    except BudgetExceeded as error:
+        return _row("budget", "Budget", False, str(error))
+    s = budget.summary()
+    return _row("budget", "Budget", True, f"{s['month_usd']:.2f} av {s['month_cap_usd']:.2f} dollar den här "
+                                          f"månaden, {s['today_usd']:.2f} av {s['day_cap_usd']:.2f} i dag.")
+
+
+def _space(disk: dict) -> list[dict]:
+    if not disk["connected"]:
+        return [_row("ssd", "SSD:n", False, SSD_MISSING),
+                _row("disk", "Ledigt utrymme", False, f"Okänt. {SSD_MISSING}")]
+    hours = max(disk["free_gb"] - 1, 0) / 1.1 / estimate.download_gb(3600)  # samma marginal som körningen
+    need = estimate.download_gb(HOURS_OK * 3600) * 1.1 + 1
+    detail = (f"{disk['free_gb']:g} GB ledigt av {disk['total_gb']:g} GB. Det räcker för ungefär "
+              f"{int(hours)} timmar VOD.")
+    if hours < HOURS_OK:
+        detail += f" En stream på {HOURS_OK} timmar behöver ungefär {need:.0f} GB. Ta bort gamla VOD:er i work/."
+    return [_row("ssd", "SSD:n", True, "work/ och out/ går att nå."),
+            _row("disk", "Ledigt utrymme", hours >= HOURS_OK, detail)]
+
+
+@router.get("/setup", summary="Kontroll: ffmpeg, nycklar, kampanjer, budget, SSD och ledigt utrymme")
+def get_setup(settings: Settings = Depends(get_settings)) -> dict:
+    keys = [_row(check_id, label, bool(_value(name, settings.root)),
+                 "Sparad." if _value(name, settings.root) else "Saknas. Klistra in den under Nycklar.")
+            for check_id, name, label in (("anthropic", "ANTHROPIC_API_KEY", "Claude-nyckeln"),
+                                          ("berget", "BERGET_API_KEY", "Berget-nyckeln (transkribering)"))]
+    return {"checks": [*_tools(), *keys, *_campaigns(settings), _budget(settings), *_space(storage(settings))]}

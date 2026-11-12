@@ -31,7 +31,7 @@ def vod_facts(vod_id: str, fresh: bool = False) -> dict:
         raise VodNotFound(vod_id)
     extra = twitch.gql_query(
         f'{{ video(id: "{vod_id}") {{ previewThumbnailURL(width: 640, height: 360) '
-        f"owner {{ login displayName }} }} }}"
+        f"status owner {{ login displayName }} }} }}"
     )["data"]["video"] or {}
     owner = extra.get("owner") or video.get("owner") or video.get("creator") or {}
     facts = {
@@ -43,6 +43,7 @@ def vod_facts(vod_id: str, fresh: bool = False) -> dict:
         "duration_s": int(video.get("lengthSeconds") or 0),
         "created_at": video.get("createdAt"),
         "thumbnail_url": _thumbnail(extra.get("previewThumbnailURL")),
+        "live": extra.get("status") == "RECORDING",  # streamen pågår, så VOD:en blir längre
     }
     _cache[vod_id] = (monotonic(), facts)
     return facts
