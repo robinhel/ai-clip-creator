@@ -82,26 +82,29 @@ def _utc(moment: datetime) -> datetime:
     return moment if moment.tzinfo else moment.replace(tzinfo=UTC)  # SQLite tappar tidszonen
 
 
-def progress(status: str, events: list[tuple[str, float, datetime]], duration_s: float | None,
+def progress(status: str, events: list[tuple[str, float, datetime, str]], duration_s: float | None,
              now: datetime | None = None) -> dict:
-    """Stegen räknade ur clipsmiths händelser (stage, pct, tid), i den ordning de skrevs.
+    """Stegen räknade ur clipsmiths händelser (stage, pct, tid, text), i den ordning de skrevs.
 
     Ett steg är klart när ett senare steg har börjat eller körningen är klar.
     """
     # Körs "Gör klippen kampanjklara igen" kommer nya händelser efter en tidigare done. Räkna bara dem.
-    dones = [i for i, (stage, _, _) in enumerate(events[:-1]) if stage == "done"]
+    dones = [i for i, (stage, *_) in enumerate(events[:-1]) if stage == "done"]
     if dones:
         events = events[dones[-1] + 1:]
     started: dict[str, datetime] = {}
+    messages: dict[str, str] = {}  # senaste text per steg; clipsmiths egna händelser har ingen text
     current = -1
     done_at = None
-    for stage, _, at in events:
+    for stage, _, at, message in events:
         if stage == "done":
             done_at = _utc(at)
         step = STAGE_TO_STEP.get(stage)
         if step is None:
             continue
         started.setdefault(step, _utc(at))
+        if message:
+            messages[step] = message
         # max: clipsmith skickar download och transcribe en gång till efter kampanjens egna
         current = max(current, STEP_IDS.index(step))
     if status == "failed" and current < 0:
@@ -122,7 +125,7 @@ def progress(status: str, events: list[tuple[str, float, datetime]], duration_s:
         steps.append({"id": step, "label": label, "status": state,
                       "started_at": started[step].isoformat() if step in started else None,
                       "finished_at": finished.isoformat() if finished else None,
-                      "estimate_s": estimates.get(step)})
+                      "estimate_s": estimates.get(step), "message": messages.get(step)})
         if state == "waiting":
             eta += estimates.get(step, 0)
         elif state == "running":
@@ -132,6 +135,7 @@ def progress(status: str, events: list[tuple[str, float, datetime]], duration_s:
     return {
         "stage": "done" if status == "done" else (STEP_IDS[current] if current >= 0 else None),
         "pct": 100.0 if status == "done" else last_pct,
+        "message": (events[-1][3] or None) if events else None,
         "steps": steps,
         "eta_s": eta if estimates and status in ("pending", "running") else None,
     }

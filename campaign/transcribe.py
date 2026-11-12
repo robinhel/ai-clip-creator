@@ -126,6 +126,7 @@ def transcribe_vod(
     model: str,
     language: str,
     chunk_s: float = 1800.0,
+    on_part: Callable[[int, int], None] | None = None,
 ) -> Transcript:
     """Transkribera hela videon bit för bit och spara transcript.json.
 
@@ -145,6 +146,8 @@ def transcribe_vod(
     segments: list[Segment] = []
     parts = int(-(-duration // chunk_s))
     for number in range(1, parts + 1):
+        if on_part:
+            on_part(number, parts)
         start = (number - 1) * chunk_s
         part_file = saved / f"del_{number:02d}.json"
         if part_file.exists():

@@ -74,7 +74,9 @@ def make_clips(
             raise ValueError("BERGET_API_KEY saknas i .env. Den behövs för transkriberingen.")
         emit("transcribe", 15.0, f"Transkriberar via Berget ({settings.transcribe_model})")
         transcribe_vod(mp4, vod_id, transcript, post=berget_post(settings.berget_api_key),
-                       model=settings.transcribe_model, language=profile.language)
+                       model=settings.transcribe_model, language=profile.language,
+                       on_part=lambda n, total: emit("transcribe", 15.0 + 25.0 * (n - 1) / total,
+                                                     f"Del {n} av {total}"))
 
     video = Video(id=vod_id, user_id="", user_login=channel, title=vod_id, created_at="",
                   published_at="", url=f"https://www.twitch.tv/videos/{vod_id}", duration="",

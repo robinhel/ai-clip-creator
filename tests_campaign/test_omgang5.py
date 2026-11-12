@@ -112,7 +112,7 @@ def test_a_channel_that_fails_is_skipped_and_all_failing_gives_502(client, setti
     _second_campaign(settings, "ny", "nykanal")  # Twitch känner inte kanalen
     assert [s["channel"] for s in client.get("/campaign/streams").json()] == ["skiimasktimmy"] * 2
     streams._cache.clear()
-    twitch_streams.down = {"skiimasktimmy"}
+    twitch_streams.down = {"skiimasktimmy", "nykanal"}
     response = client.get("/campaign/streams")
     assert response.status_code == 502
     assert "Twitch" in response.json()["detail"]

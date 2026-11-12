@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import threading
+import uuid
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
@@ -17,16 +20,18 @@ from sqlalchemy.orm import Session
 from clipsmith.api.deps import get_db, verify_api_key
 from clipsmith.db.models import PipelineEvent, Run, RunStatus
 
-from . import editor, estimate
+from . import editor, estimate, streams
 from .budget import budget_from_settings
 from .caption import check_caption
 from .cliplog import STATUSES, ClipLog
 from .config import Settings, load_settings
+from .media import need, run
 from .pipeline import finish_run, run_campaign_vod
 from .profile import Profile, load_profile
 from .vodinfo import VodNotFound, vod_facts
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
+logger = logging.getLogger(__name__)
 _start_lock = threading.Lock()  # bara en körning i taget, också när två anrop kommer samtidigt
 
 PLATFORMS = ("tiktok", "youtube_shorts", "instagram_reels")
@@ -153,6 +158,33 @@ def vod_info(vod_id: str = PathParam(pattern=r"^\d{6,15}$"),
     return {**facts, **_estimate(facts, settings), "campaigns": campaigns}
 
 
+@router.get("/streams", summary="De senaste streamsen för kampanjernas kanaler")
+def list_streams(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> list[dict]:
+    campaigns: dict[str, list[str]] = {}
+    for profile in list_profiles(settings):
+        if profile["channel"]:
+            campaigns.setdefault(profile["channel"].lower(), []).append(profile["name"])
+    found, failed = [], 0
+    for channel, names in campaigns.items():
+        try:
+            found += [{**s, "campaigns": names} for s in streams.channel_streams(channel)]
+        except Exception as error:  # twitch-dl kastar olika fel när Twitch inte svarar
+            logger.warning("Twitch svarade inte för kanalen %s: %s", channel, error)
+            failed += 1
+    if campaigns and failed == len(campaigns):
+        raise HTTPException(502, "Twitch svarar inte. Försök igen om en stund.")
+    log = _log(settings)
+    clips = log.list()
+    latest = {meta["vod_id"]: meta for meta in log.runs()}  # runs() är i ordning, så den sista vinner
+    for stream in found:
+        meta = latest.get(stream["vod_id"])
+        run_row = db.get(Run, meta["run_id"]) if meta else None
+        stream.update(run_id=meta["run_id"] if meta else None,
+                      run_status=(run_row.status.value if run_row else "failed") if meta else None,
+                      clip_count=len(_run_clips(meta, clips)) if meta else 0)
+    return sorted(found, key=lambda s: s["created_at"] or "", reverse=True)
+
+
 # ---------- körningar ----------
 
 
@@ -266,7 +298,7 @@ def _describe_run(meta: dict, db: Session, clips: list[dict], steps: bool = Fals
         status, error, created, events = "failed", "Körningen saknas i clipsmiths databas.", None, []
     else:
         status, error, created = run.status.value, run.error, run.created_at.isoformat()
-        events = [(e.stage, e.pct, e.created_at) for e in db.query(PipelineEvent)
+        events = [(e.stage, e.pct, e.created_at, e.message) for e in db.query(PipelineEvent)
                   .filter(PipelineEvent.run_id == run.id).order_by(PipelineEvent.id)]
     progress = estimate.progress(status, events, meta["duration_s"])
     counts: dict[str, int] = {}
@@ -276,7 +308,7 @@ def _describe_run(meta: dict, db: Session, clips: list[dict], steps: bool = Fals
                                       "title", "channel_name", "thumbnail_url", "duration_s")}
     out.update(start_s=meta.get("start_s") or 0, end_s=meta.get("end_s") or 0)  # 0 för gamla körningar
     out.update(created=meta["created"] or created, status=status, stage=progress["stage"],
-               pct=progress["pct"], error=error, clip_counts=counts)
+               pct=progress["pct"], message=progress["message"], error=error, clip_counts=counts)
     if steps:
         out.update(steps=progress["steps"], eta_s=progress["eta_s"],
                    cost_estimate_usd=estimate.cost_usd(meta["duration_s"]))
@@ -339,7 +371,9 @@ def _public(clip: dict, settings: Settings) -> dict:
     except SystemExit:
         out["engagement_min"] = None
     # ?v= byts när klippet ändras, så att webbläsaren inte visar en gammal version efter en redigering.
-    out["video_url"] = f"/campaign/clips/{clip['id']}/file?v={quote(clip.get('updated') or '')}"
+    version = quote(clip.get("updated") or "")
+    out["video_url"] = f"/campaign/clips/{clip['id']}/file?v={version}"
+    out["poster_url"] = f"/campaign/clips/{clip['id']}/poster?v={version}"
     return out
 
 
@@ -379,14 +413,36 @@ def clip_transcript(clip_id: int, settings: Settings = Depends(get_settings)) ->
     return {"text": " ".join(s["text"] for s in segments), "segments": segments}
 
 
+def _clip_path(clip_id: int, settings: Settings) -> Path:
+    """Klippets fil. Bara en .mp4 under out/, så att ingen annan fil kan hämtas via klipploggen."""
+    clip = _get(_log(settings), clip_id)
+    path = Path(clip["file"] or "").resolve()
+    if not path.is_relative_to(settings.out_dir.resolve()) or path.suffix != ".mp4" or not path.exists():
+        raise HTTPException(404, "Filen finns inte.")
+    return path
+
+
+@router.get("/clips/{clip_id}/poster", summary="En bild ur klippet, 360 bred")
+def clip_poster(clip_id: int, settings: Settings = Depends(get_settings)) -> FileResponse:
+    path = _clip_path(clip_id, settings)
+    poster = path.with_name(f".{path.stem}.poster.jpg")
+    if not poster.exists() or poster.stat().st_mtime_ns < path.stat().st_mtime_ns:
+        tmp = path.with_name(f".{path.stem}.{uuid.uuid4().hex}.tmp.jpg")  # två anrop samtidigt krockar inte
+        try:
+            run([need("ffmpeg"), "-y", "-v", "error", "-ss", "1", "-i", str(path), "-frames:v", "1",
+                 "-vf", "scale=360:-2", "-q:v", "4", str(tmp)])
+            os.replace(tmp, poster)
+        except (RuntimeError, OSError, SystemExit) as error:  # SystemExit från need() när ffmpeg saknas
+            raise HTTPException(500, "Kunde inte göra en bild av klippet.") from error
+        finally:
+            tmp.unlink(missing_ok=True)
+    return FileResponse(poster, media_type="image/jpeg")
+
+
 @router.get("/clips/{clip_id}/file", summary="Spela upp eller ladda ner ett klipp")
 def clip_file(clip_id: int, download: bool = False,
               settings: Settings = Depends(get_settings)) -> FileResponse:
-    clip = _get(_log(settings), clip_id)
-    out_root = settings.out_dir.resolve()
-    path = Path(clip["file"] or "").resolve()
-    if not path.is_relative_to(out_root) or path.suffix != ".mp4" or not path.exists():
-        raise HTTPException(404, "Filen finns inte.")
+    path = _clip_path(clip_id, settings)
     return FileResponse(path, media_type="video/mp4", filename=path.name if download else None,
                         content_disposition_type="attachment" if download else "inline")
 
@@ -486,4 +542,37 @@ def summary(settings: Settings = Depends(get_settings)) -> dict:
         counts[clip["status"]] = counts.get(clip["status"], 0) + 1
     free_gb, total_gb = estimate.disk_gb(settings.work_dir)
     return {"budget": budget_from_settings(settings).summary(), "counts": counts, "todo": log.todo(),
-            "disk": {"free_gb": free_gb, "total_gb": total_gb}}
+            "disk": {"free_gb": free_gb, "total_gb": total_gb}, "earnings": _earnings(log.list(), settings)}
+
+
+def _payout(views: int, payment: dict) -> float:
+    """Vad ett klipp tjänar enligt kampanjens payment: 0 under min_views, visningar / 1000 * cpm_usd,
+    högst max_payout_per_clip_usd, och 0 under min_payout_usd."""
+    if views < int(payment.get("min_views") or 0):
+        return 0.0
+    usd = views / 1000 * float(payment.get("cpm_usd") or 0)
+    if payment.get("max_payout_per_clip_usd") is not None:
+        usd = min(usd, float(payment["max_payout_per_clip_usd"]))
+    return round(usd, 2) if usd >= float(payment.get("min_payout_usd") or 0) else 0.0
+
+
+def _earnings(clips: list[dict], settings: Settings) -> dict:
+    payments: dict[str, dict] = {}
+    per_clip, months, paid = [], {}, 0.0
+    for clip in clips:
+        if not clip["views"]:
+            continue
+        if clip["profile"] not in payments:
+            try:
+                payments[clip["profile"]] = load_profile(clip["profile"], settings.profiles_dir).payment
+            except (SystemExit, Exception):  # kampanjen finns inte längre: inget att räkna med
+                payments[clip["profile"]] = {}
+        usd = _payout(clip["views"], payments[clip["profile"]])
+        per_clip.append({"id": clip["id"], "views": clip["views"], "usd": usd})
+        if clip["status"] == "betald":
+            paid += usd
+        if clip["created"]:
+            months[clip["created"][:7]] = months.get(clip["created"][:7], 0.0) + usd
+    return {"estimated_usd": round(sum(c["usd"] for c in per_clip), 2), "paid_usd": round(paid, 2),
+            "by_month": [{"month": m, "usd": round(usd, 2)} for m, usd in sorted(months.items())],
+            "per_clip": per_clip}
