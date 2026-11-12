@@ -23,6 +23,7 @@ from clipsmith.models.twitch import Video
 from clipsmith.pipeline import process_vod, save_picks
 from clipsmith.rendering.clipper import cut_all_clips
 from clipsmith.selection.selector import PickResult, select_clips
+from clipsmith.twitch.client import TwitchClient
 
 from .brain import Brain
 from .budget import budget_from_settings
@@ -31,6 +32,7 @@ from .config import Settings
 from .download import download_vod
 from .profile import Profile, load_profile
 from .transcribe import berget_post, transcribe_vod
+from .vodinfo import vod_facts
 from .workflow import finish_vod
 
 Emit = Callable[[str, float, str], None]
@@ -55,6 +57,22 @@ def finish(vod_id: str, profile: Profile, settings: Settings, game: str | None,
     if not (settings.out_dir / vod_id / subdir).is_dir():
         subdir = None  # en körning från före mapparna per körning har klippen direkt i out/<vod>/
     return finish_vod(vod_id, profile, settings, log, brain=brain, game=game, review=True, subdir=subdir)
+
+
+def _twitch_ids(vod_id: str, channel: str, secrets) -> tuple[str, str]:
+    """Kanalens id och VOD:ens start. clipsmith behöver båda för att hämta tittarnas klipp (+100).
+    Utan nycklar, eller när Twitch inte svarar, går körningen ändå, men utan tittarklipp."""
+    if not (secrets.twitch_client_id and secrets.twitch_client_secret):
+        log.warning("Twitch-nycklarna saknas: tittarnas klipp räknas inte i körningen för %s", vod_id)
+        return "", ""
+    try:
+        with TwitchClient(secrets.twitch_client_id, secrets.twitch_client_secret) as client:
+            user_id = client.get_user_id(channel)
+        created_at = vod_facts(vod_id).get("created_at") or ""
+    except Exception as error:  # nätverk eller nycklar: körningen går vidare utan tittarklipp
+        log.warning("Twitch svarade inte (%s): tittarnas klipp räknas inte för %s", type(error).__name__, vod_id)
+        return "", ""
+    return user_id, created_at
 
 
 def make_clips(
@@ -109,10 +127,11 @@ def make_clips(
                                                      f"Del {n} av {total}"),
                        budget=budget_from_settings(settings))
 
-    video = Video(id=vod_id, user_id="", user_login=channel, title=title, created_at="",
+    secrets = load_secrets()
+    user_id, created_at = _twitch_ids(vod_id, channel, secrets)
+    video = Video(id=vod_id, user_id=user_id, user_login=channel, title=title, created_at=created_at,
                   published_at="", url=f"https://www.twitch.tv/videos/{vod_id}", duration=duration,
                   type="archive")
-    secrets = load_secrets()
     # clipsmith hittar kandidaterna. Valet och klippningen görs här, med kampanjens format och språk.
     process_vod(
         video, cfg, secrets,
