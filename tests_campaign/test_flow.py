@@ -236,13 +236,14 @@ def test_new_run_saves_vod_facts_and_passes_focus_and_length(client, settings, s
 # ---------- förloppet ----------
 
 
-def _run_with_events(settings, stages: list[str], status: str = "running", minutes_ago: int = 30) -> int:
+def _run_with_events(settings, stages: list[str], status: str = "running", minutes_ago: int = 30,
+                     vod: str = VOD) -> int:
     from clipsmith.db.models import PipelineEvent, Run, RunStatus
     from clipsmith.db.session import get_session
 
     db = get_session()
     start = datetime.now(UTC) - timedelta(minutes=minutes_ago)
-    run = Run(vod_id=VOD, channel="skiimasktimmy", status=RunStatus(status), created_at=start)
+    run = Run(vod_id=vod, channel="skiimasktimmy", status=RunStatus(status), created_at=start)
     db.add(run)
     db.commit()
     for i, stage in enumerate(stages):
@@ -252,7 +253,7 @@ def _run_with_events(settings, stages: list[str], status: str = "running", minut
     db.commit()
     run_id = run.id
     db.close()
-    ClipLog(settings.data_dir / "klipp.db").add_run(run_id, VOD, "skiimasktimmy", "Bodycam",
+    ClipLog(settings.data_dir / "klipp.db").add_run(run_id, vod, "skiimasktimmy", "Bodycam",
                                                      duration_s=13950, title="T")
     return run_id
 
@@ -292,7 +293,7 @@ def test_done_and_failed_runs_have_no_eta(client, settings) -> None:  # noqa: F8
 
 def test_run_list_is_newest_first_with_status_and_clip_counts(client, settings) -> None:  # noqa: F811
     old = _run_with_events(settings, ["download", "done"], "done")
-    new = _run_with_events(settings, ["download"], "running")
+    new = _run_with_events(settings, ["download"], "running", vod="2925999999")  # en annan stream
     log = ClipLog(settings.data_dir / "klipp.db")
     for status in ("renderad", "renderad", "godkand"):
         log.add(vod_id=VOD, profile="skiimasktimmy", file=f"/x/{status}.mp4", title="t", caption="c",
@@ -390,7 +391,7 @@ def test_new_caption_and_a_new_status_in_one_patch_is_refused(client, settings) 
 
     clip_id = _clip(settings, status="godkand", clip_format="funny")
     response = client.patch(f"/campaign/clips/{clip_id}", json={
-        "caption": CAPTION + " #new", "status": "postad", "url": "https://x.y/1", "platform": "tiktok"})
+        "caption": CAPTION + " #new", "status": "postad", "url": "https://www.tiktok.com/@me/video/1", "platform": "tiktok"})
     assert response.status_code == 400
     assert response.json()["detail"] == "Spara captionen först. Sedan behövs ett nytt ja."
     assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["caption"] == CAPTION

@@ -26,6 +26,7 @@ from .profile import Profile
 from .rules import check_clip
 
 lock = threading.Lock()  # en redigering åt gången
+editing: int | None = None  # klippet som redigeras just nu; andra klipp går att ändra under tiden
 LOCKED = ("postad", "inskickad", "analytics_inskickad", "betald")
 ROUNDING_S = 0.05  # webben avrundar till tiondelar
 

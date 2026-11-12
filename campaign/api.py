@@ -9,7 +9,7 @@ import threading
 import uuid
 from pathlib import Path
 from typing import Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi import Path as PathParam
@@ -37,16 +37,33 @@ _start_lock = threading.Lock()  # bara en körning i taget, också när två anr
 PLATFORMS = ("tiktok", "youtube_shorts", "instagram_reels")
 
 # Vilka steg ett klipp får ta. Från underkand kommer man bara vidare genom att rätta problemen.
+# Efter postningen går det att ta ett steg bakåt, så att ett felklick går att ångra.
 NEXT_STATUS: dict[str, set[str]] = {
     "renderad": {"godkand", "nekad"},
     "underkand": {"nekad"},
     "godkand": {"postad", "nekad", "renderad"},
     "nekad": {"renderad"},
-    "postad": {"inskickad"},
-    "inskickad": {"analytics_inskickad", "betald"},
-    "analytics_inskickad": {"betald"},
-    "betald": set(),
+    "postad": {"inskickad", "godkand"},
+    "inskickad": {"analytics_inskickad", "betald", "postad"},
+    "analytics_inskickad": {"betald", "inskickad"},
+    "betald": {"inskickad", "analytics_inskickad"},
 }
+
+# Postlänkens domän per plattform.
+PLATFORM_HOSTS = {"tiktok": ("tiktok.com",), "youtube_shorts": ("youtube.com", "youtu.be"),
+                  "instagram_reels": ("instagram.com",)}
+
+
+def _link_problem(link: str, platform: str | None) -> str | None:
+    """Felet i postlänken, eller None. En riktig https-adress, på plattformens domän om den är vald."""
+    parts = urlparse(link)
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "https" or "." not in host:
+        return "Länken måste vara en hel adress som börjar med https://, till exempel https://www.tiktok.com/@du/video/123."
+    hosts = PLATFORM_HOSTS.get(platform or "", ())
+    if hosts and not any(host == h or host.endswith("." + h) for h in hosts):
+        return f"Länken går till {host}, men plattformen är {platform}. Kontrollera länken och plattformen."
+    return None
 
 
 def get_settings() -> Settings:
@@ -495,7 +512,9 @@ def patch_clip(clip_id: int, body: ClipPatch, settings: Settings = Depends(get_s
     # Status och caption kan byta klippets status, så de väntar inte in en redigering som pågår.
     changes_status = bool({"status", "caption"} & body.model_fields_set)
     if changes_status and not editor.lock.acquire(blocking=False):
-        raise HTTPException(409, "Klippet redigeras just nu. Försök igen när redigeringen är klar.")
+        if editor.editing == clip_id:
+            raise HTTPException(409, "Klippet redigeras just nu. Försök igen när redigeringen är klar.")
+        changes_status = False  # låset gäller ett annat klipp: det här klippet rörs inte av redigeringen
     try:
         return _patch_clip(clip_id, body, settings)
     finally:
@@ -515,8 +534,10 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
         raise HTTPException(400, f"Formatet {fields['format']!r} finns inte i kampanjen.")
     if "platform" in fields and fields["platform"] not in PLATFORMS:
         raise HTTPException(400, "Plattformen måste vara tiktok, youtube_shorts eller instagram_reels.")
-    if "url" in fields and fields["url"] and not fields["url"].startswith(("https://", "http://")):
-        raise HTTPException(400, "Länken måste börja med https://.")
+    if "url" in fields and fields["url"]:
+        problem = _link_problem(fields["url"], fields.get("platform") or clip["platform"])
+        if problem:
+            raise HTTPException(400, problem)
 
     problems = clip["problems"] or []
     status = clip["status"]
