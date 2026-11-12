@@ -3,6 +3,7 @@ och gör sedan klippen kampanjklara. Allt med den valda kampanjens inställninga
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -24,6 +25,7 @@ from .transcribe import berget_post, transcribe_vod
 from .workflow import finish_vod
 
 Emit = Callable[[str, float, str], None]
+log = logging.getLogger(__name__)
 
 
 def clipsmith_config(profile: Profile, settings: Settings):
@@ -85,13 +87,19 @@ def make_clips(
     return cfg
 
 
-def _fail(db, run_id: int, error: Exception) -> None:
-    run = db.get(Run, run_id)
-    if run:
-        run.status = RunStatus.failed
-        run.error = str(error)
-        run.updated_at = datetime.now(UTC)
-        db.commit()
+def _fail(db, run_id: int, error: BaseException) -> None:
+    """Markera körningen som misslyckad, så att sidan slutar vänta."""
+    log.error("kampanjkörning %d misslyckades", run_id, exc_info=error)
+    try:
+        db.rollback()  # ett fel vid commit lämnar sessionen trasig
+        run = db.get(Run, run_id)
+        if run:
+            run.status = RunStatus.failed
+            run.error = str(error) or type(error).__name__
+            run.updated_at = datetime.now(UTC)
+            db.commit()
+    except Exception:
+        log.exception("kunde inte spara att körning %d misslyckades", run_id)
 
 
 def run_campaign_vod(

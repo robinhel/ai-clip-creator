@@ -103,7 +103,8 @@ class ClipLog:
         if "status" in fields and fields["status"] not in STATUSES:
             raise ValueError(f"Okänd status: {fields['status']}")
         allowed = {"status", "platform", "url", "views", "likes", "comments", "shares",
-                   "note", "format", "title", "caption", "problems", "warnings", "review", "file"}
+                   "note", "format", "title", "caption", "problems", "warnings", "review", "file",
+                   "start_s", "end_s"}
         unknown = set(fields) - allowed
         if unknown:
             raise ValueError(f"Fält som inte får ändras: {sorted(unknown)}")

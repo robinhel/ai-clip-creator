@@ -43,11 +43,19 @@ def title_from_name(path: Path) -> str:
     return words.capitalize() or path.stem
 
 
-def _save(log: ClipLog, redo: dict | None, common: dict, **fields) -> int:
-    """Spara klippet i loggen. Ett underkänt klipp som görs om behåller sin rad."""
+def _save(log: ClipLog, redo: dict | None, common: dict, **fields) -> int | None:
+    """Spara klippet i loggen. Ett underkänt klipp som görs om behåller sin rad.
+
+    Returnerar None om klippet har ändrats under tiden, t.ex. nekats i kön.
+    """
     if redo is None:
         return log.add(**common, **fields)
-    log.update(redo["id"], **fields)
+    if log.get(redo["id"])["status"] != "underkand":
+        return None
+    picked = {"title": common["title"], "start_s": common["start_s"], "end_s": common["end_s"]}
+    if common.get("clip_format"):
+        picked["format"] = common["clip_format"]
+    log.update(redo["id"], **picked, **fields)
     return redo["id"]
 
 
@@ -69,7 +77,7 @@ def finish_vod(
     if not files:
         raise SystemExit(f"Hittar inga klipp i {clip_dir}. Kör clipsmith först.")
     picks = load_picks(settings.work_dir / vod_id / "picks.json")
-    existing = {clip["file"]: clip for clip in log.list() if clip["status"] != "nekad"}
+    existing = {clip["file"]: clip for clip in log.list()}
 
     results: list[dict] = []
     for src in files:
@@ -82,7 +90,8 @@ def finish_vod(
         before = existing.get(str(out)) or existing.get(str(src))
         redo = before if before and before["status"] == "underkand" else None
         if before and not redo:
-            results.append({"file": src.name, "skipped": "finns redan i klipploggen"})
+            reason = "du har nekat klippet" if before["status"] == "nekad" else "finns redan i klipploggen"
+            results.append({"file": src.name, "skipped": reason})
             continue
         if not redo and start is not None and end is not None and log.overlaps(vod_id, start, end):
             results.append({"file": src.name, "skipped": "samma del av VOD:en är redan klippt"})
@@ -97,6 +106,9 @@ def finish_vod(
         if source_problems:
             clip_id = _save(log, redo, common, file=str(src), caption="", status="underkand",
                            problems=source_problems, warnings=[], review=None)
+            if clip_id is None:
+                results.append({"file": src.name, "skipped": "klippet ändrades under tiden"})
+                continue
             results.append({"id": clip_id, "file": src.name, "problems": source_problems})
             continue
 
@@ -124,6 +136,9 @@ def finish_vod(
             log, redo, common, file=str(out), caption=caption, status="underkand" if problems else "renderad",
             problems=problems, warnings=warnings, review=review_result,
         )
+        if clip_id is None:
+            results.append({"file": src.name, "skipped": "klippet ändrades under tiden"})
+            continue
         results.append(
             {"id": clip_id, "file": out.name, "title": title, "caption": caption,
              "problems": problems, "warnings": warnings}
