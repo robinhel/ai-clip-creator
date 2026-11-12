@@ -272,8 +272,9 @@ export interface CampaignProfileCreate {
 export interface ClipEditInfo {
   clip_id: number;
   title: string;
-  original: { duration_s: number; start_s: number | null; end_s: number | null; url: string };
-  trim: { in_s: number; out_s: number };
+  /** null när råklippet saknas; då är editable false. */
+  original: { duration_s: number; start_s: number | null; end_s: number | null; url: string } | null;
+  trim: { in_s: number; out_s: number } | null;
   /** Kampanjens gränser för klipplängden. */
   min_s: number | null;
   max_s: number | null;

@@ -15,10 +15,13 @@ const tenth = (s: number) => Math.round(s * 10) / 10;
 const sec = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const fmt = (s: number) => `${sec.format(s)} s`;
 
-/** Felet för längden, eller null om den ligger inom kampanjens gränser. */
+// Två decimaler i felet, så att 14,97 s inte visas som 15,0 s när gränsen är 15 s.
+const exactSec = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+
+/** Felet för längden, eller null om den ligger inom kampanjens gränser. Exakt min–max, som servern. */
 export function lengthProblem(length: number, min: number | null, max: number | null): string | null {
-  if (min != null && length < min) return `Klippet är ${fmt(length)}. Kampanjen kräver minst ${min} s.`;
-  if (max != null && length > max) return `Klippet är ${fmt(length)}. Kampanjen tillåter högst ${max} s.`;
+  if (min != null && length < min) return `Klippet är ${exactSec.format(length)} s. Kampanjen kräver minst ${min} s.`;
+  if (max != null && length > max) return `Klippet är ${exactSec.format(length)} s. Kampanjen tillåter högst ${max} s.`;
   return null;
 }
 
@@ -27,13 +30,34 @@ interface Props {
   info: ClipEditInfo;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Klippet som servern har gjort klart igen. */
-  onSaved: (clip: CampaignClip) => void;
+  /** Klippet som servern har gjort klart igen, och om tiden ändrades. */
+  onSaved: (clip: CampaignClip, trimmed: boolean) => void;
 }
 
+type Ready = ClipEditInfo & { original: NonNullable<ClipEditInfo["original"]>; trim: NonNullable<ClipEditInfo["trim"]> };
+
 /** Trimma start och slut och byt rubrik, som i OpusClip. Klippet kan bara bli kortare än råklippet. */
-export function ClipEditor({ clip, info, open, onOpenChange, onSaved }: Props) {
-  const total = tenth(info.original.duration_s);
+export function ClipEditor(props: Props) {
+  const { info, open, onOpenChange } = props;
+  if (info.editable && info.original && info.trim) return <Editor {...props} info={info as Ready} />;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="gap-4 p-6 sm:max-w-[460px]">
+        <DialogTitle className="text-lg font-semibold">Klippet går inte att redigera</DialogTitle>
+        <DialogDescription>{info.reason ?? "Servern säger inte varför."}</DialogDescription>
+        <div className="flex justify-end">
+          <Button variant="outline" className="h-9" onClick={() => onOpenChange(false)}>
+            Stäng
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info"> & { info: Ready }) {
+  const exact = info.original.duration_s;
+  const total = tenth(exact);
   const [inS, setIn] = useState(tenth(info.trim.in_s));
   const [outS, setOut] = useState(tenth(info.trim.out_s));
   const [title, setTitle] = useState(info.title);
@@ -52,10 +76,17 @@ export function ClipEditor({ clip, info, open, onOpenChange, onSaved }: Props) {
   const range = useRef({ inS, outS, loop });
   range.current = { inS, outS, loop };
 
-  const length = tenth(outS - inS);
+  const inChanged = inS !== tenth(info.trim.in_s);
+  const outChanged = outS !== tenth(info.trim.out_s);
+  const titleChanged = title.trim() !== info.title;
+  // Slutet längst ut är originalets exakta längd; tidslinjen visar den avrundad till 0,1 s.
+  const outExact = outS >= total ? exact : outS;
+  const length = Math.round((outExact - inS) * 1000) / 1000;
   const problem = lengthProblem(length, info.min_s, info.max_s);
-  const changed = inS !== tenth(info.trim.in_s) || outS !== tenth(info.trim.out_s) || title.trim() !== info.title;
-  const block = problem ?? (!title.trim() ? "Skriv en rubrik." : !changed ? "Inget är ändrat." : null);
+  // Bara en ny rubrik: servern kontrollerar inte längden, så den stoppar inte heller här.
+  const block =
+    (inChanged || outChanged ? problem : null) ??
+    (!title.trim() ? "Skriv en rubrik." : !inChanged && !outChanged && !titleChanged ? "Inget är ändrat." : null);
 
   // Uppspelningen håller sig inom intervallet. timeupdate kommer för sällan, så rutan följs varje bildruta.
   useEffect(() => {
@@ -144,9 +175,12 @@ export function ClipEditor({ clip, info, open, onOpenChange, onSaved }: Props) {
     setError(null);
     video.current?.pause();
     try {
-      const body: { in_s: number; out_s: number; title?: string } = { in_s: inS, out_s: outS };
-      if (title.trim() !== info.title) body.title = title.trim();
-      onSaved(await api.campaign.clips.saveEdit(clip.id, body));
+      // Bara det som har ändrats, så att servern inte trimmar om klippet för en ny rubrik.
+      const body: { in_s?: number; out_s?: number; title?: string } = {};
+      if (inChanged) body.in_s = inS;
+      if (outChanged) body.out_s = outExact;
+      if (titleChanged) body.title = title.trim();
+      onSaved(await api.campaign.clips.saveEdit(clip.id, body), inChanged || outChanged);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Det gick inte att spara klippet");
       setBusy(false);
@@ -319,7 +353,7 @@ export function ClipEditor({ clip, info, open, onOpenChange, onSaved }: Props) {
         {(error || block) && (
           <p
             role={error ? "alert" : undefined}
-            className={cn("text-sm", error || problem ? "text-[#fca5a5]" : "text-muted-foreground")}
+            className={cn("text-sm", error || (problem && block === problem) ? "text-[#fca5a5]" : "text-muted-foreground")}
           >
             {error ?? block}
           </p>
