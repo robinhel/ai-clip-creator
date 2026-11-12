@@ -59,7 +59,7 @@ export function ClipCard({ clip: initialClip, focused = false, onUpdate, onFocus
         <button
           onClick={(e) => { e.stopPropagation(); setShowModal(true); }}
           className="w-full aspect-video bg-muted flex items-center justify-center group hover:bg-muted/80 transition-colors"
-          aria-label={`Play ${clip.title || clip.filename}`}
+          aria-label={`Spela ${clip.title || clip.filename}`}
         >
           <span className="text-4xl opacity-40 group-hover:opacity-70 transition-opacity">▶</span>
         </button>
@@ -68,11 +68,11 @@ export function ClipCard({ clip: initialClip, focused = false, onUpdate, onFocus
           <div className="flex items-start gap-2">
             <p className="text-sm font-medium flex-1 leading-tight truncate">
               {clip.title || (
-                <em className="text-muted-foreground">untitled</em>
+                <em className="text-muted-foreground">utan titel</em>
               )}
             </p>
-            {clip.approved === true && <Badge variant="secondary">Approved</Badge>}
-            {clip.approved === false && <Badge variant="destructive">Rejected</Badge>}
+            {clip.approved === true && <Badge variant="secondary">Godkänd</Badge>}
+            {clip.approved === false && <Badge variant="destructive">Nekad</Badge>}
           </div>
 
           {clip.signal_breakdown && (
@@ -86,7 +86,7 @@ export function ClipCard({ clip: initialClip, focused = false, onUpdate, onFocus
               onClick={(e) => { e.stopPropagation(); handleApprove(true); }}
               className="flex-1 text-xs"
             >
-              Approve
+              Godkänn
             </Button>
             <Button
               size="sm"
@@ -94,14 +94,14 @@ export function ClipCard({ clip: initialClip, focused = false, onUpdate, onFocus
               onClick={(e) => { e.stopPropagation(); handleApprove(false); }}
               className="flex-1 text-xs"
             >
-              Reject
+              Neka
             </Button>
             <Button
               size="sm"
               variant="ghost"
               onClick={(e) => { e.stopPropagation(); setShowOptions((v) => !v); }}
               className="px-2 text-xs"
-              title="More options"
+              title="Fler val"
             >
               {showOptions ? "▲" : "···"}
             </Button>

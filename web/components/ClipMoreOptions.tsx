@@ -46,7 +46,7 @@ export function ClipMoreOptions({ clip, onUpdate }: Props) {
     <div className="pt-3 mt-3 border-t space-y-3 text-sm">
       <div className="space-y-1">
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Title
+          Titel
         </span>
         {editing ? (
           <Input
@@ -69,16 +69,16 @@ export function ClipMoreOptions({ clip, onUpdate }: Props) {
           <p
             className="cursor-pointer hover:text-foreground text-muted-foreground truncate"
             onClick={() => setEditing(true)}
-            title="Click to edit"
+            title="Klicka för att ändra"
           >
-            {clip.title || <em>untitled — click to edit</em>}
+            {clip.title || <em>utan titel – klicka för att ändra</em>}
           </p>
         )}
       </div>
 
       <div className="space-y-1">
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Score
+          Poäng
         </span>
         <div className="flex items-center gap-2">
           <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
@@ -97,11 +97,11 @@ export function ClipMoreOptions({ clip, onUpdate }: Props) {
           <span className="font-mono">{formatTime(clip.start_s)}</span>
         </div>
         <div>
-          <span className="text-muted-foreground block">End</span>
+          <span className="text-muted-foreground block">Slut</span>
           <span className="font-mono">{formatTime(clip.end_s)}</span>
         </div>
         <div>
-          <span className="text-muted-foreground block">Duration</span>
+          <span className="text-muted-foreground block">Längd</span>
           <span className="font-mono">{duration.toFixed(1)}s</span>
         </div>
       </div>

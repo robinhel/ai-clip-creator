@@ -1,13 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { ListChecks, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { ClipCard } from "@/components/ClipCard";
 import { ProgressStream } from "@/components/ProgressStream";
+import { RUN_STATUS_LABEL } from "@/components/RunCard";
 import { api } from "@/lib/api";
-import type { Clip, Run } from "@/lib/types";
+import type { CampaignRunInfo, Clip, Run } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -22,6 +25,9 @@ export default function RunDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [campaign, setCampaign] = useState<CampaignRunInfo | null>(null);
+  const [finishing, setFinishing] = useState(false);
+  const [finishError, setFinishError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isActive = run?.status === "pending" || run?.status === "running";
@@ -44,7 +50,7 @@ export default function RunDetailPage() {
         await fetchClips();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load run");
+      setError(err instanceof Error ? err.message : "Kunde inte hämta körningen");
     } finally {
       setLoading(false);
     }
@@ -53,19 +59,23 @@ export default function RunDetailPage() {
   useEffect(() => {
     fetchRun();
     fetchClips();
-  }, [fetchRun, fetchClips]);
+    api.campaign.runs
+      .list()
+      .then((infos) => setCampaign(infos.find((info) => info.run_id === runId) ?? null))
+      .catch(() => setCampaign(null));
+  }, [fetchRun, fetchClips, runId]);
 
-  // Poll while active
+  // Poll while active, and while the clips are being finished in the background
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (!isActive) return;
+    if (!isActive && !finishing) return;
     timerRef.current = setTimeout(async () => {
       await Promise.all([fetchRun(), fetchClips()]);
     }, POLL_INTERVAL_MS);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [isActive, fetchRun, fetchClips]);
+  }, [isActive, finishing, run, fetchRun, fetchClips]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -114,7 +124,18 @@ export default function RunDetailPage() {
     }
   }
 
+  async function handleFinish() {
+    setFinishError(null);
+    try {
+      await api.campaign.runs.finish(runId);
+      setFinishing(true);
+    } catch (err) {
+      setFinishError(err instanceof Error ? err.message : "Kunde inte starta");
+    }
+  }
+
   function handleSseDone() {
+    setFinishing(false);
     setTimeout(() => {
       fetchRun();
       fetchClips();
@@ -127,18 +148,18 @@ export default function RunDetailPage() {
 
   if (loading) {
     return (
-      <main className="max-w-4xl mx-auto px-4 py-8">
-        <p className="text-muted-foreground text-sm">Loading…</p>
+      <main className="w-full max-w-6xl mx-auto px-4 py-8">
+        <p className="text-muted-foreground text-sm">Hämtar körningen…</p>
       </main>
     );
   }
 
   if (error || !run) {
     return (
-      <main className="max-w-4xl mx-auto px-4 py-8 space-y-4">
-        <p className="text-destructive">{error ?? "Run not found"}</p>
+      <main className="w-full max-w-6xl mx-auto px-4 py-8 space-y-4">
+        <p className="text-destructive">{error ?? "Körningen finns inte"}</p>
         <Button variant="outline" onClick={() => router.push("/")}>
-          ← Back
+          ← Tillbaka
         </Button>
       </main>
     );
@@ -154,32 +175,69 @@ export default function RunDetailPage() {
           : "outline";
 
   return (
-    <main className="max-w-4xl mx-auto px-4 py-8 space-y-6">
-      <div className="flex items-start gap-3">
-        <Button variant="ghost" size="sm" onClick={() => router.push("/")}>
+    <main className="w-full max-w-6xl mx-auto px-4 py-8 space-y-6">
+      <div className="flex flex-wrap items-start gap-3">
+        <Button variant="ghost" size="sm" onClick={() => router.push("/")} aria-label="Tillbaka">
           ←
         </Button>
         <div className="flex-1 min-w-0">
+          {campaign && (
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {campaign.profile}
+              {campaign.game ? ` · ${campaign.game}` : ""}
+            </p>
+          )}
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-bold font-mono truncate">{run.vod_id}</h1>
-            <Badge variant={statusVariant}>{run.status}</Badge>
+            <h1 className="text-xl font-bold font-mono break-all">{run.vod_id}</h1>
+            <Badge variant={statusVariant}>{RUN_STATUS_LABEL[run.status]}</Badge>
           </div>
           {run.channel && (
             <p className="text-sm text-muted-foreground">@{run.channel}</p>
           )}
         </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            onClick={handleFinish}
+            disabled={isActive || finishing}
+            title="Lägger på overlay och text, skriver caption och kör regelkontrollen igen"
+          >
+            <Sparkles />
+            {finishing ? "Gör klippen klara…" : "Gör klippen kampanjklara igen"}
+          </Button>
+          <Link href="/queue" className={buttonVariants()}>
+            <ListChecks />
+            Till kön
+          </Link>
+        </div>
       </div>
+
+      {finishError && (
+        <p role="alert" className="rounded-lg bg-destructive/5 p-3 text-sm text-destructive">
+          {finishError}
+        </p>
+      )}
+
+      {finishing && !isActive && (
+        <div className="rounded-lg border p-4 text-sm">
+          <p className="font-medium">Klippen görs kampanjklara i bakgrunden</p>
+          <p className="text-muted-foreground mt-1">
+            Overlay, text, caption och regelkontroll körs om. Det tar några minuter. Klippen dyker
+            upp i <Link href="/queue" className="underline underline-offset-4">kön</Link> när de är klara.
+          </p>
+        </div>
+      )}
 
       {isActive && (
         <div className="rounded-lg border p-4">
-          <p className="text-sm font-medium mb-3">Pipeline progress</p>
+          <p className="text-sm font-medium mb-3">Förlopp</p>
           <ProgressStream runId={runId} onDone={handleSseDone} />
         </div>
       )}
 
       {run.status === "failed" && run.error && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
-          <p className="text-sm font-medium text-destructive mb-1">Pipeline failed</p>
+          <p className="text-sm font-medium text-destructive mb-1">Körningen misslyckades</p>
           <p className="text-xs text-muted-foreground font-mono">{run.error}</p>
         </div>
       )}
@@ -187,7 +245,7 @@ export default function RunDetailPage() {
       {clips.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-lg font-semibold">
-            Clips{" "}
+            Klipp{" "}
             <span className="text-muted-foreground font-normal text-base">
               ({clips.length})
             </span>
@@ -208,7 +266,7 @@ export default function RunDetailPage() {
 
       {run.status === "done" && clips.length === 0 && (
         <p className="text-muted-foreground text-sm">
-          Pipeline completed but no clips were generated.
+          Körningen blev klar men gav inga klipp.
         </p>
       )}
 
@@ -219,22 +277,22 @@ export default function RunDetailPage() {
           variant="outline"
           className="rounded-full w-8 h-8 p-0 text-muted-foreground"
           onClick={() => setShowShortcuts((v) => !v)}
-          title="Keyboard shortcuts"
+          title="Kortkommandon"
         >
           ?
         </Button>
         {showShortcuts && (
           <div className="absolute bottom-10 right-0 bg-popover border rounded-lg shadow-lg p-3 w-52 text-xs space-y-1.5">
-            <p className="font-semibold text-sm mb-2">Keyboard shortcuts</p>
+            <p className="font-semibold text-sm mb-2">Kortkommandon</p>
             <div className="grid grid-cols-2 gap-x-2 gap-y-1">
               <span className="font-mono text-muted-foreground">← →</span>
-              <span>Navigate clips</span>
+              <span>Byt klipp</span>
               <span className="font-mono text-muted-foreground">J</span>
-              <span>Approve clip</span>
+              <span>Godkänn klipp</span>
               <span className="font-mono text-muted-foreground">K</span>
-              <span>Reject clip</span>
+              <span>Neka klipp</span>
               <span className="font-mono text-muted-foreground">?</span>
-              <span>Toggle this help</span>
+              <span>Visa eller dölj hjälpen</span>
             </div>
           </div>
         )}

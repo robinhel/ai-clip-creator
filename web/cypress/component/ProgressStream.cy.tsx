@@ -29,15 +29,15 @@ describe("ProgressStream", () => {
     FakeEventSource.instances = [];
   });
 
-  it("shows initial state: 'starting' stage at 0%", () => {
+  it("shows initial state: 'startar' stage at 0%", () => {
     cy.mount(<ProgressStream runId={1} eventSourceFactory={factory} />);
-    cy.contains("starting").should("be.visible");
+    cy.contains("startar").should("be.visible");
     cy.contains("0%").should("be.visible");
   });
 
   it("updates stage and pct on an SSE event", () => {
     cy.mount(<ProgressStream runId={1} eventSourceFactory={factory} />);
-    cy.contains("starting").should("be.visible");
+    cy.contains("startar").should("be.visible");
     cy.then(() => {
       FakeEventSource.instances[0].push({ stage: "transcribe", pct: 40 });
     });
@@ -47,7 +47,7 @@ describe("ProgressStream", () => {
 
   it("advances through multiple events to the last value", () => {
     cy.mount(<ProgressStream runId={1} eventSourceFactory={factory} />);
-    cy.contains("starting").should("be.visible");
+    cy.contains("startar").should("be.visible");
     cy.then(() => {
       FakeEventSource.instances[0].push({ stage: "transcribe", pct: 20 });
       FakeEventSource.instances[0].push({ stage: "clip", pct: 60 });
@@ -57,32 +57,32 @@ describe("ProgressStream", () => {
     cy.contains("90%").should("be.visible");
   });
 
-  it("shows 'Pipeline complete' on end event with status done", () => {
+  it("shows 'Klart' on end event with status done", () => {
     const onDone = cy.spy().as("onDone");
     cy.mount(<ProgressStream runId={1} onDone={onDone} eventSourceFactory={factory} />);
-    cy.contains("starting").should("be.visible");
+    cy.contains("startar").should("be.visible");
     cy.then(() => {
       FakeEventSource.instances[0].push({ event: "end", status: "done" });
     });
-    cy.contains("Pipeline complete").should("be.visible");
+    cy.contains("Klart").should("be.visible");
     cy.get("@onDone").should("have.been.calledOnce");
   });
 
   it("shows error text on end event with status failed", () => {
     cy.mount(<ProgressStream runId={1} eventSourceFactory={factory} />);
-    cy.contains("starting").should("be.visible");
+    cy.contains("startar").should("be.visible");
     cy.then(() => {
       FakeEventSource.instances[0].push({ event: "end", status: "failed", error: "oom" });
     });
     cy.contains("oom").should("be.visible");
   });
 
-  it("shows 'Stream disconnected' when onerror fires", () => {
+  it("shows 'Tappade kontakten med servern' when onerror fires", () => {
     cy.mount(<ProgressStream runId={1} eventSourceFactory={factory} />);
-    cy.contains("starting").should("be.visible");
+    cy.contains("startar").should("be.visible");
     cy.then(() => {
       FakeEventSource.instances[0].error();
     });
-    cy.contains("Stream disconnected").should("be.visible");
+    cy.contains("Tappade kontakten med servern").should("be.visible");
   });
 });

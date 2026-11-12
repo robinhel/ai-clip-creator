@@ -25,7 +25,7 @@ const MAX_RETRIES = 5;
 
 export function ProgressStream({ runId, onDone, eventSourceFactory }: Props) {
   const [state, setState] = useState<StreamState>({
-    stage: "starting",
+    stage: "startar",
     pct: 0,
     message: "",
     done: false,
@@ -83,7 +83,7 @@ export function ProgressStream({ runId, onDone, eventSourceFactory }: Props) {
           // exponential back-off: 2s, 4s, 8s, 16s, 32s
           setTimeout(connect, Math.min(2 ** retriesRef.current * 1000, 32_000));
         } else {
-          setState((s) => ({ ...s, done: true, error: "Stream disconnected" }));
+          setState((s) => ({ ...s, done: true, error: "Tappade kontakten med servern" }));
         }
       };
     }
@@ -99,7 +99,7 @@ export function ProgressStream({ runId, onDone, eventSourceFactory }: Props) {
     return (
       <div className="space-y-2">
         <Progress value={100} className="h-2" />
-        <p className="text-sm text-green-600 font-medium">Pipeline complete</p>
+        <p className="text-sm text-green-600 font-medium">Klart</p>
       </div>
     );
   }

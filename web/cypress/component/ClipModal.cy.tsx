@@ -33,7 +33,7 @@ describe("ClipModal", () => {
   it("✕ button calls onClose", () => {
     const onClose = cy.spy().as("onClose");
     cy.mount(<ClipModal clip={base} onClose={onClose} onUpdate={cy.spy()} />);
-    cy.get("button[aria-label='Close']").click();
+    cy.get("button[aria-label='Stäng']").click();
     cy.get("@onClose").should("have.been.calledOnce");
   });
 
@@ -51,17 +51,17 @@ describe("ClipModal", () => {
     cy.get("@onClose").should("have.been.calledOnce");
   });
 
-  it("Approve button calls patch with approved: true", () => {
+  it("Godkänn button calls patch with approved: true", () => {
     cy.stub(api.clips, "patch").as("patch").resolves({ ...base, approved: true });
     cy.mount(<ClipModal clip={base} onClose={cy.spy()} onUpdate={cy.spy()} />);
-    cy.contains("Approve").click();
+    cy.contains("Godkänn").click();
     cy.get("@patch").should("have.been.calledWith", 1, { approved: true });
   });
 
-  it("Reject button calls patch with approved: false", () => {
+  it("Neka button calls patch with approved: false", () => {
     cy.stub(api.clips, "patch").as("patch").resolves({ ...base, approved: false });
     cy.mount(<ClipModal clip={base} onClose={cy.spy()} onUpdate={cy.spy()} />);
-    cy.contains("Reject").click();
+    cy.contains("Neka").click();
     cy.get("@patch").should("have.been.calledWith", 1, { approved: false });
   });
 });
