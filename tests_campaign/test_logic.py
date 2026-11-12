@@ -215,3 +215,15 @@ def test_facit_score_counts_hits_and_misses():
     result = score(moments, clips, tolerance=10.0)
     assert (result["hits"], result["total"]) == (2, 3)
     assert result["missed"][0]["note"] == "b"
+
+
+# --- text på skärmen --------------------------------------------------------
+
+
+def test_the_white_text_is_drawn_only_when_there_is_no_overlay(settings):
+    """Overlayen har redan kanalens text. Annars står texten två gånger."""
+    from campaign.finish import build_filter
+
+    profile = load_profile("skiimasktimmy", settings.profiles_dir)
+    assert "drawtext" not in build_filter(profile, has_overlay=True, has_audio=True, font=None)
+    assert "drawtext" in build_filter(profile, has_overlay=False, has_audio=True, font=None)
