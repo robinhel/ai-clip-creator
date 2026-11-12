@@ -158,10 +158,19 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
   }
 
   /** Ny kameraposition efter den valda: i mitten i sidled, eller speglad (x = 1920 - x - b). */
-  function addCam(mirror: boolean) {
-    if (!rects || rects.webcams.length >= MAX_CAMS) return;
+  function newCam(mirror: boolean): Rect | null {
+    if (!rects?.webcams[sel]) return null;
     const [x, y, w, h] = rects.webcams[sel];
-    const next: Rect = [mirror ? W - x - w : Math.round((W - w) / 2), y, w, h];
+    return [mirror ? W - x - w : Math.round((W - w) / 2), y, w, h];
+  }
+
+  /** Finns rutan redan? Två lika positioner går inte att spara. */
+  const taken = (next: Rect | null) => !!next && !!rects?.webcams.some((r) => r.every((v, i) => v === next[i]));
+  const copies = [taken(newCam(false)) && "Lägg till kameraposition", taken(newCam(true)) && "Spegla"].filter(Boolean);
+
+  function addCam(mirror: boolean) {
+    const next = newCam(mirror);
+    if (!rects || !next || rects.webcams.length >= MAX_CAMS || taken(next)) return;
     setRects({ ...rects, webcams: [...rects.webcams, next] });
     setSel(rects.webcams.length);
     setSavedMsg(false);
@@ -290,21 +299,34 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
               )}
             </span>
           ))}
-          <Button variant="outline" className="h-8" disabled={rects.webcams.length >= MAX_CAMS} onClick={() => addCam(false)}>
+          <Button
+            variant="outline"
+            className="h-8"
+            disabled={rects.webcams.length >= MAX_CAMS || taken(newCam(false))}
+            onClick={() => addCam(false)}
+          >
             <Plus aria-hidden />
             Lägg till kameraposition
           </Button>
           <Button
             variant="outline"
             className="h-8"
-            disabled={rects.webcams.length >= MAX_CAMS}
+            disabled={rects.webcams.length >= MAX_CAMS || taken(newCam(true))}
             onClick={() => addCam(true)}
             title={`Lägger till kamera ${sel + 1} speglad i sidled`}
           >
             <FlipHorizontal2 aria-hidden />
             Spegla
           </Button>
-          {rects.webcams.length >= MAX_CAMS && <span className="text-xs text-muted-foreground">Högst {MAX_CAMS} positioner.</span>}
+          {rects.webcams.length >= MAX_CAMS ? (
+            <span className="text-xs text-muted-foreground">Högst {MAX_CAMS} positioner.</span>
+          ) : (
+            copies.length > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {copies.join(" och ")} ger en ruta som redan finns. Flytta kamera {sel + 1} först.
+              </span>
+            )
+          )}
         </div>
       )}
 
