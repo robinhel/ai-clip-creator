@@ -155,6 +155,10 @@ async def put_overlay(profile_id: str, request: Request, settings: Settings = De
     path = settings.profiles_dir / f"{profile_id}.yaml"
     try:
         edit.check_overlay(bytes(data), profile.overlay_mode)
+        size = edit.png_size(bytes(data[:24]))
+        if profile.overlay_mode == "full" and size != (edit.PANEL_W, edit.PANEL_H):  # en banner
+            split = edit.read_config(_config_path(profile, settings)).reframe.split_ratio
+            data = bytearray(edit.banner_to_full(bytes(data), round(split * edit.PANEL_H)))
         with _write_lock:
             target = _overlay_target(profile, settings)
             if target is None:  # profilen saknar overlay.file: lägg till en rad, resten av filen är orörd

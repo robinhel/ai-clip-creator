@@ -20,6 +20,7 @@ import yaml
 from clipsmith.config.loaders import load_config
 from clipsmith.config.models import AppConfig
 
+from .media import need, run
 from .profile import Profile, load_profile
 
 CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")  # radbrytningar, tabbar och andra styrtecken
@@ -27,6 +28,7 @@ ID = re.compile(r"^[a-z0-9][a-z0-9_]{1,39}$")  # filnamnet; inget _ först, såd
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 SOURCE_W, SOURCE_H = 1920, 1080  # rutorna mäts i en 1080p-bild; nedladdningen ber om 1080p60
 PANEL_W, PANEL_H = 1080, 1920
+BANNER_W = 880  # en banner i en hel overlay: bredden i klippet, med luft på sidorna
 MIN_SIDE = 50
 MAX_WEBCAM_RECTS = 4
 SHAPE_TOLERANCE = 0.03
@@ -65,19 +67,43 @@ def png_size(head: bytes) -> tuple[int, int] | None:
     return struct.unpack(">II", head[16:24])
 
 
+def is_banner(width: int, height: int) -> bool:
+    """En smal remsa, till exempel kampanjens TWITCH STREAM OVERLAY i 1756x288."""
+    return width >= 2 * height
+
+
 def check_overlay(data: bytes, mode: str) -> None:
-    """Samma storlek som finish.py förutsätter: full täcker 1080x1920, top och bottom är 1080 breda."""
+    """Samma storlek som finish.py förutsätter: full täcker 1080x1920, top och bottom är 1080 breda.
+    Med full går en banner också, den görs om till 1080x1920 med banner_to_full."""
     size = png_size(data[:24])
     if size is None:
         raise ValueError("Filen är inte en PNG-bild.")
     width, height = size
     if mode not in ("full", "top", "bottom"):
         raise ValueError(f"overlay.mode är {mode!r}. Den måste vara full, top eller bottom.")
-    if mode == "full" and size != (PANEL_W, PANEL_H):
-        raise ValueError(f"Overlay-bilden är {width}x{height}. Med mode: full måste den vara 1080x1920.")
+    if mode == "full" and size != (PANEL_W, PANEL_H) and not is_banner(width, height):
+        raise ValueError(f"Overlay-bilden är {width}x{height}. Med mode: full måste den vara 1080x1920, "
+                         "eller en banner som är minst dubbelt så bred som hög.")
     if mode in ("top", "bottom") and (width != PANEL_W or height > PANEL_H):
         raise ValueError(f"Overlay-bilden är {width}x{height}. Med mode: {mode} måste den vara 1080 bred "
                          "och högst 1920 hög.")
+
+
+def banner_to_full(data: bytes, seam_y: int) -> bytes:
+    """Lägg bannern på en genomskinlig bild i 1080x1920: BANNER_W bred, mitt på sidan och centrerad på
+    höjden seam_y, skarven mellan kameran och spelet."""
+    with tempfile.TemporaryDirectory() as tmp:
+        banner, out = Path(tmp) / "banner.png", Path(tmp) / "overlay.png"
+        banner.write_bytes(data)
+        graph = (f"[1:v]scale={BANNER_W}:-1,format=rgba[b];"
+                 f"[0:v][b]overlay=(W-w)/2:'min(max({seam_y}-h/2,0),H-h)':format=auto,format=rgba")
+        try:
+            run([need("ffmpeg"), "-v", "error", "-y",
+                 "-f", "lavfi", "-i", f"color=c=black@0.0:s={PANEL_W}x{PANEL_H},format=rgba", "-i", str(banner),
+                 "-filter_complex", graph, "-frames:v", "1", str(out)])
+        except RuntimeError:
+            raise ValueError("Bannern gick inte att göra om till en hel overlay. Spara den som PNG igen.") from None
+        return out.read_bytes()
 
 
 # ---------- filer som profilen pekar på ----------
