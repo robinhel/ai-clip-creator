@@ -7,7 +7,7 @@ import { AlertTriangle } from "lucide-react";
 import { CampaignFacecam } from "@/components/CampaignFacecam";
 import { CampaignOverlay } from "@/components/CampaignOverlay";
 import { CampaignYaml } from "@/components/CampaignYaml";
-import { ReadyBadge } from "@/components/CampaignsClient";
+import { ProblemFix, ReadyBadge } from "@/components/CampaignsClient";
 import { api } from "@/lib/api";
 import { cn, usd } from "@/lib/utils";
 import type { CampaignProfileDetail } from "@/lib/types";
@@ -85,12 +85,13 @@ export function CampaignDetailClient({ id, tab: initialTab }: { id: string; tab?
   const [error, setError] = useState<string | null>(null);
   const tab: Tab = TABS.some((t) => t.id === initialTab) ? (initialTab as Tab) : "oversikt";
 
-  useEffect(() => {
+  function load() {
     api.campaign.profile
       .get(id)
       .then(setProfile)
       .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte hämta kampanjen"));
-  }, [id]);
+  }
+  useEffect(load, [id]);
 
   if (!profile) {
     return (
@@ -125,7 +126,10 @@ export function CampaignDetailClient({ id, tab: initialTab }: { id: string; tab?
           {profile.problems.map((problem) => (
             <li key={problem} className="flex gap-2 rounded-lg border border-[#5a4416] bg-[#1b160b] px-3 py-2 text-warn">
               <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-              {problem}
+              <span>
+                {problem}
+                <ProblemFix id={profile.name} problem={problem} />
+              </span>
             </li>
           ))}
         </ul>
@@ -151,7 +155,7 @@ export function CampaignDetailClient({ id, tab: initialTab }: { id: string; tab?
 
       {tab === "oversikt" && <Overview profile={profile} />}
       {tab === "overlay" && <CampaignOverlay profile={profile} onUpdate={setProfile} />}
-      {tab === "facecam" && <CampaignFacecam id={profile.name} />}
+      {tab === "facecam" && <CampaignFacecam id={profile.name} onSaved={load} />}
       {tab === "profil" && <CampaignYaml id={profile.name} onUpdate={setProfile} />}
     </main>
   );

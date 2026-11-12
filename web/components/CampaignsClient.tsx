@@ -20,6 +20,26 @@ export function readyText(p: CampaignProfile): string {
   return "Går att köra, men rätta varningarna i kampanjens inställningar först";
 }
 
+// Problem som rättas under en flik på kampanjsidan. Texten kommer från servern (campaign/profile.py).
+const FIX_TAB = [
+  { start: "Overlay-bilden saknas", tab: "overlay", label: "Ladda upp overlay-bilden" },
+  { start: "Facecam- och spelrutan är inte inställd", tab: "facecam", label: "Ställ in rutorna" },
+];
+
+/** Länken till fliken där problemet rättas, eller inget. */
+export function ProblemFix({ id, problem }: { id: string; problem: string }) {
+  const fix = FIX_TAB.find((f) => problem.startsWith(f.start));
+  if (!fix) return null;
+  return (
+    <>
+      {" "}
+      <Link href={`/campaigns/${id}?tab=${fix.tab}`} className="font-medium underline underline-offset-4 hover:text-foreground">
+        {fix.label}
+      </Link>
+    </>
+  );
+}
+
 export function ReadyBadge({ profile: p }: { profile: CampaignProfile }) {
   return p.ready && p.problems.length === 0 ? (
     <span className="inline-flex items-center gap-1 rounded-full border border-[#174a2a] px-2.5 py-0.5 text-xs text-good">

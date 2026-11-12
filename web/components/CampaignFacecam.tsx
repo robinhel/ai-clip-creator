@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StackedPreview } from "@/components/StackedPreview";
 import { api } from "@/lib/api";
@@ -65,7 +65,7 @@ const STYLE: Record<Kind, { label: string; box: string; handle: string; text: st
   gameplay: { label: "Spel", box: "border-good bg-good/10", handle: "bg-good", text: "text-good" },
 };
 
-export function CampaignFacecam({ id }: { id: string }) {
+export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => void }) {
   const [server, setServer] = useState<ReframeInfo | null>(null);
   const [split, setSplit] = useState(0.4);
   const [rects, setRects] = useState<Record<Kind, Rect> | null>(null);
@@ -160,6 +160,7 @@ export function CampaignFacecam({ id }: { id: string }) {
     try {
       apply(await api.campaign.profile.saveReframe(id, { webcam_rect: rects.webcam, gameplay_rect: rects.gameplay, split_ratio: split }));
       setSavedMsg(true);
+      onSaved(); // kampanjens problem ändras när rutorna är inställda
     } catch (err) {
       setError(err instanceof Error ? err.message : "Det gick inte att spara rutorna");
     } finally {
@@ -173,6 +174,19 @@ export function CampaignFacecam({ id }: { id: string }) {
         Dra den lila ramen över streamerns kamera och den gröna över spelet. Dra i hörnen för att ändra storlek. Formen
         följer panelerna i klippet, så bilden blir aldrig utdragen.
       </p>
+      {server && server.mode !== "stacked" && (
+        <p className="text-sm text-muted-foreground">
+          Kampanjen använder inte rutorna i dag (läget {server.mode} i config-filen). När du sparar sätts läget till kameran
+          överst och spelet under.
+        </p>
+      )}
+      {server && (server.source_width !== W || server.source_height !== H) && (
+        <p role="alert" className="flex gap-2 rounded-lg border border-[#5a4416] bg-[#1b160b] px-3 py-2 text-sm text-warn">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+          Servern mäter rutorna i {server.source_width} x {server.source_height}, men ramarna här ritas i {W} x {H}. Rutorna
+          kan hamna fel. Kontrollera dem i ett nytt klipp innan du postar.
+        </p>
+      )}
 
       <div className="flex flex-wrap items-end gap-3 text-sm">
         <label className="space-y-1">
@@ -328,7 +342,7 @@ export function CampaignFacecam({ id }: { id: string }) {
       {savedMsg && !dirty && (
         <p role="status" className="flex items-center gap-2 text-sm text-good">
           <CheckCircle2 className="size-4" aria-hidden />
-          Rutorna är sparade. Nya klipp använder dem.
+          Rutorna är sparade. Läget sätts till kameran överst och spelet under, och nya klipp använder rutorna.
         </p>
       )}
       <div className="flex flex-wrap gap-2">

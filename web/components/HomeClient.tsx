@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Link2, Loader2, X } from "lucide-react";
-import { readyText } from "@/components/CampaignsClient";
+import { ProblemFix, readyText } from "@/components/CampaignsClient";
 import { ProjectCard } from "@/components/ProjectCard";
 import { api } from "@/lib/api";
 import { clock, cn, duration, parseClock, usd } from "@/lib/utils";
@@ -403,14 +403,7 @@ export function HomeClient() {
                       <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
                       <span>
                         {text}
-                        {text.startsWith("Overlay-bilden saknas") && (
-                          <>
-                            {" "}
-                            <Link href={`/campaigns/${profile.name}?tab=overlay`} className="font-medium underline underline-offset-4 hover:text-foreground">
-                              Ladda upp overlay-bilden
-                            </Link>
-                          </>
-                        )}
+                        <ProblemFix id={profile.name} problem={text} />
                       </span>
                     </li>
                   ))}

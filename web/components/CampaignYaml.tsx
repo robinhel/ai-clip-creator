@@ -51,7 +51,8 @@ export function CampaignYaml({ id, onUpdate }: Props) {
       setOk(true);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Det gick inte att spara profilen";
-      setError(message);
+      // 400: servern nekade texten innan den skrev filen. Texten i rutan ligger kvar.
+      setError((err as { status?: number }).status === 400 ? `${message} Inget sparades.` : message);
       // Rulla till raden med felet.
       const line = errorLine(message);
       const el = box.current?.querySelector(`[data-line="${line}"]`) as HTMLElement | null;

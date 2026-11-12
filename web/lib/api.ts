@@ -57,7 +57,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     if (res.status === 503 && detail === "Backend unavailable") {
       throw new Error("Servern svarar inte. Kör FastAPI på port 8000?");
     }
-    if (typeof detail === "string") throw new Error(detail);
+    if (typeof detail === "string") throw Object.assign(new Error(detail), { status: res.status });
     // FastAPI:s valideringsfel (422) har detail som en lista med fält och meddelande.
     if (Array.isArray(detail)) {
       const fields = detail.map((d) => d?.loc?.at?.(-1)).filter(Boolean).map((f) => FIELD_LABEL[f] ?? f);
