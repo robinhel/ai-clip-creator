@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Clapperboard, FolderOpen, Home, Megaphone, Send } from "lucide-react";
 import { api } from "@/lib/api";
-import { cn, usd } from "@/lib/utils";
+import { cn, SUMMARY_CHANGED, usd } from "@/lib/utils";
 import type { CampaignSummary } from "@/lib/types";
 
 const LINKS = [
@@ -42,9 +42,12 @@ export function SiteNav() {
   const pathname = usePathname();
   const [summary, setSummary] = useState<CampaignSummary | null>(null);
 
-  // Läs om vid varje sidbyte, så att antal, budget och disk följer med.
+  // Läs om vid varje sidbyte och när ett klipp ändras, så att antal, budget och disk följer med.
   useEffect(() => {
-    api.campaign.summary().then(setSummary).catch(() => setSummary(null));
+    const load = () => api.campaign.summary().then(setSummary).catch(() => setSummary(null));
+    load();
+    window.addEventListener(SUMMARY_CHANGED, load);
+    return () => window.removeEventListener(SUMMARY_CHANGED, load);
   }, [pathname]);
 
   const toPost = summary?.counts.godkand ?? 0;
