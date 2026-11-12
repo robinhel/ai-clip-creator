@@ -374,8 +374,13 @@ def test_other_writes_wait_for_a_running_edit(setup, settings, fake_twitch, monk
     monkeypatch.setattr(api, "run_campaign_vod", lambda *a, **k: None)
     monkeypatch.setattr(api, "finish_run", lambda *a, **k: None)
     log.update(clip_id, status="godkand")
+    other = log.add(vod_id="123", profile="skiimasktimmy", file="x.mp4", title="Annat", caption="c",
+                    status="godkand", clip_format="funny")
     assert editor.lock.acquire(blocking=False)
+    editor.editing = clip_id
     try:
+        # Bara klippet som redigeras är låst. Andra klipp går att ändra under tiden.
+        assert client.patch(f"/campaign/clips/{other}", json={"status": "nekad"}).status_code == 200
         assert client.patch(f"/campaign/clips/{clip_id}", json={"status": "nekad"}).status_code == 409
         assert client.patch(f"/campaign/clips/{clip_id}", json={"caption": "x"}).status_code == 409
         assert client.patch(f"/campaign/clips/{clip_id}", json={"note": "bra"}).status_code == 200
@@ -385,6 +390,7 @@ def test_other_writes_wait_for_a_running_edit(setup, settings, fake_twitch, monk
         assert client.post("/campaign/runs/1/finish").status_code == 409
         assert client.app.state.active_run_id is None
     finally:
+        editor.editing = None
         editor.lock.release()
     assert log.get(clip_id)["status"] == "godkand"
     assert client.patch(f"/campaign/clips/{clip_id}", json={"status": "nekad"}).status_code == 200
