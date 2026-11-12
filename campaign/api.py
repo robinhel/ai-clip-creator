@@ -68,6 +68,19 @@ def _profile_names(settings: Settings) -> list[str]:
     return sorted(p.stem for p in settings.profiles_dir.glob("*.yaml") if not p.stem.startswith("_"))
 
 
+def _turned_off(settings: Settings) -> set[str]:
+    """Kampanjer med active: false. Deras streams, projekt, klipp och siffror döljs i appen."""
+    off = set()
+    for name in _profile_names(settings):
+        try:
+            active = load_profile(name, settings.profiles_dir).active
+        except (SystemExit, Exception):  # en trasig fil räknas som på, så att den syns och kan rättas
+            active = True
+        if not active:
+            off.add(name)
+    return off
+
+
 # ---------- kampanjer ----------
 
 
@@ -109,6 +122,7 @@ def _describe_profile(name: str, settings: Settings, path: Path | None = None) -
                      "description": f.get("description", "")} for f in profile.formats],
         "problems": blocking + problems,
         "ready": not blocking,
+        "active": profile.active,
     }
 
 
@@ -121,7 +135,7 @@ def list_profiles(settings: Settings = Depends(get_settings)) -> list[dict]:
         except (SystemExit, Exception) as error:  # en trasig fil ska inte dölja de andra kampanjerna
             result.append({"name": name, "streamer": "", "campaign": name, "language": "",
                            "channel": "", "clip_min_s": None, "clip_max_s": None,
-                           "formats": [], "ready": False,
+                           "formats": [], "ready": False, "active": True,
                            "problems": [f"Profilen går inte att läsa: {error}"]})
     return result
 
@@ -154,7 +168,7 @@ def vod_info(vod_id: str = PathParam(pattern=r"^\d{6,15}$"),
              settings: Settings = Depends(get_settings)) -> dict:
     facts = _facts(vod_id)
     campaigns = [p["name"] for p in list_profiles(settings)
-                 if p["channel"] and p["channel"].lower() == facts["channel"]]
+                 if p["active"] and p["channel"] and p["channel"].lower() == facts["channel"]]
     return {**facts, **_estimate(facts, settings), "campaigns": campaigns}
 
 
@@ -162,7 +176,7 @@ def vod_info(vod_id: str = PathParam(pattern=r"^\d{6,15}$"),
 def list_streams(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> list[dict]:
     campaigns: dict[str, list[str]] = {}
     for profile in list_profiles(settings):
-        if profile["channel"]:
+        if profile["active"] and profile["channel"]:
             campaigns.setdefault(profile["channel"].lower(), []).append(profile["name"])
     found, failed = [], 0
     for channel, names in campaigns.items():
@@ -319,7 +333,9 @@ def _describe_run(meta: dict, db: Session, clips: list[dict], steps: bool = Fals
 def list_runs(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> list[dict]:
     log = _log(settings)
     clips = log.list()
-    return [_describe_run(_with_facts(meta, log), db, clips) for meta in reversed(log.runs())]
+    off = _turned_off(settings)
+    return [_describe_run(_with_facts(meta, log), db, clips) for meta in reversed(log.runs())
+            if meta["profile"] not in off]
 
 
 @router.get("/runs/{run_id}", summary="En körning med förloppet per steg")
@@ -394,6 +410,9 @@ def list_clips(status: str | None = None, vod_id: str | None = None, run_id: int
     if run_id is not None:
         meta = log.run(run_id)
         clips = _run_clips(meta, clips) if meta else []
+    else:  # en direktlänk till ett projekt visar dess klipp även när kampanjen är avstängd
+        off = _turned_off(settings)
+        clips = [c for c in clips if c["profile"] not in off]
     return [_public(c, settings) for c in clips]
 
 
@@ -537,12 +556,15 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
 @router.get("/summary", summary="Budget, antal klipp per status och att göra")
 def summary(settings: Settings = Depends(get_settings)) -> dict:
     log = _log(settings)
+    off = _turned_off(settings)
+    clips = [c for c in log.list() if c["profile"] not in off]
     counts: dict[str, int] = {}
-    for clip in log.list():
+    for clip in clips:
         counts[clip["status"]] = counts.get(clip["status"], 0) + 1
     free_gb, total_gb = estimate.disk_gb(settings.work_dir)
-    return {"budget": budget_from_settings(settings).summary(), "counts": counts, "todo": log.todo(),
-            "disk": {"free_gb": free_gb, "total_gb": total_gb}, "earnings": _earnings(log.list(), settings)}
+    # Budgeten gäller alla kampanjer, så den räknas som förut.
+    return {"budget": budget_from_settings(settings).summary(), "counts": counts, "todo": log.todo(skip=off),
+            "disk": {"free_gb": free_gb, "total_gb": total_gb}, "earnings": _earnings(clips, settings)}
 
 
 def _payout(views: int, payment: dict) -> float:

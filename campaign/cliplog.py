@@ -157,10 +157,12 @@ class ClipLog:
         total = sum(clip.get(key) or 0 for key in ("likes", "comments", "shares"))
         return 100.0 * total / clip["views"]
 
-    def todo(self, min_views: int = 2000) -> list[str]:
-        """Det du behöver göra just nu för att få betalt."""
+    def todo(self, min_views: int = 2000, skip: set[str] | frozenset[str] = frozenset()) -> list[str]:
+        """Det du behöver göra just nu för att få betalt. `skip` är kampanjer som inte ska räknas."""
         items: list[str] = []
         for clip in self.list():
+            if clip["profile"] in skip:
+                continue
             label = f"#{clip['id']} {clip['title']!r}"
             if clip["status"] == "godkand":
                 items.append(f"{label}: posta klippet och spara länken.")

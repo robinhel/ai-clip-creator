@@ -169,6 +169,8 @@ def _check_types(data: dict, root: Path) -> None:
 
     for key in ("name", "streamer", "campaign", "language"):
         text(data.get(key), key)
+    if data.get("active") is not None and not isinstance(data["active"], bool):
+        raise ValueError("active måste vara true eller false.")
     sections = {key: data.get(key) or {} for key in ("caption", "on_screen_text", "overlay")}
     for key, section in sections.items():
         if not isinstance(section, dict):
@@ -258,6 +260,17 @@ def set_keys(text: str, section: str, values: dict[str, str]) -> str:
         lines[head] += "\n"
     lines[head + 1:head + 1] = missing
     return "".join(lines)
+
+
+def set_active(text: str, active: bool) -> str:
+    """Byt värdet på raden `active:` överst i profilen, eller lägg till raden sist. Resten av filen är orörd."""
+    value = "true" if active else "false"
+    new, count = re.subn(r"^active:[ \t]*[^#\r\n]*?(?=[ \t]*(#|\r?$))", f"active: {value}", text, count=1,
+                         flags=re.MULTILINE)
+    if count:
+        return new
+    end = "" if not text or text.endswith("\n") else "\n"
+    return f"{text}{end}active: {value}   # false = kampanjen döljs i appen, utom under Kampanjer\n"
 
 
 def _replace_block(text: str, section: str, block: str) -> str:

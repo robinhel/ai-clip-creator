@@ -7,9 +7,11 @@ from campaign.cliplog import ClipLog
 
 from .test_api import client  # noqa: F401  (fixture)
 from .test_omgang5 import _done_run, _node, _second_campaign, twitch_streams  # noqa: F401  (fixture)
-from .test_profiles_api import _profile_text
+from .test_profiles_api import (
+    _profile_text,
+    twitch,  # noqa: F401  (fixture)
+)
 from .test_profiles_api import client as profiles_client  # noqa: F401  (fixture)
-from .test_profiles_api import twitch  # noqa: F401  (fixture)
 
 
 def test_turning_a_campaign_off_and_on_is_saved_in_its_profile(profiles_client, settings, monkeypatch) -> None:  # noqa: F811
@@ -21,7 +23,7 @@ def test_turning_a_campaign_off_and_on_is_saved_in_its_profile(profiles_client, 
     assert response.json()["active"] is False
     after = _profile_text(settings)
     assert after.startswith(before)  # kommentarerna och resten av filen är orörda
-    assert "\nactive: false" in after[len(before):]
+    assert after[len(before):].startswith("active: false")
     listed = profiles_client.get("/campaign/profiles").json()
     assert [p["active"] for p in listed if p["name"] == "skiimasktimmy"] == [False]
 

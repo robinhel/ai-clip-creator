@@ -215,6 +215,24 @@ def put_yaml(profile_id: str, body: YamlBody, settings: Settings = Depends(get_s
     return _detail(profile_id, settings)
 
 
+class ActiveBody(BaseModel):
+    active: bool
+
+
+@router.put("/profiles/{profile_id}/active", summary="Slå på eller stäng av kampanjen i appen",
+            dependencies=[Depends(verify_api_key)])
+def put_active(profile_id: str, body: ActiveBody, settings: Settings = Depends(get_settings)) -> dict:
+    path = _profile_path(profile_id, settings)
+    try:
+        with _write_lock:
+            text = edit.set_active(path.read_bytes().decode("utf-8"), body.active)
+            edit.check_profile_text(text, profile_id, settings.root)
+            edit.write_atomic(path, text.encode("utf-8"))
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return _detail(profile_id, settings)
+
+
 # ---------- ny kampanj ----------
 
 
