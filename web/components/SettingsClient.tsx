@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, ExternalLink, Eye, EyeOff, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, ExternalLink, Eye, EyeOff, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { KeyGroup, KeyTest } from "@/lib/types";
+import type { KeyGroup, KeyTest, SetupCheck } from "@/lib/types";
 
 function KeyField({ name, label, set, value, onChange, disabled }: {
   name: string;
@@ -181,15 +181,83 @@ function GroupCard({ group, onSaved }: { group: KeyGroup; onSaved: (groups: KeyG
   );
 }
 
+/** Samma kontroller som python -m campaign check-setup, i serverns ordning. */
+function SetupCard({ checks, error, loading, onRun }: {
+  checks: SetupCheck[] | null;
+  error: string | null;
+  loading: boolean;
+  onRun: () => void;
+}) {
+  const failing = checks?.filter((c) => !c.ok).length ?? 0;
+  return (
+    <section aria-label="Kontroll" className="mt-7 rounded-2xl border border-line bg-panel p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Kontroll</h2>
+          <p className={cn("text-sm", !checks ? "text-muted-foreground" : failing ? "text-bad" : "text-good")}>
+            {!checks
+              ? loading
+                ? "Kontrollerar…"
+                : "Kontrollen kunde inte köras."
+              : failing === 0
+                ? "Allt är klart för en körning."
+                : `${failing} ${failing === 1 ? "sak behöver" : "saker behöver"} rättas.`}
+          </p>
+        </div>
+        <Button variant="outline" className="h-9" disabled={loading} onClick={onRun}>
+          {loading ? <Loader2 className="animate-spin" aria-hidden /> : <RefreshCw aria-hidden />}
+          Kör kontrollen igen
+        </Button>
+      </div>
+      {error && (
+        <p role="alert" className="mt-3 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">
+          {error}
+        </p>
+      )}
+      {checks && (
+        <ul className="mt-4 grid gap-x-6 gap-y-3 md:grid-cols-2">
+          {checks.map((c) => (
+            <li key={c.id} data-check={c.id} data-ok={c.ok} className="flex gap-2.5">
+              {c.ok ? (
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-good" aria-label="Fungerar" />
+              ) : (
+                <XCircle className="mt-0.5 size-4 shrink-0 text-bad" aria-label="Behöver rättas" />
+              )}
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{c.label}</p>
+                <p className={cn("text-[13px] break-words", c.ok ? "text-muted-foreground" : "text-[#fca5a5]")}>{c.detail}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export function SettingsClient() {
   const [groups, setGroups] = useState<KeyGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [checks, setChecks] = useState<SetupCheck[] | null>(null);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [setupLoading, setSetupLoading] = useState(true);
+
+  function runSetup() {
+    setSetupLoading(true);
+    setSetupError(null);
+    api.campaign
+      .setup()
+      .then(({ checks }) => setChecks(checks))
+      .catch((err) => setSetupError(err instanceof Error ? err.message : "Kunde inte köra kontrollen"))
+      .finally(() => setSetupLoading(false));
+  }
 
   useEffect(() => {
     api.campaign.keys
       .list()
       .then(({ groups }) => setGroups(groups))
       .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte läsa nycklarna"));
+    runSetup();
   }, []);
 
   return (
@@ -199,6 +267,7 @@ export function SettingsClient() {
         Klistra in nycklarna här. Servern sparar dem i .env och använder dem direkt. De visas aldrig igen, bara om de är
         sparade.
       </p>
+      <SetupCard checks={checks} error={setupError} loading={setupLoading} onRun={runSetup} />
       {error && (
         <p role="alert" className="mt-6 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">
           {error}
@@ -206,9 +275,16 @@ export function SettingsClient() {
       )}
       {!groups && !error && <p className="mt-6 text-sm text-muted-foreground">Läser nycklarna…</p>}
       {groups && (
-        <div className="mt-7 grid items-start gap-4 lg:grid-cols-2">
+        <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
           {groups.map((group) => (
-            <GroupCard key={group.id} group={group} onSaved={setGroups} />
+            <GroupCard
+              key={group.id}
+              group={group}
+              onSaved={(next) => {
+                setGroups(next);
+                runSetup(); // nycklarna är en del av kontrollen
+              }}
+            />
           ))}
         </div>
       )}

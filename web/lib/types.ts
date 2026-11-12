@@ -80,6 +80,10 @@ export interface VodInfo {
   };
   /** Kampanjer vars kanal är VOD:ens kanal. */
   campaigns: string[];
+  /** Streamen spelas in just nu. Saknas hos äldre servrar. */
+  live?: boolean;
+  /** Det som stoppar körningen, till exempel att streamen pågår eller att SSD:n saknas. Saknas hos äldre servrar. */
+  problems?: string[];
 }
 
 /** En rad i GET /campaign/runs. Äldre körningar saknar titel, bild och längd. */
@@ -117,6 +121,14 @@ export interface RunStep {
 }
 
 /** GET /campaign/runs/{id}. */
+/** GET /campaign/setup: samma kontroller som python -m campaign check-setup. */
+export interface SetupCheck {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+}
+
 /** GET /campaign/keys: bara om nyckeln är sparad, aldrig värdet. */
 export interface KeyGroup {
   id: string;
@@ -138,7 +150,8 @@ export interface StreamInfo {
   title: string;
   game: string | null;
   duration_s: number;
-  created_at: string;
+  /** null när Twitch inte skickar datumet. */
+  created_at: string | null;
   thumbnail_url: string | null;
   campaigns: string[];
   run_id: number | null;
