@@ -27,7 +27,9 @@ def test_one_clip_gets_one_post_per_platform(client, settings) -> None:  # noqa:
     assert [(p["platform"], p["url"], p["status"]) for p in clip["posts"]] == [("tiktok", TIKTOK, "postad")]
     assert _post(client, clip_id, "instagram_reels", REELS).status_code == 201
     assert _post(client, clip_id, "tiktok", "https://www.tiktok.com/@me/video/2").status_code == 409
-    assert _post(client, clip_id, "youtube_shorts", REELS).status_code == 400  # fel domän för plattformen
+    wrong = _post(client, clip_id, "youtube_shorts", REELS)  # fel domän för plattformen
+    assert wrong.status_code == 400
+    assert "YouTube Shorts" in wrong.json()["detail"]  # plattformens namn, inte dess id
     assert _post(client, clip_id, "myspace", REELS).status_code == 422
     clip = client.get("/campaign/clips").json()[0]
     assert [p["platform"] for p in clip["posts"]] == ["tiktok", "instagram_reels"]
@@ -51,6 +53,8 @@ def test_each_post_is_sent_in_and_followed_on_its_own(client, settings) -> None:
     assert (clip["views"], clip["likes"]) == (2500, 40)
 
     # Statistik inskickad går först när inlägget har nått kampanjens min_views (2 000).
+    # Webben får gränsen med klippet, så att knappen kan låsas innan Robin klickar.
+    assert clip["min_views"] == 2000
     assert client.patch(f"/campaign/posts/{reels}", json={"status": "inskickad"}).status_code == 200
     client.patch(f"/campaign/posts/{reels}", json={"views": 1500})
     refused = client.patch(f"/campaign/posts/{reels}", json={"status": "analytics_inskickad"})
