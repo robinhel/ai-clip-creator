@@ -209,3 +209,49 @@ def test_campaign_run_uses_the_campaigns_settings_and_berget(settings, monkeypat
     calls.clear()
     pipeline.make_clips("123", profile, settings, game=None, emit=lambda *a: None)
     assert "transcribe" not in calls
+
+
+def test_changing_caption_on_an_approved_clip_needs_a_new_yes(client, settings) -> None:
+    clip_id = _clip(settings, status="godkand", clip_format="funny")
+    changed = client.patch(f"/campaign/clips/{clip_id}", json={"caption": "No way #fps"}).json()
+    assert changed["status"] == "underkand"
+    assert client.patch(f"/campaign/clips/{clip_id}", json={
+        "status": "postad", "url": "https://x.y/1", "platform": "tiktok"}).status_code == 400
+
+    again = client.patch(f"/campaign/clips/{clip_id}", json={"caption": CAPTION}).json()
+    assert again["status"] == "renderad"
+
+
+def test_same_status_with_a_broken_caption_still_fails_the_clip(client, settings) -> None:
+    clip_id = _clip(settings)
+    response = client.patch(f"/campaign/clips/{clip_id}", json={"status": "renderad", "caption": "x"})
+    assert response.json()["status"] == "underkand"
+    assert client.patch(f"/campaign/clips/{clip_id}", json={"status": None}).status_code == 400
+
+
+def test_campaign_name_follows_the_file_name_and_a_broken_profile_is_shown(client, settings) -> None:
+    text = (settings.profiles_dir / "skiimasktimmy.yaml").read_text(encoding="utf-8")
+    (settings.profiles_dir / "timmy2.yaml").write_text(text.replace("name: skiimasktimmy", "name: Timmy Två"),
+                                                       encoding="utf-8")
+    (settings.profiles_dir / "trasig.yaml").write_text("name: [", encoding="utf-8")
+
+    profiles = {p["name"]: p for p in client.get("/campaign/profiles").json()}
+    assert profiles["timmy2"]["ready"] is True
+    assert profiles["trasig"]["ready"] is False
+    assert client.post("/campaign/runs", json={"profile": "trasig", "vod_id": "2925991945"}).status_code == 400
+
+
+@needs_ffmpeg
+def test_finish_again_does_not_bring_back_a_rejected_clip(settings) -> None:
+    from campaign.profile import load_profile
+    from campaign.workflow import finish_vod
+
+    shutil.copy(PAKET / "config.timmy.yaml", settings.root / "config.timmy.yaml")
+    make_clip(settings.out_dir / "123" / "clip_01_no_way.mp4")
+    profile = load_profile("skiimasktimmy", settings.profiles_dir)
+    log = ClipLog(settings.data_dir / "klipp.db")
+    first = finish_vod("123", profile, settings, log, review=False)
+    log.update(first[0]["id"], status="nekad")
+
+    finish_vod("123", profile, settings, log, review=False)
+    assert [c["status"] for c in log.list()] == ["nekad"]
