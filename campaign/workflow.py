@@ -15,7 +15,7 @@ from .editor import edit_meta
 from .finish import finish_clip
 from .media import probe
 from .profile import Profile
-from .review import review_clip
+from .review import review_clip, stacked_split
 from .rules import check_clip, check_source
 
 FORCED_REASON = "Claude valde inte klippet. Det togs med för att nå min_picks."
@@ -134,6 +134,7 @@ def finish_vod(
                 review_result = review_clip(
                     out, profile, brain, settings.review_model,
                     settings.work_dir / vod_id / "rutor",
+                    split_ratio=stacked_split(profile, settings.root),
                 )
             except BudgetExceeded as error:
                 notes.append(f"Bildgranskningen hoppades över: {error}")
