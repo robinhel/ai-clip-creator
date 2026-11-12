@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import { serverTime } from "@/lib/utils";
 import type { CampaignRunInfo, Run, RunStatus } from "@/lib/types";
 
 const STATUS_VARIANT: Record<RunStatus, "default" | "secondary" | "destructive" | "outline"> = {
@@ -29,7 +30,7 @@ const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
 ];
 
 export function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
+  const diff = Date.now() - serverTime(iso);
   const format = new Intl.RelativeTimeFormat("sv", { numeric: "auto" });
   for (const [unit, ms] of UNITS) {
     if (diff >= ms) return format.format(-Math.floor(diff / ms), unit);

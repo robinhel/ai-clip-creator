@@ -29,6 +29,13 @@ export function parseTime(value: string): number | undefined {
   return text.split(":").reduce((total, part) => total * 60 + Number(part), 0);
 }
 
+/** VOD-id ur ett id eller en länk som twitch.tv/videos/2345678901. */
+export function parseVodId(value: string): string | null {
+  const text = value.trim();
+  if (/^\d{6,15}$/.test(text)) return text;
+  return text.match(/videos\/(\d{6,15})/)?.[1] ?? null;
+}
+
 export function NewRunDialog({ onCreated }: Props) {
   const [open, setOpen] = useState(false);
   const [profiles, setProfiles] = useState<CampaignProfile[] | null>(null);
@@ -61,6 +68,8 @@ export function NewRunDialog({ onCreated }: Props) {
   }, [open]);
 
   const profile = profiles?.find((p) => p.name === profileName);
+  const vod = parseVodId(vodId);
+  const vodError = vodId.trim() && !vod ? "Skriv VOD-id (6–15 siffror) eller klistra in länken till VOD:en." : null;
   const startS = parseTime(start);
   const endS = parseTime(end);
   const timeError =
@@ -69,7 +78,7 @@ export function NewRunDialog({ onCreated }: Props) {
       : startS !== undefined && endS !== undefined && endS <= startS
         ? "Sluttiden måste vara efter starttiden."
         : null;
-  const canSubmit = !!profile?.ready && !!vodId.trim() && !timeError && !loading;
+  const canSubmit = !!profile?.ready && !!vod && !timeError && !loading;
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
@@ -84,12 +93,12 @@ export function NewRunDialog({ onCreated }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canSubmit || !profile) return;
+    if (!canSubmit || !profile || !vod) return;
     setLoading(true);
     setError(null);
     const body = {
       profile: profile.name,
-      vod_id: vodId.trim(),
+      vod_id: vod,
       game: game.trim() || undefined,
       start_s: startS,
       end_s: endS,
@@ -172,7 +181,7 @@ export function NewRunDialog({ onCreated }: Props) {
           </div>
           <div className="space-y-1.5">
             <label htmlFor="run-vod" className="text-sm font-medium">
-              VOD-id
+              VOD-id eller länk
             </label>
             <Input
               id="run-vod"
@@ -181,7 +190,9 @@ export function NewRunDialog({ onCreated }: Props) {
               onChange={(e) => setVodId(e.target.value)}
               required
               autoFocus
+              aria-invalid={!!vodError}
             />
+            {vodError && <p className="text-xs text-destructive">{vodError}</p>}
           </div>
           <div className="space-y-1.5">
             <label htmlFor="run-game" className="text-sm font-medium">
