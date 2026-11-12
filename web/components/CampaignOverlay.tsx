@@ -178,7 +178,8 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
             {/* I hörnet, så att etiketten inte täcker overlayens egen text. */}
             <span className="absolute top-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white/80">Döljs av TikTok</span>
           </div>
-          {text.text && (
+          {/* Samma regel som klippet (campaign/finish.py): den vita texten ritas bara utan overlay. */}
+          {text.text && !shown && (
             <p
               className="absolute inset-x-0 text-center leading-none font-bold text-white"
               style={{
