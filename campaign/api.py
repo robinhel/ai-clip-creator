@@ -52,6 +52,7 @@ NEXT_STATUS: dict[str, set[str]] = {
 # Postlänkens domän per plattform.
 PLATFORM_HOSTS = {"tiktok": ("tiktok.com",), "youtube_shorts": ("youtube.com", "youtu.be"),
                   "instagram_reels": ("instagram.com",)}
+PLATFORM_NAMES = {"tiktok": "TikTok", "youtube_shorts": "YouTube Shorts", "instagram_reels": "Instagram Reels"}
 
 
 def _link_problem(link: str, platform: str | None) -> str | None:
@@ -62,7 +63,7 @@ def _link_problem(link: str, platform: str | None) -> str | None:
         return "Länken måste vara en hel adress som börjar med https://, till exempel https://www.tiktok.com/@du/video/123."
     hosts = PLATFORM_HOSTS.get(platform or "", ())
     if hosts and not any(host == h or host.endswith("." + h) for h in hosts):
-        return f"Länken går till {host}, men plattformen är {platform}. Kontrollera länken och plattformen."
+        return f"Länken går till {host}, men plattformen är {PLATFORM_NAMES.get(platform or "", platform)}. Kontrollera länken och plattformen."
     return None
 
 
@@ -412,8 +413,10 @@ def _public(clip: dict, settings: Settings) -> dict:
     try:
         profile = load_profile(clip["profile"], settings.profiles_dir)
         out["engagement_min"] = profile.engagement_min(clip["views"] or 0)
+        out["min_views"] = profile.min_views
     except SystemExit:
         out["engagement_min"] = None
+        out["min_views"] = None
     # ?v= byts när klippet ändras, så att webbläsaren inte visar en gammal version efter en redigering.
     version = quote(clip.get("updated") or "")
     out["posts"] = _public_posts(clip, settings)
