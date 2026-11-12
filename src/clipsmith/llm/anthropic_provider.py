@@ -97,7 +97,7 @@ class AnthropicProvider:
                     with attempt:
                         response = self._client.messages.create(
                             model=self._model,
-                            max_tokens=512,
+                            max_tokens=1024,
                             system=[
                                 {
                                     "type": "text",
@@ -141,6 +141,9 @@ class AnthropicProvider:
                         getattr(usage, "cache_creation_input_tokens", 0) or 0,
                     )
                 text = next((b.text for b in response.content if b.type == "text"), "")  # type: ignore[union-attr]
+                if getattr(response, "stop_reason", None) == "max_tokens":
+                    log.warning("llm_cut provider=anthropic candidate=%s: svaret klipptes av vid max_tokens",
+                                candidate_id)
                 pick = ClipPick.from_json(text)
                 elapsed = time.monotonic() - t0
                 llm_call_duration.record(elapsed, {"provider": "anthropic"})

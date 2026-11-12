@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -140,8 +140,14 @@ class TwitchClient:
                 break
         return out
 
-    def get_clips_for_vod(self, broadcaster_id: str, video_id: str) -> list[Clip]:
-        return [c for c in self.get_clips(broadcaster_id) if c.video_id == video_id]
+    def get_clips_for_vod(
+        self, broadcaster_id: str, video_id: str, *, started_at: datetime | None = None
+    ) -> list[Clip]:
+        """Clips made from one VOD. Without started_at, Helix returns the channel's top clips of all
+        time, which rarely include a recent VOD; with it, the window runs from the VOD's start to now."""
+        ended_at = datetime.now(UTC) if started_at is not None else None
+        clips = self.get_clips(broadcaster_id, started_at=started_at, ended_at=ended_at)
+        return [c for c in clips if c.video_id == video_id]
 
 
 def _to_rfc3339(dt: datetime) -> str:

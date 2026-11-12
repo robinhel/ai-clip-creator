@@ -65,7 +65,10 @@ class ClipPick:
         if text.startswith("```"):
             lines = text.splitlines()
             text = "\n".join(line for line in lines if not line.startswith("```")).strip()
-        return cls.from_dict(json.loads(text))
+        # Text after the JSON object (a short explanation) is ignored.
+        start = text.find("{")
+        obj, _ = json.JSONDecoder().raw_decode(text, max(start, 0))
+        return cls.from_dict(obj)
 
 
 @runtime_checkable
