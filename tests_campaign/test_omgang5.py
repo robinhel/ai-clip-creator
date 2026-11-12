@@ -237,9 +237,9 @@ def test_make_clips_emits_one_event_per_part_between_15_and_40(settings, monkeyp
             on_part(n, 4)
         out.write_text("{}", encoding="utf-8")
 
-    monkeypatch.setattr(pipeline, "download_vod", lambda vod_id, work_dir: mp4)
+    monkeypatch.setattr(pipeline, "download_vod", lambda vod_id, work_dir, **k: mp4)
     monkeypatch.setattr(pipeline, "transcribe_vod", fake_transcribe)
-    monkeypatch.setattr(pipeline, "process_vod", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline, "process_vod", lambda *a, **k: (mp4.parent / "candidates.json").write_text("[]"))
     monkeypatch.setattr(pipeline, "finish_vod", lambda *a, **k: [])
     events: list[tuple] = []
     pipeline.make_clips("123", load_profile("skiimasktimmy", settings.profiles_dir), settings, game=None,

@@ -184,7 +184,7 @@ def test_campaign_run_uses_the_campaigns_settings_and_berget(settings, monkeypat
     mp4 = settings.work_dir / "123" / "123.mp4"
     calls: dict = {}
 
-    def fake_download(vod_id, work_dir):
+    def fake_download(vod_id, work_dir, **kwargs):
         mp4.parent.mkdir(parents=True, exist_ok=True)
         mp4.touch()
         return mp4
@@ -192,8 +192,7 @@ def test_campaign_run_uses_the_campaigns_settings_and_berget(settings, monkeypat
     monkeypatch.setattr(pipeline, "download_vod", fake_download)
     monkeypatch.setattr(pipeline, "transcribe_vod", lambda *a, **k: calls.setdefault("transcribe", k))
     monkeypatch.setattr(pipeline, "process_vod", lambda video, cfg, secrets, **k: calls.update(
-        process=(video, cfg, k)))
-    monkeypatch.setattr(pipeline, "finish_vod", lambda *a, **k: calls.setdefault("finish", k) and [])
+        process=(video, cfg, k)) or (mp4.parent / "candidates.json").write_text("[]"))
 
     profile = load_profile("skiimasktimmy", settings.profiles_dir)
     pipeline.make_clips("123", profile, settings, game="Bodycam", emit=lambda *a: None)
@@ -205,7 +204,7 @@ def test_campaign_run_uses_the_campaigns_settings_and_berget(settings, monkeypat
     assert cfg.channels == ["skiimasktimmy"]
     assert cfg.reframe.webcam_rect == [1542, 770, 316, 224]
     assert kwargs["skip_download"] and kwargs["skip_transcribe"]
-    assert calls["finish"]["game"] == "Bodycam"
+    # spelet till finish_vod provas i test_natt_korning.py, där Claude väljer ett klipp
 
     (mp4.parent / "transcript.json").write_text("{}", encoding="utf-8")
     calls.clear()

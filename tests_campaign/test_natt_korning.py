@@ -4,7 +4,6 @@ Påhittade Claude, Twitch och ffmpeg. Inga riktiga anrop."""
 
 from __future__ import annotations
 
-import io
 import json
 import shutil
 import time
@@ -364,13 +363,16 @@ def test_claude_down_fails_the_run_with_the_swedish_error(client, settings, monk
 class FakeTwitchDl:
     """twitch-dl skriver förloppet med \\r och utan radbrytning, som i en terminal."""
 
-    output = (b"Downloaded 0/4 VODs 0%\r\x1b[2KDownloaded 1/4 VODs 25% of ~1GB\r\x1b[2KDownloaded 1/4 VODs 26%"
-              b"\r\x1b[2KDownloaded 2/4 VODs 50%\rDownloaded 4/4 VODs 100%\n")
+    # En bit per utskrift. "Downloaded 2/4 VODs" delas mellan två bitar, som det kan bli i en pipe.
+    output = (b"Downloaded 0/4 VODs 0%", b"\r\x1b[2KDownloaded 1/4 VODs 25% of ~1GB",
+              b"\r\x1b[2KDownloaded 1/4 VODs 26%", b"\r\x1b[2KDownloaded 2/", b"4 VODs 50%",
+              b"\rDownloaded 4/4 VODs 100%\n")
     code = 0
 
     def __init__(self, cmd, **kwargs):
         self.cmd = cmd
-        self.stdout = io.BytesIO(self.output)
+        pieces = list(self.output)
+        self.stdout = SimpleNamespace(read1=lambda size: pieces.pop(0) if pieces else b"")
 
     def wait(self):
         return self.code
@@ -380,6 +382,7 @@ def test_download_reports_progress_from_twitch_dl(tmp_path, monkeypatch) -> None
     monkeypatch.setattr(download, "_resolve_quality", lambda vod_id, quality: quality)
     monkeypatch.setattr(download.subprocess, "Popen", FakeTwitchDl)
     monkeypatch.setattr(download, "join_segments", lambda parts, out: out.write_bytes(b"mp4"))
+    (tmp_path / "123").mkdir()  # twitch-dl skapar mappen
     seen: list = []
     out = download.download_vod("123", tmp_path, on_progress=lambda done, total: seen.append((done, total)))
     assert out == tmp_path / "123" / "123.mp4" and out.exists()

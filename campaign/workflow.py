@@ -83,7 +83,8 @@ def finish_vod(
     files = sorted(clip_dir.glob("clip_*.mp4"))
     if not files:
         raise SystemExit(f"Hittar inga klipp i {clip_dir}. Kör clipsmith först.")
-    picks = load_picks(settings.work_dir / vod_id / "picks.json")
+    own = clip_dir / "picks.json"  # en körning i out/<vod>/run_<id>/ har sina egna val
+    picks = load_picks(own if own.exists() else settings.work_dir / vod_id / "picks.json")
     existing = {clip["file"]: clip for clip in log.list()}
 
     results: list[dict] = []
