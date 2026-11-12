@@ -60,6 +60,7 @@ def process_vod(
     end_s: float = 0.0,
     on_stage: Callable[[str, float], None] | None = None,
     resume: bool = False,
+    focus: str = "",
 ) -> None:
     """Run the full pipeline for one VOD: download → transcribe → candidates → select → clip."""
     video_id = video.id
@@ -219,6 +220,8 @@ def process_vod(
         channel=video.user_login,
         vod_title=video.title,
         vod_duration=video.duration,
+        focus=focus,
+        clip_range=(cfg.clip.min_seconds, cfg.clip.max_seconds),
     )
     picks = select_clips(
         candidates,

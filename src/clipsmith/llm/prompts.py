@@ -41,13 +41,16 @@ Respond ONLY with a valid JSON object matching this schema (no markdown, no extr
   "start_offset_s": <number>,  // VOD seconds where the clip starts
   "end_offset_s": <number>,    // VOD seconds where the clip ends ({CLIP_MIN_S}-{CLIP_MAX_S} s after start)
   "title_es": <string>,        // 3-7 word English title, no hashtags, no spoilers
-  "reason": <string>           // 1-2 sentences explaining your decision
+  "reason": <string>,          // 1-2 sentences explaining your decision
+  "score": <integer>           // 0-99: hook, flow and chance to go viral on TikTok together
 }}
 
 Rules:
 - Times are absolute VOD seconds. The transcript lines show offsets relative to the candidate center.
 - Choose start and end from what is said in the transcript. Do not just centre a fixed window.
-- If include is false, still fill start_offset_s, end_offset_s and title_es with a best estimate.\
+- If include is false, still fill start_offset_s, end_offset_s and title_es with a best estimate.
+- score is one overall grade: how strong the hook is, how well the clip flows, and how likely it
+  is to go viral on TikTok. 90+ is rare and exceptional, 50 is average, below 30 is weak.\
 """
 
 SYSTEM_PROMPT_V2 = f"""\
@@ -57,7 +60,7 @@ Given one candidate with viewer signals and transcript, decide if it works as a 
 {CLIP_MIN_S}-{CLIP_MAX_S} s clip.
 
 Reply ONLY with valid JSON (no markdown):
-{{"include":<bool>,"start_offset_s":<n>,"end_offset_s":<n>,"title_es":<str 3-7 English words>,"reason":<str 1 sentence>}}
+{{"include":<bool>,"start_offset_s":<n>,"end_offset_s":<n>,"title_es":<str 3-7 English words>,"reason":<str 1 sentence>,"score":<int 0-99 hook+flow+TikTok viral chance>}}
 
 Include ONLY moments with a clear hook in the first 2 seconds and a payoff or strong reaction.
 Start right before the action, end right after the reaction.
@@ -97,8 +100,16 @@ CLIP_PICK_JSON_SCHEMA: dict = {
             "type": "string",
             "description": "1-2 sentence explanation of why this moment is (or isn't) clip-worthy",
         },
+        "score": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 99,
+            "description": (
+                "One overall grade 0-99 for hook, flow and chance to go viral on TikTok"
+            ),
+        },
     },
-    "required": ["include", "start_offset_s", "end_offset_s", "title_es", "reason"],
+    "required": ["include", "start_offset_s", "end_offset_s", "title_es", "reason", "score"],
     "additionalProperties": False,
 }
 
@@ -118,9 +129,16 @@ def build_candidate_prompt(transcript_window: str, candidate: CandidateMoment) -
     )
 
 
-def build_stream_context(channel: str, vod_title: str, vod_duration: str) -> str:
+def build_stream_context(
+    channel: str,
+    vod_title: str,
+    vod_duration: str,
+    *,
+    focus: str = "",
+    clip_range: tuple[int, int] | None = None,
+) -> str:
     """Build the stable per-VOD context block sent before candidate prompts."""
-    return (
+    context = (
         f"Stream context:\n"
         f"Channel: {channel}\n"
         f"VOD title: {vod_title}\n"
@@ -128,3 +146,8 @@ def build_stream_context(channel: str, vod_title: str, vod_duration: str) -> str
         f"Language: English\n"
         f"Platform: Twitch (clips for TikTok/YouTube Shorts)\n"
     )
+    if clip_range:
+        context += f"Target clip length: {clip_range[0]}-{clip_range[1]} seconds\n"
+    if focus.strip():
+        context += f"The user is especially looking for: {focus.strip()}\n"
+    return context
