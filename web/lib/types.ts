@@ -210,6 +210,8 @@ export interface CampaignClip {
   updated: string;
   engagement: number | null;
   engagement_min: number | null;
+  /** Kampanjens minsta visningar. Under dem går statistiken inte att skicka in. */
+  min_views?: number | null;
   video_url: string;
   /** JPEG ur klippet, samma ?v= som video_url. Saknas hos äldre servrar. */
   poster_url?: string | null;
@@ -217,7 +219,31 @@ export interface CampaignClip {
   score: number | null;
   /** Claudes motivering, tom för äldre klipp. */
   reason: string;
+  /** Ett inlägg per plattform. Klippets status, länk och siffror räknas fram ur dem. Saknas hos äldre servrar. */
+  posts?: ClipPost[];
 }
+
+export type PostStatus = "postad" | "inskickad" | "analytics_inskickad" | "betald";
+
+export interface ClipPost {
+  id: number;
+  clip_id: number;
+  platform: Platform;
+  url: string;
+  status: PostStatus;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  /** Vad Whop faktiskt betalade för inlägget. */
+  paid_usd: number | null;
+  created: string;
+  updated: string;
+  engagement: number | null;
+  estimate_usd: number | null;
+}
+
+export type ClipPostPatch = Partial<Pick<ClipPost, "status" | "url" | "views" | "likes" | "comments" | "shares" | "paid_usd">>;
 
 export type CampaignClipPatch = Partial<
   Pick<
@@ -253,7 +279,8 @@ export interface CampaignSummary {
     by_month: { month: string; usd: number }[];
     per_clip: { id: number; views: number | null; usd: number }[];
   };
-  disk?: { free_gb: number; total_gb: number };
+  /** connected är false när work/ eller out/ är en länk till en SSD som inte sitter i. Saknas hos äldre servrar. */
+  disk?: { free_gb: number; total_gb: number; connected?: boolean; problem?: string | null };
 }
 
 /** GET /campaign/tiktok/status. Aldrig någon token. */
@@ -284,6 +311,12 @@ export type TextPosition = "top" | "bottom";
 
 /** GET /campaign/profiles/{id}: en rad i listan plus detaljerna. */
 export interface CampaignProfileDetail extends CampaignProfile {
+  /** other_rules i profilen, till exempel "Kommentarer och gilla-markeringar ska vara påslagna". */
+  rules: string[];
+  /** Hur klippen godkänns, ur profilens approval. */
+  approval: string | null;
+  /** https-länkar ur profilens links, annars null. */
+  links: { content_rewards: string | null; analytics_form: string | null };
   overlay: {
     file: string | null;
     required: boolean;

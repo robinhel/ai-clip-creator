@@ -12,22 +12,23 @@ interface Props {
 }
 
 export function CopyButton({ text, label = "Kopiera", disabled = false, className }: Props) {
-  const [copied, setCopied] = useState(false);
+  const [result, setResult] = useState<"copied" | "failed" | null>(null);
 
   async function handleCopy() {
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      setResult("copied");
     } catch {
-      // Urklipp kräver https eller localhost; inget att göra här.
+      // Urklipp kräver https eller localhost, och webbläsaren kan neka. Säg det, så att Robin inte klistrar in något gammalt.
+      setResult("failed");
     }
+    setTimeout(() => setResult(null), 2500);
   }
 
   return (
     <Button type="button" size={className ? "default" : "sm"} variant="outline" onClick={handleCopy} disabled={disabled || !text} className={className}>
-      {copied ? <Check /> : <Copy />}
-      {copied ? "Kopierad" : label}
+      {result === "copied" ? <Check /> : <Copy />}
+      {result === "copied" ? "Kopierad" : result === "failed" ? "Gick inte att kopiera" : label}
     </Button>
   );
 }

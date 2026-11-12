@@ -394,7 +394,7 @@ def test_new_caption_and_a_new_status_in_one_patch_is_refused(client, settings) 
 
     clip_id = _clip(settings, status="godkand", clip_format="funny")
     response = client.patch(f"/campaign/clips/{clip_id}", json={
-        "caption": CAPTION + " #new", "status": "postad", "url": "https://x.y/1", "platform": "tiktok"})
+        "caption": CAPTION + " #new", "status": "postad", "url": "https://www.tiktok.com/@me/video/1", "platform": "tiktok"})
     assert response.status_code == 400
     assert response.json()["detail"] == "Spara captionen först. Sedan behövs ett nytt ja."
     assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["caption"] == CAPTION

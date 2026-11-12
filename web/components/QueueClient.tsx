@@ -2,11 +2,53 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { RefreshCw } from "lucide-react";
+import { ExternalLink, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClipResultRow } from "@/components/ClipResultRow";
 import { api } from "@/lib/api";
-import type { CampaignClip, CampaignProfile, CampaignRunInfo, CampaignStatus } from "@/lib/types";
+import type { CampaignClip, CampaignProfile, CampaignProfileDetail, CampaignRunInfo, CampaignStatus } from "@/lib/types";
+
+/** Kampanjens regler för postningen och länkarna till Content Rewards och analytics-formuläret. */
+function CampaignRules({ detail }: { detail: CampaignProfileDetail }) {
+  const { rules, approval, links } = detail;
+  const link = "inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-4";
+  return (
+    <section className="mt-6 rounded-2xl border border-line bg-panel p-5 text-sm" aria-label={`Regler för ${detail.streamer}`}>
+      <h2 className="font-semibold">Regler för {detail.streamer}</h2>
+      {rules.length > 0 && (
+        <ul className="mt-2 list-disc space-y-0.5 pl-5 text-muted-foreground">
+          {rules.map((rule) => (
+            <li key={rule}>{rule}</li>
+          ))}
+        </ul>
+      )}
+      {approval && <p className="mt-2 text-muted-foreground">{approval}</p>}
+      <p className="mt-3 flex flex-wrap gap-x-5 gap-y-1">
+        {links.content_rewards ? (
+          <a href={links.content_rewards} target="_blank" rel="noreferrer" className={link}>
+            Öppna Content Rewards
+            <ExternalLink className="size-3.5" aria-hidden />
+          </a>
+        ) : null}
+        {links.analytics_form ? (
+          <a href={links.analytics_form} target="_blank" rel="noreferrer" className={link}>
+            Analytics-formuläret
+            <ExternalLink className="size-3.5" aria-hidden />
+          </a>
+        ) : null}
+        {(!links.content_rewards || !links.analytics_form) && (
+          <span className="text-muted-foreground">
+            Länken till {!links.content_rewards ? "Content Rewards" : "analytics-formuläret"} saknas.{" "}
+            <Link href={`/campaigns/${detail.name}?tab=profil`} className="underline underline-offset-4 hover:text-foreground">
+              Lägg in den under links i profilen
+            </Link>
+            .
+          </span>
+        )}
+      </p>
+    </section>
+  );
+}
 
 const SECTIONS: { status: CampaignStatus; title: string; description: string; empty: string }[] = [
   {
@@ -27,6 +69,7 @@ export function QueueClient() {
   const [clips, setClips] = useState<CampaignClip[] | null>(null);
   const [profiles, setProfiles] = useState<CampaignProfile[]>([]);
   const [runs, setRuns] = useState<CampaignRunInfo[]>([]);
+  const [details, setDetails] = useState<CampaignProfileDetail[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -41,6 +84,11 @@ export function QueueClient() {
       ]);
       setClips(clipData);
       setProfiles(profileData);
+      // Reglerna för kampanjerna som har klipp att posta eller skicka in.
+      const names = [...new Set(clipData.filter((c) => SECTIONS.some((s) => s.status === c.status)).map((c) => c.profile))];
+      Promise.all(names.map((name) => api.campaign.profile.get(name).catch(() => null)))
+        .then((list) => setDetails(list.filter((d): d is CampaignProfileDetail => d !== null)))
+        .catch(() => {});
       setRuns(runData);
       setError(null);
     } catch (err) {
@@ -99,6 +147,10 @@ export function QueueClient() {
       )}
 
       {clips === null && !error && <p className="mt-6 text-sm text-muted-foreground">Hämtar klipp…</p>}
+
+      {details.map((d) => (
+        <CampaignRules key={d.name} detail={d} />
+      ))}
 
       {clips &&
         SECTIONS.map((section) => {

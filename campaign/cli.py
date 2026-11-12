@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .brain import Brain
 from .budget import Budget, budget_from_settings
-from .cliplog import STATUSES, ClipLog
+from .cliplog import POST_STATUSES, STATUSES, ClipLog
 from .config import Settings, load_settings
 from .facit import load_facit, score
 from .media import probe
@@ -148,14 +148,25 @@ def cmd_approve(args, settings: Settings) -> int:
 
 
 def cmd_posted(args, settings: Settings) -> int:
-    _log(settings).update(args.clip_id, status="postad", url=args.url, platform=args.platform)
+    log = _log(settings)
+    same = [p for p in log.posts(args.clip_id) if p["platform"] == (args.platform or "tiktok")]
+    if same:  # samma plattform igen: byt länken
+        log.update_post(same[0]["id"], url=args.url)
+    else:  # ett inlägg per plattform
+        log.add_post(args.clip_id, args.platform or "tiktok", args.url)
     print("Sparat. Skicka nu in länken i Content Rewards, och kör sedan:")
     print(f"  python -m campaign mark {args.clip_id} inskickad")
     return 0
 
 
 def cmd_mark(args, settings: Settings) -> int:
-    _log(settings).update(args.clip_id, status=args.status)
+    log = _log(settings)
+    posts = log.posts(args.clip_id)
+    if posts and args.status in POST_STATUSES:  # steget gäller alla klippets inlägg
+        for post in posts:
+            log.update_post(post["id"], status=args.status)
+    else:
+        log.update(args.clip_id, status=args.status)
     print(f"#{args.clip_id} har nu status {args.status}.")
     return 0
 
@@ -164,7 +175,14 @@ def cmd_stats(args, settings: Settings) -> int:
     log = _log(settings)
     fields = {k: getattr(args, k) for k in ("views", "likes", "comments", "shares")
               if getattr(args, k) is not None}
-    log.update(args.clip_id, **fields)
+    posts = log.posts(args.clip_id)
+    if len(posts) > 1:
+        print("Klippet har flera inlägg. Fyll i siffrorna per inlägg under Statistik i appen.")
+        return 1
+    if posts:
+        log.update_post(posts[0]["id"], **fields)
+    else:
+        log.update(args.clip_id, **fields)
     clip = log.get(args.clip_id)
     profile = load_profile(clip["profile"], settings.profiles_dir)
     rate = log.engagement(clip)

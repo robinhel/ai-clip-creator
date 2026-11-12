@@ -110,6 +110,20 @@ def test_campaign_detail_has_overlay_text_caption_and_payment(client) -> None:
     assert client.get("/campaign/profiles/Fel-Id").status_code == 400
 
 
+def test_campaign_detail_has_the_posting_rules_and_links(client, settings) -> None:
+    detail = client.get("/campaign/profiles/skiimasktimmy").json()
+    assert "Kommentarer och gilla-markeringar ska vara påslagna" in detail["rules"]
+    assert "analytics-formulär" in detail["approval"]
+    assert detail["links"] == {"content_rewards": None, "analytics_form": None}
+    path = settings.profiles_dir / "skiimasktimmy.yaml"
+    path.write_text(_profile_text(settings) + "links:\n  content_rewards: https://whop.com/x/\n  analytics_form: https://forms.gle/y\n")
+    detail = client.get("/campaign/profiles/skiimasktimmy").json()
+    assert detail["links"] == {"content_rewards": "https://whop.com/x/", "analytics_form": "https://forms.gle/y"}
+    # Bara https-länkar visas, så att profilen inte kan lägga in en javascript:-länk.
+    path.write_text(_profile_text(settings).replace("https://forms.gle/y", "javascript:alert(1)"))
+    assert client.get("/campaign/profiles/skiimasktimmy").json()["links"]["analytics_form"] is None
+
+
 # ---------- 1. overlay ----------
 
 
@@ -249,6 +263,8 @@ def test_yaml_is_shown_with_comments_and_saved_exactly(client, settings) -> None
     (lambda t: t.replace("  - id: clutch\n", "  - idx: clutch\n"), "id"),
     (lambda t: t + "x: &a [1, 2]\ny: *a\n", "alias"),
     (lambda t: t.replace("clipsmith_config: config.timmy.yaml", "clipsmith_config: .env"), "clipsmith_config"),
+    (lambda t: t.replace("min_seconds: 7 ", "min_seconds: abc "), "clip.min_seconds måste vara ett tal"),
+    (lambda t: t.replace("font_size: 46", "font_size: stor"), "on_screen_text.font_size måste vara ett heltal"),
 ])
 def test_broken_yaml_is_refused_and_nothing_changes(client, settings, change, words) -> None:
     before = _profile_text(settings)
@@ -456,6 +472,7 @@ def test_a_config_with_only_webcam_rect_shows_it_as_the_only_rect(client, settin
     ([RIGHT, [0, 0, 400, 224]], "form"),
     ([RIGHT, [1700, 770, 316, 224]], "utanför"),
     ([RIGHT, [0, 0, 316]], "heltal"),
+    ([RIGHT, LEFT, RIGHT], "Facecam-ruta 3 är samma som Facecam-ruta 1"),
 ])
 def test_bad_rect_lists_are_refused(client, settings, rects, words) -> None:
     before = (settings.root / "config.timmy.yaml").read_bytes()

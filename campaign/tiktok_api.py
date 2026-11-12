@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import secrets
 from pathlib import Path
 from time import monotonic
@@ -25,7 +26,13 @@ _pending: dict[str, tuple[float, str]] = {}  # state -> (när, code_verifier). B
 
 def _only_local(request: Request) -> None:
     """clipsmith serve lyssnar på 0.0.0.0. Ingen annan på nätverket får koppla in sitt eget konto."""
-    if request.client is None or request.client.host not in ("127.0.0.1", "::1"):
+    try:
+        address = ipaddress.ip_address(request.client.host if request.client else "")
+    except ValueError:
+        address = None
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:  # ::ffff:127.0.0.1, samma dator
+        address = address.ipv4_mapped
+    if address is None or not address.is_loopback:
         raise HTTPException(403, "TikTok kan bara kopplas från datorn där servern körs.")
 
 

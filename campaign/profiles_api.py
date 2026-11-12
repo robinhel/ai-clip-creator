@@ -115,6 +115,7 @@ def _detail(profile_id: str, settings: Settings) -> dict:
     if target is not None and exists:
         with target.open("rb") as file:
             size = edit.png_size(file.read(24))
+    links = profile.raw.get("links") if isinstance(profile.raw.get("links"), dict) else {}
     out.update(
         overlay={"file": profile.overlay_file, "required": profile.overlay_required, "mode": profile.overlay_mode,
                  "exists": exists, "url": f"/campaign/profiles/{profile_id}/overlay",
@@ -125,8 +126,16 @@ def _detail(profile_id: str, settings: Settings) -> dict:
                  "must_include": profile.caption_must_include},
         payment={key: profile.payment.get(key) for key in ("cpm_usd", "min_views", "max_payout_per_clip_usd")},
         clipsmith_config=profile.clipsmith_config,
+        rules=[r for r in profile.raw.get("other_rules") or [] if isinstance(r, str)],
+        approval=profile.raw.get("approval") if isinstance(profile.raw.get("approval"), str) else None,
+        links={key: _https(links.get(key)) for key in ("content_rewards", "analytics_form")},
     )
     return out
+
+
+def _https(value: object) -> str | None:
+    """Länken om den är en https-adress, annars None. Profilen får inte lägga in en javascript:-länk."""
+    return value if isinstance(value, str) and urlparse(value).scheme == "https" and urlparse(value).netloc else None
 
 
 # ---------- kampanjen ----------
