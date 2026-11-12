@@ -12,7 +12,9 @@ import type {
   KeyGroup,
   KeyTest,
   ClipEditInfo,
+  ClipPostPatch,
   ClipTranscript,
+  Platform,
   Rect,
   ReframeInfo,
   Run,
@@ -121,6 +123,14 @@ export const api = {
         apiFetch<{ id: number }>(`/campaign/runs/${runId}/retry`, { method: "POST" }),
       finish: (runId: number) =>
         apiFetch<{ started: boolean }>(`/campaign/runs/${runId}/finish`, { method: "POST" }),
+    },
+    // Inlägg per plattform. Svaret är hela klippet med alla dess inlägg.
+    posts: {
+      add: (clipId: number, body: { platform: Platform; url: string }) =>
+        apiFetch<CampaignClip>(`/campaign/clips/${clipId}/posts`, { method: "POST", body: JSON.stringify(body) }),
+      patch: (postId: number, body: ClipPostPatch) =>
+        apiFetch<CampaignClip>(`/campaign/posts/${postId}`, { method: "PATCH", body: JSON.stringify(body) }),
+      remove: (postId: number) => apiFetch<CampaignClip>(`/campaign/posts/${postId}`, { method: "DELETE" }),
     },
     clips: {
       list: (filter: { status?: CampaignStatus; vod_id?: string; run_id?: number } = {}) => {

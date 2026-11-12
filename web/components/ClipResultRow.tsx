@@ -10,6 +10,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { CampaignStatusBadge, PLATFORM_LABEL } from "@/components/CampaignStatusBadge";
 import { ClipEditor } from "@/components/ClipEditor";
+import { ClipPosts } from "@/components/ClipPosts";
 import { CopyButton } from "@/components/CopyButton";
 import { TikTokSend } from "@/components/TikTokSend";
 import { api } from "@/lib/api";
@@ -176,6 +177,8 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
   const formatName = formats.find((f) => f.id === clip.format)?.name ?? clip.format;
   const hasProblems = clip.problems.length > 0;
   const approved = CAN_POST.includes(clip.status);
+  // Servern har en lista med inlägg per plattform. Äldre servrar har bara en länk per klipp.
+  const hasPosts = (clip.posts?.length ?? 0) > 0;
   const [editInfo, setEditInfo] = useState<ClipEditInfo | null>(null);
   const [opening, setOpening] = useState(false);
   const [keyHint, setKeyHint] = useState<string | null>(null);
@@ -435,7 +438,8 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
           </p>
         )}
 
-        {POSTED.includes(clip.status) && clip.url && !editingLink && (
+        {hasPosts && <ClipPosts clip={clip} onUpdate={onUpdate} />}
+        {!hasPosts && POSTED.includes(clip.status) && clip.url && !editingLink && (
           <p className="flex flex-wrap items-center gap-1.5 text-sm">
             <span className="text-muted-foreground">{clip.platform ? PLATFORM_LABEL[clip.platform] : "Postad"}:</span>
             <a
@@ -596,7 +600,7 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
             </Button>
           </div>
         )}
-        {clip.status === "postad" && (
+        {clip.status === "postad" && !hasPosts && (
           <>
             <Button className="h-auto min-h-9 py-2 whitespace-normal" disabled={busy} onClick={() => patch({ status: "inskickad" })}>
               <Send aria-hidden />
