@@ -11,7 +11,8 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
 
   const headers: Record<string, string> = {};
   req.headers.forEach((value, key) => {
-    if (key.toLowerCase() !== "host") headers[key] = value;
+    // fetch sätter längden själv utifrån bodyn; en vidarebefordrad längd kan krocka med den.
+    if (!["host", "content-length"].includes(key.toLowerCase())) headers[key] = value;
   });
   const apiKey = process.env.API_KEY;
   if (apiKey) {
@@ -23,7 +24,8 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
     const upstream = await fetch(url.toString(), {
       method: req.method,
       headers,
-      body: hasBody ? await req.text() : undefined,
+      // Bytes, inte text: en PNG (overlay-bilden) måste komma fram oförändrad.
+      body: hasBody ? await req.arrayBuffer() : undefined,
       cache: "no-store",
     });
     const contentType = upstream.headers.get("content-type") ?? "application/json";
