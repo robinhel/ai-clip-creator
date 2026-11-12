@@ -97,7 +97,11 @@ export function SiteNav() {
                 tone={budgetPct >= 90 ? "bad" : budgetPct >= 70 ? "warn" : "good"}
               />
             )}
-            {disk && (
+            {disk?.connected === false ? (
+              <p role="alert" className="rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-2.5 py-2 text-xs text-[#fca5a5]">
+                {disk.problem || "SSD:n är inte ansluten."}
+              </p>
+            ) : disk && (
               <Meter
                 label={`Disk ledigt: ${gb.format(disk.free_gb)} GB`}
                 pct={diskFreePct}

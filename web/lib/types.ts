@@ -279,7 +279,8 @@ export interface CampaignSummary {
     by_month: { month: string; usd: number }[];
     per_clip: { id: number; views: number | null; usd: number }[];
   };
-  disk?: { free_gb: number; total_gb: number };
+  /** connected är false när work/ eller out/ är en länk till en SSD som inte sitter i. Saknas hos äldre servrar. */
+  disk?: { free_gb: number; total_gb: number; connected?: boolean; problem?: string | null };
 }
 
 /** GET /campaign/tiktok/status. Aldrig någon token. */
