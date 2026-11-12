@@ -91,7 +91,7 @@ def test_status_follows_the_flow_and_posting_needs_a_link(client, settings) -> N
 def test_a_wrong_click_can_be_undone_one_step_back(client, settings) -> None:
     clip_id = _clip(settings, status="godkand", clip_format="funny")
     url = f"/campaign/clips/{clip_id}"
-    link = {"url": "https://www.tiktok.com/@me/video/1", "platform": "tiktok"}
+    link = {"url": "https://www.tiktok.com/@me/video/1", "platform": "tiktok", "views": 2500}  # över min_views
     for step, back in [("postad", "godkand"), ("inskickad", "postad"), ("analytics_inskickad", "inskickad"),
                        ("betald", "analytics_inskickad")]:
         assert client.patch(url, json={"status": step, **link}).status_code == 200, step

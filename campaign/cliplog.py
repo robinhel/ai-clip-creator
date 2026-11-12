@@ -18,6 +18,12 @@ STATUSES = [
     "betald",
 ]
 
+# Ett inlägg är klippet på en plattform. Varje inlägg skickas in, följs och betalas för sig.
+POST_STATUSES = ["postad", "inskickad", "analytics_inskickad", "betald"]
+POST_COLUMNS = "id, clip_id, platform, url, status, views, likes, comments, shares, paid_usd, created, updated"
+PLATFORM_NAMES = {"tiktok": "TikTok", "instagram_reels": "Reels", "youtube_shorts": "Shorts"}
+STAT_KEYS = ("views", "likes", "comments", "shares")
+
 COLUMNS = (
     "id, vod_id, profile, start_s, end_s, title, format, signals, file, caption, status, "
     "problems, warnings, review, platform, url, views, likes, comments, shares, note, "
@@ -56,6 +62,17 @@ class ClipLog:
                 """CREATE TABLE IF NOT EXISTS runs (
                     run_id INTEGER PRIMARY KEY, vod_id TEXT, profile TEXT, game TEXT)"""
             )
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS posts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER, platform TEXT, url TEXT,
+                    status TEXT, views INTEGER, likes INTEGER, comments INTEGER, shares INTEGER,
+                    paid_usd REAL, created TEXT, updated TEXT, UNIQUE (clip_id, platform))"""
+            )
+            # Klipp från före inläggen: klippets länk blir ett inlägg. Bara en gång (user_version 0 -> 1),
+            # så att ett klipp vars inlägg är borttagna inte får tillbaka dem.
+            if db.execute("PRAGMA user_version").fetchone()[0] < 1:
+                self._move_links_to_posts(db)
+                db.execute("PRAGMA user_version = 1")
             for table, columns in NEW_COLUMNS.items():
                 have = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
                 for name, kind in columns.items():
@@ -65,6 +82,19 @@ class ClipLog:
                         except sqlite3.OperationalError as error:  # en annan process hann före
                             if "duplicate column" not in str(error):
                                 raise
+
+    @staticmethod
+    def _move_links_to_posts(db: sqlite3.Connection) -> None:
+        db.execute(
+            f"""INSERT OR IGNORE INTO posts (clip_id, platform, url, status, views, likes, comments, shares,
+                   created, updated)
+               SELECT id, COALESCE(platform, 'tiktok'), url,
+                      CASE WHEN status IN ({", ".join("?" * len(POST_STATUSES))}) THEN status ELSE 'postad' END,
+                      views, likes, comments, shares, updated, updated
+               FROM clips WHERE url IS NOT NULL AND url != ''
+                 AND id NOT IN (SELECT clip_id FROM posts)""",
+            POST_STATUSES,
+        )
 
     def _db(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.db_path)
@@ -136,6 +166,70 @@ class ClipLog:
                 (*fields.values(), _now(), clip_id),
             )
 
+    # ---------- inlägg ----------
+
+    def posts(self, clip_id: int | None = None) -> list[dict]:
+        """Inläggen för ett klipp, eller alla inlägg, i den ordning de lades till."""
+        query, args = f"SELECT {POST_COLUMNS} FROM posts", ()
+        if clip_id is not None:
+            query, args = query + " WHERE clip_id = ?", (clip_id,)
+        with self._db() as db:
+            return [dict(r) for r in db.execute(query + " ORDER BY id", args).fetchall()]
+
+    def get_post(self, post_id: int) -> dict:
+        with self._db() as db:
+            row = db.execute(f"SELECT {POST_COLUMNS} FROM posts WHERE id = ?", (post_id,)).fetchone()
+        if row is None:
+            raise SystemExit(f"Hittar inget inlägg med id {post_id}.")
+        return dict(row)
+
+    def add_post(self, clip_id: int, platform: str, url: str) -> int:
+        """Ett nytt inlägg med status postad. Samma plattform två gånger ger sqlite3.IntegrityError."""
+        self.get(clip_id)
+        now = _now()
+        with self._db() as db:
+            cursor = db.execute(
+                "INSERT INTO posts (clip_id, platform, url, status, created, updated) VALUES (?,?,?,?,?,?)",
+                (clip_id, platform, url, "postad", now, now),
+            )
+            post_id = int(cursor.lastrowid)
+        self._sync(clip_id)
+        return post_id
+
+    def update_post(self, post_id: int, **fields) -> None:
+        if "status" in fields and fields["status"] not in POST_STATUSES:
+            raise ValueError(f"Okänd status för ett inlägg: {fields['status']}")
+        unknown = set(fields) - {"status", "url", "platform", "paid_usd", *STAT_KEYS}
+        if unknown:
+            raise ValueError(f"Fält som inte får ändras: {sorted(unknown)}")
+        post = self.get_post(post_id)
+        if fields:
+            sets = ", ".join(f"{key} = ?" for key in fields)
+            with self._db() as db:
+                db.execute(f"UPDATE posts SET {sets}, updated = ? WHERE id = ?", (*fields.values(), _now(), post_id))
+        self._sync(post["clip_id"])
+
+    def delete_post(self, post_id: int) -> None:
+        post = self.get_post(post_id)
+        with self._db() as db:
+            db.execute("DELETE FROM posts WHERE id = ?", (post_id,))
+        self._sync(post["clip_id"])
+
+    def _sync(self, clip_id: int) -> None:
+        """Klippets länk, plattform, siffror och status räknas fram ur inläggen, så att sammanfattningen
+        och intäkterna fortsätter fungera. Klippet är så långt som det inlägg som har kommit kortast."""
+        posts = self.posts(clip_id)
+        clip = self.get(clip_id)
+        if not posts:
+            if clip["status"] in POST_STATUSES:
+                self.update(clip_id, status="godkand", url=None, platform=None,
+                            **{key: None for key in STAT_KEYS})
+            return
+        totals = {key: (sum(p[key] or 0 for p in posts) if any(p[key] is not None for p in posts) else None)
+                  for key in STAT_KEYS}
+        status = min((p["status"] for p in posts), key=POST_STATUSES.index)
+        self.update(clip_id, status=status, url=posts[0]["url"], platform=posts[0]["platform"], **totals)
+
     def overlaps(self, vod_id: str, start_s: float, end_s: float, min_ratio: float = 0.25) -> bool:
         """True om samma del av samma VOD redan finns i loggen (nekade och underkända räknas inte)."""
         length = max(end_s - start_s, 0.001)
@@ -158,21 +252,32 @@ class ClipLog:
         return 100.0 * total / clip["views"]
 
     def todo(self, min_views: int = 2000, skip: set[str] | frozenset[str] = frozenset()) -> list[str]:
-        """Det du behöver göra just nu för att få betalt. `skip` är kampanjer som inte ska räknas."""
+        """Det du behöver göra just nu för att få betalt, per klipp och per inlägg.
+        `skip` är kampanjer som inte ska räknas."""
         items: list[str] = []
+        posts: dict[int, list[dict]] = {}
+        for post in self.posts():
+            posts.setdefault(post["clip_id"], []).append(post)
         for clip in self.list():
             if clip["profile"] in skip:
                 continue
             label = f"#{clip['id']} {clip['title']!r}"
             if clip["status"] == "godkand":
                 items.append(f"{label}: posta klippet och spara länken.")
-            elif clip["status"] == "postad":
-                items.append(f"{label}: skicka in länken i Content Rewards och markera klippet som inskickat.")
-            elif clip["status"] == "inskickad" and (clip["views"] or 0) >= min_views:
-                items.append(
-                    f"{label}: har {clip['views']} visningar. Skicka skärminspelningen av "
-                    "klippets statistik i kampanjens formulär."
-                )
+            # Ett klipp som postats utan inlägg (äldre sätt) räknas som ett inlägg.
+            implied = [clip] if clip["status"] in POST_STATUSES else []
+            for post in posts.get(clip["id"], implied):
+                name = PLATFORM_NAMES.get(post["platform"] or "", post["platform"])
+                where = f"{label} på {name}" if name else label
+                if post["status"] == "postad":
+                    items.append(f"{where}: skicka in länken i Content Rewards och markera inlägget som inskickat.")
+                elif post["status"] == "inskickad" and post["views"] is None:
+                    items.append(f"{where}: fyll i visningar, gilla och kommentarer.")
+                elif post["status"] == "inskickad" and post["views"] >= min_views:
+                    items.append(
+                        f"{where}: har {post['views']} visningar. Skicka skärminspelningen av "
+                        "inläggets statistik i kampanjens formulär."
+                    )
         return items
 
     def add_run(self, run_id: int, vod_id: str, profile: str, game: str | None, *,

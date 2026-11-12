@@ -23,7 +23,7 @@ from clipsmith.db.models import PipelineEvent, Run, RunStatus
 from . import editor, estimate, streams
 from .budget import budget_from_settings
 from .caption import check_caption
-from .cliplog import STATUSES, ClipLog
+from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog
 from .config import Settings, load_settings
 from .media import need, run
 from .pipeline import finish_run, run_campaign_vod
@@ -416,9 +416,21 @@ def _public(clip: dict, settings: Settings) -> dict:
         out["engagement_min"] = None
     # ?v= byts när klippet ändras, så att webbläsaren inte visar en gammal version efter en redigering.
     version = quote(clip.get("updated") or "")
+    out["posts"] = _public_posts(clip, settings)
     out["video_url"] = f"/campaign/clips/{clip['id']}/file?v={version}"
     out["poster_url"] = f"/campaign/clips/{clip['id']}/poster?v={version}"
     return out
+
+
+def _public_posts(clip: dict, settings: Settings) -> list[dict]:
+    """Klippets inlägg med engagemang och uppskattad intäkt per inlägg."""
+    try:
+        payment = load_profile(clip["profile"], settings.profiles_dir).payment
+    except (SystemExit, Exception):  # kampanjen finns inte längre: ingen uppskattning
+        payment = {}
+    return [{**post, "engagement": ClipLog.engagement(post),
+             "estimate_usd": _payout(post["views"] or 0, payment) if post["views"] else None}
+            for post in _log(settings).posts(clip["id"])]
 
 
 def _get(log: ClipLog, clip_id: int) -> dict:
@@ -576,10 +588,50 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
                 raise HTTPException(400, "Klistra in länken till det postade klippet.")
             if not (fields.get("platform") or clip["platform"]):
                 raise HTTPException(400, "Välj plattform.")
+        if new == "analytics_inskickad":
+            _check_min_views(fields.get("views", clip["views"]), profile)
 
+    _apply_to_posts(log, clip, fields)
     if fields:
         log.update(clip_id, **fields)
     return _public(log.get(clip_id), settings)
+
+
+def _check_min_views(views: int | None, profile: Profile) -> None:
+    """Statistik inskickad går först när inlägget har nått kampanjens min_views."""
+    if (views or 0) < profile.min_views:
+        raise HTTPException(400, f"Statistiken skickas in först vid {profile.min_views} visningar. "
+                                 f"Inlägget har {views or 0}.")
+
+
+def _apply_to_posts(log: ClipLog, clip: dict, fields: dict) -> None:
+    """Ändringar på klippnivå som egentligen gäller inläggen. Ett klipp med ett inlägg fungerar som förut.
+    Det som gäller inläggen tas bort ur `fields`; klippets värden räknas sedan fram ur inläggen."""
+    posts = log.posts(clip["id"])
+    new = fields.get("status")
+    if new == "postad" and clip["status"] == "godkand":  # första inlägget, som förut med en länk
+        log.add_post(clip["id"], fields.pop("platform", None) or clip["platform"], fields.pop("url", None) or clip["url"])
+        fields.pop("status")
+    elif new == "godkand" and clip["status"] == "postad":  # ångra postningen: inläggen tas bort
+        for post in posts:
+            log.delete_post(post["id"])
+        fields.pop("status")
+        # Länken står kvar i klippet, så att samma postning går att göra igen med ett klick.
+        fields.setdefault("url", clip["url"])
+        fields.setdefault("platform", clip["platform"])
+        posts = []
+    elif new in POST_STATUSES and posts:  # ett steg för klippet gäller alla dess inlägg
+        for post in posts:
+            log.update_post(post["id"], status=new)
+        fields.pop("status")
+    link = {key: fields.pop(key) for key in ("url", "platform") if key in fields}
+    stats = {key: fields.pop(key) for key in STAT_KEYS if key in fields}
+    if (link or stats) and posts:
+        if len(posts) > 1:
+            raise HTTPException(400, "Klippet har flera inlägg. Ändra länk och siffror per inlägg.")
+        log.update_post(posts[0]["id"], **link, **stats)
+    elif link or stats:
+        fields.update(link, **stats)
 
 
 # ---------- översikt ----------
@@ -630,3 +682,7 @@ def _earnings(clips: list[dict], settings: Settings) -> dict:
     return {"estimated_usd": round(sum(c["usd"] for c in per_clip), 2), "paid_usd": round(paid, 2),
             "by_month": [{"month": m, "usd": round(usd, 2)} for m, usd in sorted(months.items())],
             "per_clip": per_clip}
+
+
+# Vägarna för inlägg ligger i posts_api.py och registreras på samma router.
+from . import posts_api  # noqa: E402,F401
