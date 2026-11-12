@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Check, CheckCircle2, Download, ExternalLink, Loader2, Pencil, Scissors, Send, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -35,14 +35,55 @@ export function scoreTone(score: number | null): string {
   return "text-bad";
 }
 
+/** Tangenterna gäller inte när man skriver i ett fält, håller en modifierare eller har en dialog öppen. */
+export function ignoreKey(e: KeyboardEvent): boolean {
+  const el = e.target as HTMLElement | null;
+  return (
+    e.metaKey || e.ctrlKey || e.altKey || e.repeat ||
+    !!el?.closest("input, textarea, select, [contenteditable=true]") ||
+    !!document.querySelector('[role="dialog"]')
+  );
+}
+
 function NoticeList({ tone, title, items }: { tone: "error" | "warning"; title: string; items: string[] }) {
   if (items.length === 0) return null;
   const Icon = tone === "error" ? XCircle : AlertTriangle;
+  // Varningar stoppar inte klippet: dämpade, och fällda när de är många.
+  if (tone === "warning") {
+    const list = (
+      <ul className="mt-1 list-disc space-y-0.5 pl-6">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    );
+    return (
+      <div className="rounded-lg border border-[#3a3018] px-3 py-2 text-[13px] text-warn/80">
+        {items.length > 2 ? (
+          <details>
+            <summary className="flex cursor-pointer items-center gap-1.5 select-none hover:text-warn [&::-webkit-details-marker]:hidden">
+              <Icon className="size-3.5" aria-hidden />
+              {items.length} varningar, visa
+            </summary>
+            {list}
+          </details>
+        ) : (
+          <>
+            <p className="flex items-center gap-1.5">
+              <Icon className="size-3.5" aria-hidden />
+              {items.length === 1 ? "Varning" : "Varningar"}
+            </p>
+            {list}
+          </>
+        )}
+      </div>
+    );
+  }
   return (
     <div
       className={cn(
         "space-y-1 rounded-lg border p-3 text-sm",
-        tone === "error" ? "border-[#4d1d1d] bg-[#1c0f10] text-[#fca5a5]" : "border-[#5a4416] bg-[#1b160b] text-warn"
+        "border-[#4d1d1d] bg-[#1c0f10] text-[#fca5a5]"
       )}
     >
       <p className="flex items-center gap-1.5 font-medium">
@@ -97,11 +138,13 @@ interface Props {
   formats: CampaignFormat[];
   /** Länk till projektet, för klipp som visas utanför projektsidan. */
   runId?: number;
+  /** Raden som tangenterna Y, N, E och C gäller. */
+  active?: boolean;
   onUpdate: (clip: CampaignClip) => void;
 }
 
 /** Ett klipp per rad: betyg, video, Claudes motivering, caption, regelkontroll och knappar. */
-export function ClipResultRow({ clip, number, formats, runId, onUpdate }: Props) {
+export function ClipResultRow({ clip, number, formats, runId, active = false, onUpdate }: Props) {
   const [caption, setCaption] = useState(clip.caption ?? "");
   const [editing, setEditing] = useState(false);
   const [platform, setPlatform] = useState<Platform | "">(clip.platform ?? "");
@@ -117,6 +160,7 @@ export function ClipResultRow({ clip, number, formats, runId, onUpdate }: Props)
   const approved = CAN_POST.includes(clip.status);
   const [editInfo, setEditInfo] = useState<ClipEditInfo | null>(null);
   const [opening, setOpening] = useState(false);
+  const [keyHint, setKeyHint] = useState<string | null>(null);
   const notice = editNotice.get(clip.id)?.updated === clip.updated ? editNotice.get(clip.id)!.text : null;
 
   // Läget hämtas först vid klick: en GET per rad gör ffprobe på servern för varje klipp.
@@ -167,10 +211,49 @@ export function ClipResultRow({ clip, number, formats, runId, onUpdate }: Props)
         ? "Välj plattform och klistra in länken först"
         : undefined;
 
+  // Snabbgranskning med tangenterna. Samma skydd som knapparna: är knappen avstängd händer inget, och raden säger varför.
+  const keyAction = useRef<(key: string) => void>(() => {});
+  keyAction.current = (key) => {
+    if (busy || opening) return;
+    if (key === "y") {
+      if (clip.status !== "renderad") return setKeyHint(clip.status === "underkand" ? "Ja: rätta problemen först." : "Ja går bara för klipp som väntar på granskning.");
+      if (approveBlock) return setKeyHint(`Ja: ${approveBlock.toLowerCase()}.`);
+      setKeyHint(null);
+      patch(captionDirty ? { status: "godkand", caption } : { status: "godkand" });
+    } else if (key === "n") {
+      if (clip.status !== "renderad" && clip.status !== "underkand") return setKeyHint("Nej går bara för klipp som väntar eller är underkända.");
+      setKeyHint(null);
+      patch({ status: "nekad" });
+    } else if (key === "e") {
+      if (!EDITABLE.includes(clip.status)) return setKeyHint("Klippet går inte att redigera i den här statusen.");
+      setKeyHint(null);
+      openEditor();
+    } else if (key === "c") {
+      if (!approved) return setKeyHint("Captionen går att kopiera först när klippet är godkänt.");
+      if (captionDirty) return setKeyHint("Spara eller ångra captionen först.");
+      navigator.clipboard.writeText(clip.caption ?? "").then(
+        () => setKeyHint("Captionen är kopierad."),
+        () => setKeyHint("Webbläsaren lät inte appen kopiera.")
+      );
+    }
+  };
+  useEffect(() => {
+    if (!active) return setKeyHint(null);
+    function onKey(e: KeyboardEvent) {
+      const key = e.key.toLowerCase();
+      if (!["y", "n", "e", "c"].includes(key) || ignoreKey(e)) return;
+      e.preventDefault();
+      keyAction.current(key);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active]);
+
   return (
     <article
       data-clip-id={clip.id}
-      className="grid grid-cols-[56px_minmax(0,1fr)] gap-x-4 gap-y-4 border-b border-line py-6 lg:grid-cols-[56px_230px_minmax(0,1fr)_200px] lg:gap-x-5"
+      data-active={active || undefined}
+      className="relative before:absolute before:inset-y-6 before:-left-4 before:w-[3px] before:rounded-full before:bg-brand before:opacity-0 data-active:before:opacity-100 grid grid-cols-[56px_minmax(0,1fr)] gap-x-4 gap-y-4 border-b border-line py-6 lg:grid-cols-[56px_230px_minmax(0,1fr)_200px] lg:gap-x-5"
     >
       <div className="row-span-2 pt-0.5 text-center" aria-label={clip.score == null ? "Inget betyg" : `Betyg ${clip.score} av 99`}>
         <p className={cn("text-[32px] leading-none font-extrabold tabular-nums", scoreTone(clip.score))}>
@@ -192,6 +275,7 @@ export function ClipResultRow({ clip, number, formats, runId, onUpdate }: Props)
         <video
           // #t=0.1 visar en bildruta i stället för svart innan uppspelning.
           src={`${api.campaign.videoUrl(clip)}#t=0.1`}
+          poster={api.campaign.posterUrl(clip)}
           controls
           playsInline
           preload="metadata"
@@ -454,6 +538,11 @@ export function ClipResultRow({ clip, number, formats, runId, onUpdate }: Props)
           </Button>
         )}
 
+        {keyHint && (
+          <p role="status" className="rounded-lg border border-line bg-panel px-2.5 py-2 text-[13px] text-muted-foreground">
+            {keyHint}
+          </p>
+        )}
         {error && (
           <p role="alert" className="rounded-lg border border-[#4d1d1d] bg-[#1c0f10] p-2.5 text-sm text-[#fca5a5]">
             {error}

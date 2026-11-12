@@ -14,6 +14,7 @@ import type {
   Rect,
   ReframeInfo,
   Run,
+  StreamInfo,
   TikTokStatus,
   TikTokUpload,
   VodInfo,
@@ -102,6 +103,7 @@ export const api = {
         `${PROXY}/campaign/profiles/${id}/frame${vodId ? `?vod_id=${vodId}` : ""}`,
     },
     vod: (vodId: string) => apiFetch<VodInfo>(`/campaign/vod/${vodId}`),
+    streams: () => apiFetch<StreamInfo[]>("/campaign/streams"),
     runs: {
       list: () => apiFetch<CampaignRunInfo[]>("/campaign/runs"),
       get: (runId: number) => apiFetch<CampaignRunDetail>(`/campaign/runs/${runId}`),
@@ -142,6 +144,7 @@ export const api = {
     /** En sökväg från servern (till exempel overlay.url) via proxyn. */
     proxied: (path: string) => `${PROXY}${path}`,
     videoUrl: (clip: CampaignClip) => `${PROXY}${clip.video_url}`,
+    posterUrl: (clip: CampaignClip) => (clip.poster_url ? `${PROXY}${clip.poster_url}` : undefined),
     // video_url kan redan ha en fråga (?v=… efter en redigering).
     downloadUrl: (clip: CampaignClip) =>
       `${PROXY}${clip.video_url}${clip.video_url.includes("?") ? "&" : "?"}download=1`,

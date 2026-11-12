@@ -110,10 +110,30 @@ export interface RunStep {
   started_at: string | null;
   finished_at: string | null;
   estimate_s: number | null;
+  /** Senaste text för steget, annars null. */
+  message?: string | null;
 }
 
 /** GET /campaign/runs/{id}. */
+/** GET /campaign/streams: senaste streams för kampanjernas kanaler, med senaste körningen. */
+export interface StreamInfo {
+  vod_id: string;
+  channel: string;
+  channel_name: string;
+  title: string;
+  game: string | null;
+  duration_s: number;
+  created_at: string;
+  thumbnail_url: string | null;
+  campaigns: string[];
+  run_id: number | null;
+  run_status: RunStatus | null;
+  clip_count: number;
+}
+
 export interface CampaignRunDetail extends CampaignRunInfo {
+  /** Senaste händelsens text, till exempel "Del 3 av 8". */
+  message?: string | null;
   /** Del av VOD:en i sekunder. 0 och 0 betyder hela VOD:en; end_s 0 betyder till slutet. */
   start_s?: number | null;
   end_s?: number | null;
@@ -154,6 +174,8 @@ export interface CampaignClip {
   engagement: number | null;
   engagement_min: number | null;
   video_url: string;
+  /** JPEG ur klippet, samma ?v= som video_url. Saknas hos äldre servrar. */
+  poster_url?: string | null;
   /** Claudes betyg 0–99, null för äldre klipp. */
   score: number | null;
   /** Claudes motivering, tom för äldre klipp. */
@@ -187,6 +209,13 @@ export interface CampaignSummary {
   };
   counts: Partial<Record<CampaignStatus, number>>;
   todo: string[];
+  /** Saknas hos äldre servrar. */
+  earnings?: {
+    estimated_usd: number;
+    paid_usd: number;
+    by_month: { month: string; usd: number }[];
+    per_clip: { id: number; views: number | null; usd: number }[];
+  };
   disk?: { free_gb: number; total_gb: number };
 }
 
