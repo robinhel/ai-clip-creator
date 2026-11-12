@@ -107,6 +107,9 @@ export const api = {
       get: (runId: number) => apiFetch<CampaignRunDetail>(`/campaign/runs/${runId}`),
       create: (body: CampaignRunCreate) =>
         apiFetch<{ id: number }>("/campaign/runs", { method: "POST", body: JSON.stringify(body) }),
+      /** Ny körning med samma val. 201 med det nya id:t, 400 om körningen inte misslyckades, 429 om en körning pågår. */
+      retry: (runId: number) =>
+        apiFetch<{ id: number }>(`/campaign/runs/${runId}/retry`, { method: "POST" }),
       finish: (runId: number) =>
         apiFetch<{ started: boolean }>(`/campaign/runs/${runId}/finish`, { method: "POST" }),
     },
