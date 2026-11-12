@@ -253,6 +253,8 @@ def process_vod(
     out_dir = cfg.out_dir.expanduser() / video_id
     console.print(f"[cyan]cutting clips[/cyan] -> {out_dir}")
     clip_paths = cut_all_clips(mp4_path, transcript, picks, out_dir, cfg)
+    if any(p.webcam_rect for p in picks):
+        save_picks(picks, picks_path)  # with the webcam rect chosen per clip
     ckpt.mark_done("render")
     log.info("stage_done", stage="render", elapsed_ms=round((time.monotonic() - _t0) * 1000))
     console.print(f"[green]done[/green]: {len(clip_paths)} clip(s) in {out_dir}")
