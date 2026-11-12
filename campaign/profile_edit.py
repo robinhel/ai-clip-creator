@@ -17,8 +17,12 @@ from pathlib import Path
 
 import yaml
 
+from clipsmith.config.loaders import load_config
+from clipsmith.config.models import AppConfig
+
 from .profile import Profile, load_profile
 
+CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")  # radbrytningar, tabbar och andra styrtecken
 ID = re.compile(r"^[a-z0-9][a-z0-9_]{1,39}$")  # filnamnet; inget _ först, sådana profiler visas inte
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 SOURCE_W, SOURCE_H = 1920, 1080  # rutorna mäts i en 1080p-bild; nedladdningen ber om 1080p60
@@ -75,19 +79,95 @@ def check_overlay(data: bytes, mode: str) -> None:
                          "och högst 1920 hög.")
 
 
+# ---------- filer som profilen pekar på ----------
+
+
+def config_file(root: Path, name: object) -> Path:
+    """Kampanjens clipsmith-config. Bara en .yaml-fil direkt i projektmappen, så att ingen annan fil
+    (till exempel .env) kan läsas via profilen."""
+    bad = ValueError(f"clipsmith_config är {name!r}. Den måste vara en .yaml-fil direkt i projektmappen, "
+                     "till exempel config.kanal.yaml.")
+    if (not isinstance(name, str) or not name or Path(name).name != name or name.startswith(".")
+            or not name.endswith(".yaml")):
+        raise bad
+    path = root / name
+    if not path.is_file():
+        raise ValueError(f"Config-filen {name} saknas.")
+    real = path.resolve()  # en symlänk får inte peka ut någon annan fil
+    if real.parent != root.resolve() or real.name.startswith(".") or real.suffix != ".yaml":
+        raise bad
+    return path
+
+
+def read_config(path: Path) -> AppConfig:
+    """Läs config-filen. Felets text skrivs aldrig ut, eftersom den kan citera filens innehåll."""
+    try:
+        return load_config(path)
+    except Exception:  # yaml- och pydantic-fel citerar innehållet
+        raise ValueError(f"Config-filen {path.name} går inte att läsa.") from None
+
+
+def overlay_target(root: Path, file: object) -> Path:
+    target = (root / str(file)).resolve()
+    if (not isinstance(file, str) or not target.is_relative_to((root / "overlays").resolve())
+            or target.suffix.lower() != ".png"):
+        raise ValueError(f"overlay.file är {file}. Den måste ligga under overlays/ och sluta på .png.")
+    return target
+
+
 # ---------- profilens YAML ----------
 
 
-def check_profile_text(text: str, profile_id: str, root: Path) -> Profile:
-    """Samma kontroller som load_profile, plus det som annars kraschar senare i kedjan."""
+def _parse(text: str) -> object:
+    """Läs YAML utan ankare och alias, så att en liten fil inte kan växa till en enorm (billion laughs)."""
     try:
-        data = yaml.safe_load(text)
+        for event in yaml.parse(text, Loader=yaml.SafeLoader):
+            if isinstance(event, yaml.AliasEvent) or getattr(event, "anchor", None):
+                raise ValueError("YAML med ankare och alias (& och *) går inte att spara. Skriv ut värdena.")
+        return yaml.safe_load(text)
     except yaml.YAMLError as error:
         mark = getattr(error, "problem_mark", None)
         where = f" på rad {mark.line + 1}" if mark else ""
         raise ValueError(f"YAML-fel{where}: {getattr(error, 'problem', None) or error}") from error
+
+
+def _check_types(data: dict, root: Path) -> None:
+    def text(value: object, label: str) -> None:
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"{label} måste vara text.")
+
+    def texts(value: object, label: str) -> None:
+        if value is not None and not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
+            raise ValueError(f"{label} måste vara en lista med text.")
+
+    for key in ("name", "streamer", "campaign", "language"):
+        text(data.get(key), key)
+    sections = {key: data.get(key) or {} for key in ("caption", "on_screen_text", "overlay")}
+    for key, section in sections.items():
+        if not isinstance(section, dict):
+            raise ValueError(f"{key} måste vara en karta med fält.")
+    texts(sections["caption"].get("hashtags"), "caption.hashtags")
+    texts(sections["caption"].get("must_include"), "caption.must_include")
+    text(sections["caption"].get("template"), "caption.template")
+    text(sections["on_screen_text"].get("text"), "on_screen_text.text")
+    formats = data.get("formats")
+    if formats is not None and not (isinstance(formats, list) and all(
+            isinstance(f, dict) and isinstance(f.get("id"), str) and f["id"] for f in formats)):
+        raise ValueError("Varje format i formats behöver ett id.")
+    if sections["overlay"].get("file") is not None:
+        overlay_target(root, sections["overlay"]["file"])
+    font = sections["on_screen_text"].get("font_file")
+    if font is not None and not (isinstance(font, str) and (root / font).resolve().is_relative_to(root.resolve())
+                                 and Path(font).suffix.lower() in (".ttf", ".otf")):
+        raise ValueError("on_screen_text.font_file måste vara null eller en .ttf- eller .otf-fil i projektmappen.")
+
+
+def check_profile_text(text: str, profile_id: str, root: Path) -> Profile:
+    """Samma kontroller som load_profile, plus det som annars kraschar senare i kedjan."""
+    data = _parse(text)
     if not isinstance(data, dict):
         raise ValueError("Profilen måste vara en YAML-karta med fält som name och streamer.")
+    _check_types(data, root)
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / f"{profile_id}.yaml"
         path.write_text(text, encoding="utf-8")
@@ -97,16 +177,12 @@ def check_profile_text(text: str, profile_id: str, root: Path) -> Profile:
             raise ValueError(str(error)) from error
         except (TypeError, ValueError, AttributeError) as error:
             raise ValueError(f"Profilen går inte att läsa: {error}") from error
-    if any(not isinstance(f, dict) or not f.get("id") for f in profile.formats):
-        raise ValueError("Varje format i formats behöver ett id.")
     try:
         profile.caption_template.format(title="x")
     except (KeyError, IndexError, ValueError) as error:
         raise ValueError("caption.template får bara ha {title} inom klamrar.") from error
-    if profile.clipsmith_config:
-        config = (root / profile.clipsmith_config).resolve()
-        if not config.is_relative_to(root.resolve()) or not config.exists():
-            raise ValueError(f"clipsmith_config pekar på {profile.clipsmith_config}, som saknas.")
+    if data.get("clipsmith_config") is not None:
+        read_config(config_file(root, data["clipsmith_config"]))
     return profile
 
 
@@ -121,9 +197,10 @@ def _block(lines: list[str], section: str) -> tuple[int, int] | None:
     if lines[head].split("#")[0].strip() != f"{section}:":
         raise ValueError(f"{section}: står på en rad. Ändra den i filen.")
     end = head + 1
-    while end < len(lines) and (not lines[end].strip() or lines[end][0] in " \t"):
+    # En kommentar i kolumn 0 avslutar inte delen; bara en ny nyckel på toppnivå gör det.
+    while end < len(lines) and (not lines[end].strip() or lines[end][0] in " \t#"):
         end += 1
-    while end > head + 1 and not lines[end - 1].strip():
+    while end > head + 1 and (not lines[end - 1].strip() or lines[end - 1].startswith("#")):
         end -= 1
     return head, end
 
@@ -194,9 +271,9 @@ def reframe_text(text: str, webcam: list[int], gameplay: list[int], split_ratio:
     def as_list(rect: list[int]) -> str:
         return "[" + ", ".join(str(v) for v in rect) + "]"
 
-    values = {"webcam_rect": as_list(webcam), "gameplay_rect": as_list(gameplay), "split_ratio": repr(split_ratio)}
-    if _block(text.splitlines(keepends=True), "reframe") is None:
-        values = {"mode": "stacked", **values}  # utan mode används inte rutorna (clipsmiths standard är center)
+    # mode: stacked behövs, annars används inte rutorna (clipsmiths standard är center).
+    values = {"mode": "stacked", "webcam_rect": as_list(webcam), "gameplay_rect": as_list(gameplay),
+              "split_ratio": repr(split_ratio)}
     return set_keys(text, "reframe", values)
 
 
@@ -246,7 +323,8 @@ def new_profile_text(profile_id: str, body: dict, config_name: str) -> str:
     }
     if body.get("engagement_min_percent") is not None:
         data["engagement_min_percent"] = [{"views_up_to": None, "min": body["engagement_min_percent"]}]
-    header = (f"# Kampanjprofil: {body['streamer']}. Skapad i appen {date.today().isoformat()}.\n"
+    streamer = " ".join(str(body["streamer"]).split())  # en radbrytning här skulle lämna kommentaren
+    header = (f"# Kampanjprofil: {streamer}. Skapad i appen {date.today().isoformat()}.\n"
               "# Ändra den under Kampanjer i appen eller här. Kontrollera reglerna mot kampanjsidan.\n\n")
     return header + yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
 

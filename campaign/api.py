@@ -65,31 +65,36 @@ def _profile_names(settings: Settings) -> list[str]:
 # ---------- kampanjer ----------
 
 
-def _describe_profile(name: str, settings: Settings) -> dict:
-    from clipsmith.config.loaders import load_config
+def _describe_profile(name: str, settings: Settings, path: Path | None = None) -> dict:
+    """Kampanjen som den visas i appen. `path` läser profilen från en annan fil, till exempel en tmp-fil
+    som ska kontrolleras innan den ersätter profilen."""
+    from .profile_edit import config_file, read_config
 
-    profile = load_profile(name, settings.profiles_dir)
+    profile = load_profile(path or name, settings.profiles_dir)
     problems = profile.problems(settings.root)
     blocking: list[str] = []
     channel = profile.streamer.lower()
     clip_min_s = clip_max_s = None
-    config = settings.root / profile.clipsmith_config if profile.clipsmith_config else None
-    if config is None:
+    if not profile.clipsmith_config:
         blocking.append("Profilen saknar clipsmith_config.")
-    elif not config.exists():
-        blocking.append(f"Inställningsfilen {profile.clipsmith_config} saknas.")
     else:
-        cfg = load_config(config)
-        channel = cfg.channels[0] if cfg.channels else channel
-        clip_min_s, clip_max_s = cfg.clip.min_seconds, cfg.clip.max_seconds
+        try:  # bara en .yaml-fil i projektmappen, och felets text citerar aldrig filen
+            cfg = read_config(config_file(settings.root, profile.clipsmith_config))
+        except ValueError as error:
+            blocking.append(str(error))
+        else:
+            channel = cfg.channels[0] if cfg.channels else channel
+            clip_min_s, clip_max_s = cfg.clip.min_seconds, cfg.clip.max_seconds
+            if cfg.reframe.mode == "stacked" and not (cfg.reframe.webcam_rect and cfg.reframe.gameplay_rect):
+                blocking.append("Facecam- och spelrutan är inte inställda. Dra dem under Facecam.")
     if not settings.berget_api_key:
         blocking.append("BERGET_API_KEY saknas i .env.")
     if not settings.anthropic_api_key:
         blocking.append("ANTHROPIC_API_KEY saknas i .env.")
     return {
-        "name": profile.name,
+        "name": name,
         "streamer": profile.streamer,
-        "campaign": profile.raw.get("campaign") or profile.raw.get("name") or profile.name,
+        "campaign": profile.raw.get("campaign") or profile.raw.get("name") or name,
         "language": profile.language,
         "channel": channel,
         "clip_min_s": clip_min_s,
