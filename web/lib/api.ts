@@ -9,12 +9,17 @@ import type {
   CampaignSummary,
   ClipTranscript,
   Run,
+  TikTokStatus,
+  TikTokUpload,
   VodInfo,
 } from "./types";
 
 // JSON API calls go through the Next.js rewrite proxy (/api/* → FastAPI).
 // This avoids CORS and removes the need for NEXT_PUBLIC_API_BASE in the browser.
 const PROXY = "/api";
+
+// Inloggningen på TikTok öppnas direkt mot servern, inte via proxyn: TikTok leder tillbaka till :8000.
+const DIRECT = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 
 const FIELD_LABEL: Record<string, string> = {
   views: "visningar",
@@ -90,6 +95,14 @@ export const api = {
           body: JSON.stringify(body),
         }),
       transcript: (id: number) => apiFetch<ClipTranscript>(`/campaign/clips/${id}/transcript`),
+      tiktok: (id: number) => apiFetch<TikTokUpload | null>(`/campaign/clips/${id}/tiktok`),
+      sendToTikTok: (id: number) =>
+        apiFetch<TikTokUpload>(`/campaign/clips/${id}/tiktok`, { method: "POST" }),
+    },
+    tiktok: {
+      status: () => apiFetch<TikTokStatus>("/campaign/tiktok/status"),
+      disconnect: () => apiFetch<{ connected: false }>("/campaign/tiktok/disconnect", { method: "POST" }),
+      connectUrl: `${DIRECT}/campaign/tiktok/connect`,
     },
     summary: () => apiFetch<CampaignSummary>("/campaign/summary"),
     videoUrl: (clip: CampaignClip) => `${PROXY}${clip.video_url}`,

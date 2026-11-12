@@ -18,7 +18,7 @@ export function readyText(p: CampaignProfile): string {
   return "Går att köra, men rätta varningarna i kampanjens inställningar först";
 }
 
-export function CampaignsClient() {
+export function CampaignsClient({ children }: { children?: React.ReactNode }) {
   const [profiles, setProfiles] = useState<CampaignProfile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,6 +91,7 @@ export function CampaignsClient() {
           </article>
         ))}
       </div>
+      {children}
     </main>
   );
 }

@@ -186,3 +186,26 @@ export interface CampaignSummary {
   todo: string[];
   disk?: { free_gb: number; total_gb: number };
 }
+
+/** GET /campaign/tiktok/status. Aldrig någon token. */
+export interface TikTokStatus {
+  configured: boolean;
+  connected: boolean;
+  display_name: string | null;
+  avatar_url: string | null;
+  scopes: string[];
+  refresh_expires_at: string | null;
+  pending_24h: number;
+  pending_limit: number;
+}
+
+/** Senaste uppladdningen av ett klipp till TikTok. status: uploading, uploaded, failed eller TikToks egen. */
+export interface TikTokUpload {
+  clip_id: number;
+  publish_id: string;
+  status: string;
+  error: string | null;
+  created: string;
+  /** Bara i svaret på POST. */
+  message?: string;
+}

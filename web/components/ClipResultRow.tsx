@@ -10,6 +10,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { CampaignStatusBadge, PLATFORM_LABEL } from "@/components/CampaignStatusBadge";
 import { CopyButton } from "@/components/CopyButton";
+import { TikTokSend } from "@/components/TikTokSend";
 import { api } from "@/lib/api";
 import { clock, cn } from "@/lib/utils";
 import type { CampaignClip, CampaignClipPatch, CampaignFormat, ClipTranscript, Platform } from "@/lib/types";
@@ -356,6 +357,9 @@ export function ClipResultRow({ clip, number, formats, runId, onUpdate }: Props)
           </>
         )}
 
+        {clip.status === "godkand" && (
+          <TikTokSend clipId={clip.id} captionDirty={captionDirty} hasProblems={hasProblems} />
+        )}
         {clip.status === "godkand" && (
           <div className="mt-1 space-y-2 border-t border-line pt-3">
             <NativeSelect

@@ -51,7 +51,8 @@ export function SiteNav() {
   const budget = summary?.budget;
   const budgetPct = budget && budget.month_cap_usd > 0 ? (budget.month_usd / budget.month_cap_usd) * 100 : 0;
   const disk = summary?.disk;
-  const diskUsedPct = disk && disk.total_gb > 0 ? 100 - (disk.free_gb / disk.total_gb) * 100 : 0;
+  // Stapeln visar ledigt utrymme: nästan tom betyder lite ledigt.
+  const diskFreePct = disk && disk.total_gb > 0 ? (disk.free_gb / disk.total_gb) * 100 : 0;
 
   return (
     // Kolumnen går hela sidans höjd och ritar kanten; menyn i den står fast i fönstret.
@@ -95,7 +96,7 @@ export function SiteNav() {
             {disk && (
               <Meter
                 label={`Disk ledigt: ${gb.format(disk.free_gb)} GB`}
-                pct={diskUsedPct}
+                pct={diskFreePct}
                 tone={disk.free_gb < 20 ? "bad" : disk.free_gb < 50 ? "warn" : "good"}
               />
             )}
