@@ -39,3 +39,22 @@ def test_join_makes_one_whole_video_and_frees_the_disk(tmp_path) -> None:
     assert info["has_audio"]
     assert not list(parts.glob("0*.mp4"))
     assert not (tmp_path / "123.del.mp4").exists()
+
+
+@needs_ffmpeg
+def test_join_also_handles_ts_parts_without_init(tmp_path) -> None:
+    parts = tmp_path / "delar"
+    parts.mkdir()
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=30",
+         "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "6",
+         "-c:v", "libx264", "-g", "30", "-c:a", "aac", "-f", "hls", "-hls_time", "2",
+         "-hls_segment_filename", str(parts / "%05d.ts"), str(parts / "playlist.m3u8")],
+        check=True,
+    )
+    (parts / "playlist_downloaded.m3u8").write_text((parts / "playlist.m3u8").read_text())
+    out = tmp_path / "123.mp4"
+
+    join_segments(parts, out)
+
+    assert 5.5 < probe(out)["duration"] < 6.5
