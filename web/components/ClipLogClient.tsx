@@ -228,10 +228,10 @@ export function ClipLogClient({ initialSummary = null, initialClips = null }: Pr
   const purposes = Object.entries(summary?.budget.by_purpose ?? {});
 
   return (
-    <main className="w-full max-w-6xl mx-auto px-4 py-8 space-y-8">
+    <main className="w-full max-w-[1180px] space-y-8 px-6 py-9 md:px-11">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Klipplogg</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Statistik</h1>
           <p className="text-sm text-muted-foreground">
             Alla klipp från renderat till betalt, med statistik och budget.
           </p>

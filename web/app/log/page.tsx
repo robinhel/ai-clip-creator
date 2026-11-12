@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { ClipLogClient } from "@/components/ClipLogClient";
 import { serverApi } from "@/lib/server-api";
 
-export const metadata: Metadata = { title: "Klipplogg · clipsmith" };
+export const metadata: Metadata = { title: "Statistik · Klipp" };
 
 // Data hämtas vid varje besök, så att sidan syns med innehåll innan JavaScript har laddats.
 export const dynamic = "force-dynamic";
