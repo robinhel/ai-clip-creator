@@ -78,6 +78,16 @@ class Profile:
         return found
 
 
+def _number(section: dict, key: str, default: float, label: str, kind: type = float):
+    """Fältet som tal. Fel värde ger ett fel som nämner fältet, till exempel clip.min_seconds."""
+    value = section.get(key, default)
+    try:
+        return kind(value)
+    except (TypeError, ValueError):
+        what = "ett heltal" if kind is int else "ett tal"
+        raise SystemExit(f"{label} måste vara {what}, inte {value!r}.") from None
+
+
 def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
     """Läs en profil. Ange namnet (skiimasktimmy) eller en sökväg till YAML-filen."""
     path = Path(name_or_path)
@@ -98,25 +108,25 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
         name=path.stem,  # filnamnet är kampanjens id; data["name"] är bara en etikett
         streamer=data["streamer"],
         language=data.get("language", "en"),
-        min_seconds=float(clip.get("min_seconds", 7)),
-        max_seconds=float(clip.get("max_seconds", 60)),
+        min_seconds=_number(clip, "min_seconds", 7, "clip.min_seconds"),
+        max_seconds=_number(clip, "max_seconds", 60, "clip.max_seconds"),
         formats=list(data.get("formats") or []),
         text=str(text.get("text") or ""),
         text_required=bool(text.get("required", False)),
         text_position=text.get("position", "top"),
-        text_font_size=int(text.get("font_size", 46)),
+        text_font_size=_number(text, "font_size", 46, "on_screen_text.font_size", int),
         text_font_file=text.get("font_file"),
         overlay_file=overlay.get("file"),
         overlay_required=bool(overlay.get("required", False)),
         overlay_mode=overlay.get("mode", "full"),
         facecam_required=bool((data.get("facecam") or {}).get("required", False)),
-        safe_top=float(safe.get("top", 0.07)),
-        safe_bottom=float(safe.get("bottom", 0.20)),
+        safe_top=_number(safe, "top", 0.07, "safe_zone.top"),
+        safe_bottom=_number(safe, "bottom", 0.20, "safe_zone.bottom"),
         caption_must_include=list(caption.get("must_include") or []),
         hashtags=list(caption.get("hashtags") or []),
         game_hashtag=bool(caption.get("game_hashtag", True)),
         caption_template=caption.get("template", "{title}"),
-        lufs=float((data.get("audio") or {}).get("lufs", -14)),
+        lufs=_number(data.get("audio") or {}, "lufs", -14, "audio.lufs"),
         engagement=list(data.get("engagement_min_percent") or []),
         payment=dict(data.get("payment") or {}),
         clipsmith_config=data.get("clipsmith_config"),
