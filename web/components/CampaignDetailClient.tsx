@@ -21,6 +21,7 @@ const TABS = [
 type Tab = (typeof TABS)[number]["id"];
 
 const num = new Intl.NumberFormat("sv-SE");
+const LEAVE = "Du har ändringar som inte är sparade. Vill du lämna dem?";
 
 function Overview({ profile: p }: { profile: CampaignProfileDetail }) {
   const rows: [string, React.ReactNode][] = [
@@ -83,7 +84,40 @@ export function CampaignDetailClient({ id, tab: initialTab }: { id: string; tab?
   const pathname = usePathname();
   const [profile, setProfile] = useState<CampaignProfileDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Profil (YAML) och Facecam säger till när de har osparade ändringar.
+  const [dirty, setDirty] = useState(false);
   const tab: Tab = TABS.some((t) => t.id === initialTab) ? (initialTab as Tab) : "oversikt";
+
+  // Fråga innan osparade ändringar försvinner: när fliken stängs eller laddas om och vid klick på en länk.
+  useEffect(() => {
+    if (!dirty) return;
+    function onUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    function onClick(e: MouseEvent) {
+      const link = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!link || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || link.target === "_blank") return;
+      if (window.confirm(LEAVE)) {
+        window.removeEventListener("beforeunload", onUnload); // användaren har redan svarat
+      } else {
+        // Före Next.js länkhantering, som lyssnar längre ner i trädet.
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }
+    window.addEventListener("beforeunload", onUnload);
+    document.addEventListener("click", onClick, true);
+    return () => {
+      window.removeEventListener("beforeunload", onUnload);
+      document.removeEventListener("click", onClick, true);
+    };
+  }, [dirty]);
+
+  function openTab(next: Tab) {
+    if (next === tab || (dirty && !window.confirm(LEAVE))) return;
+    router.replace(`${pathname}?tab=${next}`, { scroll: false });
+  }
 
   function load() {
     api.campaign.profile
@@ -142,7 +176,7 @@ export function CampaignDetailClient({ id, tab: initialTab }: { id: string; tab?
             role="tab"
             aria-selected={tab === t.id}
             // Fliken står i adressen, så att länkar kan öppna rätt flik.
-            onClick={() => router.replace(`${pathname}?tab=${t.id}`, { scroll: false })}
+            onClick={() => openTab(t.id)}
             className={cn(
               "-mb-px border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground",
               "aria-selected:border-brand aria-selected:text-foreground"
@@ -155,8 +189,8 @@ export function CampaignDetailClient({ id, tab: initialTab }: { id: string; tab?
 
       {tab === "oversikt" && <Overview profile={profile} />}
       {tab === "overlay" && <CampaignOverlay profile={profile} onUpdate={setProfile} />}
-      {tab === "facecam" && <CampaignFacecam id={profile.name} onSaved={load} />}
-      {tab === "profil" && <CampaignYaml id={profile.name} onUpdate={setProfile} />}
+      {tab === "facecam" && <CampaignFacecam id={profile.name} onSaved={load} onDirty={setDirty} />}
+      {tab === "profil" && <CampaignYaml id={profile.name} onUpdate={setProfile} onDirty={setDirty} />}
     </main>
   );
 }

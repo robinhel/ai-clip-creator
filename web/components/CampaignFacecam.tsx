@@ -74,7 +74,14 @@ const STYLE: Record<Kind, { label: string; box: string; handle: string; text: st
   gameplay: { label: "Spel", box: "border-good bg-good/10", handle: "bg-good", text: "text-good" },
 };
 
-export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => void }) {
+interface Props {
+  id: string;
+  onSaved: () => void;
+  /** true när rutorna har ändringar som inte är sparade. */
+  onDirty?: (dirty: boolean) => void;
+}
+
+export function CampaignFacecam({ id, onSaved, onDirty }: Props) {
   const [server, setServer] = useState<ReframeInfo | null>(null);
   const [split, setSplit] = useState(0.4);
   const [rects, setRects] = useState<Rects | null>(null);
@@ -118,6 +125,11 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
   const dirty = rects !== null && JSON.stringify([split, rects]) !== saved;
   // Servern har inga rutor än: de förvalda rutorna går att spara utan att flyttas först.
   const unsaved = server !== null && (!server.webcam_rects?.length || !server.gameplay_rect);
+
+  useEffect(() => {
+    onDirty?.(dirty);
+    return () => onDirty?.(false);
+  }, [dirty, onDirty]);
 
   /** Bilden kom inte: hämta serverns förklaring, till exempel att kampanjen saknar körning. */
   function frameFailed(src: string) {
