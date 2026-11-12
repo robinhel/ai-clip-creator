@@ -88,6 +88,8 @@ export default function RunDetailPage() {
   const [legacyRun, setLegacyRun] = useState<Run | null>(null);
   const [finishStartedAt, setFinishStartedAt] = useState<number | null>(null);
   const [finishError, setFinishError] = useState<string | null>(null);
+  // Räknas upp efter varje omläsning, så att nästa startar också när anropet misslyckades.
+  const [pollTick, setPollTick] = useState(0);
 
   const isActive = run?.status === "pending" || run?.status === "running";
   // Klar när körningen har ändrats efter att vi startade och inte längre är aktiv.
@@ -130,9 +132,10 @@ export default function RunDetailPage() {
         finishStartedAt !== null ? api.runs.get(runId).then(setLegacyRun).catch(() => {}) : null,
       ]);
       if (data && data.status !== "pending" && data.status !== "running") await fetchClips();
+      setPollTick((t) => t + 1);
     }, POLL_INTERVAL_MS);
     return () => clearTimeout(timer);
-  }, [isActive, finishing, run, legacyRun, finishStartedAt, runId, fetchRun, fetchClips]);
+  }, [isActive, finishing, pollTick, finishStartedAt, runId, fetchRun, fetchClips]);
 
   async function handleFinish() {
     setFinishError(null);
@@ -178,7 +181,7 @@ export default function RunDetailPage() {
   const meta = [
     run.channel_name ?? run.profile,
     run.game,
-    day.format(serverTime(run.created)),
+    run.created ? day.format(serverTime(run.created)) : null,
     run.duration_s ? duration(run.duration_s) : null,
   ].filter(Boolean);
 
@@ -211,8 +214,9 @@ export default function RunDetailPage() {
       </div>
 
       {error && (
-        <p role="alert" className="mt-4 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">
-          {error}
+        <p role="status" className="mt-3 text-sm text-muted-foreground">
+          Kunde inte läsa om projektet: {error}
+          {isActive || finishing ? " Försöker igen om några sekunder." : ""}
         </p>
       )}
       {finishError && (

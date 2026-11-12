@@ -42,9 +42,9 @@ export interface CampaignProfile {
   formats: CampaignFormat[];
   problems: string[];
   ready: boolean;
-  /** Kampanjens tillåtna klipplängd i sekunder. */
-  clip_min_s: number;
-  clip_max_s: number;
+  /** Kampanjens tillåtna klipplängd i sekunder. null om inställningsfilen saknas. */
+  clip_min_s: number | null;
+  clip_max_s: number | null;
 }
 
 export interface CampaignRunCreate {
@@ -74,7 +74,7 @@ export interface VodInfo {
     disk_free_gb: number;
     fits: boolean;
     minutes: number;
-    cost_usd: number;
+    cost_usd: number | null;
   };
   /** Kampanjer vars kanal är VOD:ens kanal. */
   campaigns: string[];
@@ -93,7 +93,7 @@ export interface CampaignRunInfo {
   channel_name: string | null;
   thumbnail_url: string | null;
   duration_s: number | null;
-  created: string;
+  created: string | null;
   status: RunStatus;
   stage: string | null;
   pct: number | null;

@@ -31,7 +31,7 @@ function statusTag(run: CampaignRunInfo): string {
 
 export function ProjectCard({ run }: { run: CampaignRunInfo }) {
   const active = run.status === "pending" || run.status === "running";
-  const meta = [run.channel_name ?? run.profile, run.game, day.format(serverTime(run.created))].filter(Boolean);
+  const meta = [run.channel_name ?? run.profile, run.game, run.created ? day.format(serverTime(run.created)) : null].filter(Boolean);
   return (
     <Link
       href={`/runs/${run.run_id}`}
