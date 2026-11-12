@@ -71,7 +71,10 @@ function StreamCard({ stream: s, selected, onPick }: { stream: StreamInfo; selec
           // eslint-disable-next-line @next/next/no-img-element -- Twitch-bild.
           <img src={s.thumbnail_url} alt="" className="h-full w-full object-cover" />
         ) : (
-          <div className="grid h-full place-items-center text-xs text-muted-foreground tabular-nums">VOD {s.vod_id}</div>
+          <div className="grid h-full place-content-center gap-0.5 text-center text-xs text-muted-foreground">
+            <span>Ingen bild än</span>
+            <span className="text-[11px] tabular-nums">VOD {s.vod_id}</span>
+          </div>
         )}
         {tag && <span className={cn("absolute top-1.5 left-1.5 rounded-md px-1.5 py-0.5 text-[11px]", tag.tone)}>{tag.text}</span>}
         <span className="absolute right-1.5 bottom-1.5 rounded-md bg-black/70 px-1.5 text-[11px] tabular-nums">{clock(s.duration_s)}</span>

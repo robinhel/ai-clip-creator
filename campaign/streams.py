@@ -17,6 +17,11 @@ QUERY = (
 )
 
 
+def _thumbnail(url: str | None) -> str | None:
+    """Twitch ger en platshållare (/_404/) medan streamen pågår eller bearbetas. Den räknas som ingen bild."""
+    return None if not url or "/_404/" in url else url
+
+
 def channel_streams(login: str) -> list[dict]:
     """Högst 8 streams, nyast först. En kanal som inte finns ger en tom lista. Nätverksfel går vidare."""
     login = login.lower()
@@ -35,7 +40,7 @@ def channel_streams(login: str) -> list[dict]:
             "game": (node.get("game") or {}).get("name"),
             "duration_s": int(node.get("lengthSeconds") or 0),
             "created_at": node.get("createdAt"),
-            "thumbnail_url": node.get("previewThumbnailURL"),
+            "thumbnail_url": _thumbnail(node.get("previewThumbnailURL")),
         }
         for node in (edge["node"] for edge in ((user.get("videos") or {}).get("edges") or []))
     ]
