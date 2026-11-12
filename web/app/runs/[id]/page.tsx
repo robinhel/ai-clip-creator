@@ -6,12 +6,13 @@ import { useParams, useRouter } from "next/navigation";
 import { ListChecks, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { CampaignClipTile } from "@/components/CampaignClipTile";
 import { ClipCard } from "@/components/ClipCard";
 import { ProgressStream } from "@/components/ProgressStream";
 import { RUN_STATUS_LABEL } from "@/components/RunCard";
 import { api } from "@/lib/api";
 import { serverTime } from "@/lib/utils";
-import type { CampaignRunInfo, Clip, Run } from "@/lib/types";
+import type { CampaignClip, CampaignRunInfo, Clip, Run } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -26,7 +27,9 @@ export default function RunDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [campaign, setCampaign] = useState<CampaignRunInfo | null>(null);
+  // undefined medan vi hämtar, null när körningen inte hör till någon kampanj.
+  const [campaign, setCampaign] = useState<CampaignRunInfo | null | undefined>(undefined);
+  const [campaignClips, setCampaignClips] = useState<CampaignClip[]>([]);
   const [finishStartedAt, setFinishStartedAt] = useState<number | null>(null);
   const [finishError, setFinishError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -45,6 +48,16 @@ export default function RunDetailPage() {
       // don't clobber the main error
     }
   }, [runId]);
+
+  const fetchCampaignClips = useCallback(async () => {
+    if (!campaign) return;
+    try {
+      const data = await api.campaign.clips.list({ vod_id: campaign.vod_id });
+      setCampaignClips(data.filter((c) => c.profile === campaign.profile));
+    } catch {
+      // don't clobber the main error
+    }
+  }, [campaign]);
 
   const fetchRun = useCallback(async () => {
     try {
@@ -70,20 +83,25 @@ export default function RunDetailPage() {
       .catch(() => setCampaign(null));
   }, [fetchRun, fetchClips, runId]);
 
+  useEffect(() => {
+    fetchCampaignClips();
+  }, [fetchCampaignClips]);
+
   // Poll while active, and while the clips are being finished in the background
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     if (!isActive && !finishing) return;
     timerRef.current = setTimeout(async () => {
-      await Promise.all([fetchRun(), fetchClips()]);
+      await Promise.all([fetchRun(), fetchClips(), fetchCampaignClips()]);
     }, POLL_INTERVAL_MS);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [isActive, finishing, run, fetchRun, fetchClips]);
+  }, [isActive, finishing, run, fetchRun, fetchClips, fetchCampaignClips]);
 
-  // Keyboard navigation
+  // Keyboard navigation, bara för clipsmiths gamla klippkort (körningar utan kampanj)
   useEffect(() => {
+    if (campaign !== null) return;
     function onKey(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement).tagName;
       if (["INPUT", "TEXTAREA", "VIDEO", "BUTTON"].includes(tag)) return;
@@ -115,7 +133,7 @@ export default function RunDetailPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clips, focusedIndex]);
+  }, [clips, focusedIndex, campaign]);
 
   async function approveFocused(approved: boolean) {
     const clip = clips[focusedIndex];
@@ -143,6 +161,7 @@ export default function RunDetailPage() {
     setTimeout(() => {
       fetchRun();
       fetchClips();
+      fetchCampaignClips();
     }, 500);
   }
 
@@ -199,21 +218,23 @@ export default function RunDetailPage() {
             <p className="text-sm text-muted-foreground">@{run.channel}</p>
           )}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            onClick={handleFinish}
-            disabled={isActive || finishing}
-            title="Lägger på overlay och text, skriver caption och kör regelkontrollen igen"
-          >
-            <Sparkles />
-            {finishing ? "Gör klippen klara…" : "Gör klippen kampanjklara igen"}
-          </Button>
-          <Link href="/queue" className={buttonVariants()}>
-            <ListChecks />
-            Till kön
-          </Link>
-        </div>
+        {campaign && (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={handleFinish}
+              disabled={isActive || finishing}
+              title="Lägger på overlay och text, skriver caption och kör regelkontrollen igen"
+            >
+              <Sparkles />
+              {finishing ? "Gör klippen klara…" : "Gör klippen kampanjklara igen"}
+            </Button>
+            <Link href="/queue" className={buttonVariants()}>
+              <ListChecks />
+              Till kön
+            </Link>
+          </div>
+        )}
       </div>
 
       {finishError && (
@@ -246,7 +267,38 @@ export default function RunDetailPage() {
         </div>
       )}
 
-      {clips.length > 0 && (
+      {campaign && (
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold">
+              Kampanjklipp{" "}
+              <span className="text-muted-foreground font-normal text-base">
+                ({campaignClips.length})
+              </span>
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Du godkänner, nekar och postar klippen i{" "}
+              <Link href="/queue" className="underline underline-offset-4 hover:text-foreground">
+                kön
+              </Link>
+              .
+            </p>
+          </div>
+          {campaignClips.length === 0 ? (
+            <p className="rounded-xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+              {isActive ? "Klippen dyker upp här när körningen är klar." : "Inga kampanjklipp för den här körningen."}
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+              {campaignClips.map((clip) => (
+                <CampaignClipTile key={clip.id} clip={clip} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {campaign === null && clips.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-lg font-semibold">
             Klipp{" "}
@@ -268,39 +320,41 @@ export default function RunDetailPage() {
         </div>
       )}
 
-      {run.status === "done" && clips.length === 0 && (
+      {campaign === null && run.status === "done" && clips.length === 0 && (
         <p className="text-muted-foreground text-sm">
           Körningen blev klar men gav inga klipp.
         </p>
       )}
 
       {/* Keyboard shortcut help */}
-      <div className="fixed bottom-4 right-4">
-        <Button
-          size="sm"
-          variant="outline"
-          className="rounded-full w-8 h-8 p-0 text-muted-foreground"
-          onClick={() => setShowShortcuts((v) => !v)}
-          title="Kortkommandon"
-        >
-          ?
-        </Button>
-        {showShortcuts && (
-          <div className="absolute bottom-10 right-0 bg-popover border rounded-lg shadow-lg p-3 w-52 text-xs space-y-1.5">
-            <p className="font-semibold text-sm mb-2">Kortkommandon</p>
-            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-              <span className="font-mono text-muted-foreground">← →</span>
-              <span>Byt klipp</span>
-              <span className="font-mono text-muted-foreground">J</span>
-              <span>Godkänn klipp</span>
-              <span className="font-mono text-muted-foreground">K</span>
-              <span>Neka klipp</span>
-              <span className="font-mono text-muted-foreground">?</span>
-              <span>Visa eller dölj hjälpen</span>
+      {campaign === null && (
+        <div className="fixed bottom-4 right-4">
+          <Button
+            size="sm"
+            variant="outline"
+            className="rounded-full w-8 h-8 p-0 text-muted-foreground"
+            onClick={() => setShowShortcuts((v) => !v)}
+            title="Kortkommandon"
+          >
+            ?
+          </Button>
+          {showShortcuts && (
+            <div className="absolute bottom-10 right-0 bg-popover border rounded-lg shadow-lg p-3 w-52 text-xs space-y-1.5">
+              <p className="font-semibold text-sm mb-2">Kortkommandon</p>
+              <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                <span className="font-mono text-muted-foreground">← →</span>
+                <span>Byt klipp</span>
+                <span className="font-mono text-muted-foreground">J</span>
+                <span>Godkänn klipp</span>
+                <span className="font-mono text-muted-foreground">K</span>
+                <span>Neka klipp</span>
+                <span className="font-mono text-muted-foreground">?</span>
+                <span>Visa eller dölj hjälpen</span>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </main>
   );
 }
