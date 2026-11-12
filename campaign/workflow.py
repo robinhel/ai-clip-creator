@@ -11,6 +11,7 @@ from .budget import BudgetExceeded
 from .caption import build_caption
 from .cliplog import ClipLog
 from .config import Settings
+from .editor import edit_meta
 from .finish import finish_clip
 from .media import probe
 from .profile import Profile
@@ -99,8 +100,9 @@ def finish_vod(
             reason = "du har nekat klippet" if before["status"] == "nekad" else "finns redan i klipploggen"
             results.append({"file": src.name, "skipped": reason})
             continue
-        if redo and (clip_dir / "original" / f"{src.stem}.json").exists():
-            # Klippet är redigerat i appen: loggens rubrik och tider gäller, inte picks.json.
+        if redo and edit_meta(src):
+            # Klippet är redigerat i appen: loggens rubrik och tider gäller, inte picks.json. edit_meta kollar
+            # råklippets storlek och ändringstid, så ett nytt råklipp från clipsmith får picks.json igen.
             title, start, end = redo["title"], redo["start_s"], redo["end_s"]
         if not redo and start is not None and end is not None and log.overlaps(vod_id, start, end):
             results.append({"file": src.name, "skipped": "samma del av VOD:en är redan klippt"})
