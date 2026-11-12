@@ -136,16 +136,33 @@ def build_stream_context(
     *,
     focus: str = "",
     clip_range: tuple[int, int] | None = None,
+    game: str = "",
+    language: str = "English",
+    formats: list[dict] | None = None,
 ) -> str:
-    """Build the stable per-VOD context block sent before candidate prompts."""
+    """Build the stable per-VOD context block sent before candidate prompts.
+
+    formats: the campaign's clip formats (id, name, description). Claude then answers with "format".
+    """
     context = (
         f"Stream context:\n"
         f"Channel: {channel}\n"
         f"VOD title: {vod_title}\n"
-        f"Duration: {vod_duration}\n"
-        f"Language: English\n"
+        + (f"Game: {game}\n" if game else "")
+        + f"Duration: {vod_duration}\n"
+        f"Language: {language}\n"
         f"Platform: Twitch (clips for TikTok/YouTube Shorts)\n"
     )
+    if language.lower() not in ("english", "en"):
+        context += f"Write title_es in {language}, not English. This applies instead of the instructions.\n"
+    if formats:
+        lines = [f"- {f['id']}: {f.get('name') or f['id']}. {f.get('description') or ''}".rstrip()
+                 for f in formats]
+        context += (
+            "Clip formats for this campaign. Only include moments that fit one of them, and add the "
+            'field "format" to your JSON with the id of the format the clip fits best:\n'
+            + "\n".join(lines) + "\n"
+        )
     if clip_range:
         context += (
             f"Clip length for this run: end_offset_s must be {clip_range[0]}-{clip_range[1]} "

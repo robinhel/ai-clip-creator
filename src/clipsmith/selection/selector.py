@@ -6,7 +6,7 @@ import logging
 import time
 from dataclasses import asdict, dataclass
 
-from ..llm.base import ClipPick, ClipPicker
+from ..llm.base import ClipPick, ClipPicker, LLMUnavailable
 from ..models.candidates import CandidateMoment
 from ..models.transcript import Transcript
 from ..settings import ClipConfig
@@ -78,6 +78,7 @@ def select_clips(
     )
     picks: list[PickResult] = []
     picked_centers: set[float] = set()
+    asked = failed = 0
 
     for i, candidate in enumerate(top, 1):
         log.info(
@@ -95,7 +96,9 @@ def select_clips(
         t0 = time.monotonic()
         pick = picker.pick(window, candidate, stream_context)
         elapsed_ms = round((time.monotonic() - t0) * 1000)
+        asked += 1
         if pick is None:
+            failed += 1
             log.warning("picker returned None for t=%.1f — skipping", candidate.t_center)
             continue
         log.info(
@@ -121,6 +124,11 @@ def select_clips(
         )
         picks.append(PickResult(candidate=candidate, pick=pick))
         picked_centers.add(candidate.t_center)
+
+    if asked and failed == asked:  # no answer at all is an error, not "the LLM chose no clips"
+        raise LLMUnavailable(
+            f"Claude svarade inte: inget av {asked} svar gick att läsa. Kör igen när det fungerar."
+        )
 
     # Fallback: if LLM was too strict, force-accept top candidates to meet min_picks.
     if len(picks) < min_picks and top:
