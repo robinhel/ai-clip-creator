@@ -110,6 +110,20 @@ def test_campaign_detail_has_overlay_text_caption_and_payment(client) -> None:
     assert client.get("/campaign/profiles/Fel-Id").status_code == 400
 
 
+def test_campaign_detail_has_the_posting_rules_and_links(client, settings) -> None:
+    detail = client.get("/campaign/profiles/skiimasktimmy").json()
+    assert "Kommentarer och gilla-markeringar ska vara påslagna" in detail["rules"]
+    assert "analytics-formulär" in detail["approval"]
+    assert detail["links"] == {"content_rewards": None, "analytics_form": None}
+    path = settings.profiles_dir / "skiimasktimmy.yaml"
+    path.write_text(_profile_text(settings) + "links:\n  content_rewards: https://whop.com/x/\n  analytics_form: https://forms.gle/y\n")
+    detail = client.get("/campaign/profiles/skiimasktimmy").json()
+    assert detail["links"] == {"content_rewards": "https://whop.com/x/", "analytics_form": "https://forms.gle/y"}
+    # Bara https-länkar visas, så att profilen inte kan lägga in en javascript:-länk.
+    path.write_text(_profile_text(settings).replace("https://forms.gle/y", "javascript:alert(1)"))
+    assert client.get("/campaign/profiles/skiimasktimmy").json()["links"]["analytics_form"] is None
+
+
 # ---------- 1. overlay ----------
 
 
