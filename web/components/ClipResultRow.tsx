@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Check, CheckCircle2, Download, ExternalLink, Pencil, Scissors, Send, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Download, ExternalLink, Loader2, Pencil, Scissors, Send, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -116,19 +116,28 @@ export function ClipResultRow({ clip, number, formats, runId, onUpdate }: Props)
   const hasProblems = clip.problems.length > 0;
   const approved = CAN_POST.includes(clip.status);
   const [editInfo, setEditInfo] = useState<ClipEditInfo | null>(null);
-  const [editorOpen, setEditorOpen] = useState(false);
+  const [opening, setOpening] = useState(false);
   const notice = editNotice.get(clip.id)?.updated === clip.updated ? editNotice.get(clip.id)!.text : null;
 
-  useEffect(() => {
-    if (!EDITABLE.includes(clip.status)) return;
-    api.campaign.clips.edit(clip.id).then(setEditInfo).catch(() => setEditInfo(null));
-  }, [clip.id, clip.status]);
+  // Läget hämtas först vid klick: en GET per rad gör ffprobe på servern för varje klipp.
+  async function openEditor() {
+    setOpening(true);
+    setError(null);
+    try {
+      setEditInfo(await api.campaign.clips.edit(clip.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kunde inte öppna redigeraren");
+    } finally {
+      setOpening(false);
+    }
+  }
 
-  function handleEdited(updated: CampaignClip) {
+  function handleEdited(updated: CampaignClip, trimmed: boolean) {
+    const what = trimmed ? `Klippet är trimmat.${updated.title !== clip.title ? " Rubriken är ändrad." : ""}` : "Rubriken är ändrad.";
     const again = clip.status === "godkand" ? " Det var godkänt, så det behöver ett nytt ja." : "";
     const result = updated.status === "underkand" ? " Regelkontrollen hittade problem, se nedan." : "";
-    editNotice.set(updated.id, { updated: updated.updated, text: `Klippet är trimmat och gjort kampanjklart igen.${again}${result}` });
-    setEditorOpen(false);
+    editNotice.set(updated.id, { updated: updated.updated, text: `${what}${again}${result}` });
+    setEditInfo(null);
     onUpdate(updated);
   }
   const length = clip.start_s != null && clip.end_s != null ? clip.end_s - clip.start_s : null;
@@ -359,14 +368,14 @@ export function ClipResultRow({ clip, number, formats, runId, onUpdate }: Props)
         {clip.status === "renderad" && approveBlock && (
           <p className="text-xs text-muted-foreground">{approveBlock}.</p>
         )}
-        {editInfo?.editable && (
+        {EDITABLE.includes(clip.status) && (
           <>
-            <Button className="h-9 justify-start" variant="outline" disabled={busy} onClick={() => setEditorOpen(true)}>
-              <Scissors aria-hidden />
+            <Button className="h-9 justify-start" variant="outline" disabled={busy || opening} onClick={openEditor}>
+              {opening ? <Loader2 className="animate-spin" aria-hidden /> : <Scissors aria-hidden />}
               Redigera
             </Button>
-            {editorOpen && (
-              <ClipEditor clip={clip} info={editInfo} open={editorOpen} onOpenChange={setEditorOpen} onSaved={handleEdited} />
+            {editInfo && (
+              <ClipEditor clip={clip} info={editInfo} open onOpenChange={(o) => !o && setEditInfo(null)} onSaved={handleEdited} />
             )}
           </>
         )}
