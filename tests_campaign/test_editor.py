@@ -99,6 +99,7 @@ def test_trim_gives_the_right_length_and_keeps_the_original(setup, settings) -> 
 @pytest.mark.parametrize("body", [
     {"in_s": 5.0, "out_s": 4.0}, {"in_s": -1.0, "out_s": 5.0}, {"in_s": 0.0, "out_s": 11.0},
     {"in_s": 0.0, "out_s": 2.0}, {"in_s": 0.0, "out_s": 9.5}, {"title": "   "},
+    {"in_s": 0.0, "out_s": 8.3}, {"in_s": 0.0, "out_s": 2.8},  # ingen marginal, samma gränser som webben
 ])
 def test_bad_ranges_are_refused_and_change_nothing(setup, settings, body) -> None:
     client, log, clip_id = setup
@@ -239,3 +240,16 @@ def test_raw_outside_the_out_folder_is_not_served(setup, settings, tmp_path) -> 
     log.update(clip_id, file=str(outside))
     assert client.get(f"/campaign/clips/{clip_id}/original").status_code == 404
     assert client.get(f"/campaign/clips/{clip_id}/edit").json()["editable"] is False
+
+
+def test_finish_again_keeps_the_edited_title_and_times(setup, settings) -> None:
+    client, log, clip_id = setup
+    _, done, _ = _paths(settings)
+    response = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0, "title": "Huge clutch"})
+    assert response.status_code == 200, response.text
+    log.update(clip_id, status="underkand")
+    finish_vod("123", load_profile("skiimasktimmy", settings.profiles_dir), settings, log, game="Bodycam",
+               review=False)
+    clip = log.get(clip_id)
+    assert (clip["title"], clip["start_s"], clip["end_s"]) == ("Huge clutch", 101.0, 107.0)
+    assert probe(done)["duration"] == pytest.approx(6.0, abs=0.1)

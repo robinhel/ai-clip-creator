@@ -3,6 +3,8 @@ Allt körs mot en kopia i tmp_path. Inga riktiga Twitch-anrop."""
 
 from __future__ import annotations
 
+import os
+import re
 import shutil
 import struct
 import subprocess
@@ -15,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from campaign import api, profiles_api
+from campaign import profile_edit as edit
 from campaign.cliplog import ClipLog
 from campaign.media import probe
 from campaign.profile import load_profile
@@ -202,6 +205,18 @@ def test_yaml_is_shown_with_comments_and_saved_exactly(client, settings) -> None
      "config.finnsinte.yaml"),
     (lambda t: t.replace('template: "{title}', 'template: "{titel}'), "template"),
     (lambda t: "- bara en lista\n", "fält"),
+    (lambda t: t.replace("file: overlays/skiimasktimmy.png", "file: ../evil.png"), "overlays/"),
+    (lambda t: t.replace("file: overlays/skiimasktimmy.png", "file: overlays/skiimasktimmy.jpg"), ".png"),
+    (lambda t: t.replace("font_file: null", "font_file: /etc/passwd"), "font_file"),
+    (lambda t: t.replace("font_file: null", "font_file: fonts/../../x.ttf"), "font_file"),
+    (lambda t: t.replace("streamer: SkiiMaskTimmy", "streamer: 12345"), "streamer"),
+    (lambda t: t.replace("name: skiimasktimmy", "name: [a, b]"), "name"),
+    (lambda t: t.replace('hashtags: ["#skiimasktimmy"', 'hashtags: [1, "#skiimasktimmy"'), "hashtags"),
+    (lambda t: t.replace('  must_include:\n    - "twitch.tv/skiimasktimmy"', '  must_include: "twitch.tv/x"'),
+     "must_include"),
+    (lambda t: t.replace("  - id: clutch\n", "  - idx: clutch\n"), "id"),
+    (lambda t: t + "x: &a [1, 2]\ny: *a\n", "alias"),
+    (lambda t: t.replace("clipsmith_config: config.timmy.yaml", "clipsmith_config: .env"), "clipsmith_config"),
 ])
 def test_broken_yaml_is_refused_and_nothing_changes(client, settings, change, words) -> None:
     before = _profile_text(settings)
@@ -299,7 +314,7 @@ def test_reframe_shows_rects_and_shapes(client) -> None:
     assert client.get("/campaign/profiles/skiimasktimmy/reframe").json() == {
         "mode": "stacked", "split_ratio": 0.4, "webcam_rect": [1542, 770, 316, 224],
         "gameplay_rect": [454, 0, 1012, 1080], "source_width": 1920, "source_height": 1080,
-        "webcam_aspect": 1.40625, "gameplay_aspect": 0.9375}
+        "webcam_aspect": 1.40625, "gameplay_aspect": 0.9375, "warning": None}
 
 
 def test_reframe_writes_only_its_lines(client, settings) -> None:
@@ -376,7 +391,7 @@ def test_frame_comes_from_the_local_vod_and_is_cached(client, settings, twitch) 
     response = client.get("/campaign/profiles/skiimasktimmy/frame", params={"vod_id": VOD})
     assert response.status_code == 200, response.text
     assert response.headers["content-type"] == "image/jpeg"
-    cached = settings.work_dir / "frames" / f"{VOD}.jpg"
+    cached = settings.work_dir / "frames" / f"{VOD}.vod.jpg"
     assert cached.read_bytes() == response.content
     info = probe(cached)
     assert (info["width"], info["height"]) == (1920, 1080)
@@ -395,11 +410,11 @@ def test_frame_without_a_local_vod_uses_twitchs_picture(client, settings, twitch
     assert response.status_code == 200, response.text
     assert "previewThumbnailURL(width: 1920, height: 1080)" in twitch.queries[0]
     assert twitch.downloads == [THUMB]
-    info = probe(settings.work_dir / "frames" / f"{VOD}.jpg")
+    info = probe(settings.work_dir / "frames" / f"{VOD}.twitch.jpg")
     assert (info["width"], info["height"]) == (1920, 1080)
     client.get("/campaign/profiles/skiimasktimmy/frame", params={"vod_id": VOD})
     assert len(twitch.downloads) == 1
-    assert [p.name for p in (settings.work_dir / "frames").iterdir()] == [f"{VOD}.jpg"]
+    assert [p.name for p in (settings.work_dir / "frames").iterdir()] == [f"{VOD}.twitch.jpg"]
 
 
 @needs_ffmpeg
@@ -417,3 +432,131 @@ def test_frame_uses_the_latest_run_and_refuses_strange_pictures(client, settings
     assert twitch.downloads == [THUMB]
     twitch.error = OSError("nere")
     assert client.get("/campaign/profiles/skiimasktimmy/frame", params={"vod_id": "333333333"}).status_code == 502
+
+
+# ---------- granskningens fynd ----------
+
+SECRET = "sk-ant-fake-hemlig-123"
+REFRAME = {"webcam_rect": [1500, 700, 316, 224], "gameplay_rect": [400, 0, 1012, 1080], "split_ratio": 0.4}
+
+
+def test_config_outside_the_rules_is_refused_and_its_content_is_never_shown(client, settings) -> None:
+    (settings.root / ".env").write_text(f"ANTHROPIC_API_KEY={SECRET}\n")
+    (settings.root / "leak.yaml").write_text(f"channels: {SECRET}\n")
+    os.symlink(settings.root / ".env", settings.root / "config.link.yaml")
+    (settings.root / "sub").mkdir()
+    shutil.copy(settings.root / "config.timmy.yaml", settings.root / "sub" / "config.x.yaml")
+    path = settings.profiles_dir / "skiimasktimmy.yaml"
+    before = _profile_text(settings)
+    for name in (".env", "leak.yaml", "config.link.yaml", "sub/config.x.yaml", "../config.timmy.yaml"):
+        text = before.replace("clipsmith_config: config.timmy.yaml", f"clipsmith_config: {name}")
+        response = client.put("/campaign/profiles/skiimasktimmy/yaml", json={"yaml": text})
+        assert response.status_code == 400, name
+        assert SECRET not in response.text
+        assert _profile_text(settings) == before
+
+    for name in (".env", "leak.yaml", "config.link.yaml"):  # om filen ändå ändras för hand
+        path.write_text(before.replace("clipsmith_config: config.timmy.yaml", f"clipsmith_config: {name}"))
+        for url in ("/campaign/profiles", "/campaign/profiles/skiimasktimmy", "/campaign/profiles/skiimasktimmy/reframe"):
+            assert SECRET not in client.get(url).text, (name, url)
+        detail = client.get("/campaign/profiles/skiimasktimmy").json()
+        assert detail["ready"] is False
+        assert any(name in p for p in detail["problems"])
+
+
+def test_yaml_that_the_answer_cannot_describe_is_not_saved(client, settings, monkeypatch) -> None:
+    before = _profile_text(settings)
+
+    def broken(*args, **kwargs):
+        raise ValueError("trasig")
+
+    monkeypatch.setattr(profiles_api, "_describe_profile", broken)
+    response = client.put("/campaign/profiles/skiimasktimmy/yaml", json={"yaml": before + "# ny rad\n"})
+    assert response.status_code == 400
+    assert _profile_text(settings) == before
+    assert not (settings.profiles_dir / ".skiimasktimmy.yaml.bak").exists()
+
+
+def test_valid_font_file_is_accepted(client, settings) -> None:
+    text = _profile_text(settings).replace("font_file: null", "font_file: fonts/Bold.otf")
+    assert client.put("/campaign/profiles/skiimasktimmy/yaml", json={"yaml": text}).status_code == 200
+
+
+def test_new_campaign_is_not_ready_until_the_rects_are_set(client) -> None:
+    detail = client.post("/campaign/profiles", json={"channel": "nykanal", "streamer": "x"}).json()
+    assert detail["ready"] is False
+    assert "Facecam- och spelrutan är inte inställda. Dra dem under Facecam." in detail["problems"]
+    assert client.put("/campaign/profiles/nykanal/reframe", json=REFRAME).status_code == 200
+    detail = client.get("/campaign/profiles/nykanal").json()
+    assert detail["ready"] is True, detail["problems"]
+
+
+@pytest.mark.parametrize("extra", [
+    {"streamer": "Ny\nname: hackad"}, {"campaign": "a\rb"}, {"on_screen_text": "a\tb"},
+    {"caption_template": "{title}\nx"}, {"hashtags": ["#a\n#b"]}, {"formats": [{"name": "a\nb"}]},
+    {"must_include": ["x\x00"]},
+])
+def test_control_characters_in_a_new_campaign_are_refused(client, settings, extra) -> None:
+    response = client.post("/campaign/profiles", json={"channel": "nykanal", "streamer": "Ny", **extra})
+    assert response.status_code in (400, 422)
+    assert not (settings.profiles_dir / "nykanal.yaml").exists()
+    assert not (settings.root / "config.nykanal.yaml").exists()
+
+
+def test_the_comment_at_the_top_has_no_line_breaks() -> None:
+    body = profiles_api.NewCampaign(channel="nykanal", streamer="Ny").model_dump()
+    body["streamer"] = "Ny\nname: hackad\n#"
+    text = edit.new_profile_text("nykanal", body, "config.nykanal.yaml")
+    head = text.split("\n\n")[0]
+    assert all(line.startswith("#") for line in head.splitlines())
+
+
+def test_reframe_turns_on_stacked_and_a_comment_does_not_end_the_block(client, settings) -> None:
+    path = settings.root / "config.timmy.yaml"
+    text = path.read_text().replace("  mode: stacked ", "  mode: center  ").replace(
+        "  webcam_rect: [1542", "# kommentar i kolumn 0\n  webcam_rect: [1542")
+    path.write_text(text)
+    assert client.get("/campaign/profiles/skiimasktimmy/reframe").json()["mode"] == "center"
+    response = client.put("/campaign/profiles/skiimasktimmy/reframe", json=REFRAME)
+    assert response.status_code == 200, response.text
+    assert response.json()["mode"] == "stacked"
+    after = path.read_text()
+    assert after.count("webcam_rect:") == 1 and after.count("gameplay_rect:") == 1
+    assert re.search(r"^  mode: stacked +# facecam", after, re.MULTILINE)
+    assert "# kommentar i kolumn 0\n  webcam_rect: [1500, 700, 316, 224]" in after
+
+
+@needs_ffmpeg
+def test_reframe_tells_the_real_size_of_a_local_vod(client, settings) -> None:
+    make_clip(settings.work_dir / VOD / f"{VOD}.mp4", size="640x360", seconds=2)
+    assert client.get("/campaign/profiles/skiimasktimmy/reframe").json()["source_width"] == 1920  # ingen körning
+    ClipLog(settings.data_dir / "klipp.db").add_run(1, VOD, "skiimasktimmy", None)
+    info = client.get("/campaign/profiles/skiimasktimmy/reframe").json()
+    assert (info["source_width"], info["source_height"]) == (640, 360)
+    assert "640x360" in info["warning"]
+    assert client.get("/campaign/profiles/skiimasktimmy/reframe", params={"vod_id": VOD}).json()[
+        "source_height"] == 360
+
+
+@needs_ffmpeg
+def test_local_vod_goes_before_a_cached_twitch_picture(client, settings, twitch, tmp_path) -> None:
+    twitch.image = _jpeg(tmp_path / "thumb.jpg")
+    url = "/campaign/profiles/skiimasktimmy/frame"
+    first = client.get(url, params={"vod_id": VOD}).content
+    make_clip(settings.work_dir / VOD / f"{VOD}.mp4", size="640x360", seconds=4)
+    second = client.get(url, params={"vod_id": VOD})
+    assert second.status_code == 200
+    assert second.content != first
+    assert second.content == (settings.work_dir / "frames" / f"{VOD}.vod.jpg").read_bytes()
+    assert len(twitch.downloads) == 1
+
+
+@needs_ffmpeg
+def test_too_big_or_strange_twitch_pictures_are_refused(client, settings, twitch) -> None:
+    url = "/campaign/profiles/skiimasktimmy/frame"
+    twitch.image = bytes(6 * 1024 * 1024)
+    assert client.get(url, params={"vod_id": VOD}).status_code == 502
+    twitch.image = b"#EXTM3U\n#EXT-X-ENDLIST\n"
+    assert client.get(url, params={"vod_id": VOD}).status_code in (500, 502)
+    frames = settings.work_dir / "frames"
+    assert not frames.exists() or list(frames.iterdir()) == []
