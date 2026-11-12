@@ -12,7 +12,9 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
   const headers: Record<string, string> = {};
   req.headers.forEach((value, key) => {
     // fetch sätter längden själv utifrån bodyn; en vidarebefordrad längd kan krocka med den.
-    if (!["host", "content-length"].includes(key.toLowerCase())) headers[key] = value;
+    // Adress-headers skickas inte vidare: uvicorn litar på dem, och då kunde vem som helst se ut att anropa från datorn.
+    if (!["host", "content-length", "x-forwarded-for", "x-real-ip", "forwarded", "x-forwarded-host"].includes(key.toLowerCase()))
+      headers[key] = value;
   });
   const apiKey = process.env.API_KEY;
   if (apiKey) {
