@@ -115,6 +115,7 @@ app.include_router(analytics.router)
 # Robins kampanjlager (campaign/): kampanjval, kö och klipplogg i webbappen.
 from campaign.api import router as campaign_router
 from campaign.editor_api import router as editor_router
+from campaign.keys import router as keys_router
 from campaign.profiles_api import router as profiles_router
 from campaign.tiktok_api import router as tiktok_router
 
@@ -122,6 +123,7 @@ app.include_router(campaign_router)
 app.include_router(tiktok_router)
 app.include_router(profiles_router)
 app.include_router(editor_router)
+app.include_router(keys_router)
 
 
 @app.get("/", include_in_schema=False)

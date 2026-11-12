@@ -9,6 +9,8 @@ import type {
   CampaignRunInfo,
   CampaignStatus,
   CampaignSummary,
+  KeyGroup,
+  KeyTest,
   ClipEditInfo,
   ClipTranscript,
   Rect,
@@ -146,6 +148,13 @@ export const api = {
       connectUrl: `${DIRECT}/campaign/tiktok/connect`,
     },
     summary: () => apiFetch<CampaignSummary>("/campaign/summary"),
+    keys: {
+      list: () => apiFetch<{ groups: KeyGroup[] }>("/campaign/keys"),
+      // Värdena skickas bara i den här kroppen och sparas inte i webbläsaren.
+      save: (values: Record<string, string>) =>
+        apiFetch<{ groups: KeyGroup[]; test: KeyTest | null }>("/campaign/keys", { method: "PUT", body: JSON.stringify({ values }) }),
+      testTwitch: () => apiFetch<KeyTest>("/campaign/keys/test/twitch", { method: "POST" }),
+    },
     /** En sökväg från servern (till exempel overlay.url) via proxyn. */
     proxied: (path: string) => `${PROXY}${path}`,
     videoUrl: (clip: CampaignClip) => `${PROXY}${clip.video_url}`,

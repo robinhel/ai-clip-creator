@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Clapperboard, FolderOpen, Home, Megaphone, Send } from "lucide-react";
+import { BarChart3, Clapperboard, FolderOpen, Home, Megaphone, Send, Settings } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn, SUMMARY_CHANGED, usd } from "@/lib/utils";
 import type { CampaignSummary } from "@/lib/types";
@@ -14,6 +14,7 @@ const LINKS = [
   { href: "/queue", label: "Att posta", icon: Send },
   { href: "/log", label: "Statistik", icon: BarChart3 },
   { href: "/campaigns", label: "Kampanjer", icon: Megaphone },
+  { href: "/settings", label: "Inställningar", icon: Settings },
 ];
 
 const gb = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });

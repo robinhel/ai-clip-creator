@@ -292,11 +292,12 @@ def test_done_and_failed_runs_have_no_eta(client, settings) -> None:  # noqa: F8
 
 
 def test_run_list_is_newest_first_with_status_and_clip_counts(client, settings) -> None:  # noqa: F811
-    old = _run_with_events(settings, ["download", "done"], "done")
-    new = _run_with_events(settings, ["download"], "running", vod="2925999999")  # en annan stream
+    # Olika streams: samma stream och kampanj visas som ett projekt (den senaste körningen).
+    old = _run_with_events(settings, ["download", "done"], "done", vod="2925070238")
+    new = _run_with_events(settings, ["download"], "running")
     log = ClipLog(settings.data_dir / "klipp.db")
     for status in ("renderad", "renderad", "godkand"):
-        log.add(vod_id=VOD, profile="skiimasktimmy", file=f"/x/{status}.mp4", title="t", caption="c",
+        log.add(vod_id="2925070238", profile="skiimasktimmy", file=f"/x/{status}.mp4", title="t", caption="c",
                 status=status, score=70, reason="Good.")
     runs = client.get("/campaign/runs").json()
     assert [r["run_id"] for r in runs] == [new, old]
