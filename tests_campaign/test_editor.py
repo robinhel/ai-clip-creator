@@ -257,6 +257,20 @@ def test_finish_again_keeps_the_edited_title_and_times(setup, settings) -> None:
     assert probe(done)["duration"] == pytest.approx(6.0, abs=0.1)
 
 
+def test_finish_again_on_a_new_raw_clip_uses_the_picks_not_the_old_edit(setup, settings) -> None:
+    client, log, clip_id = setup
+    raw, _, _ = _paths(settings)
+    client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0, "title": "Huge clutch"})
+    # En ny körning av samma VOD skriver ett nytt råklipp med samma namn; original/clip_01_no_way.json finns kvar.
+    os.remove(raw)
+    make_clip(raw, seconds=10)
+    log.update(clip_id, status="underkand")
+    finish_vod("123", load_profile("skiimasktimmy", settings.profiles_dir), settings, log, game="Bodycam",
+               review=False)
+    clip = log.get(clip_id)
+    assert (clip["title"], clip["start_s"], clip["end_s"]) == ("No way", 100.0, 110.0)
+
+
 # ---------- granskningen av redigeraren ----------
 
 
