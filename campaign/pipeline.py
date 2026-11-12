@@ -18,8 +18,8 @@ from clipsmith.pipeline import process_vod
 from .brain import Brain
 from .budget import budget_from_settings
 from .cliplog import ClipLog
-from .download import download_vod
 from .config import Settings
+from .download import download_vod
 from .profile import Profile, load_profile
 from .transcribe import berget_post, transcribe_vod
 from .workflow import finish_vod
