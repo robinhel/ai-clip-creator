@@ -475,3 +475,22 @@ def test_without_twitch_keys_the_run_still_works_without_viewer_clips(settings, 
     _make(settings, vod)
     video, _ = vod.process
     assert video.user_id == ""
+
+
+def test_claude_has_room_for_a_long_reason_and_a_cut_answer_is_logged_as_cut(monkeypatch, caplog) -> None:
+    """Körning 5: tre svar slutade mitt i en sträng (\"Unterminated string\") med max_tokens 512."""
+    cut = SimpleNamespace(content=[SimpleNamespace(type="text", text='{"include": false, "reason": "Long')],
+                          usage=_answer().usage, stop_reason="max_tokens")
+    provider, calls, _ = _provider([cut], monkeypatch)
+    with caplog.at_level("WARNING"):
+        assert provider.pick("text", _candidate(), "ctx") is None
+    assert calls[0]["max_tokens"] >= 1024
+    assert "klipptes av" in caplog.text
+
+
+def test_text_after_the_json_does_not_lose_the_answer(monkeypatch) -> None:
+    answer = _answer()
+    answer.content[0].text += "\n\nThe clip has a clear payoff."
+    provider, _, _ = _provider([answer], monkeypatch)
+    pick = provider.pick("text", _candidate(), "ctx")
+    assert pick is not None and pick.include
