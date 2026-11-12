@@ -75,5 +75,8 @@ reframe:
   # kameran 1080x768 (316/224), spelet 1080x1152 (1012/1080).
   # clipsmiths automatiska sökning hittade bara ansiktet, inte kamerarutan.
   webcam_rect: [1542, 770, 316, 224]   # x, y, bredd, höjd
+  # Timmy flyttar kameran mellan scenerna. Varje klipp får den ruta där ansiktet syns.
+  # Den vänstra är mätt på VOD 2925070238 vid 5240 s, samma läge i ramen som den högra.
+  webcam_rects: [[1542, 770, 316, 224], [88, 770, 316, 224]]
   gameplay_rect: [454, 0, 1012, 1080]  # mitten av bilden
   split_ratio: 0.4      # facecam får 40 % av höjden

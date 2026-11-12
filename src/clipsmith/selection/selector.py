@@ -22,11 +22,15 @@ WINDOW_POST_S = 30.0
 class PickResult:
     candidate: CandidateMoment
     pick: ClipPick
+    webcam_rect: list[int] | None = None  # chosen at clipping time when there are several
 
     def to_dict(self) -> dict:
+        pick = self.pick.to_dict()
+        if self.webcam_rect:
+            pick["webcam_rect"] = self.webcam_rect
         return {
             "candidate": asdict(self.candidate),
-            "pick": self.pick.to_dict(),
+            "pick": pick,
         }
 
 

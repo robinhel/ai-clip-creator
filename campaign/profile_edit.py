@@ -28,6 +28,7 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 SOURCE_W, SOURCE_H = 1920, 1080  # rutorna mäts i en 1080p-bild; nedladdningen ber om 1080p60
 PANEL_W, PANEL_H = 1080, 1920
 MIN_SIDE = 50
+MAX_WEBCAM_RECTS = 4
 SHAPE_TOLERANCE = 0.03
 NEW_REFRAME = (
     "reframe:\n"
@@ -267,13 +268,22 @@ def check_rect(rect: object, aspect: float, label: str) -> list[int]:
     return rect
 
 
-def reframe_text(text: str, webcam: list[int], gameplay: list[int], split_ratio: float) -> str:
+def check_rects(rects: object, aspect: float) -> list[list[int]]:
+    """1 till 4 kamerarutor. clipsmith väljer per klipp den ruta där ansiktet syns."""
+    if not (isinstance(rects, list) and 1 <= len(rects) <= MAX_WEBCAM_RECTS):
+        raise ValueError(f"webcam_rects måste vara en lista med 1 till {MAX_WEBCAM_RECTS} rutor.")
+    return [check_rect(rect, aspect, f"Facecam-ruta {i}") for i, rect in enumerate(rects, 1)]
+
+
+def reframe_text(text: str, webcams: list[list[int]], gameplay: list[int], split_ratio: float) -> str:
     def as_list(rect: list[int]) -> str:
         return "[" + ", ".join(str(v) for v in rect) + "]"
 
     # mode: stacked behövs, annars används inte rutorna (clipsmiths standard är center).
-    values = {"mode": "stacked", "webcam_rect": as_list(webcam), "gameplay_rect": as_list(gameplay),
-              "split_ratio": repr(split_ratio)}
+    # webcam_rect är den första rutan, så att den som bara läser webcam_rect får den förvalda.
+    values = {"mode": "stacked", "webcam_rect": as_list(webcams[0]),
+              "webcam_rects": "[" + ", ".join(as_list(r) for r in webcams) + "]",
+              "gameplay_rect": as_list(gameplay), "split_ratio": repr(split_ratio)}
     return set_keys(text, "reframe", values)
 
 

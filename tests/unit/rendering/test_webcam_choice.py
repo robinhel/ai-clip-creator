@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from clipsmith.models.candidates import CandidateMoment
 from clipsmith.llm.base import ClipPick
+from clipsmith.models.candidates import CandidateMoment
 from clipsmith.rendering import clipper, detect
 from clipsmith.selection.selector import PickResult
 from clipsmith.settings import AppConfig, ReframeConfig
@@ -23,7 +23,7 @@ LEFT = [10, 120, 60, 40]
 RIGHT = [250, 120, 60, 40]
 
 
-def _fake_count(crop) -> int:  # noqa: ANN001 - a numpy array
+def _fake_count(crop) -> int:  # crop: a numpy array
     return int(crop.mean() > 128)
 
 

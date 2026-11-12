@@ -312,6 +312,7 @@ def create_profile(body: NewCampaign, settings: Settings = Depends(get_settings)
 
 class ReframeBody(BaseModel):
     webcam_rect: Any = None  # kontrolleras i check_rect, så att fel ger 400 med förklaring
+    webcam_rects: Any = None  # flera kamerapositioner; går före webcam_rect
     gameplay_rect: Any = None
     split_ratio: float
 
@@ -340,8 +341,9 @@ def _reframe(path: Path, mp4: Path | None) -> dict:
     if (width, height) != (edit.SOURCE_W, edit.SOURCE_H):
         warning = (f"VOD:en är {width}x{height}, inte {edit.SOURCE_W}x{edit.SOURCE_H}. Rutorna mäts i "
                    f"{edit.SOURCE_W}x{edit.SOURCE_H} och hamnar fel i den här VOD:en. Ladda ner den i 1080p.")
+    rects = reframe.webcam_rects or ([reframe.webcam_rect] if reframe.webcam_rect else [])
     return {"mode": reframe.mode, "split_ratio": reframe.split_ratio, "webcam_rect": reframe.webcam_rect,
-            "gameplay_rect": reframe.gameplay_rect, "source_width": width, "source_height": height,
+            "webcam_rects": rects, "gameplay_rect": reframe.gameplay_rect, "source_width": width, "source_height": height,
             "webcam_aspect": webcam_aspect, "gameplay_aspect": gameplay_aspect, "warning": warning}
 
 
@@ -360,12 +362,15 @@ def put_reframe(profile_id: str, body: ReframeBody, settings: Settings = Depends
         raise HTTPException(400, "split_ratio måste ligga mellan 0.1 och 0.9.")
     webcam_aspect, gameplay_aspect = edit.panel_aspects(body.split_ratio)
     try:
-        webcam = edit.check_rect(body.webcam_rect, webcam_aspect, "Facecam-rutan")
+        if body.webcam_rects is not None:
+            webcams = edit.check_rects(body.webcam_rects, webcam_aspect)
+        else:
+            webcams = [edit.check_rect(body.webcam_rect, webcam_aspect, "Facecam-rutan")]
         gameplay = edit.check_rect(body.gameplay_rect, gameplay_aspect, "Spelrutan")
         with _write_lock:
-            text = edit.reframe_text(path.read_bytes().decode("utf-8"), webcam, gameplay, body.split_ratio)
+            text = edit.reframe_text(path.read_bytes().decode("utf-8"), webcams, gameplay, body.split_ratio)
             edit.write_atomic(path, text.encode("utf-8"), check=_check_config(
-                {"mode": "stacked", "webcam_rect": webcam, "gameplay_rect": gameplay,
+                {"mode": "stacked", "webcam_rect": webcams[0], "webcam_rects": webcams, "gameplay_rect": gameplay,
                  "split_ratio": body.split_ratio}))
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
