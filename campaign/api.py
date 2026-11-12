@@ -6,6 +6,7 @@ import json
 import threading
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi import Path as PathParam
@@ -16,7 +17,7 @@ from sqlalchemy.orm import Session
 from clipsmith.api.deps import get_db, verify_api_key
 from clipsmith.db.models import PipelineEvent, Run, RunStatus
 
-from . import estimate
+from . import editor, estimate
 from .budget import budget_from_settings
 from .caption import check_caption
 from .cliplog import STATUSES, ClipLog
@@ -201,6 +202,8 @@ def create_run(
     with _start_lock:
         if request.app.state.active_run_id is not None:
             raise HTTPException(429, "En körning pågår redan. Vänta tills den är klar.")
+        if editor.lock.locked():  # redigeraren kollar active_run_id under samma lås
+            raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
         run = Run(vod_id=body.vod_id, channel=ready["channel"], status=RunStatus.pending)
         db.add(run)
         db.commit()
@@ -288,6 +291,8 @@ def refinish_run(
     with _start_lock:
         if request.app.state.active_run_id is not None:
             raise HTTPException(429, "En körning pågår redan. Vänta tills den är klar.")
+        if editor.lock.locked():  # redigeraren kollar active_run_id under samma lås
+            raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
         request.app.state.active_run_id = run_id
     background_tasks.add_task(finish_run, run_id, meta["vod_id"], meta["profile"], meta["game"],
                               settings, app=request.app)
@@ -310,7 +315,8 @@ def _public(clip: dict, settings: Settings) -> dict:
         out["engagement_min"] = profile.engagement_min(clip["views"] or 0)
     except SystemExit:
         out["engagement_min"] = None
-    out["video_url"] = f"/campaign/clips/{clip['id']}/file"
+    # ?v= byts när klippet ändras, så att webbläsaren inte visar en gammal version efter en redigering.
+    out["video_url"] = f"/campaign/clips/{clip['id']}/file?v={quote(clip.get('updated') or '')}"
     return out
 
 
@@ -385,6 +391,18 @@ def _caption_problems(problems: list[str], caption: str, profile: Profile) -> li
 @router.patch("/clips/{clip_id}", summary="Ändra ett klipp: status, caption, länk eller statistik",
               dependencies=[Depends(verify_api_key)])
 def patch_clip(clip_id: int, body: ClipPatch, settings: Settings = Depends(get_settings)) -> dict:
+    # Status och caption kan byta klippets status, så de väntar inte in en redigering som pågår.
+    changes_status = bool({"status", "caption"} & body.model_fields_set)
+    if changes_status and not editor.lock.acquire(blocking=False):
+        raise HTTPException(409, "Klippet redigeras just nu. Försök igen när redigeringen är klar.")
+    try:
+        return _patch_clip(clip_id, body, settings)
+    finally:
+        if changes_status:
+            editor.lock.release()
+
+
+def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
     log = _log(settings)
     clip = _get(log, clip_id)
     profile = _profile(clip["profile"], settings)

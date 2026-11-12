@@ -350,8 +350,10 @@ def test_clip_posted_during_the_edit_is_not_changed(setup, settings, monkeypatch
 
 def test_other_writes_wait_for_a_running_edit(setup, settings, fake_twitch, monkeypatch) -> None:
     from campaign import estimate, tiktok_api
+    from clipsmith.db.session import init_db
 
     client, log, clip_id = setup
+    init_db(settings.root / "clipsmith.db")  # POST /runs skapar en körning i clipsmiths databas
     client.app.include_router(tiktok_api.router)
     settings.anthropic_api_key = settings.berget_api_key = "test"
     monkeypatch.setattr(estimate, "disk_gb", lambda path: (100.0, 228.0))
