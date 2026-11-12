@@ -109,7 +109,7 @@ def test_clip_list_has_engagement_and_can_filter_on_status(client, settings) -> 
     assert clips[0]["engagement"] == pytest.approx(0.7)
     assert clips[0]["engagement_min"] == 0.9
     assert clips[0]["filename"] == "clip_01_a.mp4"
-    assert clips[0]["video_url"] == f"/campaign/clips/{clip_id}/file"
+    assert clips[0]["video_url"].startswith(f"/campaign/clips/{clip_id}/file?v=")
     assert "file" not in clips[0]
 
 
