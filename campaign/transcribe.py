@@ -19,6 +19,7 @@ import httpx
 
 from clipsmith.models.transcript import Segment, Transcript, Word
 
+from .budget import Budget
 from .media import need, probe
 
 BERGET_URL = "https://api.berget.ai/v1/audio/transcriptions"
@@ -127,6 +128,7 @@ def transcribe_vod(
     language: str,
     chunk_s: float = 1800.0,
     on_part: Callable[[int, int], None] | None = None,
+    budget: Budget | None = None,
 ) -> Transcript:
     """Transkribera hela videon bit för bit och spara transcript.json.
 
@@ -155,7 +157,8 @@ def transcribe_vod(
             answer = json.loads(part_file.read_text(encoding="utf-8"))
         else:
             print(f"  del {number} av {parts} ...", flush=True)
-            audio = _audio_part(mp4, start, min(chunk_s, duration - start))
+            length = min(chunk_s, duration - start)
+            audio = _audio_part(mp4, start, length)
             try:
                 answer = post(audio, fields)
             except Exception as exc:
@@ -164,6 +167,8 @@ def transcribe_vod(
                     f"Klara delar är sparade i {saved}. En ny körning fortsätter där den slutade."
                 ) from exc
             _save_json(part_file, answer)
+            if budget is not None:  # bara skickade delar kostar; sparade delar är redan betalda
+                budget.record_audio(model, length / 60)
         segments += to_segments(answer, offset_s=start)
     transcript = Transcript(video_id=video_id, language=language, segments=segments)
     out_path.write_text(transcript.to_json(), encoding="utf-8")

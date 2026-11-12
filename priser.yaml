@@ -28,3 +28,10 @@ models:
 default:
   input: 8.00
   output: 40.00
+
+# Transkribering via Berget: dollar per minut ljud.
+# Berget tar 1,98 euro per 1 000 minuter (docs.berget.ai/models/overview, november 2026).
+# Budgeten räknas i dollar. Här räknas 1 euro som 1,10 dollar, avrundat uppåt.
+# En modell som inte står här räknas som 0, eftersom priset inte är känt.
+transcription:
+  Systran/faster-whisper-large-v3: 0.0022

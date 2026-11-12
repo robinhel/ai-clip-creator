@@ -149,6 +149,7 @@ def test_vod_facts_estimate_and_campaigns(client, settings, fake_twitch, monkeyp
     mp4 = settings.work_dir / VOD / f"{VOD}.mp4"
     mp4.parent.mkdir(parents=True)
     mp4.touch()
+    monkeypatch.setattr(api, "probe", lambda path: {"duration": 13950.0})  # hela VOD:en finns
     vod = client.get(f"/campaign/vod/{VOD}").json()
     assert vod["downloaded"] is True
     assert vod["estimate"]["fits"] is True
@@ -207,6 +208,7 @@ def test_new_run_checks_channel_length_and_disk(client, settings, fake_twitch, s
     mp4 = settings.work_dir / VOD / f"{VOD}.mp4"
     mp4.parent.mkdir(parents=True)
     mp4.touch()
+    monkeypatch.setattr(api, "probe", lambda path: {"duration": 13950.0})  # hela VOD:en finns
     assert client.post("/campaign/runs", json=body).status_code == 201  # redan nedladdad
 
 
