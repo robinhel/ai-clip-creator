@@ -87,9 +87,16 @@ def make_clips(
     title = meta.get("title") or vod_id  # VOD-fakta sparades när körningen startade
     duration = _duration(meta["duration_s"]) if meta.get("duration_s") else ""
 
+    shown: set[int] = set()
+
+    def downloading(done: int, total: int) -> None:
+        percent = round(100 * done / max(total, 1))
+        if percent not in shown:  # en händelse per procent, inte en per del (1 400 delar på 4 timmar)
+            shown.add(percent)
+            emit("download", 5.0 + percent / 10, f"Hämtar: {percent} %")
+
     emit("download", 5.0, "Hämtar VOD:en")
-    mp4 = download_vod(vod_id, cfg.work_dir.expanduser(), on_progress=lambda done, total: emit(
-        "download", 5.0 + 10.0 * done / max(total, 1), f"Hämtar: {round(100 * done / max(total, 1))} %"))
+    mp4 = download_vod(vod_id, cfg.work_dir.expanduser(), on_progress=downloading)
 
     transcript = mp4.parent / "transcript.json"
     if not transcript.exists():
