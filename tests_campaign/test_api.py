@@ -24,6 +24,7 @@ def client(settings, tmp_path, monkeypatch, fake_twitch):
     settings.anthropic_api_key = "test"
     settings.berget_api_key = "test"
     init_db(tmp_path / "clipsmith.db")
+    monkeypatch.setattr(api.estimate, "disk_gb", lambda path: (100.0, 228.0))  # gott om plats som standard
     app = FastAPI()
     app.state.active_run_id = None
     app.include_router(api.router)

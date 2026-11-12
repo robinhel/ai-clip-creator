@@ -53,9 +53,16 @@ def make_clips(
     emit: Emit,
     start_s: float = 0.0,
     end_s: float = 0.0,
+    focus: str = "",
+    min_s: int | None = None,
+    max_s: int | None = None,
 ):
     """Hela kedjan för en VOD. Returnerar clipsmiths inställningar, som behövs efteråt."""
     cfg = clipsmith_config(profile, settings)
+    if min_s or max_s:  # körningens längd i en kopia, kampanjens fil ändras inte
+        clip = cfg.clip.model_copy(update={"min_seconds": min_s or cfg.clip.min_seconds,
+                                           "max_seconds": max_s or cfg.clip.max_seconds})
+        cfg = cfg.model_copy(update={"clip": clip})
     channel = cfg.channels[0] if cfg.channels else profile.streamer.lower()
 
     emit("download", 5.0, "Hämtar VOD:en")
@@ -80,6 +87,7 @@ def make_clips(
         on_stage=lambda stage, pct: emit(stage, pct, ""),
         start_s=start_s,
         end_s=end_s,
+        focus=focus,
     )
 
     emit("finish", 90.0, "Lägger på overlay, text och caption och kontrollerar reglerna")
@@ -111,6 +119,9 @@ def run_campaign_vod(
     *,
     start_s: float = 0.0,
     end_s: float = 0.0,
+    focus: str = "",
+    min_s: int | None = None,
+    max_s: int | None = None,
     app: Any = None,
 ) -> None:
     """Bakgrundsjobb för POST /campaign/runs. Skriver förloppet som clipsmiths händelser."""
@@ -118,7 +129,8 @@ def run_campaign_vod(
     try:
         profile = load_profile(profile_name, settings.profiles_dir)
         cfg = make_clips(vod_id, profile, settings, game=game, start_s=start_s, end_s=end_s,
-                            emit=lambda stage, pct, msg: _emit(db, run_id, stage, pct, msg))
+                         focus=focus, min_s=min_s, max_s=max_s,
+                         emit=lambda stage, pct, msg: _emit(db, run_id, stage, pct, msg))
         _harvest_clips(db, run_id, vod_id, cfg)
         _emit(db, run_id, "done", 100.0, "Klart", status=RunStatus.done)
     except BaseException as error:  # SystemExit från kampanjlagret ska också synas i appen
