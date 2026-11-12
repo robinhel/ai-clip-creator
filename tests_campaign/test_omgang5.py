@@ -326,3 +326,23 @@ def test_twitchs_placeholder_image_gives_no_image_in_the_vod_facts(monkeypatch) 
         "previewThumbnailURL": "https://vod-secure.twitch.tv/_404/404_processing_640x360.png",
         "owner": {"login": "skiimasktimmy", "displayName": "SkiiMaskTimmy"}}}})
     assert vodinfo.vod_facts("2926877904")["thumbnail_url"] is None
+
+
+def test_earnings_count_each_post_on_its_own_and_use_what_whop_paid(client, settings) -> None:  # noqa: F811
+    """min_views och taket gäller varje inlägg. Utbetalt är vad Whop betalade, när det är ifyllt."""
+    log = ClipLog(settings.data_dir / "klipp.db")
+    two = log.add(vod_id="1", profile="skiimasktimmy", file="a.mp4", title="t", caption="c", status="godkand")
+    tiktok = log.add_post(two, "tiktok", "https://www.tiktok.com/@r/video/1")
+    reels = log.add_post(two, "instagram_reels", "https://www.instagram.com/reel/1")
+    log.update_post(tiktok, views=1500)
+    log.update_post(reels, views=1500)  # 3 000 tillsammans, men inget inlägg når 2 000
+    paid = log.add(vod_id="1", profile="skiimasktimmy", file="b.mp4", title="t", caption="c", status="godkand")
+    shorts = log.add_post(paid, "youtube_shorts", "https://www.youtube.com/shorts/1")
+    log.update_post(shorts, views=3000, status="betald", paid_usd=4.2)
+    guess = log.add(vod_id="1", profile="skiimasktimmy", file="c.mp4", title="t", caption="c", status="godkand")
+    log.update_post(log.add_post(guess, "tiktok", "https://www.tiktok.com/@r/video/2"), views=5000, status="betald")
+
+    earnings = client.get("/campaign/summary").json()["earnings"]
+    assert {c["id"]: c["usd"] for c in earnings["per_clip"]} == {two: 0.0, paid: 3.0, guess: 5.0}
+    assert earnings["estimated_usd"] == 8.0
+    assert earnings["paid_usd"] == 9.2  # 4.2 som Whop betalade, plus uppskattade 5.0 där beloppet saknas
