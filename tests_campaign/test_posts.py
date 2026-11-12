@@ -41,8 +41,8 @@ def test_one_clip_gets_one_post_per_platform(client, settings) -> None:  # noqa:
 def test_each_post_is_sent_in_and_followed_on_its_own(client, settings) -> None:  # noqa: F811
     clip_id = _clip(settings, status="godkand", clip_format="funny")
     tiktok = _post(client, clip_id, "tiktok", TIKTOK).json()["posts"][0]["id"]
-    reels = [p for p in _post(client, clip_id, "instagram_reels", REELS).json()["posts"]
-             if p["platform"] == "instagram_reels"][0]["id"]
+    reels = next(p for p in _post(client, clip_id, "instagram_reels", REELS).json()["posts"]
+                 if p["platform"] == "instagram_reels")["id"]
 
     assert client.patch(f"/campaign/posts/{tiktok}", json={"status": "inskickad"}).status_code == 200
     clip = client.patch(f"/campaign/posts/{tiktok}", json={"views": 2500, "likes": 40}).json()
@@ -62,7 +62,7 @@ def test_each_post_is_sent_in_and_followed_on_its_own(client, settings) -> None:
 
     # Vad Whop faktiskt betalade, per inlägg. Ett steg bakåt går att ångra.
     clip = client.patch(f"/campaign/posts/{tiktok}", json={"status": "betald", "paid_usd": 2.4}).json()
-    post = [p for p in clip["posts"] if p["id"] == tiktok][0]
+    post = next(p for p in clip["posts"] if p["id"] == tiktok)
     assert (post["status"], post["paid_usd"]) == ("betald", 2.4)
     assert client.patch(f"/campaign/posts/{tiktok}", json={"status": "analytics_inskickad"}).status_code == 200
     assert client.patch(f"/campaign/posts/{tiktok}", json={"status": "postad"}).status_code == 400  # två steg
@@ -99,6 +99,7 @@ def test_old_clips_with_a_link_become_one_post(settings) -> None:
     log.update(clip_id, status="inskickad", platform="tiktok", url=TIKTOK, views=3000, likes=30)
     with sqlite3.connect(path) as db:
         db.execute("DROP TABLE IF EXISTS posts")  # som en logg från före inläggen
+        db.execute("PRAGMA user_version = 0")
     log = ClipLog(path)
     posts = log.posts(clip_id)
     assert [(p["platform"], p["url"], p["status"], p["views"], p["likes"]) for p in posts] == [
