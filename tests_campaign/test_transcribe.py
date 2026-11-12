@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from campaign.transcribe import to_segments, transcribe_vod
+import httpx
+import pytest
+
+from campaign.transcribe import berget_post, to_segments, transcribe_vod
 from clipsmith.models.transcript import Transcript
 
 from .conftest import make_clip, needs_ffmpeg
@@ -66,3 +69,124 @@ def test_transcribe_vod_sends_each_part_and_writes_clipsmiths_transcript(setting
     assert transcript.language == "en"
     assert [(s.start, s.text) for s in transcript.segments] == [(0.2, "part 1"), (3.2, "part 2")]
     assert transcript.segments[1].words[0].start == 3.5
+
+
+def _fake_send(statuses: list[int], headers: dict | None = None):
+    """Svarar med statuskoderna i tur och ordning. Inga riktiga anrop."""
+    calls: list[dict] = []
+
+    def send(url, **kwargs) -> httpx.Response:
+        calls.append(kwargs)
+        status = statuses[len(calls) - 1]
+        body = _answer([], [(0.0, 1.0, "ok")]) if status == 200 else {"error": {"message": "fel"}}
+        return httpx.Response(status, json=body, headers=headers or {})
+
+    return send, calls
+
+
+def test_berget_post_tries_again_after_500() -> None:
+    send, calls = _fake_send([500, 500, 200])
+    pauses: list[float] = []
+    post = berget_post("hemlig-nyckel", send=send, sleep=pauses.append)
+
+    assert post(b"ljud", {})["segments"][0]["text"] == "ok"
+    assert len(calls) == 3
+    assert pauses == [10, 30]
+
+
+def test_berget_post_respects_retry_after_up_to_120_s() -> None:
+    send, _ = _fake_send([429, 200], headers={"Retry-After": "500"})
+    pauses: list[float] = []
+    berget_post("k", send=send, sleep=pauses.append)(b"ljud", {})
+    assert pauses == [120]
+
+
+def test_berget_post_tries_again_after_network_error() -> None:
+    calls: list[int] = []
+
+    def send(url, **kwargs) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            raise httpx.ConnectError("nätet borta")
+        return httpx.Response(200, json=_answer([], [(0.0, 1.0, "ok")]))
+
+    berget_post("k", send=send, sleep=lambda s: None)(b"ljud", {})
+    assert len(calls) == 2
+
+
+def test_berget_post_gives_up_at_once_on_400() -> None:
+    send, calls = _fake_send([400, 200])
+    with pytest.raises(RuntimeError, match="400"):
+        berget_post("k", send=send, sleep=lambda s: None)(b"ljud", {})
+    assert len(calls) == 1
+
+
+@needs_ffmpeg
+def test_four_500_in_a_row_names_the_part_and_hides_the_key(settings) -> None:
+    mp4 = make_clip(settings.work_dir / "123" / "123.mp4", size="320x180", seconds=5)
+    send, calls = _fake_send([500] * 4)
+    pauses: list[float] = []
+    post = berget_post("hemlig-nyckel", send=send, sleep=pauses.append)
+
+    with pytest.raises(RuntimeError) as error:
+        transcribe_vod(mp4, "123", mp4.parent / "transcript.json", post=post, model="m", language="en", chunk_s=3)
+
+    assert len(calls) == 4
+    assert pauses == [10, 30, 60]
+    message = str(error.value)
+    assert "Del 1 av 2" in message
+    assert "sparade" in message
+    assert "fortsätter" in message
+    assert "hemlig-nyckel" not in message
+
+
+def _scripted_post(texts: list[str | None]):
+    """Ett svar per anrop, None betyder att anropet misslyckas."""
+    sent: list[dict] = []
+
+    def post(audio: bytes, fields: dict) -> dict:
+        sent.append(fields)
+        text = texts[len(sent) - 1]
+        if text is None:
+            raise RuntimeError("Berget svarade 500")
+        return _answer([("hi", 0.5, 0.9)], [(0.2, 1.0, text)])
+
+    return post, sent
+
+
+@needs_ffmpeg
+def test_a_new_run_sends_only_the_missing_parts(settings) -> None:
+    clean = make_clip(settings.work_dir / "ren" / "ren.mp4", size="320x180", seconds=5)
+    post, _ = _scripted_post(["a", "b", "c"])
+    transcribe_vod(clean, "123", clean.parent / "transcript.json", post=post, model="m", language="en", chunk_s=2)
+
+    mp4 = make_clip(settings.work_dir / "123" / "123.mp4", size="320x180", seconds=5)
+    out = mp4.parent / "transcript.json"
+    post, _ = _scripted_post(["a", None])
+    with pytest.raises(RuntimeError, match="Del 2 av 3"):
+        transcribe_vod(mp4, "123", out, post=post, model="m", language="en", chunk_s=2)
+    assert (mp4.parent / "berget" / "del_01.json").exists()
+    assert not (mp4.parent / "berget" / "del_02.json").exists()
+
+    post, sent = _scripted_post(["b", "c"])
+    transcribe_vod(mp4, "123", out, post=post, model="m", language="en", chunk_s=2)
+
+    assert len(sent) == 2
+    assert out.read_text(encoding="utf-8") == (clean.parent / "transcript.json").read_text(encoding="utf-8")
+    assert not (mp4.parent / "berget").exists()
+
+
+@needs_ffmpeg
+def test_saved_parts_are_not_used_when_the_model_changes(settings) -> None:
+    mp4 = make_clip(settings.work_dir / "123" / "123.mp4", size="320x180", seconds=5)
+    out = mp4.parent / "transcript.json"
+    post, _ = _scripted_post(["gammal", None])
+    with pytest.raises(RuntimeError):
+        transcribe_vod(mp4, "123", out, post=post, model="gammal-modell", language="en", chunk_s=2)
+
+    post, sent = _scripted_post(["a", "b", "c"])
+    transcript = transcribe_vod(mp4, "123", out, post=post, model="ny-modell", language="en", chunk_s=2)
+
+    assert len(sent) == 3
+    assert {f["model"] for f in sent} == {"ny-modell"}
+    assert [s.text for s in transcript.segments] == ["a", "b", "c"]
