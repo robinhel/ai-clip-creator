@@ -357,7 +357,8 @@ def test_missing_reframe_lines_are_added_under_reframe(client, settings) -> None
     path.write_text(before.split("reframe:")[0].rstrip() + "\n")  # ingen reframe-del alls
     assert client.put("/campaign/profiles/nykanal/reframe", json=body).status_code == 200
     reframe = yaml.safe_load(path.read_text())["reframe"]
-    assert reframe == {"webcam_rect": body["webcam_rect"], "gameplay_rect": body["gameplay_rect"], "split_ratio": 0.4}
+    assert reframe == {"mode": "stacked", "webcam_rect": body["webcam_rect"], "gameplay_rect": body["gameplay_rect"],
+                       "split_ratio": 0.4}
 
 
 # ---------- 5. bild från VOD:en ----------
