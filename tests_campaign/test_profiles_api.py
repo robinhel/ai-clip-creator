@@ -313,6 +313,7 @@ def test_new_campaign_is_refused_when_it_exists_or_the_channel_is_wrong(client, 
 def test_reframe_shows_rects_and_shapes(client) -> None:
     assert client.get("/campaign/profiles/skiimasktimmy/reframe").json() == {
         "mode": "stacked", "split_ratio": 0.4, "webcam_rect": [1542, 770, 316, 224],
+        "webcam_rects": [[1542, 770, 316, 224], [88, 770, 316, 224]],
         "gameplay_rect": [454, 0, 1012, 1080], "source_width": 1920, "source_height": 1080,
         "webcam_aspect": 1.40625, "gameplay_aspect": 0.9375, "warning": None}
 
@@ -328,6 +329,7 @@ def test_reframe_writes_only_its_lines(client, settings) -> None:
     assert len(after) == len(before)
     changed = [i for i, (a, b) in enumerate(zip(before, after, strict=True)) if a != b]
     assert [after[i] for i in changed] == ["  webcam_rect: [1500, 700, 316, 224]   # x, y, bredd, höjd\n",
+                                           "  webcam_rects: [[1500, 700, 316, 224]]\n",
                                            "  gameplay_rect: [400, 0, 1012, 1080]  # mitten av bilden\n"]
 
     response = client.put("/campaign/profiles/skiimasktimmy/reframe", json={
@@ -363,7 +365,8 @@ def test_missing_reframe_lines_are_added_under_reframe(client, settings) -> None
     body = {"webcam_rect": [1542, 770, 316, 224], "gameplay_rect": [454, 0, 1012, 1080], "split_ratio": 0.4}
     assert client.put("/campaign/profiles/nykanal/reframe", json=body).status_code == 200
     after = path.read_text()
-    added = ["  webcam_rect: [1542, 770, 316, 224]\n", "  gameplay_rect: [454, 0, 1012, 1080]\n"]
+    added = ["  webcam_rect: [1542, 770, 316, 224]\n", "  webcam_rects: [[1542, 770, 316, 224]]\n",
+             "  gameplay_rect: [454, 0, 1012, 1080]\n"]
     assert after.split("reframe:\n")[1].startswith("".join(added))
     assert after.replace("".join(added), "") == before
     cfg = load_config(path)
@@ -372,9 +375,63 @@ def test_missing_reframe_lines_are_added_under_reframe(client, settings) -> None
     path.write_text(before.split("reframe:")[0].rstrip() + "\n")  # ingen reframe-del alls
     assert client.put("/campaign/profiles/nykanal/reframe", json=body).status_code == 200
     reframe = yaml.safe_load(path.read_text())["reframe"]
-    assert reframe == {"mode": "stacked", "webcam_rect": body["webcam_rect"], "gameplay_rect": body["gameplay_rect"],
-                       "split_ratio": 0.4}
+    assert reframe == {"mode": "stacked", "webcam_rect": body["webcam_rect"], "webcam_rects": [body["webcam_rect"]],
+                       "gameplay_rect": body["gameplay_rect"], "split_ratio": 0.4}
 
+
+
+# ---------- flera kamerapositioner ----------
+
+LEFT, RIGHT = [88, 770, 316, 224], [1542, 770, 316, 224]
+
+
+def test_reframe_with_two_rects_writes_both_lines_and_nothing_else(client, settings) -> None:
+    path = settings.root / "config.timmy.yaml"
+    path.write_text(path.read_text().replace("[[1542, 770, 316, 224], [88, 770, 316, 224]]", "[[1542, 770, 316, 224]]"))
+    before = path.read_bytes().decode().splitlines(keepends=True)
+    body = {"webcam_rects": [LEFT, RIGHT], "gameplay_rect": [454, 0, 1012, 1080], "split_ratio": 0.4}
+    response = client.put("/campaign/profiles/skiimasktimmy/reframe", json=body)
+    assert response.status_code == 200, response.text
+    assert (response.json()["webcam_rects"], response.json()["webcam_rect"]) == ([LEFT, RIGHT], LEFT)
+    after = path.read_bytes().decode().splitlines(keepends=True)
+    changed = [i for i, (a, b) in enumerate(zip(before, after, strict=True)) if a != b]
+    assert [after[i] for i in changed] == ["  webcam_rect: [88, 770, 316, 224]   # x, y, bredd, höjd\n",
+                                           "  webcam_rects: [[88, 770, 316, 224], [1542, 770, 316, 224]]\n"]
+    cfg = load_config(path)
+    assert (cfg.reframe.webcam_rect, cfg.reframe.webcam_rects) == (LEFT, [LEFT, RIGHT])
+
+
+def test_reframe_with_one_rect_in_the_list_or_the_old_field(client, settings) -> None:
+    url = "/campaign/profiles/skiimasktimmy/reframe"
+    rest = {"gameplay_rect": [454, 0, 1012, 1080], "split_ratio": 0.4}
+    one = client.put(url, json={"webcam_rects": [LEFT], **rest}).json()
+    assert (one["webcam_rects"], one["webcam_rect"]) == ([LEFT], LEFT)
+    old = client.put(url, json={"webcam_rect": RIGHT, **rest}).json()
+    assert (old["webcam_rects"], old["webcam_rect"]) == ([RIGHT], RIGHT)
+
+
+def test_a_config_with_only_webcam_rect_shows_it_as_the_only_rect(client, settings) -> None:
+    path = settings.root / "config.timmy.yaml"
+    path.write_text("".join(line for line in path.read_text().splitlines(keepends=True)
+                            if not line.startswith("  webcam_rects:")))
+    assert client.get("/campaign/profiles/skiimasktimmy/reframe").json()["webcam_rects"] == [RIGHT]
+
+
+@pytest.mark.parametrize(("rects", "words"), [
+    ([RIGHT] * 5, "1 till 4"),
+    ([], "1 till 4"),
+    ("nej", "1 till 4"),
+    ([RIGHT, [0, 0, 400, 224]], "form"),
+    ([RIGHT, [1700, 770, 316, 224]], "utanför"),
+    ([RIGHT, [0, 0, 316]], "heltal"),
+])
+def test_bad_rect_lists_are_refused(client, settings, rects, words) -> None:
+    before = (settings.root / "config.timmy.yaml").read_bytes()
+    response = client.put("/campaign/profiles/skiimasktimmy/reframe", json={
+        "webcam_rects": rects, "gameplay_rect": [454, 0, 1012, 1080], "split_ratio": 0.4})
+    assert response.status_code == 400
+    assert words in response.json()["detail"]
+    assert (settings.root / "config.timmy.yaml").read_bytes() == before
 
 # ---------- 5. bild från VOD:en ----------
 
