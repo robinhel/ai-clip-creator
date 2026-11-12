@@ -212,11 +212,33 @@ def create_run(
     _log(settings).add_run(run.id, body.vod_id, profile.name, game, focus=focus or None,
                            min_s=min_s, max_s=max_s, title=facts["title"],
                            channel_name=facts["channel_name"], thumbnail_url=facts["thumbnail_url"],
-                           duration_s=facts["duration_s"])
+                           duration_s=facts["duration_s"], start_s=body.start_s, end_s=body.end_s)
     background_tasks.add_task(run_campaign_vod, run.id, body.vod_id, profile.name, game, settings,
                               start_s=body.start_s, end_s=body.end_s, focus=focus, min_s=min_s,
                               max_s=max_s, app=request.app)
     return run.to_dict()
+
+
+@router.post("/runs/{run_id}/retry", status_code=201, summary="Försök igen med en misslyckad körning",
+             dependencies=[Depends(verify_api_key)])
+def retry_run(
+    run_id: int,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """En ny körning med samma kampanj, VOD och val. Samma kontroller som en ny körning."""
+    meta = _log(settings).run(run_id)
+    if meta is None:
+        raise HTTPException(404, "Körningen finns inte.")
+    run = db.get(Run, run_id)
+    if run is not None and run.status != RunStatus.failed:  # saknas den i clipsmiths databas visas den som failed
+        raise HTTPException(400, "Bara en misslyckad körning kan köras igen.")
+    body = CampaignRunCreate(profile=meta["profile"], vod_id=meta["vod_id"], game=meta["game"],
+                             start_s=meta.get("start_s") or 0.0, end_s=meta.get("end_s") or 0.0,
+                             focus=meta["focus"] or "", min_s=meta["min_s"], max_s=meta["max_s"])
+    return create_run(body, request, background_tasks, db, settings)
 
 
 def _run_clips(meta: dict, clips: list[dict]) -> list[dict]:
@@ -252,6 +274,7 @@ def _describe_run(meta: dict, db: Session, clips: list[dict], steps: bool = Fals
         counts[clip["status"]] = counts.get(clip["status"], 0) + 1
     out = {key: meta[key] for key in ("run_id", "vod_id", "profile", "game", "focus", "min_s", "max_s",
                                       "title", "channel_name", "thumbnail_url", "duration_s")}
+    out.update(start_s=meta.get("start_s") or 0, end_s=meta.get("end_s") or 0)  # 0 för gamla körningar
     out.update(created=meta["created"] or created, status=status, stage=progress["stage"],
                pct=progress["pct"], error=error, clip_counts=counts)
     if steps:
