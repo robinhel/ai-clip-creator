@@ -2,21 +2,28 @@
 
 from __future__ import annotations
 
+from time import monotonic
+
 from twitchdl import twitch
 
-_cache: dict[str, dict] = {}  # VOD-id -> fakta. Ändras inte, så de behövs bara hämtas en gång.
+CACHE_S = 600  # en VOD som fortfarande sänds blir längre, så fakta får vara högst 10 minuter gamla
+_cache: dict[str, tuple[float, dict]] = {}  # VOD-id -> (när de hämtades, fakta)
 
 
 class VodNotFound(Exception):
     pass
 
 
-def vod_facts(vod_id: str) -> dict:
-    """Titel, kanal, spel, längd, datum och bild. Nätverksfel går vidare till den som anropar."""
+def vod_facts(vod_id: str, fresh: bool = False) -> dict:
+    """Titel, kanal, spel, längd, datum och bild. Nätverksfel går vidare till den som anropar.
+
+    fresh=True hoppar över cachen, t.ex. när en körning startas och längden måste stämma.
+    """
     if not vod_id.isdigit():  # id:t hamnar i en GraphQL-fråga
         raise VodNotFound(vod_id)
-    if vod_id in _cache:
-        return _cache[vod_id]
+    hit = _cache.get(vod_id)
+    if hit and not fresh and monotonic() - hit[0] < CACHE_S:
+        return hit[1]
     video = twitch.get_video(vod_id)
     if not video:
         raise VodNotFound(vod_id)
@@ -35,5 +42,5 @@ def vod_facts(vod_id: str) -> dict:
         "created_at": video.get("createdAt"),
         "thumbnail_url": extra.get("previewThumbnailURL"),
     }
-    _cache[vod_id] = facts
+    _cache[vod_id] = (monotonic(), facts)
     return facts

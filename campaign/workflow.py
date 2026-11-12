@@ -17,6 +17,8 @@ from .profile import Profile
 from .review import review_clip
 from .rules import check_clip, check_source
 
+FORCED_REASON = "Claude valde inte klippet. Det togs med för att nå min_picks."
+
 
 def load_picks(path: Path) -> list[dict]:
     """Läs clipsmiths picks.json. Klipp nummer N hör ihop med rad N i filen."""
@@ -25,6 +27,8 @@ def load_picks(path: Path) -> list[dict]:
     picks = []
     for item in json.loads(path.read_text(encoding="utf-8")):
         pick = item.get("pick", {})
+        reason = pick.get("reason") or ""
+        forced = reason.startswith("Force-accepted")  # clipsmiths min_picks, inte Claudes val
         picks.append(
             {
                 "start": pick.get("start_offset_s"),
@@ -32,8 +36,8 @@ def load_picks(path: Path) -> list[dict]:
                 "title": pick.get("title") or pick.get("title_es") or "",
                 "format": pick.get("format"),
                 "signals": item.get("candidate", {}).get("sources", []),
-                "score": pick.get("score"),  # None för picks från före betyget
-                "reason": pick.get("reason") or "",
+                "score": None if forced else pick.get("score"),  # None för picks från före betyget
+                "reason": FORCED_REASON if forced else reason,
             }
         )
     return picks

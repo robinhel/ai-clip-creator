@@ -88,6 +88,10 @@ def progress(status: str, events: list[tuple[str, float, datetime]], duration_s:
 
     Ett steg är klart när ett senare steg har börjat eller körningen är klar.
     """
+    # Körs "Gör klippen kampanjklara igen" kommer nya händelser efter en tidigare done. Räkna bara dem.
+    dones = [i for i, (stage, _, _) in enumerate(events[:-1]) if stage == "done"]
+    if dones:
+        events = events[dones[-1] + 1:]
     started: dict[str, datetime] = {}
     current = -1
     done_at = None
@@ -100,6 +104,8 @@ def progress(status: str, events: list[tuple[str, float, datetime]], duration_s:
         started.setdefault(step, _utc(at))
         # max: clipsmith skickar download och transcribe en gång till efter kampanjens egna
         current = max(current, STEP_IDS.index(step))
+    if status == "failed" and current < 0:
+        current = 0  # misslyckades innan första händelsen
 
     estimates = step_seconds(duration_s)
     now = now or datetime.now(UTC)
