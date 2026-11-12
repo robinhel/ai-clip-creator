@@ -425,7 +425,7 @@ def refinish_run(
     if meta is None:
         raise HTTPException(404, "Körningen hör inte till någon kampanj.")
     run = db.get(Run, run_id)
-    if run is None or run.status == RunStatus.failed:  # en körning som saknas visas också som misslyckad
+    if run is not None and run.status == RunStatus.failed:
         raise HTTPException(400, "Körningen misslyckades. Tryck Kör igen.")
     with _start_lock:
         if request.app.state.active_run_id is not None:
