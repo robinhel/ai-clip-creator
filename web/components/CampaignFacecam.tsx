@@ -233,12 +233,13 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
       )}
 
       <div className="flex flex-wrap items-end gap-3 text-sm">
-        <label className="space-y-1">
+        <label className="min-w-0 space-y-1">
           <span className="block text-[13px] text-muted-foreground">Bild från</span>
           <select
             value={runs.some((r) => r.vod_id === vodChoice) || !vodChoice ? vodChoice : "annat"}
             onChange={(e) => e.target.value !== "annat" && setVodChoice(e.target.value)}
-            className="h-9 rounded-lg border border-line bg-panel px-2.5 outline-none focus:border-brand"
+            // Långa VOD-titlar får inte göra sidan bredare än skärmen.
+            className="h-9 w-full max-w-72 truncate rounded-lg border border-line bg-panel px-2.5 outline-none focus:border-brand"
           >
             <option value="">Senaste projektet</option>
             {runs.map((r) => (
