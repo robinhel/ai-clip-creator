@@ -21,8 +21,15 @@ STATUSES = [
 COLUMNS = (
     "id, vod_id, profile, start_s, end_s, title, format, signals, file, caption, status, "
     "problems, warnings, review, platform, url, views, likes, comments, shares, note, "
-    "created, updated"
+    "created, updated, score, reason"
 )
+
+# Kolumner som kom till efter första versionen. Saknas de läggs de till när loggen öppnas.
+NEW_COLUMNS = {
+    "clips": {"score": "INTEGER", "reason": "TEXT"},
+    "runs": {"focus": "TEXT", "min_s": "INTEGER", "max_s": "INTEGER", "title": "TEXT",
+             "channel_name": "TEXT", "thumbnail_url": "TEXT", "duration_s": "INTEGER", "created": "TEXT"},
+}
 
 
 def _now() -> str:
@@ -48,6 +55,11 @@ class ClipLog:
                 """CREATE TABLE IF NOT EXISTS runs (
                     run_id INTEGER PRIMARY KEY, vod_id TEXT, profile TEXT, game TEXT)"""
             )
+            for table, columns in NEW_COLUMNS.items():
+                have = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+                for name, kind in columns.items():
+                    if name not in have:
+                        db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
 
     def _db(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.db_path)
@@ -65,20 +77,20 @@ class ClipLog:
             status: str = "renderad", start_s: float | None = None, end_s: float | None = None,
             clip_format: str | None = None, signals: list | None = None,
             problems: list | None = None, warnings: list | None = None,
-            review: dict | None = None) -> int:
+            review: dict | None = None, score: int | None = None, reason: str = "") -> int:
         if status not in STATUSES:
             raise ValueError(f"Okänd status: {status}")
         with self._db() as db:
             cursor = db.execute(
                 """INSERT INTO clips (vod_id, profile, start_s, end_s, title, format, signals,
-                   file, caption, status, problems, warnings, review, created, updated)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   file, caption, status, problems, warnings, review, created, updated, score, reason)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (vod_id, profile, start_s, end_s, title, clip_format,
                  json.dumps(signals or []), file, caption, status,
                  json.dumps(problems or [], ensure_ascii=False),
                  json.dumps(warnings or [], ensure_ascii=False),
                  json.dumps(review, ensure_ascii=False) if review else None,
-                 _now(), _now()),
+                 _now(), _now(), score, reason),
             )
             return int(cursor.lastrowid)
 
@@ -104,7 +116,7 @@ class ClipLog:
             raise ValueError(f"Okänd status: {fields['status']}")
         allowed = {"status", "platform", "url", "views", "likes", "comments", "shares",
                    "note", "format", "title", "caption", "problems", "warnings", "review", "file",
-                   "start_s", "end_s"}
+                   "start_s", "end_s", "score", "reason"}
         unknown = set(fields) - allowed
         if unknown:
             raise ValueError(f"Fält som inte får ändras: {sorted(unknown)}")
@@ -156,16 +168,22 @@ class ClipLog:
                 )
         return items
 
-    def add_run(self, run_id: int, vod_id: str, profile: str, game: str | None) -> None:
-        """Spara vilken kampanj en körning i appen hör till."""
+    def add_run(self, run_id: int, vod_id: str, profile: str, game: str | None, *,
+                focus: str | None = None, min_s: int | None = None, max_s: int | None = None,
+                title: str | None = None, channel_name: str | None = None,
+                thumbnail_url: str | None = None, duration_s: int | None = None) -> None:
+        """Spara vilken kampanj en körning i appen hör till, och fakta om VOD:en."""
         with self._db() as db:
-            db.execute("INSERT OR REPLACE INTO runs (run_id, vod_id, profile, game) VALUES (?,?,?,?)",
-                       (run_id, vod_id, profile, game))
+            db.execute(
+                """INSERT OR REPLACE INTO runs (run_id, vod_id, profile, game, focus, min_s, max_s,
+                   title, channel_name, thumbnail_url, duration_s, created)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (run_id, vod_id, profile, game, focus, min_s, max_s, title, channel_name,
+                 thumbnail_url, duration_s, _now()))
 
     def runs(self) -> list[dict]:
         with self._db() as db:
-            return [dict(r) for r in db.execute(
-                "SELECT run_id, profile, game, vod_id FROM runs ORDER BY run_id").fetchall()]
+            return [dict(r) for r in db.execute("SELECT * FROM runs ORDER BY run_id").fetchall()]
 
     def run(self, run_id: int) -> dict | None:
         return next((r for r in self.runs() if r["run_id"] == run_id), None)
