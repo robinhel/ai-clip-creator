@@ -267,3 +267,16 @@ export interface CampaignProfileCreate {
   max_payout_per_clip_usd?: number;
   engagement_min_percent?: number;
 }
+
+/** GET /campaign/clips/{id}/edit. Tider i sekunder inne i råklippet. */
+export interface ClipEditInfo {
+  clip_id: number;
+  title: string;
+  original: { duration_s: number; start_s: number | null; end_s: number | null; url: string };
+  trim: { in_s: number; out_s: number };
+  /** Kampanjens gränser för klipplängden. */
+  min_s: number | null;
+  max_s: number | null;
+  editable: boolean;
+  reason: string | null;
+}

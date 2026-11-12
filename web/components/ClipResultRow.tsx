@@ -1,22 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Check, CheckCircle2, Download, ExternalLink, Pencil, Send, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Download, ExternalLink, Pencil, Scissors, Send, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { CampaignStatusBadge, PLATFORM_LABEL } from "@/components/CampaignStatusBadge";
+import { ClipEditor } from "@/components/ClipEditor";
 import { CopyButton } from "@/components/CopyButton";
 import { TikTokSend } from "@/components/TikTokSend";
 import { api } from "@/lib/api";
 import { clock, cn } from "@/lib/utils";
-import type { CampaignClip, CampaignClipPatch, CampaignFormat, ClipTranscript, Platform } from "@/lib/types";
+import type { CampaignClip, CampaignClipPatch, CampaignFormat, ClipEditInfo, ClipTranscript, Platform } from "@/lib/types";
 
 // Längsta caption på TikTok och Instagram.
 const CAPTION_MAX = 2200;
+
+// Raden byggs om när servern har sparat (ny key). Meddelandet efter en redigering
+// sparas här, per klipp och version, så att den nya raden kan visa det.
+const editNotice = new Map<number, { updated: string; text: string }>();
+const EDITABLE: CampaignClip["status"][] = ["renderad", "underkand", "godkand"];
 
 // Klippet får laddas ner och captionen kopieras först när Robin har sagt ja.
 const CAN_POST: CampaignClip["status"][] = ["godkand", "postad", "inskickad", "analytics_inskickad", "betald"];
@@ -109,6 +115,22 @@ export function ClipResultRow({ clip, number, formats, runId, onUpdate }: Props)
   const formatName = formats.find((f) => f.id === clip.format)?.name ?? clip.format;
   const hasProblems = clip.problems.length > 0;
   const approved = CAN_POST.includes(clip.status);
+  const [editInfo, setEditInfo] = useState<ClipEditInfo | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const notice = editNotice.get(clip.id)?.updated === clip.updated ? editNotice.get(clip.id)!.text : null;
+
+  useEffect(() => {
+    if (!EDITABLE.includes(clip.status)) return;
+    api.campaign.clips.edit(clip.id).then(setEditInfo).catch(() => setEditInfo(null));
+  }, [clip.id, clip.status]);
+
+  function handleEdited(updated: CampaignClip) {
+    const again = clip.status === "godkand" ? " Det var godkänt, så det behöver ett nytt ja." : "";
+    const result = updated.status === "underkand" ? " Regelkontrollen hittade problem, se nedan." : "";
+    editNotice.set(updated.id, { updated: updated.updated, text: `Klippet är trimmat och gjort kampanjklart igen.${again}${result}` });
+    setEditorOpen(false);
+    onUpdate(updated);
+  }
   const length = clip.start_s != null && clip.end_s != null ? clip.end_s - clip.start_s : null;
 
   async function patch(body: CampaignClipPatch) {
@@ -175,6 +197,12 @@ export function ClipResultRow({ clip, number, formats, runId, onUpdate }: Props)
       </div>
 
       <div className="col-start-2 flex min-w-0 flex-col gap-3 lg:col-start-auto">
+        {notice && (
+          <p role="status" className="flex items-start gap-2 rounded-[10px] border border-[#174a2a] bg-[#0d1a12] px-3 py-2.5 text-[13px] text-good">
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden />
+            {notice}
+          </p>
+        )}
         {clip.reason && (
           <p className="rounded-[10px] border border-[#2c2440] bg-[#16131f] px-3 py-2.5 text-[13px] text-[#cfc8ea]">
             {/* Utan betyg har Claude inte valt klippet; motiveringen säger varför. */}
@@ -330,6 +358,17 @@ export function ClipResultRow({ clip, number, formats, runId, onUpdate }: Props)
         )}
         {clip.status === "renderad" && approveBlock && (
           <p className="text-xs text-muted-foreground">{approveBlock}.</p>
+        )}
+        {editInfo?.editable && (
+          <>
+            <Button className="h-9 justify-start" variant="outline" disabled={busy} onClick={() => setEditorOpen(true)}>
+              <Scissors aria-hidden />
+              Redigera
+            </Button>
+            {editorOpen && (
+              <ClipEditor clip={clip} info={editInfo} open={editorOpen} onOpenChange={setEditorOpen} onSaved={handleEdited} />
+            )}
+          </>
         )}
         {canEditCaption && !editing && (
           <Button className="h-9 justify-start" variant="outline" disabled={busy} onClick={() => setEditing(true)}>

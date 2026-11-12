@@ -9,6 +9,7 @@ import type {
   CampaignRunInfo,
   CampaignStatus,
   CampaignSummary,
+  ClipEditInfo,
   ClipTranscript,
   Rect,
   ReframeInfo,
@@ -123,6 +124,9 @@ export const api = {
         }),
       transcript: (id: number) => apiFetch<ClipTranscript>(`/campaign/clips/${id}/transcript`),
       tiktok: (id: number) => apiFetch<TikTokUpload | null>(`/campaign/clips/${id}/tiktok`),
+      edit: (id: number) => apiFetch<ClipEditInfo>(`/campaign/clips/${id}/edit`),
+      saveEdit: (id: number, body: { in_s?: number; out_s?: number; title?: string }) =>
+        apiFetch<CampaignClip>(`/campaign/clips/${id}/edit`, { method: "POST", body: JSON.stringify(body) }),
       sendToTikTok: (id: number) =>
         apiFetch<TikTokUpload>(`/campaign/clips/${id}/tiktok`, { method: "POST" }),
     },
@@ -135,6 +139,8 @@ export const api = {
     /** En sökväg från servern (till exempel overlay.url) via proxyn. */
     proxied: (path: string) => `${PROXY}${path}`,
     videoUrl: (clip: CampaignClip) => `${PROXY}${clip.video_url}`,
-    downloadUrl: (clip: CampaignClip) => `${PROXY}${clip.video_url}?download=1`,
+    // video_url kan redan ha en fråga (?v=… efter en redigering).
+    downloadUrl: (clip: CampaignClip) =>
+      `${PROXY}${clip.video_url}${clip.video_url.includes("?") ? "&" : "?"}download=1`,
   },
 };
