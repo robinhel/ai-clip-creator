@@ -185,7 +185,7 @@ def test_campaign_run_uses_the_campaigns_settings_and_berget(settings, monkeypat
     def fake_download(vod_id, work_dir):
         mp4.parent.mkdir(parents=True, exist_ok=True)
         mp4.touch()
-        return type("R", (), {"mp4_path": mp4})()
+        return mp4
 
     monkeypatch.setattr(pipeline, "download_vod", fake_download)
     monkeypatch.setattr(pipeline, "transcribe_vod", lambda *a, **k: calls.setdefault("transcribe", k))
