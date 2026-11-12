@@ -140,6 +140,34 @@ def test_streams_without_campaigns_is_an_empty_list(client, settings, twitch_str
     assert twitch_streams.queries == []
 
 
+def test_one_project_per_stream_and_campaign_the_newest_run_wins(client, settings) -> None:  # noqa: F811
+    """Kör igen och en ny körning på samma VOD ger inget nytt projekt. Projektet visar den senaste körningen."""
+    from clipsmith.db.models import Run, RunStatus
+    from clipsmith.db.session import get_session
+
+    _second_campaign(settings, "annan", "skiimasktimmy")  # två kampanjer på samma kanal
+    log = ClipLog(settings.data_dir / "klipp.db")
+    db = get_session()
+    ids = []
+    for vod_id, profile, status in [("2925070238", "skiimasktimmy", RunStatus.failed),
+                                    ("2925070238", "skiimasktimmy", RunStatus.done),
+                                    ("2925991945", "skiimasktimmy", RunStatus.done),
+                                    ("2925070238", "annan", RunStatus.done),
+                                    ("2925070238", "skiimasktimmy", RunStatus.running)]:
+        run = Run(vod_id=vod_id, channel="skiimasktimmy", status=status)
+        db.add(run)
+        db.commit()
+        ids.append(run.id)
+        log.add_run(run.id, vod_id, profile, "Bodycam")
+    db.close()
+    listed = [(r["run_id"], r["vod_id"], r["profile"], r["status"]) for r in client.get("/campaign/runs").json()]
+    assert listed == [(ids[4], "2925070238", "skiimasktimmy", "running"),
+                      (ids[3], "2925070238", "annan", "done"),
+                      (ids[2], "2925991945", "skiimasktimmy", "done")]
+    # En gammal körning går fortfarande att öppna med sin länk.
+    assert client.get(f"/campaign/runs/{ids[0]}").json()["status"] == "failed"
+
+
 # ---------- 2. poster ----------
 
 

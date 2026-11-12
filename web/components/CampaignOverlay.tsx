@@ -14,7 +14,7 @@ const FONT_PX = 46;
 
 export function overlayRequirement(mode: OverlayMode): string {
   return mode === "full"
-    ? "PNG i 1080 x 1920 px som täcker hela klippet, genomskinlig där videon ska synas."
+    ? "PNG i 1080 x 1920 px som täcker hela klippet, genomskinlig där videon ska synas. En banner går också. Den läggs i skarven mellan kameran och spelet."
     : `PNG som är 1080 px bred. Den läggs ${mode === "top" ? "överst" : "nederst"} i klippet.`;
 }
 
@@ -31,8 +31,9 @@ async function checkPng(file: File, mode: OverlayMode): Promise<string | null> {
   } catch {
     return "Bilden gick inte att läsa. Spara den som PNG igen och försök en gång till.";
   }
-  if (mode === "full" && (size.width !== 1080 || size.height !== 1920)) {
-    return `Bilden är ${size.width} x ${size.height} px. En overlay som täcker hela klippet måste vara 1080 x 1920 px.`;
+  // En banner (minst dubbelt så bred som hög) gör servern om till 1080 x 1920.
+  if (mode === "full" && (size.width !== 1080 || size.height !== 1920) && size.width < 2 * size.height) {
+    return `Bilden är ${size.width} x ${size.height} px. En overlay som täcker hela klippet måste vara 1080 x 1920 px, eller en banner som är minst dubbelt så bred som hög.`;
   }
   if (mode !== "full" && size.width !== 1080) {
     return `Bilden är ${size.width} px bred. Den måste vara 1080 px bred.`;
@@ -47,7 +48,6 @@ interface Props {
 
 export function CampaignOverlay({ profile, onUpdate }: Props) {
   const [reframe, setReframe] = useState<ReframeInfo | null>(null);
-  const [local, setLocal] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,10 +60,6 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
     api.campaign.profile.reframe(profile.name).then(setReframe).catch(() => setReframe(null));
   }, [profile.name]);
 
-  useEffect(() => () => {
-    if (local) URL.revokeObjectURL(local);
-  }, [local]);
-
   async function handleFile(file: File | undefined) {
     if (!file) return;
     setError(null);
@@ -73,7 +69,6 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
       setError(problem);
       return;
     }
-    setLocal(URL.createObjectURL(file));
     setBusy(true);
     try {
       onUpdate(await api.campaign.profile.uploadOverlay(profile.name, file));
@@ -81,13 +76,13 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
       setSaved(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Det gick inte att ladda upp bilden");
-      setLocal(null);
     } finally {
       setBusy(false);
     }
   }
 
-  const shown = local ?? (overlay.exists ? `${api.campaign.proxied(overlay.url)}?v=${version}` : null);
+  // Servern sparar en banner som en hel bild, så förhandsvisningen visar alltid serverns bild.
+  const shown = overlay.exists ? `${api.campaign.proxied(overlay.url)}?v=${version}` : null;
   const fontSize = `${(FONT_PX / 1080) * 100}cqw`;
 
   return (
@@ -114,7 +109,7 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
           {busy ? <Loader2 className="size-7 animate-spin text-brand" aria-hidden /> : <ImageUp className="size-7 text-brand" aria-hidden />}
           <span className="font-medium">{busy ? "Laddar upp…" : "Släpp overlay-bilden här eller välj en fil"}</span>
           <span className="text-[13px] text-muted-foreground">
-            PNG, högst 10 MB. {overlay.mode === "full" ? "1080 x 1920 px." : "1080 px bred."}
+            PNG, högst 10 MB. {overlay.mode === "full" ? "1080 x 1920 px eller en banner." : "1080 px bred."}
           </span>
           <input
             type="file"
@@ -183,7 +178,8 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
             {/* I hörnet, så att etiketten inte täcker overlayens egen text. */}
             <span className="absolute top-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white/80">Döljs av TikTok</span>
           </div>
-          {text.text && (
+          {/* Samma regel som klippet (campaign/finish.py): den vita texten ritas bara utan overlay. */}
+          {text.text && !shown && (
             <p
               className="absolute inset-x-0 text-center leading-none font-bold text-white"
               style={{
