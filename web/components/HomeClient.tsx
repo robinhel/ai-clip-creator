@@ -158,7 +158,7 @@ export function HomeClient() {
   const blockers: string[] = [];
   if (vod) {
     if (matching.length === 0) {
-      blockers.push(`Ingen kampanj passar kanalen ${vod.channel_name}. Lägg till en kampanj för kanalen först.`);
+      blockers.push(`Ingen kampanj passar kanalen ${vod.channel_name}. Skapa en kampanj för kanalen först.`);
     } else if (!profile) {
       blockers.push("Välj en kampanj.");
     } else if (!profile.ready) {
@@ -401,10 +401,28 @@ export function HomeClient() {
                   {profile?.problems.map((text) => (
                     <li key={text} className="flex gap-2 rounded-lg border border-[#5a4416] bg-[#1b160b] px-3 py-2 text-warn">
                       <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-                      <span>{text}</span>
+                      <span>
+                        {text}
+                        {text.startsWith("Overlay-bilden saknas") && (
+                          <>
+                            {" "}
+                            <Link href={`/campaigns/${profile.name}?tab=overlay`} className="font-medium underline underline-offset-4 hover:text-foreground">
+                              Ladda upp overlay-bilden
+                            </Link>
+                          </>
+                        )}
+                      </span>
                     </li>
                   ))}
                 </ul>
+              )}
+              {matching.length === 0 && (
+                <Link
+                  href={`/campaigns/new?${new URLSearchParams({ channel: vod.channel, streamer: vod.channel_name })}`}
+                  className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand px-3 text-sm font-medium text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                >
+                  Skapa kampanj för {vod.channel_name}
+                </Link>
               )}
             </>
           )}

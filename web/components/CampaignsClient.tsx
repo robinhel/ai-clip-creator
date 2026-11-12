@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, CheckCircle2, Plus } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import type { CampaignProfile } from "@/lib/types";
 
@@ -18,6 +20,20 @@ export function readyText(p: CampaignProfile): string {
   return "Går att köra, men rätta varningarna i kampanjens inställningar först";
 }
 
+export function ReadyBadge({ profile: p }: { profile: CampaignProfile }) {
+  return p.ready && p.problems.length === 0 ? (
+    <span className="inline-flex items-center gap-1 rounded-full border border-[#174a2a] px-2.5 py-0.5 text-xs text-good">
+      <CheckCircle2 className="size-3.5" aria-hidden />
+      Redo
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 rounded-full border border-[#5a4416] px-2.5 py-0.5 text-xs text-warn">
+      <AlertTriangle className="size-3.5" aria-hidden />
+      {readyText(p)}
+    </span>
+  );
+}
+
 export function CampaignsClient({ children }: { children?: React.ReactNode }) {
   const [profiles, setProfiles] = useState<CampaignProfile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,10 +47,18 @@ export function CampaignsClient({ children }: { children?: React.ReactNode }) {
 
   return (
     <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
-      <h1 className="text-3xl font-bold tracking-tight">Kampanjer</h1>
-      <p className="mt-1.5 mb-6 text-muted-foreground">
-        Varje kampanj hör till en Twitch-kanal. En VOD kan bara bli klipp för kampanjer med samma kanal.
-      </p>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Kampanjer</h1>
+          <p className="mt-1.5 text-muted-foreground">
+            Varje kampanj hör till en Twitch-kanal. En VOD kan bara bli klipp för kampanjer med samma kanal.
+          </p>
+        </div>
+        <Link href="/campaigns/new" className={buttonVariants({ className: "h-9" })}>
+          <Plus aria-hidden />
+          Ny kampanj
+        </Link>
+      </div>
       {error && (
         <p role="alert" className="rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">
           {error}
@@ -43,28 +67,26 @@ export function CampaignsClient({ children }: { children?: React.ReactNode }) {
       {profiles === null && !error && <p className="text-sm text-muted-foreground">Hämtar kampanjerna…</p>}
       {profiles?.length === 0 && (
         <p className="rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted-foreground">
-          Inga kampanjer än. Lägg en kampanjprofil i mappen profiles på servern.
+          Inga kampanjer än.{" "}
+          <Link href="/campaigns/new" className="text-brand underline-offset-4 hover:underline">
+            Skapa den första kampanjen
+          </Link>
+          .
         </p>
       )}
       <div className="grid gap-4 lg:grid-cols-2">
         {profiles?.map((p) => (
-          <article key={p.name} className="rounded-2xl border border-line bg-panel p-5">
+          <Link
+            key={p.name}
+            href={`/campaigns/${p.name}`}
+            className="rounded-2xl border border-line bg-panel p-5 transition-colors hover:border-[#3a3a44] focus-visible:outline-2 focus-visible:outline-brand"
+          >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <h2 className="text-lg font-semibold">{p.streamer}</h2>
                 <p className="text-sm break-words text-muted-foreground">{p.campaign}</p>
               </div>
-              {p.ready && p.problems.length === 0 ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-[#174a2a] px-2.5 py-0.5 text-xs text-good">
-                  <CheckCircle2 className="size-3.5" aria-hidden />
-                  Redo
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 rounded-full border border-[#5a4416] px-2.5 py-0.5 text-xs text-warn">
-                  <AlertTriangle className="size-3.5" aria-hidden />
-                  {readyText(p)}
-                </span>
-              )}
+              <ReadyBadge profile={p} />
             </div>
             <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
               <dt className="text-muted-foreground">Kanal</dt>
@@ -88,7 +110,7 @@ export function CampaignsClient({ children }: { children?: React.ReactNode }) {
                 ))}
               </ul>
             )}
-          </article>
+          </Link>
         ))}
       </div>
       {children}
