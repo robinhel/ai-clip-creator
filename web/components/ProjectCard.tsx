@@ -31,6 +31,7 @@ function statusTag(run: CampaignRunInfo): string {
 
 export function ProjectCard({ run }: { run: CampaignRunInfo }) {
   const active = run.status === "pending" || run.status === "running";
+  const toReview = run.clip_counts?.renderad ?? 0;
   const meta = [run.channel_name ?? run.profile, run.game, run.created ? day.format(serverTime(run.created)) : null].filter(Boolean);
   return (
     <Link
@@ -64,6 +65,11 @@ export function ProjectCard({ run }: { run: CampaignRunInfo }) {
           {meta.join(", ")}
           <span className="block">Kampanj: {run.profile}</span>
         </p>
+        {toReview > 0 && (
+          <p className="text-[13px] font-medium text-brand">
+            {toReview} klipp väntar på granskning
+          </p>
+        )}
         {active && (
           <div
             className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-line"
