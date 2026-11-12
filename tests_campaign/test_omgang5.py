@@ -287,3 +287,14 @@ def test_summary_has_earnings_per_clip_month_and_paid(client, settings) -> None:
 def test_summary_without_clips_has_zero_earnings(client) -> None:  # noqa: F811
     assert client.get("/campaign/summary").json()["earnings"] == {
         "estimated_usd": 0.0, "paid_usd": 0.0, "by_month": [], "per_clip": []}
+
+
+def test_twitchs_placeholder_image_gives_no_image_in_the_vod_facts(monkeypatch) -> None:
+    from campaign import vodinfo
+
+    monkeypatch.setattr(vodinfo, "_cache", {})
+    monkeypatch.setattr(vodinfo.twitch, "get_video", lambda vod_id: {"title": "Live", "lengthSeconds": 60})
+    monkeypatch.setattr(vodinfo.twitch, "gql_query", lambda q: {"data": {"video": {
+        "previewThumbnailURL": "https://vod-secure.twitch.tv/_404/404_processing_640x360.png",
+        "owner": {"login": "skiimasktimmy", "displayName": "SkiiMaskTimmy"}}}})
+    assert vodinfo.vod_facts("2926877904")["thumbnail_url"] is None
