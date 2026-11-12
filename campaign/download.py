@@ -8,16 +8,20 @@ varje del tas bort när den är läst. Då räcker disken till en kopia av video
 
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 from clipsmith.twitch.downloader import _resolve_quality
 
 from .media import need
+
+log = logging.getLogger(__name__)
 
 
 def join_segments(parts_dir: Path, out: Path) -> None:
@@ -59,18 +63,39 @@ def join_segments(parts_dir: Path, out: Path) -> None:
     partial.replace(out)
 
 
-def download_vod(vod_id: str, work_dir: Path, quality: str = "1080p60") -> Path:
-    """Ladda ner VOD:en till work/<id>/<id>.mp4. En fil som redan finns används direkt."""
+def _run_twitchdl(cmd: list[str], on_progress: Callable[[int, int], None] | None) -> None:
+    """Kör twitch-dl och läs dess förlopp, "Downloaded 12/340 VODs", som skrivs med \\r utan radbrytning."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    assert proc.stdout is not None
+    text, last = "", None
+    for chunk in iter(lambda: proc.stdout.read1(65536), b""):
+        text = text[-200:] + chunk.decode(errors="replace")  # svansen: en rad kan delas mellan två bitar
+        found = re.findall(r"Downloaded (\d+)/(\d+) VODs", text)  # " VODs": inte ett halvt tal i slutet
+        if found and on_progress and found[-1] != last:
+            last = found[-1]
+            on_progress(int(last[0]), int(last[1]))
+    code = proc.wait()
+    if code != 0:
+        log.error("twitch-dl misslyckades:\n%s", text[-1500:])
+        raise subprocess.CalledProcessError(code, cmd, output=text[-1500:])
+
+
+def download_vod(vod_id: str, work_dir: Path, quality: str = "1080p60",
+                 on_progress: Callable[[int, int], None] | None = None) -> Path:
+    """Ladda ner VOD:en till work/<id>/<id>.mp4. En fil som redan finns används direkt.
+
+    on_progress(nedladdade delar, alla delar) anropas när twitch-dl kommer framåt.
+    """
     vod_dir = Path(work_dir) / vod_id
     out = vod_dir / f"{vod_id}.mp4"
     if out.exists():
         return out
     parts = vod_dir / "delar"
-    subprocess.run(
+    _run_twitchdl(
         [sys.executable, "-m", "twitchdl", "download", vod_id,
          "--quality", _resolve_quality(vod_id, quality),
          "--no-join", "--cache-dir", str(parts)],
-        check=True,
+        on_progress,
     )
     join_segments(parts, out)
     shutil.rmtree(parts, ignore_errors=True)
