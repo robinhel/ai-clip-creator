@@ -93,6 +93,15 @@ def test_streams_are_newest_first_with_campaigns_and_the_latest_run(client, sett
     assert "previewThumbnailURL(width: 640, height: 360)" in twitch_streams.queries[0]
 
 
+
+def test_twitchs_placeholder_image_for_a_stream_in_progress_gives_no_image(client, settings, twitch_streams) -> None:  # noqa: F811
+    twitch_streams.users["skiimasktimmy"][1][0]["previewThumbnailURL"] = (
+        "https://vod-secure.twitch.tv/_404/404_processing_640x360.png")
+    first, second = client.get("/campaign/streams").json()
+    assert first["thumbnail_url"] is None
+    assert second["thumbnail_url"] == THUMB
+
+
 def test_each_channel_is_asked_once_and_the_answer_is_cached_five_minutes(client, settings, twitch_streams,  # noqa: F811
                                                                           monkeypatch) -> None:
     _second_campaign(settings, "timmy2", "skiimasktimmy")
