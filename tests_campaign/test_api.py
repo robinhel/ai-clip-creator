@@ -129,7 +129,7 @@ def test_starting_a_run_saves_its_campaign_and_uses_the_campaign_runner(client, 
     started: list[tuple] = []
     monkeypatch.setattr(api, "run_campaign_vod", lambda *args, **kwargs: started.append((args, kwargs)))
 
-    assert client.post("/campaign/runs", json={"profile": "nope", "vod_id": "123"}).status_code == 400
+    assert client.post("/campaign/runs", json={"profile": "nope", "vod_id": "2925991945"}).status_code == 400
     assert client.post("/campaign/runs", json={"profile": "skiimasktimmy", "vod_id": "abc"}).status_code == 422
 
     response = client.post("/campaign/runs", json={"profile": "skiimasktimmy", "vod_id": "2925991945",

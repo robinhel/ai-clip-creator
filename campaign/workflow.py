@@ -43,6 +43,14 @@ def title_from_name(path: Path) -> str:
     return words.capitalize() or path.stem
 
 
+def _save(log: ClipLog, redo: dict | None, common: dict, **fields) -> int:
+    """Spara klippet i loggen. Ett underkänt klipp som görs om behåller sin rad."""
+    if redo is None:
+        return log.add(**common, **fields)
+    log.update(redo["id"], **fields)
+    return redo["id"]
+
+
 def finish_vod(
     vod_id: str,
     profile: Profile,
@@ -61,7 +69,7 @@ def finish_vod(
     if not files:
         raise SystemExit(f"Hittar inga klipp i {clip_dir}. Kör clipsmith först.")
     picks = load_picks(settings.work_dir / vod_id / "picks.json")
-    done_files = {clip["file"] for clip in log.list() if clip["status"] != "nekad"}
+    existing = {clip["file"]: clip for clip in log.list() if clip["status"] != "nekad"}
 
     results: list[dict] = []
     for src in files:
@@ -71,10 +79,12 @@ def finish_vod(
         start, end = pick.get("start"), pick.get("end")
         out = clip_dir / "klara" / src.name
 
-        if str(out) in done_files or str(src) in done_files:
+        before = existing.get(str(out)) or existing.get(str(src))
+        redo = before if before and before["status"] == "underkand" else None
+        if before and not redo:
             results.append({"file": src.name, "skipped": "finns redan i klipploggen"})
             continue
-        if start is not None and end is not None and log.overlaps(vod_id, start, end):
+        if not redo and start is not None and end is not None and log.overlaps(vod_id, start, end):
             results.append({"file": src.name, "skipped": "samma del av VOD:en är redan klippt"})
             continue
 
@@ -82,10 +92,11 @@ def finish_vod(
             vod_id=vod_id, profile=profile.name, title=title, start_s=start, end_s=end,
             clip_format=pick.get("format"), signals=pick.get("signals"),
         )
+
         source_problems = check_source(probe(src))
         if source_problems:
-            clip_id = log.add(file=str(src), caption="", status="underkand",
-                              problems=source_problems, **common)
+            clip_id = _save(log, redo, common, file=str(src), caption="", status="underkand",
+                           problems=source_problems, warnings=[], review=None)
             results.append({"id": clip_id, "file": src.name, "problems": source_problems})
             continue
 
@@ -109,9 +120,9 @@ def finish_vod(
             probe(out), manifest, profile, caption, pick.get("format"), review_result
         )
         warnings += notes
-        clip_id = log.add(
-            file=str(out), caption=caption, status="underkand" if problems else "renderad",
-            problems=problems, warnings=warnings, review=review_result, **common,
+        clip_id = _save(
+            log, redo, common, file=str(out), caption=caption, status="underkand" if problems else "renderad",
+            problems=problems, warnings=warnings, review=review_result,
         )
         results.append(
             {"id": clip_id, "file": out.name, "title": title, "caption": caption,

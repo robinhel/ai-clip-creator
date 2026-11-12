@@ -44,6 +44,10 @@ class ClipLog:
                     views INTEGER, likes INTEGER, comments INTEGER, shares INTEGER,
                     note TEXT, created TEXT, updated TEXT)"""
             )
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS runs (
+                    run_id INTEGER PRIMARY KEY, vod_id TEXT, profile TEXT, game TEXT)"""
+            )
 
     def _db(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.db_path)
@@ -99,10 +103,13 @@ class ClipLog:
         if "status" in fields and fields["status"] not in STATUSES:
             raise ValueError(f"Okänd status: {fields['status']}")
         allowed = {"status", "platform", "url", "views", "likes", "comments", "shares",
-                   "note", "format", "title", "caption"}
+                   "note", "format", "title", "caption", "problems", "warnings", "review", "file"}
         unknown = set(fields) - allowed
         if unknown:
             raise ValueError(f"Fält som inte får ändras: {sorted(unknown)}")
+        for key in ("problems", "warnings", "review"):
+            if key in fields:
+                fields[key] = json.dumps(fields[key], ensure_ascii=False) if fields[key] is not None else None
         self.get(clip_id)
         sets = ", ".join(f"{key} = ?" for key in fields)
         with self._db() as db:
@@ -112,10 +119,10 @@ class ClipLog:
             )
 
     def overlaps(self, vod_id: str, start_s: float, end_s: float, min_ratio: float = 0.25) -> bool:
-        """True om samma del av samma VOD redan finns i loggen (nekade räknas inte)."""
+        """True om samma del av samma VOD redan finns i loggen (nekade och underkända räknas inte)."""
         length = max(end_s - start_s, 0.001)
         for clip in self.list():
-            if clip["vod_id"] != vod_id or clip["status"] == "nekad":
+            if clip["vod_id"] != vod_id or clip["status"] in ("nekad", "underkand"):
                 continue
             if clip["start_s"] is None or clip["end_s"] is None:
                 continue
@@ -138,12 +145,26 @@ class ClipLog:
         for clip in self.list():
             label = f"#{clip['id']} {clip['title']!r}"
             if clip["status"] == "godkand":
-                items.append(f"{label}: posta klippet och kör `posted {clip['id']} <länk>`.")
+                items.append(f"{label}: posta klippet och spara länken.")
             elif clip["status"] == "postad":
-                items.append(f"{label}: skicka in länken i Content Rewards och kör `mark {clip['id']} inskickad`.")
+                items.append(f"{label}: skicka in länken i Content Rewards och markera klippet som inskickat.")
             elif clip["status"] == "inskickad" and (clip["views"] or 0) >= min_views:
                 items.append(
                     f"{label}: har {clip['views']} visningar. Skicka skärminspelningen av "
-                    f"klippets statistik och kör `mark {clip['id']} analytics_inskickad`."
+                    "klippets statistik i kampanjens formulär."
                 )
         return items
+
+    def add_run(self, run_id: int, vod_id: str, profile: str, game: str | None) -> None:
+        """Spara vilken kampanj en körning i appen hör till."""
+        with self._db() as db:
+            db.execute("INSERT OR REPLACE INTO runs (run_id, vod_id, profile, game) VALUES (?,?,?,?)",
+                       (run_id, vod_id, profile, game))
+
+    def runs(self) -> list[dict]:
+        with self._db() as db:
+            return [dict(r) for r in db.execute(
+                "SELECT run_id, profile, game, vod_id FROM runs ORDER BY run_id").fetchall()]
+
+    def run(self, run_id: int) -> dict | None:
+        return next((r for r in self.runs() if r["run_id"] == run_id), None)
