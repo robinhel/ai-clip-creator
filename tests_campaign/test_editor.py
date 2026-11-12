@@ -9,7 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from campaign import api, editor, editor_api
+from campaign import api, editor, editor_api, finish
 from campaign.caption import build_caption
 from campaign.cliplog import ClipLog
 from campaign.media import probe
@@ -26,6 +26,7 @@ RAW = "clip_01_no_way.mp4"
 @pytest.fixture
 def setup(settings, monkeypatch):
     """En kampanj med gränserna 3–8 s, overlay, en körning med spel och ett färdigt klipp på 10 s."""
+    monkeypatch.setitem(finish.ENCODER_ARGS, "libx264", ["-c:v", "libx264", "-preset", "ultrafast"])  # snabbare test
     config = (PAKET / "config.timmy.yaml").read_text(encoding="utf-8")
     config = config.replace("min_seconds: 15", "min_seconds: 3").replace("max_seconds: 45", "max_seconds: 8")
     (settings.root / "config.timmy.yaml").write_text(config, encoding="utf-8")
@@ -88,7 +89,7 @@ def test_trim_gives_the_right_length_and_keeps_the_original(setup, settings) -> 
     clip = log.get(clip_id)
     assert (clip["start_s"], clip["end_s"]) == (104.5, 109.5)
     assert original.read_bytes() == raw_bytes
-    assert sorted(p.name for p in original.parent.iterdir()) == [RAW, "clip_01_no_way.json"]
+    assert sorted(p.name for p in original.parent.iterdir()) == ["clip_01_no_way.json", RAW]
     assert not [p for p in done.parent.parent.rglob(".*")]  # inga tmp-filer kvar
 
 
