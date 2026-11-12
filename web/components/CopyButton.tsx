@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 interface Props {
   text: string;
   label?: string;
+  disabled?: boolean;
 }
 
-export function CopyButton({ text, label = "Kopiera" }: Props) {
+export function CopyButton({ text, label = "Kopiera", disabled = false }: Props) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -23,7 +24,7 @@ export function CopyButton({ text, label = "Kopiera" }: Props) {
   }
 
   return (
-    <Button type="button" size="sm" variant="outline" onClick={handleCopy} disabled={!text}>
+    <Button type="button" size="sm" variant="outline" onClick={handleCopy} disabled={disabled || !text}>
       {copied ? <Check /> : <Copy />}
       {copied ? "Kopierad" : label}
     </Button>

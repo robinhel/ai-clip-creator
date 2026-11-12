@@ -18,6 +18,17 @@ const PROXY = "/api";
 // connection that the Next.js rewrite layer doesn't guarantee.
 const DIRECT = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
+const FIELD_LABEL: Record<string, string> = {
+  views: "visningar",
+  likes: "gilla",
+  comments: "kommentarer",
+  shares: "delningar",
+  url: "länken",
+  platform: "plattform",
+  caption: "captionen",
+  title: "titeln",
+};
+
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${PROXY}${path}`, {
     ...init,
@@ -38,7 +49,15 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     if (res.status === 503 && detail === "Backend unavailable") {
       throw new Error("Servern svarar inte. Kör FastAPI på port 8000?");
     }
-    throw new Error(typeof detail === "string" ? detail : `${res.status}: ${text}`);
+    if (typeof detail === "string") throw new Error(detail);
+    // FastAPI:s valideringsfel (422) har detail som en lista med fält och meddelande.
+    if (Array.isArray(detail)) {
+      const fields = detail.map((d) => d?.loc?.at?.(-1)).filter(Boolean).map((f) => FIELD_LABEL[f] ?? f);
+      throw new Error(
+        `Servern godtog inte värdet${fields.length ? ` i ${fields.join(", ")}` : ""}. Kontrollera fälten och försök igen.`
+      );
+    }
+    throw new Error(`Servern svarade med fel ${res.status}. Försök igen.`);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;

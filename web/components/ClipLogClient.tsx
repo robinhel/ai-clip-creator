@@ -81,8 +81,14 @@ function ClipRow({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (clip: Camp
 
   function saveStats() {
     const body: Partial<Record<StatKey, number>> = {};
-    for (const { key } of STATS) {
-      if (stats[key].trim() !== "") body[key] = Number(stats[key]);
+    for (const { key, label } of STATS) {
+      const text = stats[key].trim();
+      if (text === "") continue;
+      if (!/^\d+$/.test(text)) {
+        setError(`${label}: skriv ett helt tal utan decimaler, till exempel 2500.`);
+        return;
+      }
+      body[key] = Number(text);
     }
     patch(body);
   }
@@ -122,6 +128,7 @@ function ClipRow({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (clip: Camp
               aria-label={`${label} för klipp ${clip.id}`}
               type="number"
               min="0"
+              step="1"
               inputMode="numeric"
               value={stats[key]}
               onChange={(e) => setStats((prev) => ({ ...prev, [key]: e.target.value }))}
