@@ -17,7 +17,7 @@ CAPTION = "No way 👉 Catch him live: twitch.tv/skiimasktimmy #skiimasktimmy #t
 
 
 @pytest.fixture
-def client(settings, tmp_path, monkeypatch):
+def client(settings, tmp_path, monkeypatch, fake_twitch):
     from clipsmith.db.session import init_db
 
     shutil.copy(PAKET / "config.timmy.yaml", settings.root / "config.timmy.yaml")
@@ -138,8 +138,9 @@ def test_starting_a_run_saves_its_campaign_and_uses_the_campaign_runner(client, 
     run = response.json()
     assert (run["vod_id"], run["channel"]) == ("2925991945", "skiimasktimmy")
     assert len(started) == 1
-    assert client.get("/campaign/runs").json() == [
-        {"run_id": run["id"], "profile": "skiimasktimmy", "game": "Bodycam", "vod_id": "2925991945"}
+    listed = client.get("/campaign/runs").json()
+    assert [(r["run_id"], r["profile"], r["game"], r["vod_id"]) for r in listed] == [
+        (run["id"], "skiimasktimmy", "Bodycam", "2925991945")
     ]
 
 

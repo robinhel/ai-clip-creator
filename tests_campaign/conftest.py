@@ -73,3 +73,33 @@ def make_overlay(path: Path) -> Path:
         check=True,
     )
     return path
+
+
+@pytest.fixture
+def fake_twitch(monkeypatch):
+    """Låtsas-Twitch för campaign.vodinfo. Ändra `videos` i testet. `calls` räknar anropen."""
+    from campaign import vodinfo
+
+    state = SimpleNamespace(calls=0, error=None, videos={
+        "2925991945": {"title": "3x Playtest Key GIVEAWAY", "lengthSeconds": 13950,
+                       "createdAt": "2026-11-11T18:01:44Z", "game": {"name": "Bodycam"},
+                       "owner": {"login": "skiimasktimmy", "displayName": "SkiiMaskTimmy"}},
+    })
+
+    def get_video(vod_id):
+        state.calls += 1
+        if state.error:
+            raise state.error
+        return state.videos.get(vod_id)
+
+    def gql_query(query):
+        vod_id = query.split('"')[1]
+        video = state.videos.get(vod_id)
+        return {"data": {"video": video and {
+            "previewThumbnailURL": f"https://static-cdn.jtvnw.net/{vod_id}-640x360.jpg",
+            "owner": video["owner"]}}}
+
+    monkeypatch.setattr(vodinfo, "_cache", {})
+    monkeypatch.setattr(vodinfo.twitch, "get_video", get_video)
+    monkeypatch.setattr(vodinfo.twitch, "gql_query", gql_query)
+    return state

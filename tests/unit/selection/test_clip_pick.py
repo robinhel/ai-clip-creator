@@ -90,3 +90,26 @@ def test_clamp_ok_unchanged() -> None:
     )
     clamped = _clamp_duration(pick, _cfg(min_seconds=15, max_seconds=30))
     assert clamped.end_offset_s == pytest.approx(120.0)
+
+
+# ── score ─────────────────────────────────────────────────────────────────────
+
+
+def test_clip_pick_score_defaults_to_zero_for_old_answers() -> None:
+    raw = '{"include":true,"start_offset_s":1,"end_offset_s":20,"title_es":"t","reason":"r"}'
+    assert ClipPick.from_json(raw).score == 0
+
+
+@pytest.mark.parametrize(("given", "expected"), [(87, 87), ("42", 42), (150, 99), (-5, 0), (55.6, 56)])
+def test_clip_pick_score_is_clamped_to_0_99(given: object, expected: int) -> None:
+    assert ClipPick.from_dict({"include": True, "score": given}).score == expected
+
+
+def test_prompt_and_schema_ask_for_score() -> None:
+    from clipsmith.llm.prompts import CLIP_PICK_JSON_SCHEMA, SYSTEM_PROMPT, SYSTEM_PROMPT_V2
+
+    assert '"score"' in SYSTEM_PROMPT
+    assert '"score"' in SYSTEM_PROMPT_V2
+    assert "TikTok" in CLIP_PICK_JSON_SCHEMA["properties"]["score"]["description"]
+    assert CLIP_PICK_JSON_SCHEMA["properties"]["score"]["maximum"] == 99
+    assert "score" in CLIP_PICK_JSON_SCHEMA["required"]
