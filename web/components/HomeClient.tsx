@@ -560,6 +560,15 @@ export function HomeClient() {
                 }} />
               ))}
             </div>
+            {streams.every((s) => s.viewer_clips === null) && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Tittarklipp räknas inte än. Lägg in Twitch-nycklarna i{" "}
+                <Link href="/settings" className="underline underline-offset-4 hover:text-foreground">
+                  Inställningar
+                </Link>
+                .
+              </p>
+            )}
           </section>
         )
       )}
