@@ -46,6 +46,22 @@ export function ignoreKey(e: KeyboardEvent): boolean {
   );
 }
 
+/** Vad bildgranskningen såg. Bara beskrivningar, inga fel, så de ligger fällda. */
+function ReviewNotes({ review }: { review: CampaignClip["review"] }) {
+  const notes = Array.isArray(review?.notes) ? review.notes.filter((n): n is string => typeof n === "string" && !!n) : [];
+  if (notes.length === 0) return null;
+  return (
+    <details className="rounded-lg border border-line px-3 py-2 text-[13px] text-muted-foreground">
+      <summary className="cursor-pointer select-none hover:text-foreground">Bildgranskning ({notes.length})</summary>
+      <ul className="mt-1 list-disc space-y-0.5 pl-6">
+        {notes.map((note) => (
+          <li key={note}>{note}</li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 function NoticeList({ tone, title, items }: { tone: "error" | "warning"; title: string; items: string[] }) {
   if (items.length === 0) return null;
   const Icon = tone === "error" ? XCircle : AlertTriangle;
@@ -402,6 +418,7 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
         </div>
         <NoticeList tone="error" title="Regelkontrollen hittade problem" items={clip.problems} />
         <NoticeList tone="warning" title="Varningar" items={clip.warnings} />
+        <ReviewNotes review={clip.review} />
 
         {clip.status === "underkand" && (
           <p className="text-sm text-muted-foreground">

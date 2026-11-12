@@ -16,7 +16,7 @@ const day = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" })
 
 const FILTERS: { id: string; label: string; status?: CampaignStatus }[] = [
   { id: "alla", label: "Alla" },
-  { id: "granska", label: "Att granska", status: "renderad" },
+  { id: "att_granska", label: "Att granska", status: "renderad" },
   { id: "godkanda", label: "Godkända", status: "godkand" },
   { id: "nekade", label: "Nekade", status: "nekad" },
   { id: "underkanda", label: "Underkända", status: "underkand" },
@@ -50,7 +50,8 @@ function stepTime(step: RunStep, now: number): string {
 function PartBar({ message }: { message?: string | null }) {
   const m = message?.match(/^Del (\d+) av (\d+)$/);
   if (!m || Number(m[2]) === 0) return null;
-  const pct = Math.min(100, (Number(m[1]) / Number(m[2])) * 100);
+  // Meddelandet kommer när del N börjar, så N - 1 delar är klara.
+  const pct = Math.min(100, ((Number(m[1]) - 1) / Number(m[2])) * 100);
   return (
     <div
       role="progressbar"
@@ -197,16 +198,46 @@ export default function RunDetailPage() {
     return () => clearTimeout(timer);
   }, [isActive, finishing, pollTick, finishStartedAt, runId, fetchRun, fetchClips]);
 
+  // Fliken i adressen (?filter=att_granska), så att andra sidor kan länka till rätt flik.
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("filter");
+    if (wanted && FILTERS.some((f) => f.id === wanted)) setFilter(wanted);
+  }, []);
+  function chooseFilter(id: string) {
+    setFilter(id);
+    const url = new URL(window.location.href);
+    if (id === "alla") url.searchParams.delete("filter");
+    else url.searchParams.set("filter", id);
+    window.history.replaceState(null, "", url);
+  }
+
+  // Klippens updated före "Gör klippen kampanjklara igen", för att räkna vilka som gjordes om.
+  const beforeFinish = useRef<Map<number, string> | null>(null);
+  const [finishResult, setFinishResult] = useState<string | null>(null);
   async function handleFinish() {
     setFinishError(null);
+    setFinishResult(null);
+    beforeFinish.current = new Map((clips ?? []).map((c) => [c.id, c.updated]));
     try {
       await api.campaign.runs.finish(runId);
       setLegacyRun(null);
       setFinishStartedAt(Date.now() - 1000);
     } catch (err) {
+      beforeFinish.current = null;
       setFinishError(err instanceof Error ? err.message : "Kunde inte starta");
     }
   }
+  useEffect(() => {
+    if (finishing || !beforeFinish.current || !clips) return;
+    const before = beforeFinish.current;
+    beforeFinish.current = null;
+    const redone = clips.filter((c) => before.has(c.id) && before.get(c.id) !== c.updated).length;
+    const skipped = clips.filter((c) => before.has(c.id)).length - redone;
+    setFinishResult(
+      `${redone} klipp gjordes om.` +
+        (skipped ? ` ${skipped} klipp rördes inte, till exempel klipp som väntar på ditt ja, så att en ändrad caption inte skrivs över.` : "")
+    );
+  }, [finishing, clips]);
 
   useEffect(() => setPermission(notifyPermission()), []);
   useEffect(() => {
@@ -215,13 +246,27 @@ export default function RunDetailPage() {
       wasActive.current = true;
       return;
     }
-    if (!wasActive.current || run.status !== "done") return;
+    if (!wasActive.current || (run.status !== "done" && run.status !== "failed")) return;
     wasActive.current = false;
-    document.title = "✓ Klar";
+    const done = run.status === "done";
+    const title = done ? "✓ Klar" : "✗ Misslyckades";
+    const name = run.title || `VOD ${run.vod_id}`;
+    const previous = document.title;
+    document.title = title;
     if (notifyPermission() === "granted") {
-      const n = clipTotal(run);
-      new Notification("✓ Klar", { body: `${run.title || `VOD ${run.vod_id}`}: ${n} klipp att granska.` });
+      new Notification(title, { body: done ? `${name}: ${clipTotal(run)} klipp att granska.` : `${name}: körningen stoppade. Öppna projektet för att se felet.` });
     }
+    // Fliktiteln visar resultatet tills du tittar på sidan igen.
+    function restore() {
+      if (document.visibilityState === "visible") document.title = previous;
+    }
+    const timer = setTimeout(restore, 10000);
+    document.addEventListener("visibilitychange", restore);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", restore);
+      document.title = previous;
+    };
   }, [run, isActive]);
 
   async function askPermission() {
@@ -329,22 +374,30 @@ export default function RunDetailPage() {
           {part && <p className="text-sm text-muted-foreground tabular-nums">Del av VOD:en: {part}</p>}
           {run.focus && <p className="mt-1 text-sm text-muted-foreground">Letade efter: {run.focus}</p>}
         </div>
-        <Button
-          variant="outline"
-          className="h-9"
-          onClick={handleFinish}
-          disabled={isActive || finishing}
-          title="Lägger på overlay och text, skriver caption och kör regelkontrollen igen"
-        >
-          {finishing ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
-          {finishing ? "Gör klippen klara…" : "Gör klippen kampanjklara igen"}
-        </Button>
+        {/* En misslyckad körning har inga klipp att göra om; servern svarar 400. */}
+        {run.status !== "failed" && (
+          <Button
+            variant="outline"
+            className="h-9"
+            onClick={handleFinish}
+            disabled={isActive || finishing}
+            title="Lägger på overlay och text, skriver caption och kör regelkontrollen igen"
+          >
+            {finishing ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
+            {finishing ? "Gör klippen klara…" : "Gör klippen kampanjklara igen"}
+          </Button>
+        )}
       </div>
 
       {error && (
         <p role="status" className="mt-3 text-sm text-muted-foreground">
           Kunde inte läsa om projektet: {error}
           {isActive || finishing ? " Försöker igen om några sekunder." : ""}
+        </p>
+      )}
+      {finishResult && (
+        <p role="status" className="mt-4 rounded-lg border border-[#174a2a] bg-[#0d1a12] px-3 py-2 text-sm text-good">
+          {finishResult}
         </p>
       )}
       {finishError && (
@@ -418,7 +471,7 @@ export default function RunDetailPage() {
                     key={f.id}
                     role="tab"
                     aria-selected={filter === f.id}
-                    onClick={() => setFilter(f.id)}
+                    onClick={() => chooseFilter(f.id)}
                     className="px-3 py-1.5 whitespace-nowrap text-muted-foreground hover:text-foreground aria-selected:bg-panel aria-selected:text-foreground"
                   >
                     {f.label} <span className="tabular-nums">{count}</span>
