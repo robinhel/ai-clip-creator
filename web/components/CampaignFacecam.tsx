@@ -83,7 +83,7 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
   const [runs, setRuns] = useState<CampaignRunInfo[]>([]);
   const [vodChoice, setVodChoice] = useState("");
   const [vodInput, setVodInput] = useState("");
-  const [loaded, setLoaded] = useState<{ src: string; ok: boolean } | null>(null);
+  const [loaded, setLoaded] = useState<{ src: string; ok: boolean; detail?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState(false);
@@ -118,6 +118,17 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
   const dirty = rects !== null && JSON.stringify([split, rects]) !== saved;
   // Servern har inga rutor än: de förvalda rutorna går att spara utan att flyttas först.
   const unsaved = server !== null && (!server.webcam_rects?.length || !server.gameplay_rect);
+
+  /** Bilden kom inte: hämta serverns förklaring, till exempel att kampanjen saknar körning. */
+  function frameFailed(src: string) {
+    setLoaded({ src, ok: false });
+    fetch(src)
+      .then((res) => res.json())
+      .then((body) => {
+        if (typeof body?.detail === "string") setLoaded((prev) => (prev?.src === src ? { ...prev, detail: body.detail } : prev));
+      })
+      .catch(() => {});
+  }
 
   function toSource(e: React.PointerEvent): [number, number] {
     const box = area.current!.getBoundingClientRect();
@@ -333,6 +344,14 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_240px]">
         <div className="space-y-2">
+          {/* Ovanför bilden, så att rutorna inte täcker texten. */}
+          {image !== "ok" && (
+            <p role={image === "error" ? "alert" : "status"} className="text-sm text-muted-foreground">
+              {image === "loading"
+                ? "Hämtar en bildruta ur VOD:en…"
+                : (loaded?.detail ?? "Servern hittade ingen bild för VOD:en. Välj ett annat projekt eller skriv ett VOD-id.")}
+            </p>
+          )}
           <div
             ref={area}
             onPointerMove={onMove}
@@ -346,16 +365,9 @@ export function CampaignFacecam({ id, onSaved }: { id: string; onSaved: () => vo
               alt="Bildruta ur VOD:en"
               draggable={false}
               onLoad={() => setLoaded({ src: frameSrc, ok: true })}
-              onError={() => setLoaded({ src: frameSrc, ok: false })}
+              onError={() => frameFailed(frameSrc)}
               className={cn("absolute inset-0 h-full w-full", image !== "ok" && "invisible")}
             />
-            {image !== "ok" && (
-              <p className="absolute inset-0 grid place-items-center px-6 text-center text-sm text-muted-foreground">
-                {image === "loading"
-                  ? "Hämtar en bildruta ur VOD:en…"
-                  : "Servern hittade ingen bild för VOD:en. Välj ett annat projekt eller skriv ett VOD-id."}
-              </p>
-            )}
             {rects &&
               // Spelrutan först och den valda kameran sist, så att den valda ligger överst.
               (["gameplay", ...rects.webcams.map((_, i) => i).filter((i) => i !== sel), sel] as Target[]).map((target) => {
