@@ -168,6 +168,6 @@ def test_clips_for_a_vod_are_fetched_from_the_vods_start_until_now() -> None:
     http.stub(f"{tc_mod.HELIX}/clips", _FakeResp({"data": [], "pagination": {}}))
     c = _build(http)
     c.get_clips_for_vod("u1", "v1", started_at=datetime(2026, 11, 4, 18, 0, tzinfo=UTC))
-    params = [call[2] for call in http.calls if call[1].endswith("/clips")][0]
+    params = next(call[2] for call in http.calls if call[1].endswith("/clips"))
     assert params["started_at"] == "2026-11-04T18:00:00Z"
     assert params["ended_at"] > "2026-11-04T18:00:00Z"
