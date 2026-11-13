@@ -42,6 +42,7 @@ class FakeTikTok:
         self.down: set[str] = set()
         self.empty: set[str] = set()
         self.token_delay = 0.0
+        self.open_id, self.name = "o1", "clipvault.hq26"  # kontot som loggar in
 
     @staticmethod
     def step(request: httpx.Request) -> str:
@@ -65,11 +66,11 @@ class FakeTikTok:
             self.tokens += 1
             return httpx.Response(200, json={
                 "access_token": f"act.secret{self.tokens}", "refresh_token": f"rft.secret{self.tokens}",
-                "expires_in": 7200, "refresh_expires_in": 15552000, "open_id": "o1",
+                "expires_in": 7200, "refresh_expires_in": 15552000, "open_id": self.open_id,
                 "scope": "user.info.basic,video.upload", "token_type": "Bearer"})
         if step == "user":
             return httpx.Response(200, json={"data": {"user": {
-                "open_id": "o1", "display_name": "clipvault.hq26", "avatar_url": "https://p16/a.jpg"}},
+                "open_id": self.open_id, "display_name": self.name, "avatar_url": "https://p16/a.jpg"}},
                 "error": {"code": "ok"}})
         if step == "init":
             if self.init_error:
@@ -115,16 +116,24 @@ def client(settings, fake) -> TestClient:
     return TestClient(app, follow_redirects=False, client=("127.0.0.1", 50000))
 
 
-def _connect(settings, expires_in_s: int = 7200) -> None:
-    """Spara en token som om Robin redan har kopplat TikTok."""
+ACCOUNTS = "tiktok_accounts.json"
+
+
+def _connect(settings, expires_in_s: int = 7200, open_id: str = "o1", name: str = "clipvault.hq26",
+             access: str = "act.old", refresh_days: int = 180) -> None:
+    """Spara en token som om Robin redan har kopplat kontot."""
     now = datetime.now(UTC)
     tiktok.TikTok(settings).save_token({
-        "access_token": "act.old", "refresh_token": "rft.old", "open_id": "o1",
-        "scopes": ["user.info.basic", "video.upload"], "display_name": "clipvault.hq26",
+        "access_token": access, "refresh_token": access.replace("act", "rft"), "open_id": open_id,
+        "scopes": ["user.info.basic", "video.upload"], "display_name": name,
         "avatar_url": "https://p16/a.jpg",
         "expires_at": (now + timedelta(seconds=expires_in_s)).isoformat(),
-        "refresh_expires_at": (now + timedelta(days=180)).isoformat(),
+        "refresh_expires_at": (now + timedelta(days=refresh_days)).isoformat(),
     })
+
+
+def _saved(settings) -> dict:
+    return json.loads((settings.data_dir / ACCOUNTS).read_text())
 
 
 def _clip(settings, status="godkand", problems=None, size=25) -> int:
@@ -234,7 +243,7 @@ def test_expired_token_is_refreshed_before_the_call_and_saved(client, settings, 
     assert form["client_key"] == [KEYS[0]]
     assert str(second.url).startswith(tiktok.INIT_URL)
     assert second.headers["authorization"] == "Bearer act.secret1"
-    saved = json.loads((settings.data_dir / "tiktok_token.json").read_text())
+    saved = _saved(settings)["o1"]
     assert (saved["access_token"], saved["refresh_token"]) == ("act.secret1", "rft.secret1")
     assert saved["display_name"] == "clipvault.hq26"  # namnet finns kvar efter förnyelsen
 
@@ -269,6 +278,7 @@ def test_connect_redirects_to_tiktok_with_pkce(client, settings) -> None:
     assert query["scope"] == "user.info.basic,video.upload"
     assert query["redirect_uri"] == "http://127.0.0.1:8000/campaign/tiktok/callback/"
     assert query["code_challenge_method"] == "S256"
+    assert query["disable_auto_auth"] == "1"  # TikTok frågar vilket konto, så att ett nytt kan läggas till
     _, verifier = tiktok_api._pending[query["state"]]
     assert 43 <= len(verifier) <= 128
     assert query["code_challenge"] == hashlib.sha256(verifier.encode()).hexdigest()  # hex, som TikTok vill
@@ -282,7 +292,7 @@ def test_callback_with_wrong_state_is_refused(client, settings, fake) -> None:
     assert query["tiktok"] == ["fel"]
     assert query["orsak"][0]
     assert fake.requests == []
-    assert not (settings.data_dir / "tiktok_token.json").exists()
+    assert not (settings.data_dir / ACCOUNTS).exists()
 
 
 def test_callback_saves_the_token_privately_and_goes_back_to_the_web(client, settings, fake) -> None:
@@ -293,7 +303,7 @@ def test_callback_saves_the_token_privately_and_goes_back_to_the_web(client, set
     response = client.get("/campaign/tiktok/callback/", params={"code": "c1", "state": state,
                                                                "scopes": "user.info.basic,video.upload"})
     assert response.status_code == 302
-    assert response.headers["location"] == "http://localhost:3000/campaigns?tiktok=ok"
+    assert response.headers["location"] == "http://localhost:3000/settings?tiktok=ok"
     form = parse_qs(fake.calls(tiktok.TOKEN_URL)[0].content.decode())
     assert form["grant_type"] == ["authorization_code"]
     assert form["code"] == ["c1"]
@@ -301,15 +311,15 @@ def test_callback_saves_the_token_privately_and_goes_back_to_the_web(client, set
     assert form["client_secret"] == [KEYS[1]]
     assert form["redirect_uri"] == ["http://127.0.0.1:8000/campaign/tiktok/callback/"]
 
-    path = settings.data_dir / "tiktok_token.json"
+    path = settings.data_dir / ACCOUNTS
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
-    saved = json.loads(path.read_text())
+    saved = json.loads(path.read_text())["o1"]
     assert saved["access_token"] == "act.secret1"
     assert saved["display_name"] == "clipvault.hq26"
     assert saved["scopes"] == ["user.info.basic", "video.upload"]
 
     again = client.get("/campaign/tiktok/callback/", params={"code": "c1", "state": state})
-    assert "tiktok=fel" in again.headers["location"]  # state gäller en gång
+    assert again.headers["location"].startswith("http://localhost:3000/settings?tiktok=fel")  # en gång
 
 
 def test_callback_when_robin_says_no(client) -> None:
@@ -336,7 +346,7 @@ def test_status_never_shows_tokens_or_keys(client, settings, fake) -> None:
     assert status["scopes"] == ["user.info.basic", "video.upload"]
     assert status["refresh_expires_at"]
     text = json.dumps(status)
-    for secret in ("act.secret", "rft.secret", *KEYS, "o1"):
+    for secret in ("act.secret", "rft.secret", *KEYS):
         assert secret not in text
 
     settings.tiktok_client_key = ""
@@ -350,13 +360,13 @@ def test_disconnect_revokes_at_tiktok_and_removes_the_token_even_if_tiktok_is_do
     (revoke,) = fake.calls(REVOKE)
     assert parse_qs(revoke.content.decode()) == {
         "client_key": [KEYS[0]], "client_secret": [KEYS[1]], "token": ["act.old"]}
-    assert not (settings.data_dir / "tiktok_token.json").exists()
+    assert not (settings.data_dir / ACCOUNTS).exists()
     assert client.get("/campaign/tiktok/status").json()["connected"] is False
 
     _connect(settings)
     fake.down = {"revoke"}
     assert client.post("/campaign/tiktok/disconnect").json() == {"connected": False}
-    assert not (settings.data_dir / "tiktok_token.json").exists()
+    assert not (settings.data_dir / ACCOUNTS).exists()
 
 
 # ---------- 7. klippets status ändras inte ----------
@@ -413,7 +423,7 @@ def test_connect_and_callback_only_from_this_computer(client, settings, fake) ->
     response = other.get("/campaign/tiktok/callback/", params={"code": "c1", "state": state})
     assert response.status_code == 403
     assert fake.requests == []
-    assert not (settings.data_dir / "tiktok_token.json").exists()
+    assert not (settings.data_dir / ACCOUNTS).exists()
 
 
 def test_limit_counts_fresh_status_so_a_posted_draft_frees_a_place(client, settings, fake) -> None:
@@ -452,7 +462,7 @@ def test_two_calls_at_once_refresh_the_token_only_once(settings, fake) -> None:
         thread.join(5)
     assert fake.tokens == 1
     assert tokens == ["act.secret1", "act.secret1"]
-    assert [p.name for p in settings.data_dir.iterdir() if "tiktok" in p.name] == ["tiktok_token.json"]
+    assert [p.name for p in settings.data_dir.iterdir() if "tiktok" in p.name] == [ACCOUNTS]
 
 
 @pytest.mark.parametrize(("down", "empty"), [({"init"}, set()), (set(), {"init"}), ({"put"}, set())])
@@ -525,7 +535,8 @@ def test_post_routes_need_the_api_key(client, settings, fake, monkeypatch) -> No
     clip_id = _clip(settings)
     assert client.post(f"/campaign/clips/{clip_id}/tiktok").status_code == 401
     assert client.post("/campaign/tiktok/disconnect").status_code == 401
-    assert (settings.data_dir / "tiktok_token.json").exists()
+    assert client.post("/campaign/tiktok/accounts/o1/disconnect").status_code == 401
+    assert "o1" in _saved(settings)
     assert fake.requests == []
     assert client.post(f"/campaign/clips/{clip_id}/tiktok", headers={"X-Api-Key": "nyckel"}).status_code == 202
 
@@ -552,3 +563,183 @@ def test_chunks_at_the_64_mb_limit() -> None:
     size, parts = tiktok.chunks(64_000_001)
     assert (size, len(parts)) == (10_000_000, 6)
     assert parts[-1] == (50_000_000, 64_000_000)
+
+
+# ---------- flera konton ----------
+
+
+def _login(client, fake, open_id: str, name: str) -> str:
+    fake.open_id, fake.name = open_id, name
+    state = parse_qs(urlparse(client.get("/campaign/tiktok/connect").headers["location"]).query)["state"][0]
+    location = client.get("/campaign/tiktok/callback/", params={"code": "c", "state": state}).headers["location"]
+    assert location.endswith("/settings?tiktok=ok")
+    return location
+
+
+def test_two_accounts_are_kept_in_the_order_they_were_added_and_the_same_one_is_replaced(client, settings,
+                                                                                          fake) -> None:
+    _login(client, fake, "o1", "clipvault.hq26")
+    _login(client, fake, "o2", "andra.kontot")
+    status = client.get("/campaign/tiktok/status").json()
+    assert [(a["open_id"], a["display_name"], a["connected"]) for a in status["accounts"]] == [
+        ("o1", "clipvault.hq26", True), ("o2", "andra.kontot", True)]
+    assert set(status["accounts"][0]) == {"open_id", "display_name", "avatar_url", "scopes", "connected",
+                                          "refresh_expires_at", "pending_24h"}
+    # de gamla fälten på toppnivå kommer från det första kontot
+    assert (status["connected"], status["display_name"], status["pending_24h"]) == (True, "clipvault.hq26", 0)
+
+    _login(client, fake, "o1", "nytt.namn")  # samma konto igen: ingen dubblett, ny token
+    saved = _saved(settings)
+    assert list(saved) == ["o1", "o2"]
+    assert (saved["o1"]["access_token"], saved["o1"]["display_name"]) == ("act.secret3", "nytt.namn")
+    assert saved["o2"]["access_token"] == "act.secret2"
+
+
+def _old_token(settings, open_id: str | None = "o1") -> None:
+    token = {"access_token": "act.gammal", "refresh_token": "rft.gammal", "scopes": ["video.upload"],
+             "display_name": "gammalt.konto", "avatar_url": None,
+             "expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+             "refresh_expires_at": (datetime.now(UTC) + timedelta(days=100)).isoformat()}
+    if open_id is not None:
+        token["open_id"] = open_id
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    (settings.data_dir / "tiktok_token.json").write_text(json.dumps(token))
+
+
+def test_the_old_token_file_is_moved_in_once_with_its_uploads(client, settings, fake) -> None:
+    _old_token(settings)
+    clip_id = _clip(settings)
+    with tiktok.TikTok(settings)._db() as db:  # en uppladdning från före kontona, utan open_id
+        db.execute("INSERT INTO tiktok_uploads (clip_id, publish_id, status, created) VALUES (?,?,?,?)",
+                   (clip_id, "p_old", "uploaded", datetime.now(UTC).isoformat()))
+    status = client.get("/campaign/tiktok/status").json()
+    assert [(a["open_id"], a["display_name"], a["pending_24h"]) for a in status["accounts"]] == [
+        ("o1", "gammalt.konto", 1)]
+    assert not (settings.data_dir / "tiktok_token.json").exists()
+    assert stat.S_IMODE((settings.data_dir / ACCOUNTS).stat().st_mode) == 0o600
+    assert _saved(settings)["o1"]["access_token"] == "act.gammal"
+    latest = client.get(f"/campaign/clips/{clip_id}/tiktok").json()
+    assert (latest["open_id"], latest["display_name"]) == ("o1", "gammalt.konto")
+
+
+def test_old_token_without_open_id_gets_the_key_gammalt(client, settings) -> None:
+    _old_token(settings, open_id=None)
+    (account,) = client.get("/campaign/tiktok/status").json()["accounts"]
+    assert account["open_id"] == "gammalt"
+
+
+def test_old_token_for_an_account_that_is_already_there_does_not_replace_it(client, settings) -> None:
+    _connect(settings, access="act.ny")
+    _old_token(settings)
+    client.get("/campaign/tiktok/status")
+    assert _saved(settings)["o1"]["access_token"] == "act.ny"
+    assert not (settings.data_dir / "tiktok_token.json").exists()
+
+
+def test_without_an_old_token_nothing_happens(client, settings) -> None:
+    status = client.get("/campaign/tiktok/status").json()
+    assert (status["accounts"], status["connected"]) == ([], False)
+    assert not (settings.data_dir / ACCOUNTS).exists()
+    assert not (settings.data_dir / "tiktok_token.json").exists()
+
+
+def test_a_broken_old_token_file_is_left_alone(client, settings) -> None:
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    (settings.data_dir / "tiktok_token.json").write_text("{trasig")
+    assert client.get("/campaign/tiktok/status").json()["accounts"] == []
+    assert (settings.data_dir / "tiktok_token.json").read_text() == "{trasig"
+
+
+def test_an_old_uploads_table_gets_the_open_id_column(client, settings) -> None:
+    import sqlite3
+
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(settings.data_dir / "klipp.db") as db:
+        db.execute("""CREATE TABLE tiktok_uploads (id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER,
+            publish_id TEXT, status TEXT, error TEXT, created TEXT, checked TEXT)""")
+        db.execute("INSERT INTO tiktok_uploads (clip_id, publish_id, status, created) VALUES (1, 'p', 'uploaded', ?)",
+                   (datetime.now(UTC).isoformat(),))
+    client.get("/campaign/tiktok/status")
+    with sqlite3.connect(settings.data_dir / "klipp.db") as db:
+        assert db.execute("SELECT clip_id, publish_id, open_id FROM tiktok_uploads").fetchall() == [(1, "p", None)]
+
+
+def test_with_two_accounts_the_upload_must_say_which(client, settings, fake) -> None:
+    _connect(settings)
+    _connect(settings, open_id="o2", name="andra.kontot", access="act.other")
+    clip_id = _clip(settings)
+    response = client.post(f"/campaign/clips/{clip_id}/tiktok")
+    assert (response.status_code, response.json()["detail"]) == (400, "Välj vilket TikTok-konto klippet ska till.")
+    assert client.post(f"/campaign/clips/{clip_id}/tiktok", json={"open_id": "okänt"}).status_code == 400
+    assert fake.calls(tiktok.INIT_URL) == []
+
+    response = client.post(f"/campaign/clips/{clip_id}/tiktok", json={"open_id": "o2"})
+    assert response.status_code == 202, response.text
+    assert response.json()["open_id"] == "o2"
+    assert fake.calls(tiktok.INIT_URL)[0].headers["authorization"] == "Bearer act.other"
+    latest = client.get(f"/campaign/clips/{clip_id}/tiktok").json()
+    assert (latest["open_id"], latest["display_name"]) == ("o2", "andra.kontot")
+    with tiktok.TikTok(settings)._db() as db:
+        assert db.execute("SELECT open_id FROM tiktok_uploads").fetchall()[0][0] == "o2"
+
+    # samma klipp till det andra kontot direkt efter är inget dubbelklick; samma konto igen är det
+    assert client.post(f"/campaign/clips/{clip_id}/tiktok", json={"open_id": "o1"}).status_code == 202
+    assert client.post(f"/campaign/clips/{clip_id}/tiktok", json={"open_id": "o1"}).status_code == 409
+
+
+def test_only_one_connected_account_is_used_without_a_choice(client, settings, fake) -> None:
+    _connect(settings, open_id="o1", refresh_days=-1)  # måste logga in igen
+    _connect(settings, open_id="o2", name="andra.kontot", access="act.other")
+    clip_id = _clip(settings)
+    assert client.post(f"/campaign/clips/{clip_id}/tiktok", json={"open_id": "o1"}).status_code == 400
+    response = client.post(f"/campaign/clips/{_clip(settings)}/tiktok")
+    assert (response.status_code, response.json()["open_id"]) == (202, "o2")
+    status = client.get("/campaign/tiktok/status").json()
+    assert [a["connected"] for a in status["accounts"]] == [False, True]
+    assert (status["connected"], status["display_name"]) == (True, "andra.kontot")
+
+
+def test_the_limit_of_five_drafts_is_per_account(client, settings, fake) -> None:
+    _connect(settings)
+    _connect(settings, open_id="o2", name="andra.kontot", access="act.other")
+    clips = [_clip(settings) for _ in range(7)]
+    for clip_id in clips[:5]:
+        assert client.post(f"/campaign/clips/{clip_id}/tiktok", json={"open_id": "o1"}).status_code == 202
+    assert client.post(f"/campaign/clips/{clips[5]}/tiktok", json={"open_id": "o1"}).status_code == 429
+    assert client.post(f"/campaign/clips/{clips[6]}/tiktok", json={"open_id": "o2"}).status_code == 202
+    accounts = client.get("/campaign/tiktok/status").json()["accounts"]
+    assert [a["pending_24h"] for a in accounts] == [5, 1]
+
+
+def test_disconnecting_one_account_keeps_the_other(client, settings, fake) -> None:
+    _connect(settings)
+    _connect(settings, open_id="o2", name="andra.kontot", access="act.other")
+    assert client.post("/campaign/tiktok/accounts/okänt/disconnect").status_code == 404
+    assert client.post("/campaign/tiktok/accounts/tiktok_token.json/disconnect").status_code == 404
+    assert fake.calls(REVOKE) == []
+
+    assert client.post("/campaign/tiktok/accounts/o2/disconnect").status_code == 200
+    (revoke,) = fake.calls(REVOKE)
+    assert parse_qs(revoke.content.decode())["token"] == ["act.other"]
+    assert list(_saved(settings)) == ["o1"]
+    assert [a["open_id"] for a in client.get("/campaign/tiktok/status").json()["accounts"]] == ["o1"]
+
+    _connect(settings, open_id="o2", name="andra.kontot", access="act.other")
+    assert client.post("/campaign/tiktok/disconnect").json() == {"connected": False}
+    assert len(fake.calls(REVOKE)) == 3  # alla konton återkallas
+    assert client.get("/campaign/tiktok/status").json()["accounts"] == []
+
+
+def test_no_token_is_shown_in_answers_or_the_log(client, settings, fake, caplog) -> None:
+    import logging
+
+    caplog.set_level(logging.DEBUG)
+    answers = [_login(client, fake, "o1", "a"), _login(client, fake, "o2", "b")]
+    clip_id = _clip(settings)
+    answers += [client.post(f"/campaign/clips/{clip_id}/tiktok", json={"open_id": "o2"}).text,
+                client.get(f"/campaign/clips/{clip_id}/tiktok").text,
+                client.get("/campaign/tiktok/status").text,
+                client.post("/campaign/tiktok/accounts/o1/disconnect").text]
+    for text in (*answers, caplog.text):
+        for secret in ("act.", "rft.", *KEYS):
+            assert secret not in text
