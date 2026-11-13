@@ -43,7 +43,9 @@ def compute_audio_rms_series(
         "-vn",
         "-af",
         f"aresample={sample_rate},"
-        f"astats=metadata=1:reset={reset_samples},"
+        # astats counts reset in frames, not samples: one frame per window, reset after each frame.
+        f"asetnsamples=n={reset_samples}:p=0,"
+        "astats=metadata=1:reset=1,"
         "ametadata=mode=print:file=-",
         "-f",
         "null",
