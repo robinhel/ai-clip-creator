@@ -342,16 +342,15 @@ export function CampaignFacecam({ id, onSaved, onDirty }: Props) {
             <FlipHorizontal2 aria-hidden />
             Spegla
           </Button>
-          {rects.webcams.length >= MAX_CAMS ? (
-            <span className="text-xs text-muted-foreground">Högst {MAX_CAMS} positioner.</span>
-          ) : (
-            copies.length > 0 && (
-              <span className="text-xs text-muted-foreground">
-                {copies.join(" och ")} ger en ruta som redan finns. Flytta kamera {sel + 1} först.
-              </span>
-            )
-          )}
         </div>
+      )}
+      {/* Egen rad med fast höjd: texten kommer och går medan en ruta dras, och bilden under får inte hoppa. */}
+      {rects && (
+        <p aria-live="polite" className="-mt-3 min-h-4 text-xs text-muted-foreground">
+          {rects.webcams.length >= MAX_CAMS
+            ? `Högst ${MAX_CAMS} positioner.`
+            : copies.length > 0 && `${copies.join(" och ")} ger en ruta som redan finns. Flytta kamera ${sel + 1} först.`}
+        </p>
       )}
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_240px]">
