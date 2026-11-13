@@ -36,7 +36,7 @@ def _only_local(request: Request) -> None:
     if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:  # ::ffff:127.0.0.1, samma dator
         address = address.ipv4_mapped
     if address is None or not address.is_loopback:
-        raise HTTPException(403, "TikTok kan bara kopplas från datorn där servern körs.")
+        raise HTTPException(403, "Kontot kan bara kopplas från datorn där servern körs.")
 
 
 @router.get("/tiktok/status", summary="Är TikTok kopplat, och hur många utkast väntar")

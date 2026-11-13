@@ -36,6 +36,7 @@ GROUPS = [
     ("anthropic", "Claude", [("ANTHROPIC_API_KEY", "API-nyckel")]),
     ("berget", "Berget (transkribering)", [("BERGET_API_KEY", "API-nyckel")]),
     ("tiktok", "TikTok", [("TIKTOK_CLIENT_KEY", "Client key"), ("TIKTOK_CLIENT_SECRET", "Client secret")]),
+    ("youtube", "YouTube", [("YOUTUBE_CLIENT_ID", "Client ID"), ("YOUTUBE_CLIENT_SECRET", "Client secret")]),
 ]
 NAMES = {name: label for _, _, keys in GROUPS for name, label in keys}
 TWITCH = ("TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET")

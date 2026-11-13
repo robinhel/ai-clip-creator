@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import sqlite3
 import tempfile
@@ -43,6 +44,8 @@ CHUNK = 10_000_000  # delarnas storlek för större filer, som i TikToks exempel
 PENDING_LIMIT = 5  # TikTok tar högst 5 väntande utkast per 24 timmar
 STATUS_CACHE_S = 60  # status/fetch tillåter 30 anrop per minut; webben behöver inte färskare än en minut
 RECENT_S = 600  # samma klipp igen inom 10 minuter är troligen ett dubbelklick
+STUCK_S = 3600  # ett direktinlägg utan svar från TikTok på en timme räknas som misslyckat
+STUCK = "TikTok har inte svarat om inlägget på en timme. Titta på profilen i TikTok."
 TITLE_MAX = 2200  # UTF-16-enheter
 DONE = ("failed", "publish_complete", "published")
 MESSAGE = "Öppna TikTok-appen och tryck på notisen i inkorgen. Klistra in captionen och posta."
@@ -58,8 +61,9 @@ ERRORS = {
     "reached_active_user_cap": (("Appen har nått TikToks gräns för hur många konton som postar per dygn. "
                                  "Försök igen i morgon."), 429),
     "unaudited_client_can_only_post_to_private_accounts": (
-        ("Kontot måste vara privat i TikTok så länge appen inte är granskad. Gör kontot privat i TikTok-appen "
-         "och försök igen."), 400),
+        # En ogranskad app får bara posta SELF_ONLY, och kontot måste vara privat.
+        ("TikTok har inte granskat appen än. Då går det bara att publicera som Bara jag. Välj Bara jag och "
+         "försök igen. Kontot måste också vara privat i TikTok."), 400),
     "privacy_level_option_mismatch": ("TikTok godtog inte valet av vem som får se klippet. Välj igen.", 400),
     "rate_limit_exceeded": ("TikTok tar bara emot några anrop i minuten. Vänta en minut.", 429),
 }
@@ -343,9 +347,10 @@ class TikTok:
         with self._db() as db:
             db.execute(f"UPDATE tiktok_uploads SET {sets} WHERE id = ?", (*fields.values(), upload_id))
 
-    def _latest_row(self, clip_id: int, open_id: str | None = None) -> dict | None:
-        """Senaste uppladdningen av klippet, till ett visst konto eller till vilket som helst."""
-        where, args = ("clip_id = ? AND open_id = ?", (clip_id, open_id)) if open_id else ("clip_id = ?", (clip_id,))
+    def _latest_row(self, clip_id: int, open_id: str | None = None, mode: str | None = None) -> dict | None:
+        """Senaste uppladdningen av klippet, till ett visst konto och i ett visst läge, eller vilken som helst."""
+        where, args = ("clip_id = ? AND open_id = ? AND mode = ?", (clip_id, open_id, mode)) if open_id \
+            else ("clip_id = ?", (clip_id,))
         with self._db() as db:
             row = db.execute(f"SELECT * FROM tiktok_uploads WHERE {where} ORDER BY id DESC LIMIT 1", args).fetchone()
         return dict(row) if row else None
@@ -396,7 +401,7 @@ class TikTok:
             raise TikTokError("Branded content visibility cannot be set to private.", 400)
         longest = info.get("max_video_post_duration_sec")
         if longest and duration_s > longest:
-            raise TikTokError(f"Klippet är {duration_s:.0f} sekunder, men kontot får posta högst {longest} "
+            raise TikTokError(f"Klippet är {math.ceil(duration_s)} sekunder, men kontot får posta högst {longest} "
                               "sekunder.", 400)
         title = post.get("title") or ""
         return {**({"title": title} if title else {}), "privacy_level": privacy,
@@ -417,10 +422,11 @@ class TikTok:
             if not self.configured:
                 raise TikTokError("TIKTOK_CLIENT_KEY och TIKTOK_CLIENT_SECRET saknas i .env.", 400)
             open_id = self.choose(open_id)
-            last = self._latest_row(clip_id, open_id)  # samma klipp till ett annat konto är inget dubbelklick
-            if last and (last["status"] == "uploading" or (
-                    last["status"] in ("uploaded", "processing", "published")
-                    and _now() - datetime.fromisoformat(last["created"]) < timedelta(seconds=RECENT_S))):
+            # Samma klipp till ett annat konto, eller i det andra läget, är inget dubbelklick.
+            last = self._latest_row(clip_id, open_id, mode)
+            # En rad som står kvar som uploading (servern dog mitt i) spärrar bara i 10 minuter.
+            if last and last["status"] in ("uploading", "uploaded", "processing", "published") \
+                    and _now() - datetime.fromisoformat(last["created"]) < timedelta(seconds=RECENT_S):
                 raise TikTokError("Klippet skickades nyss. Titta i TikTok-inkorgen." if last["mode"] == "draft"
                                   else "Klippet skickades nyss. Titta på profilen i TikTok.", 409)
             if post is not None:
@@ -489,6 +495,10 @@ class TikTok:
                           checked=_iso(_now()))
             except TikTokError:
                 pass  # TikTok svarar inte eller är inte kopplat: visa det som är sparat
+            if upload["mode"] == "direct" and upload["status"] in ("uploading", "processing") \
+                    and _now() - datetime.fromisoformat(upload["created"]) >= timedelta(seconds=STUCK_S):
+                upload.update(status="failed", error=STUCK)  # annars frågar webben för alltid
+                self._set(upload["id"], status="failed", error=STUCK, checked=_iso(_now()))
         account = self.accounts().get(upload["open_id"] or "") or {}
         username = account.get("username")
         return {**{key: upload[key] for key in ("clip_id", "publish_id", "status", "error", "created", "open_id",

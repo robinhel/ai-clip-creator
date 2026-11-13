@@ -82,7 +82,8 @@ export function TikTokDirectPost({ clip, account, upload, onSent, onClose }: Pro
       .catch((err) => setCreatorError(err instanceof Error ? err.message : "Kunde inte läsa kontot hos TikTok"));
   }, [account.open_id]);
 
-  const length = clip.start_s != null && clip.end_s != null ? Math.round(clip.end_s - clip.start_s) : null;
+  // Uppåt, som servern: 60,4 s är över en gräns på 60 s.
+  const length = clip.start_s != null && clip.end_s != null ? Math.ceil(clip.end_s - clip.start_s) : null;
   const tooLong = !!creator && length != null && length > creator.max_video_post_duration_sec;
   const brandedOn = disclose && branded;
   const reason = !creator
@@ -252,7 +253,11 @@ export function TikTokDirectPost({ clip, account, upload, onSent, onClose }: Pro
                   <span className="text-[13px] text-muted-foreground">Vem får se</span>
                   <select
                     value={privacy}
-                    onChange={(e) => setPrivacy(e.target.value as TikTokPrivacy)}
+                    onChange={(e) => {
+                      setPrivacy(e.target.value as TikTokPrivacy);
+                      // Branded content går inte ihop med Bara jag, också när reglaget är av och rutan dold.
+                      if (e.target.value === "SELF_ONLY") setBranded(false);
+                    }}
                     disabled={!creator}
                     className="mt-1 h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand [&>option]:bg-panel"
                   >
@@ -268,6 +273,13 @@ export function TikTokDirectPost({ clip, account, upload, onSent, onClose }: Pro
                       );
                     })}
                   </select>
+                  {brandedOn && creator?.privacy_level_options.includes("SELF_ONLY") && (
+                    <span className="mt-1 block text-xs text-muted-foreground">{BC_PRIVATE}</span>
+                  )}
+                  {/* Listan följer TikToks val utan förval, men en ogranskad app får bara posta privat. */}
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    TikTok har inte granskat appen än. Tills dess fungerar bara Bara jag.
+                  </span>
                 </label>
 
                 <div className="flex flex-wrap gap-x-5 gap-y-2">

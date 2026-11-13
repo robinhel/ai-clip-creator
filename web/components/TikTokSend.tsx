@@ -92,14 +92,15 @@ export function TikTokSend({ clip, captionDirty, hasProblems, onUpdate }: Props)
 
   async function postOnDesktop() {
     setError(null);
-    // Fliken öppnas först, i samma klick, annars stoppar webbläsaren den efter väntan på urklippet.
+    // Kopieringen startar medan sidan har fokus (Chrome nekar annars), fliken öppnas i samma klick, sedan väntar vi.
+    // Alltid den sparade captionen, den som regelkontrollen har godkänt.
+    const copying = navigator.clipboard.writeText(clip.caption ?? "");
     // Inte "noopener" i window.open: då svarar den alltid null, och felet nedan går inte att visa.
     const tab = window.open(STUDIO, "_blank");
     if (tab) tab.opener = null;
     let copied = true;
     try {
-      // Alltid den sparade captionen, den som regelkontrollen har godkänt.
-      await navigator.clipboard.writeText(clip.caption ?? "");
+      await copying;
     } catch {
       copied = false;
     }
