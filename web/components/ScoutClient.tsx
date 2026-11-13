@@ -10,8 +10,11 @@ import type { ScoutCampaign, ScoutStatus } from "@/lib/types";
 
 const views = new Intl.NumberFormat("sv-SE");
 const when = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-// Servern kör hämtningen i bakgrunden efter 202. Läs om listan när den troligen är klar.
-const REFRESH_WAIT_MS = 3000;
+// Servern kör hämtningen i bakgrunden efter 202, och den tar upp till cirka 25 s.
+// Läs om var 3:e sekund tills updated_at eller error ändras, högst 30 s.
+const POLL_MS = 3000;
+const POLL_MAX_MS = 30_000;
+const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 export function ScoutClient() {
   const [status, setStatus] = useState<ScoutStatus | null>(null);
@@ -40,8 +43,14 @@ export function ScoutClient() {
     setRefreshError(null);
     try {
       await api.campaign.scout.refresh();
-      await new Promise((done) => setTimeout(done, REFRESH_WAIT_MS));
-      load();
+      for (const start = Date.now(); Date.now() - start < POLL_MAX_MS; ) {
+        await sleep(POLL_MS);
+        const next = await api.campaign.scout.status().catch(() => null);
+        if (!next) continue; // ett misslyckat anrop: försök igen nästa varv
+        setStatus(next);
+        if (next.updated_at !== status?.updated_at || next.error !== status?.error) return;
+      }
+      setRefreshError("Kontrollen tar längre tid än vanligt. Listan läses om nästa gång du öppnar sidan.");
     } catch (err) {
       setRefreshError(err instanceof Error ? err.message : "Kunde inte starta kontrollen");
     } finally {
@@ -106,7 +115,7 @@ export function ScoutClient() {
             <div className="space-y-1.5 text-right">
               <Button variant="outline" className="h-9" disabled={refreshing} onClick={refresh}>
                 {refreshing ? <Loader2 className="animate-spin" aria-hidden /> : <RefreshCw aria-hidden />}
-                Kontrollera nu
+                {refreshing ? "Kontrollerar…" : "Kontrollera nu"}
               </Button>
               {refreshError && <p className="text-xs text-muted-foreground">{refreshError}</p>}
             </div>
@@ -140,11 +149,9 @@ export function ScoutClient() {
             </p>
           ) : (
             <div className="mt-6 space-y-3">
-              {[...status.campaigns]
-                .sort((a, b) => b.score - a.score)
-                .map((c) => (
-                  <ScoutCard key={c.ref} campaign={c} busy={busy === c.ref} onDismiss={() => setDismissed(c, true)} />
-                ))}
+              {status.campaigns.map((c) => (
+                <ScoutCard key={c.ref} campaign={c} busy={busy === c.ref} onDismiss={() => setDismissed(c, true)} />
+              ))}
             </div>
           )}
 

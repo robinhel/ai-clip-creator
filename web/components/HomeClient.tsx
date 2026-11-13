@@ -224,7 +224,7 @@ export function HomeClient() {
     loadStreams();
     api.campaign.scout
       .status()
-      .then((s) => setScout(s.campaigns.filter((c) => !c.excluded).sort((a, b) => b.score - a.score).slice(0, 3)))
+      .then((s) => setScout(s.campaigns.slice(0, 3))) // servern sorterar och skickar inte bortsorterade
       .catch(() => setScout([]));
   }, []);
 
