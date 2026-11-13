@@ -9,6 +9,9 @@ from ..settings import CaptionConfig
 
 _WORDS_PER_LINE = 5
 _MAX_LINE_CHARS = 28
+_MAX_GAP = 0.6  # a longer pause between words starts a new line, so no text shows during silence
+_MAX_WORD = 1.0  # whisper sometimes stretches a word over the silence after it
+_HOLD = 0.3  # keep a line up a little after its last word, but never into the next line
 
 
 def _write_ass(
@@ -46,6 +49,9 @@ def _group_words(words: list[Word], clip_start: float) -> list[tuple[float, floa
     chunk: list[Word] = []
 
     for w in words:
+        if chunk and w.start - _spoken_end(chunk[-1]) > _MAX_GAP:
+            groups.append(_make_karaoke_line(chunk, clip_start))
+            chunk = []
         chunk.append(w)
         if len(chunk) >= _WORDS_PER_LINE or len(_chunk_text(chunk)) >= _MAX_LINE_CHARS:
             groups.append(_make_karaoke_line(chunk, clip_start))
@@ -53,13 +59,22 @@ def _group_words(words: list[Word], clip_start: float) -> list[tuple[float, floa
 
     if chunk:
         groups.append(_make_karaoke_line(chunk, clip_start))
-    return groups
+    return [
+        (start, min(end + _HOLD, groups[i + 1][0]) if i + 1 < len(groups) else end + _HOLD, text)
+        for i, (start, end, text) in enumerate(groups)
+    ]
+
+
+def _spoken_end(w: Word) -> float:
+    return min(w.end, w.start + _MAX_WORD)
 
 
 def _make_karaoke_line(words: list[Word], clip_start: float) -> tuple[float, float, str]:
     rel_start = max(0.0, words[0].start - clip_start)
-    rel_end = max(rel_start + 0.1, words[-1].end - clip_start)
-    parts = [f"{{\\kf{max(1, round((w.end - w.start) * 100))}}}{w.word.strip()}" for w in words]
+    rel_end = max(rel_start + 0.1, _spoken_end(words[-1]) - clip_start)
+    # Each word lasts until the next one starts, so a short gap inside the line keeps the highlight in step.
+    ends = [nxt.start for nxt in words[1:]] + [_spoken_end(words[-1])]
+    parts = [f"{{\\kf{max(1, round((end - w.start) * 100))}}}{w.word.strip()}" for w, end in zip(words, ends)]
     return rel_start, rel_end, " ".join(parts)
 
 
