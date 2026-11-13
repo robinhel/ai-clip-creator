@@ -18,7 +18,7 @@ from ..models.candidates import CandidateMoment
 CLIP_MIN_S = 15
 CLIP_MAX_S = 45
 
-SYSTEM_PROMPT = f"""\
+_STREAM_INTRO = f"""\
 You select moments from an English-language Twitch gaming stream for short vertical clips
 (TikTok, YouTube Shorts, Instagram Reels).
 
@@ -35,6 +35,10 @@ A good clip:
 Reject (include: false) dead air, menu or loading time, mid-story filler, and anything that
 needs earlier context to make sense. Prefer fewer, better clips.
 
+"""
+
+# The answer's JSON and rules. A campaign's own instructions (llm.instructions) replace only the intro.
+ANSWER_FORMAT = f"""\
 Respond ONLY with a valid JSON object matching this schema (no markdown, no extra text):
 {{
   "include": <bool>,           // true = make a clip, false = skip
@@ -53,6 +57,8 @@ Rules:
   is to go viral on TikTok. 90+ is rare and exceptional, 50 is average, below 30 is weak.\
 """
 
+SYSTEM_PROMPT = _STREAM_INTRO + ANSWER_FORMAT
+
 SYSTEM_PROMPT_V2 = f"""\
 You select moments from an English-language Twitch gaming stream for TikTok/Shorts/Reels.
 
@@ -68,8 +74,11 @@ Skip: dead air, filler, anything needing prior context.\
 """
 
 
-def get_system_prompt(version: str = "v1") -> str:
-    """Return the system prompt for the given version string."""
+def get_system_prompt(version: str = "v1", instructions: str = "") -> str:
+    """Return the system prompt for the given version string, or the campaign's own instructions
+    followed by the answer format."""
+    if instructions.strip():
+        return f"{instructions.strip()}\n\n{ANSWER_FORMAT}"
     return SYSTEM_PROMPT_V2 if version == "v2" else SYSTEM_PROMPT
 
 

@@ -192,7 +192,7 @@ def vod(settings, monkeypatch):
 
     monkeypatch.setattr(pipeline, "download_vod", lambda vod_id, work_dir, **k: mp4)
     monkeypatch.setattr(pipeline, "process_vod", process_vod)
-    monkeypatch.setattr(pipeline, "get_provider", lambda cfg, secrets: state.picker)
+    monkeypatch.setattr(pipeline, "get_provider", lambda cfg, secrets, **_: state.picker)
     monkeypatch.setattr(pipeline, "cut_all_clips", cut_all_clips)
     monkeypatch.setattr(pipeline, "finish_vod", finish_vod)
     state.mp4 = mp4
