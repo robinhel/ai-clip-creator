@@ -405,6 +405,53 @@ export interface YouTubeUpload {
   message?: string;
 }
 
+/** En del av kampanjens betyg, med en kort svensk förklaring. */
+export interface ScoutPart {
+  key: string;
+  label: string;
+  points: number;
+  max: number;
+  fact: string;
+}
+
+/** En kampanj från ClippingAlpha med betyg 0–100. excluded: varför den sorterades bort, annars null. */
+export interface ScoutCampaign {
+  ref: string;
+  title: string;
+  brand: string | null;
+  score: number;
+  parts: ScoutPart[];
+  excluded: string | null;
+  age_hours: number | null;
+  rate_usd: number | null;
+  net_rate_usd: number | null;
+  budget_left_usd: number | null;
+  budget_total_usd: number | null;
+  min_views: number | null;
+  max_payout_usd: number | null;
+  drain_days: number | null;
+  platforms: string[];
+  mentions_twitch: boolean;
+  open_join: boolean | null;
+  page_url: string | null;
+  join_url: string | null;
+  first_seen: string;
+  is_new: boolean;
+}
+
+/** GET /campaign/scout. Kampanjerna är sorterade på betyg och utan dolda. */
+export interface ScoutStatus {
+  enabled: boolean;
+  updated_at: string | null;
+  error: string | null;
+  calls_today: number;
+  call_limit: number;
+  median_views: number;
+  median_source: "dina inlägg" | "standard";
+  campaigns: ScoutCampaign[];
+  excluded: ScoutCampaign[];
+}
+
 export type OverlayMode = "full" | "top" | "bottom";
 export type TextPosition = "top" | "bottom";
 

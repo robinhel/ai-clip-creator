@@ -19,6 +19,7 @@ import type {
   Rect,
   ReframeInfo,
   Run,
+  ScoutStatus,
   StreamInfo,
   TikTokCreatorInfo,
   TikTokSendBody,
@@ -182,6 +183,15 @@ export const api = {
       connectUrl: `${DIRECT}/campaign/tiktok/connect`,
     },
     summary: () => apiFetch<CampaignSummary>("/campaign/summary"),
+    scout: {
+      status: () => apiFetch<ScoutStatus>("/campaign/scout"),
+      refresh: () => apiFetch<unknown>("/campaign/scout/refresh", { method: "POST" }),
+      // ref är "märke/serie"; snedstrecket ska stå kvar i sökvägen.
+      setDismissed: (ref: string, dismissed: boolean) =>
+        apiFetch<unknown>(`/campaign/scout/${ref.split("/").map(encodeURIComponent).join("/")}/${dismissed ? "dismiss" : "undismiss"}`, {
+          method: "POST",
+        }),
+    },
     setup: () => apiFetch<{ checks: SetupCheck[] }>("/campaign/setup"),
     keys: {
       list: () => apiFetch<{ groups: KeyGroup[] }>("/campaign/keys"),

@@ -7,9 +7,10 @@ import { AlertTriangle, Link2, Loader2, Send, X } from "lucide-react";
 import { ProblemFix, readyText } from "@/components/CampaignsClient";
 import { scoreTone } from "@/components/ClipResultRow";
 import { ProjectCard } from "@/components/ProjectCard";
+import { ScoutMiniCard } from "@/components/ScoutCard";
 import { api } from "@/lib/api";
 import { clock, cn, duration, parseClock, serverTime, usd } from "@/lib/utils";
-import type { CampaignProfile, CampaignRunInfo, CampaignStatus, CampaignSummary, StreamInfo, VodInfo } from "@/lib/types";
+import type { CampaignProfile, CampaignRunInfo, CampaignStatus, CampaignSummary, ScoutCampaign, StreamInfo, VodInfo } from "@/lib/types";
 
 const FOCUS_MAX = 300;
 const RUNS_POLL_MS = 5000;
@@ -185,6 +186,8 @@ export function HomeClient() {
   const [streams, setStreams] = useState<StreamInfo[] | null>(null);
   const [streamsError, setStreamsError] = useState(false);
   const [streamSort, setStreamSort] = useState<StreamSort>("best");
+  // De tre bästa från bevakningen. Ett fel eller en äldre server döljer rutan tyst.
+  const [scout, setScout] = useState<ScoutCampaign[]>([]);
   // Gammal server utan betyg: listan som servern skickar, nyast först.
   const scored = streams?.some((s) => s.score != null) ?? false;
   const shownStreams = streams && scored ? sortStreams(streams, streamSort) : streams;
@@ -219,6 +222,10 @@ export function HomeClient() {
       .catch((err) => setLoadError(err instanceof Error ? err.message : "Kunde inte hämta startsidan"));
     // Egen hämtning: Twitch kan vara långsam, och ett fel här ska inte stoppa resten av sidan.
     loadStreams();
+    api.campaign.scout
+      .status()
+      .then((s) => setScout(s.campaigns.filter((c) => !c.excluded).sort((a, b) => b.score - a.score).slice(0, 3)))
+      .catch(() => setScout([]));
   }, []);
 
   // Läs om projekten var femte sekund medan något projekt pågår, också efter ett misslyckat anrop.
@@ -651,6 +658,22 @@ export function HomeClient() {
           <TodoCard count={counts.inskickad ?? 0} label="inskickade, fyll i statistik" href="/log" cta="Fyll i visningar" />
         </div>
       </section>
+
+      {scout.length > 0 && (
+        <section aria-label="Bästa kampanjerna just nu">
+          <div className="mt-9 mb-3 flex items-baseline justify-between gap-4">
+            <h2 className="text-lg font-semibold">Bästa kampanjerna just nu</h2>
+            <Link href="/scout" className="text-sm text-muted-foreground hover:text-foreground">
+              Alla kampanjer i bevakningen
+            </Link>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {scout.map((c) => (
+              <ScoutMiniCard key={c.ref} campaign={c} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="mt-9 mb-3 flex items-baseline justify-between gap-4">
         <h2 className="text-lg font-semibold">Senaste projekten</h2>
