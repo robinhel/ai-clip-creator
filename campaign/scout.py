@@ -155,6 +155,7 @@ def facts(data: dict) -> dict:
         "fill": next((v.get("verdict") for v in ((a or {}).get("alpha") or {}).get("verdicts") or []
                       if v.get("key") == "fill"), None),
         "pay": pay,
+        "pay_model": _first(join.get("payModel"), s.get("payModel")),
         "members_only": _first(c.get("membersOnly"), a_campaign.get("membersOnly"), s.get("membersOnly")),
         "election": _first(c.get("election"), a_campaign.get("election"), s.get("election")),
         "audience": " ".join(str(v) for v in (
@@ -289,6 +290,7 @@ def evaluate(data: dict, median: float, cpm_median: float, now: datetime) -> tup
     platforms = {str(p).lower() for p in f["platforms"]}
     reasons = [
         (f["state"] not in (None, "live"), f"Kampanjen är inte igång ({f['state']})."),
+        (f["pay_model"] == "pot_split", "Pott som delas mellan klippare, inte betalning per visning"),
         (f["stalled"], "Kampanjen står still på plattformen."),
         (used is not None and used >= 0.95, "Minst 95 % av budgeten är använd."),
         (f["type"] not in (None, "clipping"), f"Inte en clipping-kampanj ({f['type']})."),
