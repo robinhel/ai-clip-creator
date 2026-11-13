@@ -415,7 +415,11 @@ export function HomeClient() {
                 </p>
                 <p className="text-[13px] text-muted-foreground">
                   Cirka {vod.estimate.minutes} min
-                  {vod.estimate.cost_usd != null ? ` och ${usd.format(vod.estimate.cost_usd)}` : ", okänd kostnad,"} att göra klart.{" "}
+                  {vod.estimate.cost_usd != null ? ` och ${usd.format(vod.estimate.cost_usd)}` : ", okänd kostnad,"} att göra klart
+                  {vod.estimate.cost
+                    ? ` (Berget ${usd.format(vod.estimate.cost.berget_usd)}, Claude ${usd.format(vod.estimate.cost.claude_usd)})`
+                    : ""}
+                  .{" "}
                   {vod.downloaded
                     ? "VOD:en finns redan på disken."
                     : `Hämtar ${gb.format(vod.estimate.download_gb)} GB, ${gb.format(vod.estimate.disk_free_gb)} GB ledigt.`}

@@ -25,10 +25,13 @@ function isActive(pathname: string, href: string): boolean {
   return pathname.startsWith(href);
 }
 
-function Meter({ label, pct, tone }: { label: string; pct: number; tone: "good" | "warn" | "bad" }) {
+function Meter({ label, pct, tone, detail }: {
+  label: string; pct: number; tone: "good" | "warn" | "bad"; detail?: string;
+}) {
   return (
     <div className="px-2.5 text-xs text-muted-foreground">
       {label}
+      {detail && <div className="mt-0.5 text-[11px] tabular-nums opacity-80">{detail}</div>}
       <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-line">
         <div
           className={cn("h-full rounded-full", { good: "bg-good", warn: "bg-warn", bad: "bg-bad" }[tone])}
@@ -53,6 +56,8 @@ export function SiteNav() {
 
   const toPost = summary?.counts.godkand ?? 0;
   const budget = summary?.budget;
+  // Berget sparas med syftet transkribering; allt annat är Claude.
+  const bergetUsd = budget?.by_purpose?.transkribering?.usd ?? 0;
   const budgetPct = budget && budget.month_cap_usd > 0 ? (budget.month_usd / budget.month_cap_usd) * 100 : 0;
   const disk = summary?.disk;
   // Stapeln visar ledigt utrymme: nästan tom betyder lite ledigt.
@@ -92,7 +97,8 @@ export function SiteNav() {
           <div className="mt-auto hidden space-y-4 border-t border-line pt-4 md:block">
             {budget && (
               <Meter
-                label={`Claude denna månad: ${usd.format(budget.month_usd)} av ${usd.format(budget.month_cap_usd)}`}
+                label={`Kostnad denna månad: ${usd.format(budget.month_usd)} av ${usd.format(budget.month_cap_usd)}`}
+                detail={`Berget ${usd.format(bergetUsd)}, Claude ${usd.format(budget.month_usd - bergetUsd)}`}
                 pct={budgetPct}
                 tone={budgetPct >= 90 ? "bad" : budgetPct >= 70 ? "warn" : "good"}
               />
