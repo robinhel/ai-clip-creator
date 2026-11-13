@@ -1,5 +1,6 @@
 # Kampanjprofil: [NORDICS] Blizzard - World of Warcraft Forever (Clipping Culture, via Content Rewards)
-# Reglerna är avskrivna från kampanjen 13 november 2026 (ClippingAlpha get_campaign, kl. 18 UTC).
+# Reglerna är avskrivna från kampanjen 13 november 2026 (ClippingAlpha get_campaign, kl. 18 UTC)
+# och från kampanjens brief (Google Doc) samma dag. Briefen går före där de skiljer sig.
 # Kontrollera mot kampanjsidan om något har ändrats.
 # Id:t är blizzard_nordics, eftersom appen bara tillåter a-z, siffror och _ i kampanjens id.
 
@@ -15,13 +16,15 @@ clipsmith_config: config.blizzard_nordics.yaml
 preferred_games: [World of Warcraft]
 
 source:
-  allowed: "Bara Blizzards eget material: trailers, gameplay, paneler och filer i kampanjens innehållsmapp. Filer utan tal är tillåtna."
+  allowed: "Bara officiellt Blizzard-material från innehållsmappen https://f.io/Qt7AFTMz och extramappen https://f.io/8uBzkEqf: trailers, gameplay och paneler. Filer utan tal är tillåtna. Robin laddar ner filerna själv."
   banned:
     - Streams, även Blizzards egna och streamers
     - Andras innehåll och orelaterade virala klipp
+    - AI-röster och AI-berättare
+    - Suddigt eller lågkvalitativt material
 
 clip:
-  min_seconds: 11    # kampanjen kräver längre än 10 s
+  min_seconds: 11    # kampanjen kräver minst 10 s; 11 ger marginal
   max_seconds: 45    # eget val, kampanjen anger inget tak
 
 formats:
@@ -55,19 +58,26 @@ safe_zone:
   bottom: 0.20
 
 caption:
-  starts_with: "#ad #blizzardpartner"   # kampanjens krav: #ad först, #blizzardpartner direkt efter
+  # Kampanjens krav: texten först, sedan "#ad #blizzardpartner" på en egen rad, och högst 3 fler hashtags efter dem.
+  tag_line: "#ad #blizzardpartner"
+  max_extra_hashtags: 3
   must_include:
-    - "#ad"
-    - "#blizzardpartner"
-    - "@warcraft"                       # tagga @warcraft på TikTok och YouTube
-  hashtags: ["#worldofwarcraft", "#warcraft", "#wow"]
+    - "@warcraft"        # tagga @warcraft på TikTok och YouTube
+  hashtags: []           # inga obligatoriska; spelets hashtag läggs till med --game
   game_hashtag: true
   template: "{title} @warcraft"
+  # Briefens exempel:
+  #   World of Warcraft: Forever looks beautiful. @warcraft
+  #   #ad #blizzardpartner
 
 audio:
   lufs: -14
 
 platforms: [tiktok, youtube_shorts]
+
+# Minst 0,5 % engagemang: 5 likes per 1 000 visningar.
+engagement_min_percent:
+  - {views_up_to: null, min: 0.5}
 
 payment:
   cpm_usd: 4.00
@@ -75,12 +85,18 @@ payment:
 
 approval: >
   Skicka in klippen via Content Rewards. Bara visningar från Sverige, Danmark, Norge och
-  Finland räknas.
+  Finland betalas. Frågor går till Clipping Culture, inte till Blizzard.
 
 other_rules:
-  - Posta på engelska
-  - Samma video får postas högst 5 gånger
-  - Bara visningar från SE, DK, NO och FI räknas
+  - "Caption: engelska, skriven som en riktig fan. Inga påhittade fakta, siffror eller datum."
+  - "Caption: skriv aldrig Gifted, Sponsored eller PR i stället för #ad."
+  - "Hashtaggarna efter #ad #blizzardpartner ska handla om innehållet."
+  - "Text på bilden är valfri och bara på engelska. Spelet är släppt: skriv aldrig coming soon."
+  - "Kalla inte något gameplay om det inte är gameplay."
+  - "Bakgrundsmusik får finnas om originalljudet hörs tydligt."
+  - "Posten ska ligga kvar i minst 30 dagar, och likes ska synas."
+  - "Samma video får postas högst 5 gånger, och inte på flera konton."
+  - "Bara visningar från SE, DK, NO och FI betalas."
 
 links:
   content_rewards: "https://contentrewards.com/c/campaigns/c21c887c-5a8a-4891-a5b9-c094f7f1a689"
