@@ -44,6 +44,9 @@ class FakeGoogle:
         self.refresh_error = False
         self.upload_error: tuple[int, str] | None = None  # (HTTP-status, Googles reason)
         self.put_status: int | None = None
+        self.put_lost = False  # PUT av filen kastar nätverksfel, fast Google kan ha tagit emot den
+        self.resume_status = 308  # svaret när sessionen tillfrågas (Content-Range: bytes */N)
+        self.upload_errors: list[tuple[int, str]] = []  # fel för de första startanropen, ett i taget
         self.video: dict | None = {"uploadStatus": "uploaded"}  # None: videon finns inte (borttagen)
         self.down: set[str] = set()
         self.token_delay = 0.0
@@ -77,12 +80,18 @@ class FakeGoogle:
         if step == "channels":
             return httpx.Response(200, json={"items": [self.channel] if self.channel else []})
         if step == "upload":
-            if self.upload_error:
-                http, reason = self.upload_error
+            if self.upload_errors or self.upload_error:
+                http, reason = self.upload_errors.pop(0) if self.upload_errors else self.upload_error
                 return httpx.Response(http, json={"error": {"code": http, "message": "nej",
                                                             "errors": [{"reason": reason}]}})
             return httpx.Response(200, headers={"Location": SESSION})
         if step == "put":
+            if request.headers.get("content-range", "").startswith("bytes */"):
+                if self.resume_status in (200, 201):
+                    return httpx.Response(self.resume_status, json={"id": "vid1"})
+                return httpx.Response(self.resume_status)
+            if self.put_lost:
+                raise httpx.ReadTimeout("svaret kom aldrig", request=request)
             if self.put_status:
                 return httpx.Response(self.put_status, json={"error": {"code": self.put_status}})
             return httpx.Response(200, json={"id": "vid1", "status": {"uploadStatus": "uploaded"}})
@@ -213,7 +222,9 @@ def test_connect_and_callback_only_from_this_computer(settings, fake) -> None:
     app.include_router(youtube_api.router)
     app.dependency_overrides[api.get_settings] = lambda: settings
     other = TestClient(app, follow_redirects=False, client=("192.168.1.20", 50000))
-    assert other.get("/campaign/youtube/connect").status_code == 403
+    response = other.get("/campaign/youtube/connect")
+    assert (response.status_code, response.json()["detail"]) == (
+        403, "Kontot kan bara kopplas från datorn där servern körs.")
     assert other.get("/campaign/youtube/callback/", params={"code": "c", "state": "s"}).status_code == 403
     assert fake.requests == []
 
@@ -583,3 +594,106 @@ def test_no_token_is_shown_in_answers_or_the_log(client, settings, fake, caplog)
     for text in (*answers, caplog.text):
         for secret in ("ya29.", "1//r", *KEYS):
             assert secret not in text
+
+
+# ---------- granskningen: tappade svar, avbrutna uppladdningar, 401 och låset ----------
+
+
+@pytest.mark.parametrize("lost", ["network", "5xx"])
+def test_a_lost_answer_to_the_put_is_checked_once_and_the_video_kept(client, settings, fake, lost) -> None:
+    _connect(settings)
+    if lost == "network":
+        fake.put_lost = True
+    else:
+        fake.put_status = 503
+    fake.resume_status = 200
+    clip_id = _clip(settings)
+    response = _send(client, clip_id)
+    assert response.status_code == 202, response.text
+    assert (response.json()["video_id"], response.json()["status"]) == ("vid1", "uploaded")
+    upload, asked = fake.calls("put")
+    assert upload.content == bytes(range(25))
+    assert (str(asked.url), asked.headers["content-range"], asked.content) == (SESSION, "bytes */25", b"")
+    with youtube.YouTube(settings)._db() as db:
+        assert tuple(db.execute("SELECT video_id, status FROM youtube_uploads").fetchone()) == ("vid1", "uploaded")
+
+
+def test_a_lost_answer_where_google_has_not_got_the_file_fails(client, settings, fake) -> None:
+    _connect(settings)
+    fake.put_lost = True  # sessionen svarar 308: filen kom inte fram
+    clip_id = _clip(settings)
+    response = _send(client, clip_id)
+    assert (response.status_code, response.json()["detail"]) == (502, UNREACHABLE)
+    assert len(fake.calls("put")) == 2
+    assert client.get(f"/campaign/clips/{clip_id}/youtube").json()["status"] == "failed"
+
+
+def _uploading_row(settings, clip_id: int, minutes_ago: float) -> None:
+    created = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).isoformat(timespec="seconds")
+    with youtube.YouTube(settings)._db() as db:
+        db.execute("INSERT INTO youtube_uploads (clip_id, channel_id, status, privacy, created) "
+                   "VALUES (?, 'UC1', 'uploading', 'public', ?)", (clip_id, created))
+
+
+def test_an_upload_that_stopped_halfway_is_failed_after_ten_minutes(client, settings, fake) -> None:
+    _connect(settings)
+    fresh, old = _clip(settings), _clip(settings)
+    _uploading_row(settings, fresh, 1)
+    _uploading_row(settings, old, 11)  # servern dog mitt i
+    assert client.get(f"/campaign/clips/{fresh}/youtube").json()["status"] == "uploading"
+    latest = client.get(f"/campaign/clips/{old}/youtube").json()
+    assert (latest["status"], latest["error"]) == ("failed", "Uppladdningen avbröts. Försök igen.")
+    with youtube.YouTube(settings)._db() as db:
+        assert db.execute("SELECT status FROM youtube_uploads WHERE clip_id = ?", (old,)).fetchone()[0] == "failed"
+    assert fake.requests == []
+
+
+def test_a_token_that_google_refuses_is_refreshed_and_the_start_tried_again(client, settings, fake) -> None:
+    _connect(settings)  # token ser giltig ut, men Google har dragit in den
+    fake.upload_errors = [(401, "authError")]
+    response = _send(client, _clip(settings))
+    assert response.status_code == 202, response.text
+    assert len(fake.calls("token")) == 1
+    first, second = fake.calls("upload")
+    assert (first.headers["authorization"], second.headers["authorization"]) == ("Bearer ya29.old",
+                                                                                 "Bearer ya29.secret1")
+    assert _saved(settings)["UC1"]["access_token"] == "ya29.secret1"
+
+
+def test_a_refused_token_that_cannot_be_refreshed_asks_to_log_in_again(client, settings, fake) -> None:
+    _connect(settings)
+    fake.upload_errors = [(401, "authError")]
+    fake.refresh_error = True
+    response = _send(client, _clip(settings))
+    assert (response.status_code, response.json()["detail"]) == (400, RELOGIN)
+    assert len(fake.calls("upload")) == 1
+    (account,) = client.get("/campaign/youtube/status").json()["accounts"]
+    assert account["needs_login"] is True
+
+
+def test_a_failed_status_call_is_not_repeated_within_a_minute(client, settings, fake, monkeypatch) -> None:
+    _connect(settings)
+    clip_id = _clip(settings)
+    _send(client, clip_id)
+    fake.down.add("videos")
+    _later(monkeypatch, 2)
+    client.get(f"/campaign/clips/{clip_id}/youtube")
+    client.get(f"/campaign/clips/{clip_id}/youtube")
+    assert len(fake.calls("videos")) == 1
+    _later(monkeypatch, 4)
+    client.get(f"/campaign/clips/{clip_id}/youtube")
+    assert len(fake.calls("videos")) == 2
+
+
+def test_another_upload_in_progress_gives_409_at_once(client, settings, fake) -> None:
+    _connect(settings)
+    clip_id = _clip(settings)
+    assert youtube._upload_lock.acquire(timeout=1)
+    timer = threading.Timer(1, youtube._upload_lock.release)  # så att testet inte hänger om anropet väntar
+    timer.start()
+    response = _send(client, clip_id)
+    timer.join()
+    assert (response.status_code, response.json()["detail"]) == (
+        409, "En annan uppladdning till YouTube pågår. Vänta tills den är klar.")
+    assert fake.requests == []
+    assert _send(client, clip_id).status_code == 202
