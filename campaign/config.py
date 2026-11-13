@@ -27,7 +27,10 @@ class Settings:
     tiktok_client_key: str = ""
     tiktok_client_secret: str = ""
     tiktok_redirect_uri: str = "http://127.0.0.1:8000/campaign/tiktok/callback/"
-    web_url: str = "http://localhost:3000"  # dit TikTok-inloggningen leder tillbaka
+    youtube_client_id: str = ""
+    youtube_client_secret: str = ""
+    youtube_redirect_uri: str = "http://127.0.0.1:8000/campaign/youtube/callback/"
+    web_url: str = "http://localhost:3000"  # dit TikTok- och YouTube-inloggningen leder tillbaka
 
     @property
     def work_dir(self) -> Path:
@@ -76,5 +79,9 @@ def load_settings(root: str | Path | None = None) -> Settings:
         tiktok_client_secret=os.environ.get("TIKTOK_CLIENT_SECRET", "").strip(),
         tiktok_redirect_uri=os.environ.get("TIKTOK_REDIRECT_URI", "").strip()
         or "http://127.0.0.1:8000/campaign/tiktok/callback/",
+        youtube_client_id=os.environ.get("YOUTUBE_CLIENT_ID", "").strip(),
+        youtube_client_secret=os.environ.get("YOUTUBE_CLIENT_SECRET", "").strip(),
+        youtube_redirect_uri=os.environ.get("YOUTUBE_REDIRECT_URI", "").strip()
+        or "http://127.0.0.1:8000/campaign/youtube/callback/",
         web_url=os.environ.get("KLIPP_WEB_URL", "").strip().rstrip("/") or "http://localhost:3000",
     )
