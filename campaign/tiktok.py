@@ -1,9 +1,9 @@
-"""Koppling till Robins TikTok-konto: inloggning (Login Kit för desktop), token och uppladdning
-som utkast till TikTok-inkorgen (Content Posting API, scope video.upload).
+"""Koppling till Robins TikTok-konton: inloggning (Login Kit för desktop), token, uppladdning
+som utkast till TikTok-inkorgen (scope video.upload) och direktpostning (scope video.publish).
 
-Ingen caption går med till TikTok. Robin öppnar TikTok-appen, trycker på notisen i inkorgen,
-klistrar in captionen och postar. Direktpostning (video.publish) kräver granskning av TikTok
-och byggs inte nu.
+Ett utkast har ingen caption: Robin trycker på notisen i TikTok-appen, klistrar in captionen och postar.
+Direktpostning publicerar med beskrivning och de val Robin gjorde. Så länge appen inte är granskad
+av TikTok går det bara som SELF_ONLY, och kontot måste vara privat.
 
 Flera konton kan vara kopplade. Token sparas per konto (open_id) i klippdata/tiktok_accounts.json
 med rättigheter 600. Token loggas aldrig och skickas aldrig till webben.
@@ -30,8 +30,11 @@ TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
 REVOKE_URL = "https://open.tiktokapis.com/v2/oauth/revoke/"
 USER_URL = "https://open.tiktokapis.com/v2/user/info/"
 INIT_URL = "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/"
+DIRECT_URL = "https://open.tiktokapis.com/v2/post/publish/video/init/"
+CREATOR_URL = "https://open.tiktokapis.com/v2/post/publish/creator_info/query/"
 STATUS_URL = "https://open.tiktokapis.com/v2/post/publish/status/fetch/"
-SCOPES = "user.info.basic,video.upload"
+# username i user/info kräver user.info.profile; vi tar det från creator_info i stället.
+SCOPES = "user.info.basic,video.upload,video.publish"
 
 # Delar: minst 5 MB och högst 64 MB per del, sista delen tar resten (högst 128 MB).
 # 64_000_000 i stället för 64 MiB, så att gränsen håller oavsett hur TikTok räknar MB.
@@ -40,11 +43,26 @@ CHUNK = 10_000_000  # delarnas storlek för större filer, som i TikToks exempel
 PENDING_LIMIT = 5  # TikTok tar högst 5 väntande utkast per 24 timmar
 STATUS_CACHE_S = 60  # status/fetch tillåter 30 anrop per minut; webben behöver inte färskare än en minut
 RECENT_S = 600  # samma klipp igen inom 10 minuter är troligen ett dubbelklick
-DONE = ("failed", "publish_complete")
+TITLE_MAX = 2200  # UTF-16-enheter
+DONE = ("failed", "publish_complete", "published")
 MESSAGE = "Öppna TikTok-appen och tryck på notisen i inkorgen. Klistra in captionen och posta."
+DIRECT_MESSAGE = "TikTok publicerar klippet. Det kan ta några minuter innan det syns på profilen."
+NO_PUBLISH = "Kontot har inte rätt att publicera. Koppla kontot igen under Inställningar."
 RECONNECT = "Koppla TikTok igen under Inställningar."
 LEGACY_ID = "gammalt"  # nyckeln för en gammal token utan open_id
 UNREACHABLE = "TikTok svarade inte. Försök igen om en stund."
+# TikToks felkoder vid init och creator_info som Robin kan göra något åt.
+ERRORS = {
+    "spam_risk_too_many_posts": ("TikTok tar inte emot fler inlägg från kontot i dag. Försök igen i morgon.", 429),
+    "spam_risk_user_banned_from_posting": ("TikTok har stängt av kontot från att posta.", 403),
+    "reached_active_user_cap": (("Appen har nått TikToks gräns för hur många konton som postar per dygn. "
+                                 "Försök igen i morgon."), 429),
+    "unaudited_client_can_only_post_to_private_accounts": (
+        ("Kontot måste vara privat i TikTok så länge appen inte är granskad. Gör kontot privat i TikTok-appen "
+         "och försök igen."), 400),
+    "privacy_level_option_mismatch": ("TikTok godtog inte valet av vem som får se klippet. Välj igen.", 400),
+    "rate_limit_exceeded": ("TikTok tar bara emot några anrop i minuten. Vänta en minut.", 429),
+}
 
 # Läsa, förnya och spara token sker ett anrop i taget, så att samma refresh_token inte används två gånger.
 # RLock: accounts() tar låset själv och anropas också inifrån låset.
@@ -205,6 +223,33 @@ class TikTok:
             raise TikTokError(f"Det TikTok-kontot är inte kopplat. {RECONNECT}", 400)
         return open_id
 
+    def can_publish(self, open_id: str) -> bool:
+        return "video.publish" in (self.accounts().get(open_id, {}).get("scopes") or [])
+
+    def creator_info(self, open_id: str) -> dict:
+        """Färsk creator_info för kontot, som postsidan visar. Användarnamnet sparas för länken till inlägget."""
+        if open_id not in self.accounts():
+            raise TikTokError("Kontot är inte kopplat.", 404)
+        if not self.can_publish(open_id):
+            raise TikTokError(NO_PUBLISH, 400)
+        with http_client() as http:
+            data = self._creator_info(http, self._access_token(http, open_id), open_id)
+        return {"open_id": open_id, "nickname": data.get("creator_nickname"),
+                "username": data.get("creator_username"), "avatar_url": data.get("creator_avatar_url"),
+                "privacy_level_options": data.get("privacy_level_options") or [],
+                **{key: bool(data.get(key)) for key in ("comment_disabled", "duet_disabled", "stitch_disabled")},
+                "max_video_post_duration_sec": data.get("max_video_post_duration_sec")}
+
+    def _creator_info(self, http: httpx.Client, access: str, open_id: str) -> dict:
+        data = self._post(http, CREATOR_URL, access, {}, "läste inte kontot")
+        username = data.get("creator_username")
+        with _token_lock:
+            accounts = self.accounts()
+            if username and open_id in accounts and accounts[open_id].get("username") != username:
+                accounts[open_id]["username"] = username
+                self._save(accounts)
+        return data
+
     def _token_request(self, http: httpx.Client, **form: str) -> dict:
         data = {"client_key": self.settings.tiktok_client_key,
                 "client_secret": self.settings.tiktok_client_secret, **form}
@@ -268,21 +313,26 @@ class TikTok:
         db.row_factory = sqlite3.Row
         db.execute("""CREATE TABLE IF NOT EXISTS tiktok_uploads (
             id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER, publish_id TEXT,
-            status TEXT, error TEXT, created TEXT, checked TEXT, open_id TEXT)""")
-        if "open_id" not in {row[1] for row in db.execute("PRAGMA table_info(tiktok_uploads)")}:
-            try:  # tabellen från före flera konton; gamla rader får NULL
-                db.execute("ALTER TABLE tiktok_uploads ADD COLUMN open_id TEXT")
-            except sqlite3.OperationalError as error:
-                if "duplicate column" not in str(error):  # en annan tråd hann före
-                    raise
+            status TEXT, error TEXT, created TEXT, checked TEXT, open_id TEXT,
+            mode TEXT DEFAULT 'draft', privacy_level TEXT, post_id TEXT)""")
+        have = {row[1] for row in db.execute("PRAGMA table_info(tiktok_uploads)")}
+        # Tabellen från före flera konton och direktpostning. Gamla rader får NULL, och mode blir draft.
+        for column, kind in (("open_id", "TEXT"), ("mode", "TEXT DEFAULT 'draft'"), ("privacy_level", "TEXT"),
+                             ("post_id", "TEXT")):
+            if column not in have:
+                try:
+                    db.execute(f"ALTER TABLE tiktok_uploads ADD COLUMN {column} {kind}")
+                except sqlite3.OperationalError as error:
+                    if "duplicate column" not in str(error):  # en annan tråd hann före
+                        raise
         return db
 
     def _pending_rows(self, open_id: str) -> list[sqlite3.Row]:
-        """Kontots utkast som väntar. TikTok räknar gränsen per användare."""
+        """Kontots utkast som väntar. TikTok räknar gränsen per användare. Direktpostningar räknas inte."""
         since = _iso(_now() - timedelta(hours=24))
         with self._db() as db:
             return db.execute(
-                f"SELECT id, publish_id FROM tiktok_uploads WHERE open_id = ? AND created > ? "
+                f"SELECT id, publish_id FROM tiktok_uploads WHERE open_id = ? AND mode = 'draft' AND created > ? "
                 f"AND status NOT IN {DONE}", (open_id, since)).fetchall()
 
     def pending_24h(self, open_id: str) -> int:
@@ -306,59 +356,99 @@ class TikTok:
             fresh = self._fetch_status(http, access, row["publish_id"])
             self._set(row["id"], **fresh, checked=_iso(_now()))
 
-    def _init(self, http: httpx.Client, access: str, size: int, chunk_size: int, count: int) -> dict:
+    def _post(self, http: httpx.Client, url: str, access: str, body: dict, refused: str) -> dict:
+        """POST till Content Posting API. TikToks felkoder blir svensk text; svaret är data."""
         try:
-            response = http.post(INIT_URL, headers={"Authorization": f"Bearer {access}",
-                                                    "Content-Type": "application/json; charset=UTF-8"},
-                                 json={"source_info": {"source": "FILE_UPLOAD", "video_size": size,
-                                                       "chunk_size": chunk_size, "total_chunk_count": count}})
+            response = http.post(url, json=body, headers={"Authorization": f"Bearer {access}",
+                                                          "Content-Type": "application/json; charset=UTF-8"})
         except httpx.HTTPError as error:
             raise TikTokError(UNREACHABLE) from error
-        code = _error_code(response)
+        code = _error_code(response)  # creator_info svarar 200 med spam_risk-koderna
+        if code in ERRORS:
+            raise TikTokError(*ERRORS[code])
         if code.startswith("spam_risk"):
             raise TikTokError(f"TikTok tar inte emot fler utkast just nu ({code}). Posta eller ta bort "
                               "de som väntar i inkorgen, eller vänta ett dygn.", 429)
-        if code == "rate_limit_exceeded":
-            raise TikTokError("TikTok tar bara emot 6 anrop i minuten. Vänta en minut.", 429)
         if code in ("access_token_invalid", "scope_not_authorized"):
             raise TikTokError(f"TikTok godkände inte inloggningen ({code}). {RECONNECT}", 400)
         if response.status_code >= 500:
             raise TikTokError(UNREACHABLE)
         if response.status_code != 200 or code != "ok":
-            raise TikTokError(f"TikTok tog inte emot uppladdningen ({code}).")
+            raise TikTokError(f"TikTok {refused} ({code}).")
         data = _data(response)
+        if not data:
+            raise TikTokError(UNREACHABLE)
+        return data
+
+    def _init(self, http: httpx.Client, access: str, url: str, body: dict) -> dict:
+        data = self._post(http, url, access, body, "tog inte emot uppladdningen")
         if not data.get("publish_id") or not data.get("upload_url"):
             raise TikTokError(UNREACHABLE)
         return data
 
-    def upload(self, clip_id: int, path: Path, open_id: str | None = None) -> dict:
-        """Ladda upp filen som utkast till kontot. Klippets status i klipploggen ändras inte."""
+    def _post_info(self, http: httpx.Client, access: str, open_id: str, post: dict, duration_s: float) -> dict:
+        """Kontrollera Robins val mot färsk creator_info och bygg post_info till TikTok."""
+        info = self._creator_info(http, access, open_id)
+        privacy = post.get("privacy_level")
+        if privacy not in (info.get("privacy_level_options") or []):
+            raise TikTokError("Välj vem som får se klippet.", 400)
+        if post.get("brand_content") and privacy == "SELF_ONLY":
+            raise TikTokError("Branded content visibility cannot be set to private.", 400)
+        longest = info.get("max_video_post_duration_sec")
+        if longest and duration_s > longest:
+            raise TikTokError(f"Klippet är {duration_s:.0f} sekunder, men kontot får posta högst {longest} "
+                              "sekunder.", 400)
+        title = post.get("title") or ""
+        return {**({"title": title} if title else {}), "privacy_level": privacy,
+                **{f"disable_{what}": not post.get(f"allow_{what}") or bool(info.get(f"{what}_disabled"))
+                   for what in ("comment", "duet", "stitch")},
+                "brand_organic_toggle": bool(post.get("brand_organic")),
+                "brand_content_toggle": bool(post.get("brand_content"))}
+
+    def upload(self, clip_id: int, path: Path, open_id: str | None = None, post: dict | None = None,
+               duration_s: float = 0) -> dict:
+        """Ladda upp filen som utkast till kontot, eller publicera direkt när post (Robins val) finns.
+        Klippets status i klipploggen ändras inte."""
         size = path.stat().st_size
         if size == 0:
             raise TikTokError("Filen är tom.", 400)
+        mode = "draft" if post is None else "direct"
         with _upload_lock, http_client() as http:
             if not self.configured:
                 raise TikTokError("TIKTOK_CLIENT_KEY och TIKTOK_CLIENT_SECRET saknas i .env.", 400)
             open_id = self.choose(open_id)
             last = self._latest_row(clip_id, open_id)  # samma klipp till ett annat konto är inget dubbelklick
             if last and (last["status"] == "uploading" or (
-                    last["status"] == "uploaded"
+                    last["status"] in ("uploaded", "processing", "published")
                     and _now() - datetime.fromisoformat(last["created"]) < timedelta(seconds=RECENT_S))):
-                raise TikTokError("Klippet skickades nyss. Titta i TikTok-inkorgen.", 409)
+                raise TikTokError("Klippet skickades nyss. Titta i TikTok-inkorgen." if last["mode"] == "draft"
+                                  else "Klippet skickades nyss. Titta på profilen i TikTok.", 409)
+            if post is not None:
+                if not self.can_publish(open_id):
+                    raise TikTokError(NO_PUBLISH, 400)
+                if len((post.get("title") or "").encode("utf-16-le")) // 2 > TITLE_MAX:
+                    raise TikTokError(f"Beskrivningen är för lång. TikTok tar högst {TITLE_MAX} tecken.", 400)
             access = self._access_token(http, open_id)
-            if self.pending_24h(open_id) >= PENDING_LIMIT:
+            if post is None and self.pending_24h(open_id) >= PENDING_LIMIT:
                 self._refresh_pending(http, access, open_id)  # bara vid gränsen, så att status/fetch sparas
-            if self.pending_24h(open_id) >= PENDING_LIMIT:
+            if post is None and self.pending_24h(open_id) >= PENDING_LIMIT:
                 raise TikTokError(f"{PENDING_LIMIT} utkast väntar redan i TikTok-inkorgen. Posta eller ta "
                                   "bort dem i TikTok-appen, eller vänta ett dygn.", 429)
             chunk_size, parts = chunks(size)
-            data = self._init(http, access, size, chunk_size, len(parts))
+            source = {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": chunk_size,
+                      "total_chunk_count": len(parts)}
+            if post is None:
+                data = self._init(http, access, INIT_URL, {"source_info": source})
+            else:
+                post_info = self._post_info(http, access, open_id, post, duration_s)
+                data = self._init(http, access, DIRECT_URL, {"post_info": post_info, "source_info": source})
 
             created = _iso(_now())
             with self._db() as db:
                 upload_id = db.execute(
-                    "INSERT INTO tiktok_uploads (clip_id, publish_id, status, created, open_id) VALUES (?,?,?,?,?)",
-                    (clip_id, data["publish_id"], "uploading", created, open_id)).lastrowid
+                    "INSERT INTO tiktok_uploads (clip_id, publish_id, status, created, open_id, mode, privacy_level) "
+                    "VALUES (?,?,?,?,?,?,?)", (clip_id, data["publish_id"], "uploading", created, open_id, mode,
+                                               post and post.get("privacy_level"))).lastrowid
             try:
                 with path.open("rb") as file:
                     for first, last_byte in parts:
@@ -376,9 +466,13 @@ class TikTok:
                     message = "Klippets fil gick inte att läsa."
                 self._set(upload_id, status="failed", error=message)
                 raise TikTokError(message) from error
-            self._set(upload_id, status="uploaded")
-        return {"clip_id": clip_id, "publish_id": data["publish_id"], "status": "uploaded",
-                "created": created, "message": MESSAGE, "open_id": open_id}
+            status = "uploaded" if post is None else "processing"
+            self._set(upload_id, status=status)
+        if post is None:
+            return {"clip_id": clip_id, "publish_id": data["publish_id"], "status": status,
+                    "created": created, "message": MESSAGE, "open_id": open_id}
+        return {"clip_id": clip_id, "publish_id": data["publish_id"], "status": status, "mode": mode,
+                "created": created, "open_id": open_id, "message": DIRECT_MESSAGE}
 
     def latest(self, clip_id: int) -> dict | None:
         """Senaste uppladdningen för klippet, med status från TikTok (sparas en minut)."""
@@ -390,15 +484,20 @@ class TikTok:
             try:
                 with http_client() as http:
                     access = self._access_token(http, upload["open_id"])
-                    upload.update(self._fetch_status(http, access, upload["publish_id"]))
-                self._set(upload["id"], status=upload["status"], error=upload["error"], checked=_iso(_now()))
+                    upload.update(self._fetch_status(http, access, upload["publish_id"], upload["mode"] == "direct"))
+                self._set(upload["id"], status=upload["status"], error=upload["error"], post_id=upload["post_id"],
+                          checked=_iso(_now()))
             except TikTokError:
                 pass  # TikTok svarar inte eller är inte kopplat: visa det som är sparat
         account = self.accounts().get(upload["open_id"] or "") or {}
-        return {**{key: upload[key] for key in ("clip_id", "publish_id", "status", "error", "created", "open_id")},
-                "display_name": account.get("display_name")}
+        username = account.get("username")
+        return {**{key: upload[key] for key in ("clip_id", "publish_id", "status", "error", "created", "open_id",
+                                                "mode", "privacy_level", "post_id")},
+                "display_name": account.get("display_name"),
+                "post_url": f"https://www.tiktok.com/@{username}/video/{upload['post_id']}"
+                if upload["post_id"] and username else None}
 
-    def _fetch_status(self, http: httpx.Client, access: str, publish_id: str) -> dict:
+    def _fetch_status(self, http: httpx.Client, access: str, publish_id: str, direct: bool = False) -> dict:
         try:
             response = http.post(STATUS_URL, json={"publish_id": publish_id}, headers={
                 "Authorization": f"Bearer {access}", "Content-Type": "application/json; charset=UTF-8"})
@@ -410,6 +509,10 @@ class TikTok:
         if response.status_code != 200 or code != "ok":
             raise TikTokError(f"TikTok gav ingen status ({code}).")
         status = str(data["status"]).lower()
+        if direct and status != "failed":
+            post_ids = data.get("publicaly_available_post_id") or []  # bara för offentliga inlägg
+            return {"status": "published" if status == "publish_complete" else "processing", "error": None,
+                    "post_id": str(post_ids[0]) if post_ids else None}
         if status == "send_to_user_inbox":
             return {"status": "uploaded", "error": None}
         if status == "failed":
@@ -422,7 +525,8 @@ class TikTok:
         accounts = [{"open_id": key, "display_name": token.get("display_name"),
                      "avatar_url": token.get("avatar_url"), "scopes": token.get("scopes") or [],
                      "connected": self.connected(token), "refresh_expires_at": token.get("refresh_expires_at"),
-                     "pending_24h": self.pending_24h(key)}
+                     "pending_24h": self.pending_24h(key),
+                     "can_publish": "video.publish" in (token.get("scopes") or [])}
                     for key, token in self.accounts().items()]
         # De gamla fälten för en äldre webb: det första kontot som är kopplat.
         first = next((account for account in accounts if account["connected"]), None)
