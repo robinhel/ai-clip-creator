@@ -25,6 +25,9 @@ import type {
   TikTokStatus,
   TikTokUpload,
   VodInfo,
+  YouTubeSendBody,
+  YouTubeStatus,
+  YouTubeUpload,
 } from "./types";
 
 // JSON API calls go through the Next.js rewrite proxy (/api/* → FastAPI).
@@ -149,6 +152,9 @@ export const api = {
         }),
       transcript: (id: number) => apiFetch<ClipTranscript>(`/campaign/clips/${id}/transcript`),
       tiktok: (id: number) => apiFetch<TikTokUpload | null>(`/campaign/clips/${id}/tiktok`),
+      youtube: (id: number) => apiFetch<YouTubeUpload | null>(`/campaign/clips/${id}/youtube`),
+      sendToYouTube: (id: number, body: YouTubeSendBody) =>
+        apiFetch<YouTubeUpload>(`/campaign/clips/${id}/youtube`, { method: "POST", body: JSON.stringify(body) }),
       edit: (id: number) => apiFetch<ClipEditInfo>(`/campaign/clips/${id}/edit`),
       saveEdit: (id: number, body: { in_s?: number; out_s?: number; title?: string }) =>
         apiFetch<CampaignClip>(`/campaign/clips/${id}/edit`, { method: "POST", body: JSON.stringify(body) }),
@@ -158,6 +164,13 @@ export const api = {
           method: "POST",
           body: body ? JSON.stringify(body) : undefined,
         }),
+    },
+    youtube: {
+      status: () => apiFetch<YouTubeStatus>("/campaign/youtube/status"),
+      disconnect: (channelId: string) =>
+        apiFetch<unknown>(`/campaign/youtube/accounts/${encodeURIComponent(channelId)}/disconnect`, { method: "POST" }),
+      // Direkt mot servern som TikTok: Google leder tillbaka till :8000.
+      connectUrl: `${DIRECT}/campaign/youtube/connect`,
     },
     tiktok: {
       status: () => apiFetch<TikTokStatus>("/campaign/tiktok/status"),

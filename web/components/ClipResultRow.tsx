@@ -13,6 +13,7 @@ import { ClipEditor } from "@/components/ClipEditor";
 import { ClipPosts } from "@/components/ClipPosts";
 import { CopyButton } from "@/components/CopyButton";
 import { TikTokSend } from "@/components/TikTokSend";
+import { YouTubeSend } from "@/components/YouTubeSend";
 import { api } from "@/lib/api";
 import { clock, cn, SUMMARY_CHANGED } from "@/lib/utils";
 import type { CampaignClip, CampaignClipPatch, CampaignFormat, ClipEditInfo, ClipTranscript, Platform } from "@/lib/types";
@@ -566,6 +567,9 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
 
         {clip.status === "godkand" && (
           <TikTokSend clip={clip} captionDirty={captionDirty} hasProblems={hasProblems} onUpdate={onUpdate} />
+        )}
+        {clip.status === "godkand" && (
+          <YouTubeSend clip={clip} captionDirty={captionDirty} hasProblems={hasProblems} onUpdate={onUpdate} />
         )}
         {clip.status === "godkand" && (
           <div className="mt-1 space-y-2 border-t border-line pt-3">
