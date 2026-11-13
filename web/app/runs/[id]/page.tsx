@@ -183,6 +183,8 @@ export default function RunDetailPage() {
       .then((list) => setLatestRunId(list.find((r) => r.vod_id === run.vod_id && r.profile === run.profile)?.run_id ?? null))
       .catch(() => {});
   }, [run?.vod_id, run?.profile]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Ersatt bara av en körning med högre nummer. Listan kan sakna en körning som just har startat.
+  const superseded = run != null && latestRunId != null && latestRunId > run.run_id;
 
   // Läs om var tredje sekund medan körningen pågår eller klippen görs klara igen.
   useEffect(() => {
@@ -352,7 +354,7 @@ export default function RunDetailPage() {
 
   return (
     <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
-      {latestRunId != null && latestRunId !== run.run_id && (
+      {superseded && (
         <p role="status" className="mb-5 rounded-lg border border-line bg-panel px-3 py-2 text-sm text-muted-foreground">
           Det här är en äldre körning. Projektet har en nyare körning.{" "}
           <Link href={`/runs/${latestRunId}`} className="font-medium text-foreground underline underline-offset-4">
@@ -444,12 +446,12 @@ export default function RunDetailPage() {
           {isActive && permission === "denied" && (
             <p className="mb-3 text-[13px] text-muted-foreground">Notiser är avstängda för appen i webbläsaren.</p>
           )}
-          {run.status === "failed" && latestRunId != null && latestRunId !== run.run_id && (
+          {run.status === "failed" && superseded && (
             <p className="mb-4 max-w-[640px] text-sm text-muted-foreground">
               Körningen misslyckades{run.error ? `: ${run.error.replace(/\.?$/, ".")}` : "."} En nyare körning finns, så den behöver inte köras igen.
             </p>
           )}
-          {run.status === "failed" && (latestRunId == null || latestRunId === run.run_id) && (
+          {run.status === "failed" && !superseded && (
             <div role="alert" className="mb-4 max-w-[640px] rounded-lg border border-[#4d1d1d] bg-[#1c0f10] p-4">
               <p className="font-medium text-[#fca5a5]">Körningen misslyckades</p>
               {run.error && <p className="mt-1 font-mono text-[13px] break-words text-[#f2c4c4]">{run.error}</p>}
