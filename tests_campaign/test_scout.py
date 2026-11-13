@@ -673,3 +673,19 @@ def test_a_run_saves_what_it_cost(settings, fake, monkeypatch) -> None:
     _later(monkeypatch, minutes=10)
     scout.Scout(settings).run_once()
     assert scout.Scout(settings)._get("last_cost") == "1"
+
+
+POT = "Pott som delas mellan klippare, inte betalning per visning"
+
+
+@pytest.mark.parametrize(("join_model", "search_model", "excluded"), [
+    ("pot_split", "cpm", POT),  # joinen går före sökträffen
+    (None, "pot_split", POT),  # sökträffen är reserv
+    ("cpm", "pot_split", None),
+    ("cpm", "cpm", None)])
+def test_a_pot_split_campaign_is_excluded(join_model, search_model, excluded) -> None:
+    join = {**_campaign()["whereToJoin"][0], "ratePer1kUsd": None}
+    if join_model:
+        join["payModel"] = join_model
+    data = _with(campaign__whereToJoin=[join], search__payModel=search_model, search__ratePer1kUsd=None)
+    assert _parts(data)[2] == excluded
