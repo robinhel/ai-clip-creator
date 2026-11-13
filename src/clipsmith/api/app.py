@@ -133,9 +133,11 @@ from campaign.editor_api import router as editor_router
 from campaign.keys import router as keys_router
 from campaign.profiles_api import router as profiles_router
 from campaign.tiktok_api import router as tiktok_router
+from campaign.youtube_api import router as youtube_router
 
 app.include_router(campaign_router)
 app.include_router(tiktok_router)
+app.include_router(youtube_router)
 app.include_router(profiles_router)
 app.include_router(editor_router)
 app.include_router(keys_router)

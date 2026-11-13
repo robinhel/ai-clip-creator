@@ -174,7 +174,7 @@ def test_settings_read_the_youtube_keys(monkeypatch, tmp_path) -> None:
 def test_the_router_is_registered_in_the_app() -> None:
     from clipsmith.api.app import app
 
-    paths = {route.path for route in app.routes}
+    paths = set(app.openapi()["paths"])
     assert {"/campaign/youtube/status", "/campaign/clips/{clip_id}/youtube"} <= paths
 
 
