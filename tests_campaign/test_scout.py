@@ -192,9 +192,9 @@ def _with(**changes) -> dict:
 
 
 @pytest.mark.parametrize("data", [
-    _with(campaign__state="paused"),
+    _with(search__state="paused"),
     _with(campaign__drain={"p50": None, "stalled": True}),
-    _with(campaign__whereToJoin=[{**_campaign()["whereToJoin"][0], "budgetLeftUsd": 250}]),  # 96 % använd
+    _with(search__budgetLeftUsd=250),  # 96 % använd
     _with(search__campaignType="ugc", analytics__campaign={"type": "ugc"}),
     _with(campaign__platforms=["instagram"]),
     _with(campaign__about="Show your face while you react."),
@@ -228,6 +228,8 @@ class FakeAlpha:
         self.newest: list[dict] = []
         self.alpha: list[dict] = []
         self.details: dict[str, tuple[dict, dict]] = {}
+        self.broken: set[str] = set()  # get_campaign svarar isError för de här
+        self.limit_at: str | None = None  # verktyget där ClippingAlphas dygnsgräns slår till
         self.limit_reached = False
         self.lose_session_once = False
         self.down = False
@@ -250,9 +252,14 @@ class FakeAlpha:
             self.lose_session_once = False
             return httpx.Response(404)
         name, args = msg["params"]["name"], msg["params"]["arguments"]
+        if name == self.limit_at:
+            return httpx.Response(401, json=LIMIT_BODY)
         if name == "search_campaigns":
             items = self.newest if args["sort"] == "newest" else self.alpha
             content = {"total": len(items), "cpm": {"medianUsd": 1.2}, "campaigns": items}
+        elif name == "get_campaign" and args["campaign"] in self.broken:
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": msg["id"], "result": {
+                "isError": True, "content": [{"type": "text", "text": "Campaign not found"}]}})
         elif name == "get_campaign":
             content = {"campaign": self.details[args["campaign"]][0]}
         else:
@@ -542,3 +549,127 @@ def test_the_router_is_registered_in_the_app() -> None:
     from clipsmith.api.app import app
 
     assert {"/campaign/scout", "/campaign/scout/refresh"} <= set(app.openapi()["paths"])
+
+
+# ---------- granskningen ----------
+
+
+def test_the_search_hit_goes_before_older_details() -> None:
+    data = _data(state="paused", stalled=True,
+                 whereToJoin=[{**_campaign()["whereToJoin"][0], "budgetLeftUsd": 250, "budgetTotalUsd": 9000}])
+    data["search"].update(state="live", stalled=False, budgetLeftUsd=4000, budgetTotalUsd=7000)
+    f = scout.facts(data)
+    assert (f["state"], f["stalled"], f["left"], f["total"]) == ("live", False, 4000, 7000)
+    assert _parts(data)[2] is None
+
+
+def test_us_in_the_about_text_does_not_exclude() -> None:
+    data = _with(campaign__about="Clip the US Open streams. Paid in US dollars, United States based brand.")
+    assert _parts(data)[2] is None
+    data = _with(campaign__audienceNote="US viewers only")
+    assert _parts(data)[2] == "Kräver publik från USA eller andra länder."
+
+
+def test_a_median_of_zero_does_not_crash() -> None:
+    data = _data()
+    data["analytics"]["pay"]["minPayoutUsd"] = 5
+    assert _parts(data, median=0)[1]["minimum"]["points"] == 0
+
+
+def test_links_outside_clippingalpha_are_not_shown(settings, fake) -> None:
+    fake.add("timmy/streams", pageUrl="https://evil.example/x",
+             whereToJoin=[{**_campaign()["whereToJoin"][0], "joinUrl": "javascript:alert(1)"}])
+    fake.newest[0].update(pageUrl="https://evil.example/x", joinUrl="javascript:alert(1)")
+    scout.Scout(settings).run_once()
+    (view,) = scout.Scout(settings).overview()["campaigns"]
+    assert (view["page_url"], view["join_url"]) == (None, None)
+
+
+def test_a_campaign_whose_details_fail_still_gets_a_score_and_a_notice(settings, fake, notes, monkeypatch) -> None:
+    fake.add("timmy/streams")
+    fake.add("other/streams")
+    fake.broken.add("timmy/streams")
+    scout.Scout(settings).run_once()
+    overview = scout.Scout(settings).overview()
+    assert overview["error"] is None
+    assert {c["ref"] for c in overview["campaigns"]} == {"timmy/streams", "other/streams"}
+    timmy = next(c for c in overview["campaigns"] if c["ref"] == "timmy/streams")
+    assert timmy["score"] >= 70 and timmy["max_payout_usd"] is None  # från sökträffen
+    assert len(fake.calls("tools/call", "get_campaign_analytics")) == 1  # den andra hämtades ändå
+    assert {args[4].split(":")[1].split(",")[0].strip() for args, _ in notes.calls} == {
+        "Clip streams Twitch Streams"}  # två notiser, båda med sökträffens titel
+    assert len(notes.calls) == 2
+
+    _later(monkeypatch, minutes=10)
+    scout.Scout(settings).run_once()
+    assert len(fake.calls("tools/call", "get_campaign")) == 2  # den trasiga provas först om 6 timmar
+    _later(monkeypatch, hours=7)
+    scout.Scout(settings).run_once()
+    assert [c["params"]["arguments"]["campaign"] for c in fake.calls("tools/call", "get_campaign")][2:] == [
+        "timmy/streams", "other/streams"]
+
+
+def test_the_limit_inside_the_details_still_stops_the_run(settings, fake) -> None:
+    fake.add("timmy/streams")
+    fake.add("other/streams")
+    fake.limit_at = "get_campaign"
+    scout.Scout(settings).run_once()
+    overview = scout.Scout(settings).overview()
+    assert overview["error"] == scout.LIMIT_TEXT and overview["calls_today"] == 300
+    assert len(fake.calls("tools/call", "get_campaign")) == 1  # nästa kampanj provas inte
+
+
+def test_the_count_is_never_above_the_limit(settings) -> None:
+    s = scout.Scout(settings)
+    s._count(299)
+    with pytest.raises(scout.ScoutError):
+        s._count(2)
+    assert s.calls_today() == 299
+    s._count()
+    assert s.calls_today() == 300
+
+
+@pytest.mark.parametrize(("calls", "cost", "since_s", "wait"), [
+    (0, 1, 100, 500),  # 43 200 s kvar / 300 körningar = 144 s, men minst 600
+    (260, 4, 1000, 43200 / (40 / 4) - 1000),  # 10 körningar kvar: var 4 320:e sekund
+    (37, 3, 7000, 0),  # 87 körningar kvar: var 596:e sekund, alltså 600, och den är redan försenad
+    (298, 3, 60, 43200 - 60),  # inte ens en körning ryms: vänta till midnatt
+    (None, None, None, 0)])  # aldrig körd
+def test_the_wait_until_the_next_run_follows_the_calls_left(settings, monkeypatch, calls, cost, since_s,
+                                                            wait) -> None:
+    monkeypatch.setattr(scout, "_now", lambda: NOW)
+    s = scout.Scout(settings)
+    if calls:
+        s._count(calls)
+    if cost:
+        s._put(last_cost=str(cost), last_run=scout._iso(NOW - timedelta(seconds=since_s)))
+    assert s.wait_s() == pytest.approx(wait, abs=1)
+
+
+def test_the_thread_waits_before_its_first_run(settings, monkeypatch) -> None:
+    class Stop(BaseException):
+        pass
+
+    monkeypatch.setattr(scout, "_now", lambda: NOW)
+    s = scout.Scout(settings)
+    s._put(last_run=scout._iso(NOW - timedelta(seconds=240)), last_cost="1")
+    slept, ran = [], []
+    monkeypatch.setattr(scout.Scout, "run_once", lambda self: ran.append(1))
+
+    def sleep(seconds):
+        slept.append(seconds)
+        raise Stop
+
+    monkeypatch.setattr(scout.time, "sleep", sleep)
+    with pytest.raises(Stop):
+        scout._loop(settings)
+    assert ran == [] and slept == [pytest.approx(360, abs=1)]
+
+
+def test_a_run_saves_what_it_cost(settings, fake, monkeypatch) -> None:
+    fake.add("timmy/streams")
+    scout.Scout(settings).run_once()
+    assert scout.Scout(settings)._get("last_cost") == "6"
+    _later(monkeypatch, minutes=10)
+    scout.Scout(settings).run_once()
+    assert scout.Scout(settings)._get("last_cost") == "1"
