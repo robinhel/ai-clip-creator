@@ -1,4 +1,4 @@
-"""Vägar för TikTok: koppla kontot, läget och uppladdning av godkända klipp som utkast."""
+"""Vägar för TikTok: koppla ett eller flera konton, läget och uppladdning av godkända klipp som utkast."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 
 from clipsmith.api.deps import verify_api_key
 
@@ -62,6 +63,7 @@ def tiktok_connect(settings: Settings = Depends(get_settings)) -> RedirectRespon
         # TikTok vill ha SHA256 som hex, inte base64url som i RFC 7636 (login-kit-desktop).
         "code_challenge": hashlib.sha256(verifier.encode()).hexdigest(),
         "code_challenge_method": "S256",
+        "disable_auto_auth": 1,  # TikTok frågar vilket konto, så att ett nytt konto kan läggas till
     })
     return RedirectResponse(f"{AUTH_URL}?{query}", status_code=302)
 
@@ -72,7 +74,7 @@ def tiktok_callback(state: str = "", code: str = "", error: str = "", error_desc
                     settings: Settings = Depends(get_settings)) -> RedirectResponse:
     def back(reason: str | None = None) -> RedirectResponse:
         query = {"tiktok": "ok"} if reason is None else {"tiktok": "fel", "orsak": reason[:200]}
-        return RedirectResponse(f"{settings.web_url}/campaigns?{urlencode(query)}", status_code=302)
+        return RedirectResponse(f"{settings.web_url}/settings?{urlencode(query)}", status_code=302)
 
     found = _pending.pop(state, None)  # state gäller en gång
     if found is None or monotonic() - found[0] > STATE_S:
@@ -88,15 +90,29 @@ def tiktok_callback(state: str = "", code: str = "", error: str = "", error_desc
     return back()
 
 
-@router.post("/tiktok/disconnect", summary="Koppla bort TikTok", dependencies=[Depends(verify_api_key)])
+@router.post("/tiktok/disconnect", summary="Koppla bort alla TikTok-konton", dependencies=[Depends(verify_api_key)])
 def tiktok_disconnect(settings: Settings = Depends(get_settings)) -> dict:
     TikTok(settings).disconnect()
     return {"connected": False}
 
 
+@router.post("/tiktok/accounts/{open_id}/disconnect", summary="Koppla bort ett TikTok-konto",
+             dependencies=[Depends(verify_api_key)])
+def tiktok_disconnect_account(open_id: str, settings: Settings = Depends(get_settings)) -> dict:
+    try:
+        TikTok(settings).disconnect(open_id)
+    except TikTokError as error:
+        raise HTTPException(error.status, str(error)) from error
+    return TikTok(settings).status()
+
+
+class UploadBody(BaseModel):
+    open_id: str | None = None  # vilket konto; utan val används det enda kopplade
+
+
 @router.post("/clips/{clip_id}/tiktok", status_code=202, summary="Ladda upp klippet som utkast i TikTok",
              dependencies=[Depends(verify_api_key)])
-def upload_clip(clip_id: int, settings: Settings = Depends(get_settings)) -> dict:
+def upload_clip(clip_id: int, body: UploadBody | None = None, settings: Settings = Depends(get_settings)) -> dict:
     if editor.lock.locked():  # filen kan bytas mitt i uppladdningen
         raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
     clip = _get(_log(settings), clip_id)
@@ -108,7 +124,7 @@ def upload_clip(clip_id: int, settings: Settings = Depends(get_settings)) -> dic
     if not path.is_relative_to(settings.out_dir.resolve()) or path.suffix != ".mp4" or not path.exists():
         raise HTTPException(400, "Klippets fil finns inte. Gör klippet kampanjklart igen.")
     try:
-        return TikTok(settings).upload(clip_id, path)
+        return TikTok(settings).upload(clip_id, path, body.open_id if body else None)
     except TikTokError as error:
         raise HTTPException(error.status, str(error)) from error
 

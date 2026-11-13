@@ -453,7 +453,7 @@ def test_two_calls_at_once_refresh_the_token_only_once(settings, fake) -> None:
 
     def call() -> None:
         with tiktok.http_client() as http:
-            tokens.append(tiktok.TikTok(settings)._access_token(http))
+            tokens.append(tiktok.TikTok(settings)._access_token(http, "o1"))
 
     threads = [threading.Thread(target=call) for _ in range(2)]
     for thread in threads:
@@ -519,8 +519,8 @@ def test_same_clip_again_right_away_gives_409_but_later_is_fine(client, settings
 
     busy = _clip(settings)
     with tiktok.TikTok(settings)._db() as db:
-        db.execute("INSERT INTO tiktok_uploads (clip_id, publish_id, status, created) VALUES (?,?,?,?)",
-                   (busy, "p1", "uploading", "2026-01-01T00:00:00+00:00"))
+        db.execute("INSERT INTO tiktok_uploads (clip_id, publish_id, status, created, open_id) VALUES (?,?,?,?,?)",
+                   (busy, "p1", "uploading", "2026-01-01T00:00:00+00:00", "o1"))
     assert client.post(f"/campaign/clips/{busy}/tiktok").status_code == 409
 
     later = datetime.now(UTC) + timedelta(minutes=11)
@@ -659,7 +659,7 @@ def test_an_old_uploads_table_gets_the_open_id_column(client, settings) -> None:
             publish_id TEXT, status TEXT, error TEXT, created TEXT, checked TEXT)""")
         db.execute("INSERT INTO tiktok_uploads (clip_id, publish_id, status, created) VALUES (1, 'p', 'uploaded', ?)",
                    (datetime.now(UTC).isoformat(),))
-    client.get("/campaign/tiktok/status")
+    assert tiktok.TikTok(settings).pending_24h("o1") == 0  # första gången tabellen används
     with sqlite3.connect(settings.data_dir / "klipp.db") as db:
         assert db.execute("SELECT clip_id, publish_id, open_id FROM tiktok_uploads").fetchall() == [(1, "p", None)]
 
