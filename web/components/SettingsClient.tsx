@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, ExternalLink, Eye, EyeOff, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TikTokCard } from "@/components/TikTokCard";
+import { YouTubeCard } from "@/components/YouTubeCard";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { KeyGroup, KeyTest, SetupCheck } from "@/lib/types";
@@ -295,6 +296,7 @@ export function SettingsClient({ tiktokResult, tiktokReason }: { tiktokResult?: 
                   refresh={group.keys.map((k) => k.set).join()} // läs om läget när nycklarna sparas
                 />
               )}
+              {group.id === "youtube" && <YouTubeCard refresh={group.keys.map((k) => k.set).join()} />}
             </GroupCard>
           ))}
         </div>
