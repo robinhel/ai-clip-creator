@@ -118,6 +118,8 @@ def test_caption_has_link_hashtags_and_game(settings):
     for tag in ("#skiimasktimmy", "#twitchclips", "#fps", "#gaming", "#arcraiders"):
         assert tag in caption
     assert check_caption(caption, profile) == []
+    with_https = caption.replace("twitch.tv/", "https://twitch.tv/")
+    assert check_caption(with_https, profile) == []  # länken räknas som förut, även inuti en längre länk
 
 
 def test_caption_check_finds_missing_parts(settings):

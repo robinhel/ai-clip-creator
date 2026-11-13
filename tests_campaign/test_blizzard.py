@@ -52,13 +52,16 @@ def test_caption_with_wrong_order_missing_warcraft_or_too_many_hashtags_is_stopp
     assert any("@warcraft" in p for p in problems)
     four_more = "The Lich King rises @warcraft\n#ad #blizzardpartner #worldofwarcraft #warcraft #wow #mmo"
     assert any("högst 3" in p for p in check_caption(four_more, profile))
+    assert any("första raden" in p for p in check_caption("Text #wow @warcraft\n#ad #blizzardpartner", profile))
+    assert any("@warcraft" in p for p in check_caption("Text\n#ad #blizzardpartner @warcraft", profile))
+    assert any("@warcraft" in p for p in check_caption("Text @warcraftfan\n#ad #blizzardpartner", profile))
 
 
 def test_editing_the_caption_in_the_app_replaces_the_old_caption_problems() -> None:
     profile = _profile()
     good = "Stormwind at dawn @warcraft\n#ad #blizzardpartner"
     old = check_caption("Stormwind at dawn #ad #blizzardpartner #a #b #c #d", profile)
-    assert len(old) == 3  # @warcraft saknas, taggarna på samma rad, fyra hashtags för mycket
+    assert len(old) == 4  # @warcraft saknas, taggarna på samma rad, hashtags på första raden, fyra för mycket
     assert _caption_problems([*old, "Klippet är 4.0 s."], good, profile) == ["Klippet är 4.0 s."]
 
 
