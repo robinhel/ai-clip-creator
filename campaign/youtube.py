@@ -45,6 +45,8 @@ QUOTA_DAY = ZoneInfo("America/Los_Angeles")  # YouTubes kvot börjar om vid midn
 MESSAGE = "YouTube behandlar videon. Det kan ta några minuter innan den syns."
 RELOGIN = "Logga in på YouTube igen under Inställningar."
 UNREACHABLE = "YouTube svarade inte. Försök igen om en stund."
+ABORTED = "Uppladdningen avbröts. Försök igen."
+BUSY = "En annan uppladdning till YouTube pågår. Vänta tills den är klar."
 NOT_CONFIGURED = "YOUTUBE_CLIENT_ID och YOUTUBE_CLIENT_SECRET saknas. Lägg in dem under Inställningar."
 ERRORS = {
     "quotaExceeded": (("YouTubes kvot för i dag är slut (100 uppladdningar per projekt och dag). "
@@ -56,6 +58,7 @@ ERRORS = {
 # RLock: accounts() tar låset själv och anropas också inifrån låset.
 _token_lock = threading.RLock()
 # En uppladdning i taget, så att ett dubbelklick inte hinner skicka samma klipp två gånger.
+# Den andra väntar inte på låset utan får 409 direkt.
 _upload_lock = threading.Lock()
 
 
@@ -291,8 +294,9 @@ class YouTube:
                 "status": {"privacyStatus": video["privacy"], "selfDeclaredMadeForKids": video["made_for_kids"],
                            "containsSyntheticMedia": False}}
 
-    def _start(self, http: httpx.Client, access: str, size: int, metadata: dict, notify: bool) -> str:
-        """Starta en resumable uppladdning. Svaret är adressen som filen ska skickas till."""
+    def _start(self, http: httpx.Client, access: str, size: int, metadata: dict, notify: bool) -> str | None:
+        """Starta en resumable uppladdning. Svaret är adressen som filen ska skickas till,
+        eller None när Google inte godkänner token (401)."""
         try:
             response = http.post(
                 UPLOAD_URL, json=metadata,
@@ -308,10 +312,34 @@ class YouTube:
         if reason in ERRORS:
             raise YouTubeError(*ERRORS[reason])
         if response.status_code == 401:
-            raise YouTubeError(RELOGIN, 400)
+            return None
         if response.status_code == 200 or response.status_code >= 500:
             raise YouTubeError(UNREACHABLE)
         raise YouTubeError(f"YouTube tog inte emot videon ({reason}).")
+
+    def _expire(self, channel_id: str, access: str) -> None:
+        """Google godkände inte token fast den inte har gått ut: låt nästa anrop förnya den."""
+        with _token_lock:
+            accounts = self.accounts()
+            if accounts.get(channel_id, {}).get("access_token") == access:  # inte redan förnyad av ett annat anrop
+                accounts[channel_id]["expires_at"] = _iso(_now())
+                self._save(accounts)
+
+    def _put_file(self, http: httpx.Client, session: str, path: Path, size: int) -> httpx.Response:
+        """Skicka filen. Tappas svaret (nätverksfel eller 5xx) frågas sessionen en gång om filen kom fram,
+        så att ett nytt försök inte ger en dubblett på kanalen."""
+        try:
+            put = http.put(session, content=path.read_bytes(), headers={"Content-Type": "video/mp4"})
+        except httpx.HTTPError:
+            put = None
+        if put is None or put.status_code >= 500:
+            with contextlib.suppress(httpx.HTTPError):
+                asked = http.put(session, content=b"", headers={"Content-Range": f"bytes */{size}"})
+                if asked.status_code in (200, 201):
+                    return asked
+            if put is None:
+                raise YouTubeError(UNREACHABLE)
+        return put
 
     def upload(self, clip_id: int, path: Path, channel_id: str | None, video: dict, duration_s: float) -> dict:
         """Ladda upp filen som en Short till kanalen. Klippets status i klipploggen ändras inte."""
@@ -319,7 +347,16 @@ class YouTube:
         size = path.stat().st_size
         if size == 0:
             raise YouTubeError("Filen är tom.", 400)
-        with _upload_lock, http_client() as http:
+        if not _upload_lock.acquire(blocking=False):
+            raise YouTubeError(BUSY, 409)
+        try:
+            return self._upload(clip_id, path, channel_id, video, metadata, size)
+        finally:
+            _upload_lock.release()
+
+    def _upload(self, clip_id: int, path: Path, channel_id: str | None, video: dict, metadata: dict,
+                size: int) -> dict:
+        with http_client() as http:
             if not self.configured:
                 raise YouTubeError(NOT_CONFIGURED, 400)
             channel_id = self.choose(channel_id)
@@ -327,8 +364,14 @@ class YouTube:
             if last and last["status"] != "failed" \
                     and _now() - datetime.fromisoformat(last["created"]) < timedelta(seconds=RECENT_S):
                 raise YouTubeError("Klippet skickades nyss till kanalen. Titta på YouTube.", 409)
+            notify = video.get("notify_subscribers", True)
             access = self._access_token(http, channel_id)
-            session = self._start(http, access, size, metadata, video.get("notify_subscribers", True))
+            session = self._start(http, access, size, metadata, notify)
+            if session is None:  # förnya och försök en gång till; invalid_grant ger RELOGIN och needs_login
+                self._expire(channel_id, access)
+                session = self._start(http, self._access_token(http, channel_id), size, metadata, notify)
+            if session is None:
+                raise YouTubeError(RELOGIN, 400)
 
             created = _iso(_now())
             with self._db() as db:
@@ -336,7 +379,7 @@ class YouTube:
                     "INSERT INTO youtube_uploads (clip_id, channel_id, status, privacy, created) VALUES (?,?,?,?,?)",
                     (clip_id, channel_id, "uploading", video["privacy"], created)).lastrowid
             try:  # en Short är högst 3 minuter, så filen ryms i minnet
-                put = http.put(session, content=path.read_bytes(), headers={"Content-Type": "video/mp4"})
+                put = self._put_file(http, session, path, size)
                 if put.status_code not in (200, 201):
                     raise YouTubeError(f"YouTube tog inte emot filen (svar {put.status_code}).")
                 video_id = _json(put).get("id")
@@ -368,8 +411,12 @@ class YouTube:
                     access = self._access_token(http, upload["channel_id"])
                     upload.update(self._fetch_status(http, access, upload["video_id"]))
                 self._set(upload["id"], status=upload["status"], error=upload["error"], checked=_iso(_now()))
-            except YouTubeError:
-                pass  # YouTube svarar inte eller kanalen är inte kopplad: visa det som är sparat
+            except YouTubeError:  # YouTube svarar inte eller kanalen är inte kopplad: visa det som är sparat
+                self._set(upload["id"], checked=_iso(_now()))  # och fråga inte igen förrän om en minut
+        if upload["status"] == "uploading" \
+                and _now() - datetime.fromisoformat(upload["created"]) >= timedelta(seconds=RECENT_S):
+            upload.update(status="failed", error=ABORTED)  # servern dog mitt i uppladdningen
+            self._set(upload["id"], status="failed", error=ABORTED)
         account = self.accounts().get(upload["channel_id"] or "") or {}
         video_id = upload["video_id"]
         return {"video_id": video_id, "url": f"https://www.youtube.com/shorts/{video_id}" if video_id else None,
