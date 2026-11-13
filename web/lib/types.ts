@@ -77,6 +77,8 @@ export interface VodInfo {
     fits: boolean;
     minutes: number;
     cost_usd: number | null;
+    /** Kostnaden delad i Berget och Claude. Saknas hos en äldre server. */
+    cost?: CostParts | null;
   };
   /** Kampanjer vars kanal är VOD:ens kanal. */
   campaigns: string[];
@@ -177,6 +179,7 @@ export interface CampaignRunDetail extends CampaignRunInfo {
   steps: RunStep[];
   eta_s: number | null;
   cost_estimate_usd: number | null;
+  cost_estimate?: CostParts | null;
 }
 
 export interface ClipTranscript {
@@ -384,4 +387,11 @@ export interface ClipEditInfo {
   max_s: number | null;
   editable: boolean;
   reason: string | null;
+}
+
+/** Ungefärlig kostnad för en körning: Berget transkriberar, Claude väljer och granskar. */
+export interface CostParts {
+  berget_usd: number;
+  claude_usd: number;
+  usd: number;
 }

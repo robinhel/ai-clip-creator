@@ -419,7 +419,13 @@ export default function RunDetailPage() {
           {isActive && (
             <p className="mb-2 text-sm text-muted-foreground">
               {run.eta_s != null ? `Cirka ${duration(run.eta_s)} kvar. ` : ""}
-              {run.cost_estimate_usd != null ? `Kostar cirka ${usd.format(run.cost_estimate_usd)}. ` : ""}
+              {run.cost_estimate_usd != null
+                ? `Kostar cirka ${usd.format(run.cost_estimate_usd)}${
+                    run.cost_estimate
+                      ? ` (Berget ${usd.format(run.cost_estimate.berget_usd)}, Claude ${usd.format(run.cost_estimate.claude_usd)})`
+                      : ""
+                  }. `
+                : ""}
               Du kan stänga sidan. Klippen dyker upp här när de är klara.
             </p>
           )}
