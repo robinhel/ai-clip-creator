@@ -48,7 +48,7 @@ function YouTubeDialog({ clip, channels, upload, onSent, onClose }: DialogProps)
   const [title, setTitle] = useState(clip.title ?? "");
   const [description, setDescription] = useState(clip.caption ?? "");
   const [privacy, setPrivacy] = useState<YouTubePrivacy | "">("");
-  const [forKids, setForKids] = useState<boolean | null>(null);
+  const [forKids, setForKids] = useState(false); // spelklippen är inte gjorda för barn
   const [notify, setNotify] = useState(true);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -73,12 +73,10 @@ function YouTubeDialog({ clip, channels, upload, onSent, onClose }: DialogProps)
                 ? `Beskrivningen får vara högst ${DESCRIPTION_MAX} byte.`
                 : !privacy
                   ? "Välj vem som får se klippet."
-                  : forKids === null
-                    ? "Svara om klippet är gjort för barn."
-                    : null;
+                  : null;
 
   async function publish() {
-    if (reason || !privacy || forKids === null) return;
+    if (reason || !privacy) return;
     setSending(true);
     setError(null);
     try {

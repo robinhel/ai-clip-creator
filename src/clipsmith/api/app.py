@@ -45,6 +45,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         FastAPIInstrumentor.instrument_app(app)
     except ImportError:
         pass
+    from campaign.scout import start as start_scout  # kampanjbevakningen, var 10:e minut
+
+    start_scout()
     yield
 
 
@@ -132,12 +135,14 @@ from campaign.api import router as campaign_router
 from campaign.editor_api import router as editor_router
 from campaign.keys import router as keys_router
 from campaign.profiles_api import router as profiles_router
+from campaign.scout_api import router as scout_router
 from campaign.tiktok_api import router as tiktok_router
 from campaign.youtube_api import router as youtube_router
 
 app.include_router(campaign_router)
 app.include_router(tiktok_router)
 app.include_router(youtube_router)
+app.include_router(scout_router)
 app.include_router(profiles_router)
 app.include_router(editor_router)
 app.include_router(keys_router)

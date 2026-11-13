@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+
 import pytest
 
 from helpers import _seg, _transcript, _word
@@ -108,6 +110,52 @@ def test_caption_lines_groups_long_word_runs() -> None:
     t = _transcript(_seg(300.0, 306.0, " ".join(w.word for w in words), words))
     lines = _caption_lines(t, 300.0, 310.0)
     assert len(lines) >= 3
+
+
+def _karaoke_cs(text: str) -> int:
+    import re
+
+    return sum(int(k) for k in re.findall(r"\\kf(\d+)", text))
+
+
+def test_caption_lines_pause_splits_the_line() -> None:
+    # Two words, then 2.3 s of silence, then two more: the text must not stay up during the pause.
+    words = [
+        _word(300.0, 300.3, "Allow"),
+        _word(300.4, 300.7, "me."),
+        _word(303.0, 303.3, "On"),
+        _word(303.4, 303.7, "right."),
+    ]
+    t = _transcript(_seg(300.0, 303.7, "Allow me. On right.", words))
+    lines = _caption_lines(t, 300.0, 310.0)
+    assert len(lines) == 2
+    assert lines[0][1] <= 1.1
+    assert lines[1][0] == pytest.approx(3.0, abs=0.01)
+
+
+def test_caption_lines_caps_a_stretched_word() -> None:
+    # Whisper sometimes stretches a word over the silence after it (seen: 12.7 s for one word).
+    words = [_word(300.0, 300.3, "No"), _word(300.4, 310.0, "way!")]
+    t = _transcript(_seg(300.0, 310.0, "No way!", words))
+    lines = _caption_lines(t, 300.0, 315.0)
+    assert len(lines) == 1
+    assert lines[0][1] <= 2.0
+
+
+def test_caption_lines_karaoke_follows_the_speech_inside_a_line() -> None:
+    # A short gap inside a line belongs to the word before it, so the highlight keeps pace.
+    words = [_word(300.0, 300.3, "Hola"), _word(300.5, 300.8, "mundo")]
+    t = _transcript(_seg(300.0, 300.8, "Hola mundo", words))
+    ((_, _, text),) = _caption_lines(t, 300.0, 310.0)
+    assert _karaoke_cs(text) == 80
+
+
+def test_caption_lines_do_not_overlap() -> None:
+    words = [_word(300.0 + i * 0.35, 300.3 + i * 0.35, f"w{i}") for i in range(10)]
+    t = _transcript(_seg(300.0, 304.0, " ".join(w.word for w in words), words))
+    lines = _caption_lines(t, 300.0, 310.0)
+    for (_, end, _), (next_start, _, _) in itertools.pairwise(lines):
+        assert end <= next_start + 1e-9
 
 
 # ── _render_ass ───────────────────────────────────────────────────────────────
