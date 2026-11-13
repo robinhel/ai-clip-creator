@@ -295,6 +295,36 @@ export interface TikTokAccount {
   connected: boolean;
   refresh_expires_at: string | null;
   pending_24h: number;
+  /** Har scopet video.publish och kan publicera direkt. Saknas hos äldre servrar. */
+  can_publish?: boolean;
+}
+
+export type TikTokPrivacy = "PUBLIC_TO_EVERYONE" | "MUTUAL_FOLLOW_FRIENDS" | "FOLLOWER_OF_CREATOR" | "SELF_ONLY";
+
+/** GET /campaign/tiktok/accounts/{open_id}/creator_info, färskt från TikTok. */
+export interface TikTokCreatorInfo {
+  open_id: string;
+  nickname: string | null;
+  username: string | null;
+  avatar_url: string | null;
+  privacy_level_options: TikTokPrivacy[];
+  comment_disabled: boolean;
+  duet_disabled: boolean;
+  stitch_disabled: boolean;
+  max_video_post_duration_sec: number;
+}
+
+/** POST /campaign/clips/{id}/tiktok. Utan mode: utkast. */
+export interface TikTokSendBody {
+  open_id?: string;
+  mode?: "draft" | "direct";
+  title?: string;
+  privacy_level?: TikTokPrivacy;
+  allow_comment?: boolean;
+  allow_duet?: boolean;
+  allow_stitch?: boolean;
+  brand_organic?: boolean;
+  brand_content?: boolean;
 }
 
 /** GET /campaign/tiktok/status. Aldrig någon token. Fälten på toppnivå gäller det första kontot. */
@@ -323,6 +353,12 @@ export interface TikTokUpload {
   /** Kontot utkastet gick till. Saknas hos äldre servrar. */
   open_id?: string | null;
   display_name?: string | null;
+  /** draft eller direct. Saknas hos äldre servrar, som bara gör utkast. */
+  mode?: "draft" | "direct";
+  privacy_level?: TikTokPrivacy | null;
+  post_id?: string | null;
+  /** Länken till det publicerade inlägget. null för privata inlägg. */
+  post_url?: string | null;
 }
 
 export type OverlayMode = "full" | "top" | "bottom";

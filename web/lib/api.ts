@@ -20,6 +20,8 @@ import type {
   ReframeInfo,
   Run,
   StreamInfo,
+  TikTokCreatorInfo,
+  TikTokSendBody,
   TikTokStatus,
   TikTokUpload,
   VodInfo,
@@ -150,16 +152,18 @@ export const api = {
       edit: (id: number) => apiFetch<ClipEditInfo>(`/campaign/clips/${id}/edit`),
       saveEdit: (id: number, body: { in_s?: number; out_s?: number; title?: string }) =>
         apiFetch<CampaignClip>(`/campaign/clips/${id}/edit`, { method: "POST", body: JSON.stringify(body) }),
-      // Utan openId väljer servern det enda kopplade kontot.
-      sendToTikTok: (id: number, openId?: string) =>
+      // Utan open_id väljer servern det enda kopplade kontot, och utan mode blir det ett utkast.
+      sendToTikTok: (id: number, body?: TikTokSendBody) =>
         apiFetch<TikTokUpload>(`/campaign/clips/${id}/tiktok`, {
           method: "POST",
-          body: openId ? JSON.stringify({ open_id: openId }) : undefined,
+          body: body ? JSON.stringify(body) : undefined,
         }),
     },
     tiktok: {
       status: () => apiFetch<TikTokStatus>("/campaign/tiktok/status"),
       disconnect: () => apiFetch<{ connected: false }>("/campaign/tiktok/disconnect", { method: "POST" }),
+      creatorInfo: (openId: string) =>
+        apiFetch<TikTokCreatorInfo>(`/campaign/tiktok/accounts/${encodeURIComponent(openId)}/creator_info`),
       disconnectAccount: (openId: string) =>
         apiFetch<unknown>(`/campaign/tiktok/accounts/${encodeURIComponent(openId)}/disconnect`, { method: "POST" }),
       connectUrl: `${DIRECT}/campaign/tiktok/connect`,
