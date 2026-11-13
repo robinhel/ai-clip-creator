@@ -29,6 +29,10 @@ class CandidatesConfig(BaseModel):
     audio_energy_window_s: float = 2.0
     audio_energy_peak_multiplier: float = 2.0
     audio_energy_boost: float = 15.0
+    scene_enabled: bool = False  # picture cuts as candidates, for video without speech (trailers)
+    scene_threshold: float = 0.3  # ffmpeg scene score 0-1
+    scene_boost: float = 30.0
+    scene_max: int = 12  # keep only the strongest cuts per video
     hype_keywords: list[str] = [
         "jaja",
         "jeje",
@@ -78,6 +82,8 @@ class LLMConfig(BaseModel):
     model_openai: str = "gpt-4.1"
     model_ollama: str = "llama3.1:8b"
     retry: RetryConfig = RetryConfig()
+    instructions: str = ""  # replaces the Twitch intro of the system prompt (Anthropic); "" = unchanged
+    frames: int = 0  # frames from the candidate's window sent with each question (Anthropic); 0 = none
 
 
 class CaptionConfig(BaseModel):

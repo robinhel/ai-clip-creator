@@ -154,7 +154,7 @@ def make_clips(
         transcript = Transcript.from_json((mp4.parent / "transcript.json").read_text(encoding="utf-8"))
         transcript.segments = [s for s in transcript.segments  # samma del av VOD:en som kandidaterna
                                if s.start >= start_s and (not end_s or s.start <= end_s)]
-        picker = get_provider(cfg, secrets)
+        picker = get_provider(cfg, secrets, video=mp4)
 
         def ask(*args):
             nonlocal asked

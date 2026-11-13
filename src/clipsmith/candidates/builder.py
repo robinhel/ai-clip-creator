@@ -114,6 +114,16 @@ def build_candidates(
                 )
             )
 
+    # --- Signal 6: picture cuts (trailers without speech), the strongest scene_max ---
+    if config.scene_enabled and mp4_path is not None:
+        from .scenes import find_scene_cuts
+
+        cuts = find_scene_cuts(mp4_path, config.scene_threshold, cache_dir=mp4_path.parent)
+        for t, score in sorted(cuts, key=lambda c: c[1], reverse=True)[: config.scene_max]:
+            raw.append(
+                (t, score * config.scene_boost, "scene_change", f"picture cut at {t:.1f}s (scene {score:.2f})")
+            )
+
     # --- Merge: deduplicate within dedupe_window_s, keeping max score ---
     merged = _dedupe(raw, window_s=config.dedupe_window_s)
     merged = _normalize_scores(merged)
