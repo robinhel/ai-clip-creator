@@ -361,6 +361,48 @@ export interface TikTokUpload {
   post_url?: string | null;
 }
 
+/** En kopplad YouTube-kanal. needs_login: inloggningen har gått ut (efter 7 dagar i läget Testing). */
+export interface YouTubeChannel {
+  channel_id: string;
+  title: string | null;
+  handle: string | null;
+  avatar_url: string | null;
+  connected: boolean;
+  needs_login: boolean;
+}
+
+/** GET /campaign/youtube/status. Aldrig någon token. */
+export interface YouTubeStatus {
+  configured: boolean;
+  accounts: YouTubeChannel[];
+  uploads_today: number;
+}
+
+export type YouTubePrivacy = "public" | "unlisted" | "private";
+
+/** POST /campaign/clips/{id}/youtube. privacy och made_for_kids har inget förval. */
+export interface YouTubeSendBody {
+  channel_id?: string;
+  title: string;
+  description: string;
+  privacy: YouTubePrivacy;
+  made_for_kids: boolean;
+  notify_subscribers: boolean;
+}
+
+/** Senaste uppladdningen till YouTube, med färsk status. */
+export interface YouTubeUpload {
+  video_id: string;
+  url: string | null;
+  status: "uploaded" | "processed" | "failed";
+  error: string | null;
+  privacy: YouTubePrivacy | null;
+  channel_id: string | null;
+  title: string | null;
+  /** Bara i svaret på POST. */
+  message?: string;
+}
+
 export type OverlayMode = "full" | "top" | "bottom";
 export type TextPosition = "top" | "bottom";
 
