@@ -39,9 +39,11 @@ class FakeClient:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    """En tom projektmapp med riktiga priser och profiler."""
+    """En tom projektmapp med riktiga priser och Timmys profil. Testerna räknar med en enda kampanj,
+    så nya profiler i profiles/ ändrar dem inte."""
     shutil.copy(PAKET / "priser.yaml", tmp_path / "priser.yaml")
-    shutil.copytree(PAKET / "profiles", tmp_path / "profiles")
+    (tmp_path / "profiles").mkdir()
+    shutil.copy(PAKET / "profiles" / "skiimasktimmy.yaml", tmp_path / "profiles")
     return Settings(root=tmp_path, anthropic_api_key="test-nyckel")
 
 
