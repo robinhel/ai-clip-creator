@@ -1,0 +1,71 @@
+"""Blizzards kampanj: klipp av trailers och gameplay, utan overlay, facecam och text på bilden,
+ofta utan tal. Påhittade Claude. Inga riktiga anrop."""
+
+from __future__ import annotations
+
+from campaign.caption import build_caption, check_caption
+from campaign.profile import load_profile
+from campaign.rules import check_clip
+from clipsmith.config.loaders import load_config
+from clipsmith.llm.base import ClipPick
+from clipsmith.models.candidates import CandidateMoment
+from clipsmith.models.transcript import Segment, Transcript
+from clipsmith.selection.selector import select_clips
+
+from .conftest import PAKET
+
+CLIP = {"width": 1080, "height": 1920, "duration": 20.0, "has_audio": True}
+NOTHING_ADDED = {"overlay_applied": False, "text_applied": False}
+
+
+def _profile():
+    return load_profile("blizzard_nordics", PAKET / "profiles")
+
+
+def test_caption_starts_with_ad_then_blizzardpartner_and_tags_warcraft() -> None:
+    profile = _profile()
+    caption = build_caption("The Lich King rises", profile, game="World of Warcraft")
+    assert caption.startswith("#ad #blizzardpartner ")
+    assert "@warcraft" in caption
+    assert check_caption(caption, profile) == []
+
+
+def test_caption_with_the_tags_in_the_wrong_place_is_stopped() -> None:
+    profile = _profile()
+    for caption in ("#blizzardpartner #ad The Lich King rises @warcraft #worldofwarcraft #warcraft #wow",
+                    "The Lich King rises #ad #blizzardpartner @warcraft #worldofwarcraft #warcraft #wow",
+                    "#ad #blizzardpartnerx The Lich King rises @warcraft #worldofwarcraft #warcraft #wow"):
+        assert any("#ad #blizzardpartner" in p for p in check_caption(caption, profile)), caption
+    problems = check_caption("#ad #blizzardpartner The Lich King rises #worldofwarcraft #warcraft #wow", profile)
+    assert any("@warcraft" in p for p in problems)
+
+
+def test_clip_without_overlay_text_or_facecam_passes_the_rules() -> None:
+    profile = _profile()
+    caption = build_caption("The Lich King rises", profile)
+    problems, warnings = check_clip(CLIP, NOTHING_ADDED, profile, caption, "epic_moment", review=None)
+    assert problems == []
+    assert warnings == []
+    review = {"facecam_visible": False, "text_visible": False, "overlay_visible": False, "face_covered": False}
+    assert check_clip(CLIP, NOTHING_ADDED, profile, caption, "cinematic_beat", review)[0] == []
+
+
+class FakePicker:
+    def __init__(self):
+        self.windows: list[str] = []
+
+    def pick(self, window, candidate, stream_context):
+        self.windows.append(window)
+        return ClipPick(include=True, start_offset_s=candidate.t_center - 5, end_offset_s=candidate.t_center + 15,
+                        title_es="Dragon over Stormwind", reason="Big roar.", score=60)
+
+
+def test_a_moment_without_speech_still_goes_to_claude_with_the_blizzard_config() -> None:
+    cfg = load_config(PAKET / "config.blizzard_nordics.yaml")
+    music_only = Transcript(video_id="trailer", language="en",
+                            segments=[Segment(start=2.0, end=4.0, text="For Azeroth.", words=[])])
+    loud = CandidateMoment(t_center=100.0, score=15.0, sources=["audio_energy"], reasons=["audio peak"])
+    picker = FakePicker()
+    picks = select_clips([loud], music_only, picker, "ctx", cfg.clip)
+    assert len(picker.windows) == 1
+    assert [p.pick.title_es for p in picks] == ["Dragon over Stormwind"]
