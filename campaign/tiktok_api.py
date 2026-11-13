@@ -1,4 +1,4 @@
-"""Vägar för TikTok: koppla ett eller flera konton, läget och uppladdning av godkända klipp som utkast."""
+"""Vägar för TikTok: koppla ett eller flera konton, läget, och godkända klipp som utkast eller direkt postade."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import ipaddress
 import secrets
 from pathlib import Path
 from time import monotonic
+from typing import Literal
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -18,6 +19,7 @@ from clipsmith.api.deps import verify_api_key
 from . import editor
 from .api import _get, _log, get_settings
 from .config import Settings
+from .media import probe
 from .tiktok import AUTH_URL, SCOPES, TikTok, TikTokError
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
@@ -106,11 +108,28 @@ def tiktok_disconnect_account(open_id: str, settings: Settings = Depends(get_set
     return TikTok(settings).status()
 
 
+@router.get("/tiktok/accounts/{open_id}/creator_info", summary="Kontot och dess val inför direktpostning")
+def tiktok_creator_info(open_id: str, settings: Settings = Depends(get_settings)) -> dict:
+    try:
+        return TikTok(settings).creator_info(open_id)
+    except TikTokError as error:
+        raise HTTPException(error.status, str(error)) from error
+
+
 class UploadBody(BaseModel):
     open_id: str | None = None  # vilket konto; utan val används det enda kopplade
+    mode: Literal["draft", "direct"] = "draft"
+    # Bara för direct; kontrolleras mot färsk creator_info i TikTok.upload.
+    title: str | None = None
+    privacy_level: str | None = None
+    allow_comment: bool = False
+    allow_duet: bool = False
+    allow_stitch: bool = False
+    brand_organic: bool = False
+    brand_content: bool = False
 
 
-@router.post("/clips/{clip_id}/tiktok", status_code=202, summary="Ladda upp klippet som utkast i TikTok",
+@router.post("/clips/{clip_id}/tiktok", status_code=202, summary="Skicka klippet till TikTok som utkast eller direkt",
              dependencies=[Depends(verify_api_key)])
 def upload_clip(clip_id: int, body: UploadBody | None = None, settings: Settings = Depends(get_settings)) -> dict:
     if editor.lock.locked():  # filen kan bytas mitt i uppladdningen
@@ -123,8 +142,14 @@ def upload_clip(clip_id: int, body: UploadBody | None = None, settings: Settings
     path = Path(clip["file"] or "").resolve()
     if not path.is_relative_to(settings.out_dir.resolve()) or path.suffix != ".mp4" or not path.exists():
         raise HTTPException(400, "Klippets fil finns inte. Gör klippet kampanjklart igen.")
+    body = body or UploadBody()
+    post, duration_s = None, 0.0
+    if body.mode == "direct":
+        post = body.model_dump(exclude={"open_id", "mode"})
+        has_times = clip["start_s"] is not None and clip["end_s"] is not None
+        duration_s = clip["end_s"] - clip["start_s"] if has_times else probe(path)["duration"]
     try:
-        return TikTok(settings).upload(clip_id, path, body.open_id if body else None)
+        return TikTok(settings).upload(clip_id, path, body.open_id, post, duration_s)
     except TikTokError as error:
         raise HTTPException(error.status, str(error)) from error
 
