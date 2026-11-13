@@ -60,13 +60,25 @@ def step_seconds(duration_s: float | None, downloaded: bool = False) -> dict[str
             **FIXED_S}
 
 
-def cost_usd(duration_s: float | None) -> float | None:
+def cost(duration_s: float | None, berget_usd_per_min: float | None = None,
+         transcribed: bool = False) -> dict | None:
+    """Ungefärlig kostnad, delad i Berget (transkribering) och Claude (val och bildgranskning).
+    En VOD som redan är transkriberad kostar inget hos Berget."""
     if not duration_s:
         return None
-    return round(duration_s * BERGET_USD_PER_VOD_S + CLAUDE_USD, 2)
+    per_s = BERGET_USD_PER_VOD_S if berget_usd_per_min is None else berget_usd_per_min / 60
+    berget = 0.0 if transcribed else round(duration_s * per_s, 2)
+    return {"berget_usd": berget, "claude_usd": CLAUDE_USD, "usd": round(berget + CLAUDE_USD, 2)}
 
 
-def estimate(duration_s: float, free_gb: float, downloaded: bool) -> dict:
+def cost_usd(duration_s: float | None, berget_usd_per_min: float | None = None,
+             transcribed: bool = False) -> float | None:
+    parts = cost(duration_s, berget_usd_per_min, transcribed)
+    return parts and parts["usd"]
+
+
+def estimate(duration_s: float, free_gb: float, downloaded: bool, berget_usd_per_min: float | None = None,
+             transcribed: bool = False) -> dict:
     """Plats, tid och kostnad för en VOD. En nedladdad VOD behöver ingen ny plats."""
     size = 0.0 if downloaded else download_gb(duration_s)
     return {
@@ -74,7 +86,8 @@ def estimate(duration_s: float, free_gb: float, downloaded: bool) -> dict:
         "disk_free_gb": free_gb,
         "fits": downloaded or free_gb >= size * 1.1 + 1,
         "minutes": round(sum(step_seconds(duration_s, downloaded).values()) / 60),
-        "cost_usd": cost_usd(duration_s),
+        "cost_usd": cost_usd(duration_s, berget_usd_per_min, transcribed),
+        "cost": cost(duration_s, berget_usd_per_min, transcribed),
     }
 
 

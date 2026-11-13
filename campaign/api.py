@@ -208,10 +208,18 @@ def _remove_half_download(vod_id: str, settings: Settings) -> None:
     shutil.rmtree(folder / "berget", ignore_errors=True)
 
 
+def _berget_price(settings: Settings) -> float | None:
+    """Bergets pris per minut ljud för modellen i .env, från priser.yaml. None om det inte står där."""
+    price = (budget_from_settings(settings).prices.get("transcription") or {}).get(settings.transcribe_model)
+    return None if price is None else float(price)
+
+
 def _estimate(facts: dict, settings: Settings, disk: dict) -> dict:
     downloaded = _downloaded(facts, settings)
+    transcribed = (settings.work_dir / facts["vod_id"] / "transcript.json").exists()
     return {"downloaded": downloaded,
-            "estimate": estimate.estimate(facts["duration_s"], disk["free_gb"], downloaded)}
+            "estimate": estimate.estimate(facts["duration_s"], disk["free_gb"], downloaded,
+                                          _berget_price(settings), transcribed)}
 
 
 @router.get("/vod/{vod_id}", summary="Fakta om en Twitch-VOD före körningen")
@@ -386,7 +394,8 @@ def _with_facts(meta: dict, log: ClipLog) -> dict:
     return {**meta, **fields}
 
 
-def _describe_run(meta: dict, db: Session, clips: list[dict], steps: bool = False) -> dict:
+def _describe_run(meta: dict, db: Session, clips: list[dict], steps: bool = False,
+                  berget_usd_per_min: float | None = None) -> dict:
     run = db.get(Run, meta["run_id"])
     if run is None:
         status, error, created, events = "failed", "Körningen saknas i clipsmiths databas.", None, []
@@ -405,7 +414,8 @@ def _describe_run(meta: dict, db: Session, clips: list[dict], steps: bool = Fals
                pct=progress["pct"], message=progress["message"], error=error, clip_counts=counts)
     if steps:
         out.update(steps=progress["steps"], eta_s=progress["eta_s"],
-                   cost_estimate_usd=estimate.cost_usd(meta["duration_s"]))
+                   cost_estimate_usd=estimate.cost_usd(meta["duration_s"], berget_usd_per_min),
+                   cost_estimate=estimate.cost(meta["duration_s"], berget_usd_per_min))
     return out
 
 
@@ -428,7 +438,8 @@ def get_run(run_id: int, db: Session = Depends(get_db),
     meta = log.run(run_id)
     if meta is None:
         raise HTTPException(404, "Körningen finns inte.")
-    return _describe_run(_with_facts(meta, log), db, log.list(), steps=True)
+    return _describe_run(_with_facts(meta, log), db, log.list(), steps=True,
+                         berget_usd_per_min=_berget_price(settings))
 
 
 @router.post("/runs/{run_id}/finish", status_code=202, summary="Gör klippen kampanjklara igen",
