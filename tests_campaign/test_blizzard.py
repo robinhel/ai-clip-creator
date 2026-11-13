@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import subprocess
 
+from campaign.api import _caption_problems
 from campaign.caption import build_caption, check_caption
 from campaign.profile import load_profile
 from campaign.rules import check_clip
@@ -25,22 +26,40 @@ def _profile():
     return load_profile("blizzard_nordics", PAKET / "profiles")
 
 
-def test_caption_starts_with_ad_then_blizzardpartner_and_tags_warcraft() -> None:
+def test_caption_is_text_first_then_ad_and_blizzardpartner_on_their_own_line() -> None:
     profile = _profile()
     caption = build_caption("The Lich King rises", profile, game="World of Warcraft")
-    assert caption.startswith("#ad #blizzardpartner ")
-    assert "@warcraft" in caption
+    assert caption == "The Lich King rises @warcraft\n#ad #blizzardpartner #worldofwarcraft"
     assert check_caption(caption, profile) == []
+    brief_example = "World of Warcraft: Forever looks beautiful. @warcraft\n#ad #blizzardpartner"
+    assert check_caption(brief_example, profile) == []
+    three_more = "Stormwind at dawn @warcraft\n#ad #blizzardpartner #worldofwarcraft #warcraft #azeroth"
+    assert check_caption(three_more, profile) == []
 
 
-def test_caption_with_the_tags_in_the_wrong_place_is_stopped() -> None:
+def test_caption_with_wrong_order_missing_warcraft_or_too_many_hashtags_is_stopped() -> None:
     profile = _profile()
-    for caption in ("#blizzardpartner #ad The Lich King rises @warcraft #worldofwarcraft #warcraft #wow",
-                    "The Lich King rises #ad #blizzardpartner @warcraft #worldofwarcraft #warcraft #wow",
-                    "#ad #blizzardpartnerx The Lich King rises @warcraft #worldofwarcraft #warcraft #wow"):
-        assert any("#ad #blizzardpartner" in p for p in check_caption(caption, profile)), caption
-    problems = check_caption("#ad #blizzardpartner The Lich King rises #worldofwarcraft #warcraft #wow", profile)
+    wrong = {
+        "#blizzardpartner before #ad": "The Lich King rises @warcraft\n#blizzardpartner #ad",
+        "same line as the text": "The Lich King rises @warcraft #ad #blizzardpartner",
+        "before the text": "#ad #blizzardpartner\nThe Lich King rises @warcraft",
+        "not the whole tag": "The Lich King rises @warcraft\n#ad #blizzardpartnerx",
+        "something between": "The Lich King rises @warcraft\n#ad #wow #blizzardpartner",
+    }
+    for why, caption in wrong.items():
+        assert any("#ad #blizzardpartner" in p for p in check_caption(caption, profile)), why
+    problems = check_caption("The Lich King rises\n#ad #blizzardpartner", profile)
     assert any("@warcraft" in p for p in problems)
+    four_more = "The Lich King rises @warcraft\n#ad #blizzardpartner #worldofwarcraft #warcraft #wow #mmo"
+    assert any("högst 3" in p for p in check_caption(four_more, profile))
+
+
+def test_editing_the_caption_in_the_app_replaces_the_old_caption_problems() -> None:
+    profile = _profile()
+    good = "Stormwind at dawn @warcraft\n#ad #blizzardpartner"
+    old = check_caption("Stormwind at dawn #ad #blizzardpartner #a #b #c #d", profile)
+    assert len(old) == 3  # @warcraft saknas, taggarna på samma rad, fyra hashtags för mycket
+    assert _caption_problems([*old, "Klippet är 4.0 s."], good, profile) == ["Klippet är 4.0 s."]
 
 
 def test_clip_without_overlay_text_or_facecam_passes_the_rules() -> None:
