@@ -605,8 +605,8 @@ def test_a_campaign_whose_details_fail_still_gets_a_score_and_a_notice(settings,
     assert len(fake.calls("tools/call", "get_campaign")) == 2  # den trasiga provas först om 6 timmar
     _later(monkeypatch, hours=7)
     scout.Scout(settings).run_once()
-    assert [c["params"]["arguments"]["campaign"] for c in fake.calls("tools/call", "get_campaign")][2:] == [
-        "timmy/streams", "other/streams"]
+    assert {c["params"]["arguments"]["campaign"] for c in fake.calls("tools/call", "get_campaign")[2:]} == {
+        "timmy/streams", "other/streams"}
 
 
 def test_the_limit_inside_the_details_still_stops_the_run(settings, fake) -> None:

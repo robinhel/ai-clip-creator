@@ -11,6 +11,7 @@ med träffar gick inte att se när detta byggdes (gränsen var nådd), så alla 
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import math
@@ -111,6 +112,11 @@ def _first(*values):
     return next((value for value in values if value is not None), None)
 
 
+def _safe(url) -> str | None:
+    """Bara länkar till ClippingAlpha öppnas, i webben och från notisen."""
+    return url if isinstance(url, str) and url.startswith("https://clippingalpha.com/") else None
+
+
 # ---------- fakta och betyg ----------
 
 
@@ -123,14 +129,15 @@ def facts(data: dict) -> dict:
     pay, runway = (a or {}).get("pay"), (a or {}).get("runway") or {}
     drain = c.get("drain") or {}
     rules = ((c.get("rules") or {}).get("checklist")) or []
-    left = _first(join.get("budgetLeftUsd"), runway.get("budgetLeftUsd"), s.get("budgetLeftUsd"))
-    total = _first(join.get("budgetTotalUsd"), runway.get("budgetTotalUsd"), s.get("budgetTotalUsd"))
+    # Sökträffen är högst 10 minuter gammal, detaljerna upp till 6 timmar: sökträffen går före.
+    left = _first(s.get("budgetLeftUsd"), join.get("budgetLeftUsd"), runway.get("budgetLeftUsd"))
+    total = _first(s.get("budgetTotalUsd"), join.get("budgetTotalUsd"), runway.get("budgetTotalUsd"))
     rate = _first(join.get("ratePer1kUsd"), (pay or {}).get("ratePer1kUsd"), s.get("ratePer1kUsd"))
     fee = _first(join.get("boardFee"), (pay or {}).get("boardFeePct"), 0.1)
     return {
         "title": _first(c.get("title"), s.get("title"), a_campaign.get("title")) or "",
         "brand": _first(c.get("brand"), s.get("brand"), a_campaign.get("brand")) or "",
-        "state": _first(c.get("state"), a_campaign.get("state"), s.get("state")),
+        "state": _first(s.get("state"), c.get("state"), a_campaign.get("state")),
         "type": _first(a_campaign.get("type"), s.get("campaignType"), s.get("type")),
         "platforms": _first(c.get("platforms"), s.get("platforms")) or [],
         "niche": _first(c.get("niche"), s.get("niche")),
@@ -141,8 +148,7 @@ def facts(data: dict) -> dict:
         "net": _first((c.get("alpha") or {}).get("netPer1kUsd"), s.get("netPer1kUsd")),
         "left": left, "total": total,
         "drain": _time(_first(drain.get("p50"), (runway.get("forecast") or {}).get("p50"), s.get("drainP50"))),
-        "stalled": any(v is True for v in (drain.get("stalled"), c.get("stalled"), runway.get("stalled"),
-                                           s.get("stalled"))),
+        "stalled": _first(s.get("stalled"), drain.get("stalled"), c.get("stalled"), runway.get("stalled")) is True,
         "open_join": _first(join.get("openJoin"), s.get("openJoin")), "gate": join.get("gateType"),
         "verified": c.get("organizerVerified"),
         "adjustments": None if a is None else ((a.get("alpha") or {}).get("adjustments") or []),
@@ -221,7 +227,7 @@ def evaluate(data: dict, median: float, cpm_median: float, now: datetime) -> tup
     elif views is None:
         parts.append(_part("minimum", label, 20, 20, "Ingen minsta utbetalning"))
     else:
-        ratio = views / median
+        ratio = views / max(median, 1)
         points = 20 if ratio <= 1 else 0 if ratio >= 5 else 20 * (1 - math.log(ratio) / math.log(5))
         parts.append(_part("minimum", label, points, 20,
                            f"{_number(views)} visningar för betalning, din median är {_number(median)}"))
@@ -278,6 +284,7 @@ def evaluate(data: dict, median: float, cpm_median: float, now: datetime) -> tup
                            f"{'Fri anslutning' if is_open else 'Ansökan krävs'}, {captions} krav på caption"))
 
     total = round(sum(part["points"] for part in parts))
+    where = " ".join([f["audience"], *(text for _, text in f["rules"])])  # inte about: "US Open" är inget krav
     used = 1 - f["left"] / f["total"] if f["left"] is not None and f["total"] else None
     platforms = {str(p).lower() for p in f["platforms"]}
     reasons = [
@@ -289,7 +296,7 @@ def evaluate(data: dict, median: float, cpm_median: float, now: datetime) -> tup
         (bool(FACE.search(texts)), "Kräver ansikte, röst eller egen filmning."),
         (f["members_only"] is True, "Bara för medlemmar."),
         (f["election"] is True, "Valkampanj."),
-        (bool(US.search(f["audience"] + " " + texts) or RICH.search(f["audience"] + " " + texts)),
+        (bool(US.search(where) or RICH.search(where)),
          "Kräver publik från USA eller andra länder."),
         (other, "Kräver ett annat språk än engelska."),
         (views is not None and views > MAX_MIN_VIEWS,
@@ -309,7 +316,7 @@ def notify(title: str, score: int, page_url: str | None) -> None:
     tool = shutil.which("terminal-notifier")
     if tool:
         args = [tool, "-title", "Klipp", "-message", message]
-        if page_url and page_url.startswith("https://clippingalpha.com/"):
+        if _safe(page_url):
             args += ["-open", page_url]
     else:  # texten är ett argument till skriptet, så citattecken i titeln blir aldrig AppleScript-kod
         args = ["osascript", "-e", "on run argv", "-e", 'display notification (item 1 of argv) with title "Klipp"',
@@ -327,17 +334,21 @@ class Scout:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.db_path = settings.data_dir / "klipp.db"
-
-    def _db(self) -> sqlite3.Connection:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(self.db_path)
-        db.row_factory = sqlite3.Row
-        db.execute("""CREATE TABLE IF NOT EXISTS scout_campaigns (
-            ref TEXT PRIMARY KEY, data TEXT, score INTEGER, parts TEXT, excluded TEXT, first_seen TEXT,
-            updated TEXT, notified_at TEXT, dismissed INTEGER DEFAULT 0)""")
-        db.execute("CREATE TABLE IF NOT EXISTS scout_calls (day TEXT PRIMARY KEY, calls INTEGER)")
-        db.execute("CREATE TABLE IF NOT EXISTS scout_state (key TEXT PRIMARY KEY, value TEXT)")
-        return db
+        with self._db() as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS scout_campaigns (
+                ref TEXT PRIMARY KEY, data TEXT, score INTEGER, parts TEXT, excluded TEXT, first_seen TEXT,
+                updated TEXT, notified_at TEXT, dismissed INTEGER DEFAULT 0)""")
+            db.execute("CREATE TABLE IF NOT EXISTS scout_calls (day TEXT PRIMARY KEY, calls INTEGER)")
+            db.execute("CREATE TABLE IF NOT EXISTS scout_state (key TEXT PRIMARY KEY, value TEXT)")
+
+    @contextlib.contextmanager
+    def _db(self):
+        """En anslutning som sparar när blocket är klart och sedan stängs."""
+        with contextlib.closing(sqlite3.connect(self.db_path)) as db:
+            db.row_factory = sqlite3.Row
+            with db:
+                yield db
 
     # ---------- läge och dygnsgräns ----------
 
@@ -357,18 +368,18 @@ class Scout:
 
     def _count(self, n: int = 1) -> None:
         """Räkna ett anrop innan det görs. Över gränsen blir det inget anrop."""
-        day = _now().date().isoformat()
-        with self._db() as db:
-            row = db.execute("SELECT calls FROM scout_calls WHERE day = ?", (day,)).fetchone()
-            calls = (row[0] if row else 0) + n
-            if calls > CALL_LIMIT:
-                raise ScoutError(OWN_LIMIT_TEXT)
-            db.execute("INSERT OR REPLACE INTO scout_calls (day, calls) VALUES (?, ?)", (day, calls))
+        with self._db() as db:  # en sats, så att två trådar aldrig tillsammans går över gränsen
+            counted = n <= CALL_LIMIT and db.execute(
+                "INSERT INTO scout_calls (day, calls) VALUES (?, ?) ON CONFLICT(day) DO UPDATE "
+                "SET calls = calls + excluded.calls WHERE calls + excluded.calls <= ?",
+                (_now().date().isoformat(), n, CALL_LIMIT)).rowcount == 1
+        if not counted:
+            raise ScoutError(OWN_LIMIT_TEXT)
 
     def _block_today(self) -> None:
         with self._db() as db:
-            db.execute("INSERT OR REPLACE INTO scout_calls (day, calls) VALUES (?, ?)",
-                       (_now().date().isoformat(), max(self.calls_today(), CALL_LIMIT)))
+            db.execute("INSERT INTO scout_calls (day, calls) VALUES (?, ?) ON CONFLICT(day) DO UPDATE "
+                       "SET calls = max(calls, excluded.calls)", (_now().date().isoformat(), CALL_LIMIT))
 
     def median(self) -> tuple[float, str]:
         """Robins medianvisningar per inlägg, eller rapportens 1 260 tills det finns 20 inlägg med visningar."""
@@ -446,8 +457,10 @@ class Scout:
             return
         try:
             self._put(last_run=_iso(_now()))
+            before = self.calls_today()
             self._run()
-            self._put(error=None, updated_at=_iso(_now()))
+            # Bara en lyckad körning: efter -32001 är räkningen satt till gränsen och säger inget om kostnaden.
+            self._put(error=None, updated_at=_iso(_now()), last_cost=str(max(self.calls_today() - before, 1)))
         except ScoutError as error:
             log.warning("Kampanjbevakningen: %s", error)
             self._put(error=str(error))
@@ -507,11 +520,18 @@ class Scout:
         for ref in (new + old)[:DETAILS_PER_RUN]:
             if self.calls_today() + 2 > CALL_LIMIT - reserve(now):
                 return
-            campaign = self._tool(http, "get_campaign", {"campaign": ref}).get("campaign") or {}
-            analytics = self._tool(http, "get_campaign_analytics", {"campaign": ref})
+            try:
+                fresh = {"campaign": self._tool(http, "get_campaign", {"campaign": ref}).get("campaign") or {},
+                         "analytics": self._tool(http, "get_campaign_analytics", {"campaign": ref})}
+            except ScoutError as error:
+                if str(error) in (LIMIT_TEXT, OWN_LIMIT_TEXT):
+                    raise
+                # En trasig kampanj får inte stoppa de andra. Den får betyg från sökträffen och provas om 6 timmar.
+                log.warning("Kampanjbevakningen: detaljerna för %s: %s", ref, error)
+                fresh = {}
             with self._db() as db:
                 data = json.loads(db.execute("SELECT data FROM scout_campaigns WHERE ref = ?", (ref,)).fetchone()[0])
-                data.update(campaign=campaign, analytics=analytics, detail_at=_iso(now))
+                data.update(fresh, detail_at=_iso(now))
                 db.execute("UPDATE scout_campaigns SET data = ? WHERE ref = ?", (json.dumps(data), ref))
 
     def _rescore(self, now: datetime) -> None:
@@ -554,6 +574,16 @@ class Scout:
             "campaigns": [view for view in views if view["excluded"] is None],
             "excluded": [view for view in views if view["excluded"] is not None][:50],
         }
+
+    def wait_s(self) -> float:
+        """Sekunder till nästa körning: minst 10 minuter, och längre när anropen annars tar slut före midnatt UTC
+        (till exempel när sessionen har gått ut och varje körning kostar fyra anrop)."""
+        now = _now()
+        left_s = (datetime(now.year, now.month, now.day, tzinfo=UTC) + timedelta(days=1) - now).total_seconds()
+        runs = (CALL_LIMIT - self.calls_today()) / float(self._get("last_cost") or 1)
+        interval = left_s if runs < 1 else max(INTERVAL_S, left_s / runs)
+        last = _time(self._get("last_run"))
+        return max(0.0, interval - ((now - last).total_seconds() if last else interval))
 
     def ran_recently(self) -> bool:
         last = _time(self._get("last_run"))
@@ -604,7 +634,7 @@ def _view(row: sqlite3.Row, now: datetime) -> dict:
         "max_payout_usd": (f["pay"] or {}).get("maxPayoutUsd"),
         "drain_days": None if drain is None else round(max(drain, 0), 1),
         "platforms": f["platforms"], "mentions_twitch": "twitch" in source, "open_join": f["open_join"],
-        "page_url": f["page_url"], "join_url": f["join_url"], "first_seen": row["first_seen"],
+        "page_url": _safe(f["page_url"]), "join_url": _safe(f["join_url"]), "first_seen": row["first_seen"],
         "is_new": age is not None and age < NOTIFY_AGE_H,
     }
 
@@ -615,10 +645,11 @@ def _view(row: sqlite3.Row, now: datetime) -> dict:
 def _loop(settings: Settings) -> None:
     while True:
         try:
+            time.sleep(Scout(settings).wait_s())  # också vid start, så att en omstart inte kostar en extra körning
             Scout(settings).run_once()
         except Exception:  # run_once fångar redan allt; det här är bara så att tråden aldrig dör
             log.exception("Kampanjbevakningen")
-        time.sleep(INTERVAL_S)
+            time.sleep(INTERVAL_S)
 
 
 def start(settings: Settings | None = None) -> threading.Thread | None:
