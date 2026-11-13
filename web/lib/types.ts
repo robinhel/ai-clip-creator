@@ -392,12 +392,14 @@ export interface YouTubeSendBody {
 
 /** Senaste uppladdningen till YouTube, med färsk status. */
 export interface YouTubeUpload {
-  video_id: string;
+  /** null medan filen laddas upp, eller om uppladdningen misslyckades innan YouTube gav ett id. */
+  video_id: string | null;
   url: string | null;
-  status: "uploaded" | "processed" | "failed";
+  status: "uploading" | "uploaded" | "processed" | "failed";
   error: string | null;
   privacy: YouTubePrivacy | null;
   channel_id: string | null;
+  /** Kanalens namn, inte videons titel. */
   title: string | null;
   /** Bara i svaret på POST. */
   message?: string;
