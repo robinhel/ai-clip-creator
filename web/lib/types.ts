@@ -286,7 +286,18 @@ export interface CampaignSummary {
   disk?: { free_gb: number; total_gb: number; connected?: boolean; problem?: string | null };
 }
 
-/** GET /campaign/tiktok/status. Aldrig någon token. */
+/** Ett kopplat TikTok-konto. connected false: inloggningen har gått ut. */
+export interface TikTokAccount {
+  open_id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  scopes: string[];
+  connected: boolean;
+  refresh_expires_at: string | null;
+  pending_24h: number;
+}
+
+/** GET /campaign/tiktok/status. Aldrig någon token. Fälten på toppnivå gäller det första kontot. */
 export interface TikTokStatus {
   configured: boolean;
   connected: boolean;
@@ -296,6 +307,8 @@ export interface TikTokStatus {
   refresh_expires_at: string | null;
   pending_24h: number;
   pending_limit: number;
+  /** Kontona i den ordning de lades till. Saknas hos äldre servrar. */
+  accounts?: TikTokAccount[];
 }
 
 /** Senaste uppladdningen av ett klipp till TikTok. status: uploading, uploaded, failed eller TikToks egen. */
@@ -307,6 +320,9 @@ export interface TikTokUpload {
   created: string;
   /** Bara i svaret på POST. */
   message?: string;
+  /** Kontot utkastet gick till. Saknas hos äldre servrar. */
+  open_id?: string | null;
+  display_name?: string | null;
 }
 
 export type OverlayMode = "full" | "top" | "bottom";

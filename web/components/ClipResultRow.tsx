@@ -565,7 +565,7 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
         )}
 
         {clip.status === "godkand" && (
-          <TikTokSend clipId={clip.id} captionDirty={captionDirty} hasProblems={hasProblems} />
+          <TikTokSend clip={clip} captionDirty={captionDirty} hasProblems={hasProblems} />
         )}
         {clip.status === "godkand" && (
           <div className="mt-1 space-y-2 border-t border-line pt-3">

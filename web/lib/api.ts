@@ -150,12 +150,18 @@ export const api = {
       edit: (id: number) => apiFetch<ClipEditInfo>(`/campaign/clips/${id}/edit`),
       saveEdit: (id: number, body: { in_s?: number; out_s?: number; title?: string }) =>
         apiFetch<CampaignClip>(`/campaign/clips/${id}/edit`, { method: "POST", body: JSON.stringify(body) }),
-      sendToTikTok: (id: number) =>
-        apiFetch<TikTokUpload>(`/campaign/clips/${id}/tiktok`, { method: "POST" }),
+      // Utan openId väljer servern det enda kopplade kontot.
+      sendToTikTok: (id: number, openId?: string) =>
+        apiFetch<TikTokUpload>(`/campaign/clips/${id}/tiktok`, {
+          method: "POST",
+          body: openId ? JSON.stringify({ open_id: openId }) : undefined,
+        }),
     },
     tiktok: {
       status: () => apiFetch<TikTokStatus>("/campaign/tiktok/status"),
       disconnect: () => apiFetch<{ connected: false }>("/campaign/tiktok/disconnect", { method: "POST" }),
+      disconnectAccount: (openId: string) =>
+        apiFetch<unknown>(`/campaign/tiktok/accounts/${encodeURIComponent(openId)}/disconnect`, { method: "POST" }),
       connectUrl: `${DIRECT}/campaign/tiktok/connect`,
     },
     summary: () => apiFetch<CampaignSummary>("/campaign/summary"),
