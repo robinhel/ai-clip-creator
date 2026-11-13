@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, ExternalLink, Eye, EyeOff, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { TikTokCard } from "@/components/TikTokCard";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { KeyGroup, KeyTest, SetupCheck } from "@/lib/types";
@@ -80,7 +81,7 @@ const TWITCH_STEPS = [
 ];
 
 /** Ett kort per grupp. Värdena finns bara i fälten tills de skickas, och fälten töms efter sparandet. */
-function GroupCard({ group, onSaved }: { group: KeyGroup; onSaved: (groups: KeyGroup[]) => void }) {
+function GroupCard({ group, onSaved, children }: { group: KeyGroup; onSaved: (groups: KeyGroup[]) => void; children?: React.ReactNode }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -177,6 +178,7 @@ function GroupCard({ group, onSaved }: { group: KeyGroup; onSaved: (groups: KeyG
         )}
         {twitch && test && <TestResult test={test} />}
       </div>
+      {children}
     </section>
   );
 }
@@ -235,7 +237,8 @@ function SetupCard({ checks, error, loading, onRun }: {
   );
 }
 
-export function SettingsClient() {
+/** tiktokResult och tiktokReason: ?tiktok= och ?orsak= från serverns callback efter inloggningen på TikTok. */
+export function SettingsClient({ tiktokResult, tiktokReason }: { tiktokResult?: string; tiktokReason?: string }) {
   const [groups, setGroups] = useState<KeyGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [checks, setChecks] = useState<SetupCheck[] | null>(null);
@@ -284,7 +287,15 @@ export function SettingsClient() {
                 setGroups(next);
                 runSetup(); // nycklarna är en del av kontrollen
               }}
-            />
+            >
+              {group.id === "tiktok" && (
+                <TikTokCard
+                  result={tiktokResult}
+                  reason={tiktokReason}
+                  refresh={group.keys.map((k) => k.set).join()} // läs om läget när nycklarna sparas
+                />
+              )}
+            </GroupCard>
           ))}
         </div>
       )}
