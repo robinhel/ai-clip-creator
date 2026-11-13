@@ -61,8 +61,9 @@ ERRORS = {
     "reached_active_user_cap": (("Appen har nått TikToks gräns för hur många konton som postar per dygn. "
                                  "Försök igen i morgon."), 429),
     "unaudited_client_can_only_post_to_private_accounts": (
-        ("Kontot måste vara privat i TikTok så länge appen inte är granskad. Gör kontot privat i TikTok-appen "
-         "och försök igen."), 400),
+        # En ogranskad app får bara posta SELF_ONLY, och kontot måste vara privat.
+        ("TikTok har inte granskat appen än. Då går det bara att publicera som Bara jag. Välj Bara jag och "
+         "försök igen. Kontot måste också vara privat i TikTok."), 400),
     "privacy_level_option_mismatch": ("TikTok godtog inte valet av vem som får se klippet. Välj igen.", 400),
     "rate_limit_exceeded": ("TikTok tar bara emot några anrop i minuten. Vänta en minut.", 429),
 }
