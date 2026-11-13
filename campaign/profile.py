@@ -27,7 +27,8 @@ class Profile:
     facecam_required: bool = False
     safe_top: float = 0.07
     safe_bottom: float = 0.20
-    caption_starts_with: str = ""  # orden captionen måste börja med, t.ex. "#ad #blizzardpartner"
+    caption_tag_line: str = ""  # egen rad efter texten, t.ex. "#ad #blizzardpartner"; hashtags följer på raden
+    caption_max_extra_hashtags: int | None = None  # högst så många hashtags utöver taggraden
     caption_must_include: list[str] = field(default_factory=list)
     hashtags: list[str] = field(default_factory=list)
     game_hashtag: bool = True
@@ -123,7 +124,9 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
         facecam_required=bool((data.get("facecam") or {}).get("required", False)),
         safe_top=_number(safe, "top", 0.07, "safe_zone.top"),
         safe_bottom=_number(safe, "bottom", 0.20, "safe_zone.bottom"),
-        caption_starts_with=str(caption.get("starts_with") or ""),
+        caption_tag_line=str(caption.get("tag_line") or ""),
+        caption_max_extra_hashtags=None if caption.get("max_extra_hashtags") is None else _number(
+            caption, "max_extra_hashtags", 0, "caption.max_extra_hashtags", int),
         caption_must_include=list(caption.get("must_include") or []),
         hashtags=list(caption.get("hashtags") or []),
         game_hashtag=bool(caption.get("game_hashtag", True)),
