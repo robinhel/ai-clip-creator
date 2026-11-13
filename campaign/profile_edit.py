@@ -178,7 +178,7 @@ def _check_types(data: dict, root: Path) -> None:
     texts(sections["caption"].get("hashtags"), "caption.hashtags")
     texts(sections["caption"].get("must_include"), "caption.must_include")
     text(sections["caption"].get("template"), "caption.template")
-    text(sections["caption"].get("starts_with"), "caption.starts_with")
+    text(sections["caption"].get("tag_line"), "caption.tag_line")
     text(sections["on_screen_text"].get("text"), "on_screen_text.text")
     formats = data.get("formats")
     if formats is not None and not (isinstance(formats, list) and all(

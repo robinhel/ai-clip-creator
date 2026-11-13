@@ -603,7 +603,7 @@ class ClipPatch(BaseModel):
 
 def _caption_problems(problems: list[str], caption: str, profile: Profile) -> list[str]:
     """Byt ut captionens problem mot en ny kontroll. Övriga problem ligger kvar."""
-    others = [p for p in problems if not p.startswith("Captionen saknar")]
+    others = [p for p in problems if not p.startswith("Captionen ")]  # alla problem från check_caption
     return others + check_caption(caption, profile)
 
 
