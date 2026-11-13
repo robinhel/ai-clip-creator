@@ -618,3 +618,23 @@ def test_retry_needs_the_key_and_waits_for_a_running_run(client, settings, start
     assert response.status_code == 429
     assert started == []
     assert len(ClipLog(settings.data_dir / "klipp.db").runs()) == 1
+
+
+def test_the_cost_is_split_into_berget_and_claude_and_berget_follows_the_price_list(client, settings,  # noqa: F811
+                                                                                    fake_twitch, monkeypatch) -> None:
+    """13 950 s är 232,5 minuter. Berget kostar 0,0022 dollar per minut i priser.yaml, alltså 0,51.
+    Finns transkriberingen redan, kostar Berget inget i nästa körning."""
+    monkeypatch.setattr(estimate, "disk_gb", lambda path: (500.0, 900.0))
+    cost = client.get(f"/campaign/vod/{VOD}").json()["estimate"]["cost"]
+    assert cost == {"berget_usd": 0.51, "claude_usd": 0.30, "usd": 0.81}
+
+    prices = settings.prices_path.read_text().replace("Systran/faster-whisper-large-v3: 0.0022",
+                                                       "Systran/faster-whisper-large-v3: 0.0044")
+    settings.prices_path.write_text(prices)
+    assert client.get(f"/campaign/vod/{VOD}").json()["estimate"]["cost"]["berget_usd"] == 1.02
+
+    transcript = settings.work_dir / VOD / "transcript.json"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text("{}")
+    cost = client.get(f"/campaign/vod/{VOD}").json()["estimate"]["cost"]
+    assert (cost["berget_usd"], cost["usd"]) == (0.0, 0.30)
