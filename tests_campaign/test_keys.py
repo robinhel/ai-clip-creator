@@ -95,10 +95,12 @@ def test_get_shows_the_groups_and_what_is_set_without_values(client, env, monkey
     assert response.status_code == 200
     answer = response.json()
     assert [(g["id"], g["label"]) for g in answer["groups"]] == [
-        ("twitch", "Twitch"), ("anthropic", "Claude"), ("berget", "Berget (transkribering)"), ("tiktok", "TikTok")]
+        ("twitch", "Twitch"), ("anthropic", "Claude"), ("berget", "Berget (transkribering)"), ("tiktok", "TikTok"),
+        ("youtube", "YouTube")]
     assert answer["groups"][0]["keys"][0] == {"name": "TWITCH_CLIENT_ID", "label": "Client ID", "set": False}
     assert _set(answer) == {"TWITCH_CLIENT_ID": False, "TWITCH_CLIENT_SECRET": True, "ANTHROPIC_API_KEY": True,
-                            "BERGET_API_KEY": False, "TIKTOK_CLIENT_KEY": True, "TIKTOK_CLIENT_SECRET": False}
+                            "BERGET_API_KEY": False, "TIKTOK_CLIENT_KEY": True, "TIKTOK_CLIENT_SECRET": False,
+                            "YOUTUBE_CLIENT_ID": False, "YOUTUBE_CLIENT_SECRET": False}
     assert SECRET not in response.text and CLIENT_ID not in response.text and "gammaltvarde" not in response.text
 
 
