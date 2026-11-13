@@ -15,6 +15,7 @@ clip:
   postroll_s: 5
   min_clip_gap_s: 30               # trailers är korta, så stunderna får ligga närmare varandra
   min_picks: 0                     # tvinga aldrig fram klipp som Claude sa nej till
+  ask_without_speech: true         # trailers har ofta bara musik; Claude får frågan även utan tal
 
 candidates:
   density_window_s: 15

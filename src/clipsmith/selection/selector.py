@@ -90,7 +90,7 @@ def select_clips(
             candidate.sources,
         )
         window = _extract_transcript_window(transcript, candidate.t_center)
-        if window.startswith("(no transcript"):
+        if window.startswith("(no transcript") and not config.ask_without_speech:
             log.warning("no transcript for t=%.1f — skipping LLM call", candidate.t_center)
             continue
         t0 = time.monotonic()

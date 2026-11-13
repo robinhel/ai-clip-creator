@@ -11,9 +11,16 @@ def _game_tag(game: str) -> str:
     return "#" + re.sub(r"[^a-z0-9]", "", game.lower())
 
 
+def _starts_with(text: str, start: str) -> bool:
+    """Captionen börjar med orden, hela ord: "#ad #blizzardpartnerx" räknas inte."""
+    return (text.strip().lower() + " ").startswith(start.strip().lower() + " ")
+
+
 def build_caption(title: str, profile: Profile, game: str | None = None) -> str:
     """Rubrik + obligatorisk länk + hashtags, enligt profilens mall."""
     text = profile.caption_template.format(title=title.strip())
+    if profile.caption_starts_with and not _starts_with(text, profile.caption_starts_with):
+        text = f"{profile.caption_starts_with} {text}"
     for must in profile.caption_must_include:
         if must.lower() not in text.lower():
             text = f"{text} {must}"
@@ -28,7 +35,10 @@ def build_caption(title: str, profile: Profile, game: str | None = None) -> str:
 def check_caption(text: str, profile: Profile) -> list[str]:
     """Lista det som saknas i en caption enligt kampanjens regler."""
     low = text.lower()
-    problems = [
+    problems = []
+    if profile.caption_starts_with and not _starts_with(text, profile.caption_starts_with):
+        problems.append(f"Captionen måste börja med {profile.caption_starts_with!r}.")
+    problems += [
         f"Captionen saknar {must!r}."
         for must in profile.caption_must_include
         if must.lower() not in low
