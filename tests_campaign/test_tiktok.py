@@ -945,8 +945,8 @@ def test_the_length_in_the_message_is_rounded_up(client, settings, fake) -> None
     ("spam_risk_user_banned_from_posting", 403, 403, None),
     ("reached_active_user_cap", 403, 429, None),
     ("unaudited_client_can_only_post_to_private_accounts", 403, 400,
-     ("Kontot måste vara privat i TikTok så länge appen inte är granskad. Gör kontot privat i TikTok-appen "
-      "och försök igen.")),
+     ("TikTok har inte granskat appen än. Då går det bara att publicera som Bara jag. Välj Bara jag och "
+      "försök igen. Kontot måste också vara privat i TikTok.")),
     ("privacy_level_option_mismatch", 403, 400, None)])
 def test_direct_post_errors_from_tiktok_in_swedish(client, settings, fake, code, http, expected, text) -> None:
     _connect(settings, publish=True)
