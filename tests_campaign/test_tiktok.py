@@ -536,16 +536,19 @@ def test_same_clip_again_right_away_gives_409_but_later_is_fine(client, settings
     assert again.status_code == 409
     assert again.json()["detail"] == "Klippet skickades nyss. Titta i TikTok-inkorgen."
 
-    busy = _clip(settings)
+    busy, stuck = _clip(settings), _clip(settings)
     with tiktok.TikTok(settings)._db() as db:
-        db.execute("INSERT INTO tiktok_uploads (clip_id, publish_id, status, created, open_id) VALUES (?,?,?,?,?)",
-                   (busy, "p1", "uploading", "2026-01-01T00:00:00+00:00", "o1"))
+        insert = "INSERT INTO tiktok_uploads (clip_id, publish_id, status, created, open_id) VALUES (?,?,?,?,?)"
+        db.execute(insert, (busy, "p1", "uploading", datetime.now(UTC).isoformat(), "o1"))
+        db.execute(insert, (stuck, "p2", "uploading", "2026-01-01T00:00:00+00:00", "o1"))  # servern dog mitt i
     assert client.post(f"/campaign/clips/{busy}/tiktok").status_code == 409
+    assert client.post(f"/campaign/clips/{stuck}/tiktok").status_code == 202  # spärrar inte för alltid
 
     later = datetime.now(UTC) + timedelta(minutes=11)
     monkeypatch.setattr(tiktok, "_now", lambda: later)
     assert client.post(f"/campaign/clips/{clip_id}/tiktok").status_code == 202
-    assert len(fake.calls(tiktok.INIT_URL)) == 2
+    assert client.post(f"/campaign/clips/{busy}/tiktok").status_code == 202
+    assert len(fake.calls(tiktok.INIT_URL)) == 4
 
 
 def test_post_routes_need_the_api_key(client, settings, fake, monkeypatch) -> None:
@@ -912,8 +915,29 @@ def test_the_same_clip_directly_again_right_away_gives_409(client, settings, fak
     _connect(settings, publish=True)
     clip_id = _clip(settings)
     assert _direct(client, clip_id).status_code == 202
-    assert _direct(client, clip_id).status_code == 409
-    assert client.post(f"/campaign/clips/{clip_id}/tiktok").status_code == 409
+    again = _direct(client, clip_id)
+    assert (again.status_code, again.json()["detail"]) == (409, "Klippet skickades nyss. Titta på profilen i TikTok.")
+
+
+def test_a_draft_and_a_direct_post_of_the_same_clip_do_not_stop_each_other(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    first, second = _clip(settings), _clip(settings)
+    assert client.post(f"/campaign/clips/{first}/tiktok").status_code == 202
+    assert _direct(client, first).status_code == 202  # utkast och direkt är två olika handlingar
+    assert client.post(f"/campaign/clips/{first}/tiktok").status_code == 409
+    assert _direct(client, second).status_code == 202
+    assert client.post(f"/campaign/clips/{second}/tiktok").status_code == 202
+
+
+def test_the_length_in_the_message_is_rounded_up(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    fake.creator["max_video_post_duration_sec"] = 60
+    clip_id = _clip(settings)
+    with ClipLog(settings.data_dir / "klipp.db")._db() as db:
+        db.execute("UPDATE clips SET start_s = 0, end_s = 60.2 WHERE id = ?", (clip_id,))
+    response = _direct(client, clip_id)
+    assert (response.status_code, response.json()["detail"]) == (
+        400, "Klippet är 61 sekunder, men kontot får posta högst 60 sekunder.")
 
 
 @pytest.mark.parametrize(("code", "http", "expected", "text"), [
@@ -1020,3 +1044,44 @@ def test_no_token_is_shown_by_direct_posting(client, settings, fake, monkeypatch
     for text in answers:
         for secret in ("act.", "rft.", *KEYS):
             assert secret not in text
+
+
+STUCK = "TikTok har inte svarat om inlägget på en timme. Titta på profilen i TikTok."
+
+
+def _old_direct_row(settings, clip_id: int, status: str = "processing") -> None:
+    created = (datetime.now(UTC) - timedelta(minutes=61)).isoformat(timespec="seconds")
+    with tiktok.TikTok(settings)._db() as db:
+        db.execute("INSERT INTO tiktok_uploads (clip_id, publish_id, status, created, open_id, mode, privacy_level) "
+                   "VALUES (?,?,?,?,?,?,?)", (clip_id, "p_gammal", status, created, "o1", "direct", "SELF_ONLY"))
+
+
+@pytest.mark.parametrize("status", ["processing", "uploading"])
+def test_a_direct_post_without_an_answer_for_an_hour_fails(client, settings, fake, status) -> None:
+    _connect(settings, publish=True)
+    clip_id = _clip(settings)
+    _old_direct_row(settings, clip_id, status)
+    fake.down.add("status")
+    latest = client.get(f"/campaign/clips/{clip_id}/tiktok").json()
+    assert (latest["status"], latest["error"]) == ("failed", STUCK)
+    assert len(fake.calls(tiktok.STATUS_URL)) == 1
+    client.get(f"/campaign/clips/{clip_id}/tiktok")
+    assert len(fake.calls(tiktok.STATUS_URL)) == 1  # klar: ingen mer hämtning
+
+
+def test_a_direct_post_without_an_answer_for_an_hour_fails_when_the_account_is_gone(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    clip_id = _clip(settings)
+    _old_direct_row(settings, clip_id)
+    assert client.post("/campaign/tiktok/accounts/o1/disconnect").status_code == 200
+    latest = client.get(f"/campaign/clips/{clip_id}/tiktok").json()
+    assert (latest["status"], latest["error"]) == ("failed", STUCK)
+    assert fake.calls(tiktok.STATUS_URL) == []
+
+
+def test_a_direct_post_that_tiktok_finishes_after_an_hour_is_published(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    clip_id = _clip(settings)
+    _old_direct_row(settings, clip_id)
+    fake.status = "PUBLISH_COMPLETE"
+    assert client.get(f"/campaign/clips/{clip_id}/tiktok").json()["status"] == "published"
