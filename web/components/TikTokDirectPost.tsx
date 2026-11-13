@@ -276,6 +276,10 @@ export function TikTokDirectPost({ clip, account, upload, onSent, onClose }: Pro
                   {brandedOn && creator?.privacy_level_options.includes("SELF_ONLY") && (
                     <span className="mt-1 block text-xs text-muted-foreground">{BC_PRIVATE}</span>
                   )}
+                  {/* Listan följer TikToks val utan förval, men en ogranskad app får bara posta privat. */}
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    TikTok har inte granskat appen än. Tills dess fungerar bara Bara jag.
+                  </span>
                 </label>
 
                 <div className="flex flex-wrap gap-x-5 gap-y-2">
