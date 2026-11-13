@@ -200,3 +200,10 @@ def test_build_stream_context_says_focus_and_target_length() -> None:
     plain = build_stream_context("timmy", "t", "1h")
     assert "looking for" not in plain
     assert "Target clip length" not in plain
+
+
+def test_select_clips_skips_a_moment_without_speech_by_default() -> None:
+    picker = _AcceptAll()
+    picks = select_clips([_candidate(5000.0)], _make_transcript_with_content(), picker, "ctx", ClipConfig())  # type: ignore[arg-type]
+    assert picks == []
+    assert picker.calls == []
