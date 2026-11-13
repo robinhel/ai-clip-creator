@@ -39,7 +39,7 @@ Gör stegen i ordning. Rapportera kort till Robin efter varje steg.
 1. **Kontrollera miljön.** Finns `.venv`? Annars kör `bash fortsatt.sh`. Kör
    `.venv/bin/python -m pytest tests_campaign -q` (33 tester ska gå igenom) och
    `.venv/bin/python -m pytest tests/unit -q`. Lista vilka tester som faller och varför.
-2. **Kör `.venv/bin/python -m campaign check-setup`.** Rapportera vad som saknas.
+2. **Kör `.venv/bin/python -m campaign check-setup --profile skiimasktimmy`.** Rapportera vad som saknas.
    Robin fyller själv i nycklarna. Läs aldrig ut eller skriv ut nyckelvärden från `.env`.
 3. **Ombyggnad 1:** rätta testet som väntar sig ordet "Spanish".
 4. **Ombyggnad 2:** koppla clipsmiths Claude-anrop till budgetspärren
@@ -50,7 +50,7 @@ Gör stegen i ordning. Rapportera kort till Robin efter varje steg.
    - `clipsmith run-vod <VOD-id> --config config.timmy.yaml`
    - Titta på ett klipp med Robin: sitter facecam rätt, är klippen 15–45 sekunder,
      är rubrikerna på engelska?
-   - `python -m campaign finish <VOD-id> --game "<spelets namn>"`
+   - `python -m campaign finish <VOD-id> --profile skiimasktimmy --game "<spelets namn>"`
    - `python -m campaign facit facit/<fil>.yaml` om Robin har skrivit ett facit.
 7. Fortsätt sedan med fas 2 i `docs/klipp/BYGGPLAN.md`.
 

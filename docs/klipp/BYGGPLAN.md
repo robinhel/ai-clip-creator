@@ -35,7 +35,7 @@ Kampanjklara Twitch-klipp som når 2 000 visningar, med några minuters eget arb
 - [ ] Kör `python -m pytest tests_campaign -q` (ska bli grönt)
 - [ ] Kör `python -m pytest tests/unit -q` (clipsmiths egna tester; ett test om
       "Spanish" väntas falla, se OMBYGGNAD.md uppgift 1)
-- [ ] Kör `python -m campaign check-setup`
+- [ ] Kör `python -m campaign check-setup --profile skiimasktimmy`
 
 ## Fas 1 – Första klippet (1–2 kvällar)
 
@@ -44,7 +44,7 @@ Kampanjklara Twitch-klipp som når 2 000 visningar, med några minuters eget arb
 - [ ] Kör `clipsmith run-vod <VOD-id> --config config.timmy.yaml`
 - [ ] Titta på ett klipp: sitter facecam rätt? Annars OMBYGGNAD.md uppgift 12
 - [ ] Mät hur lång tid transkriberingen tog; prova sedan `medium`
-- [ ] Kör `python -m campaign finish <VOD-id> --game "Spelets namn"`
+- [ ] Kör `python -m campaign finish <VOD-id> --profile skiimasktimmy --game "Spelets namn"`
 - [ ] Kör `python -m campaign facit facit/<din-fil>.yaml` och skriv upp utgångsvärdet
 - [ ] Kör `python -m campaign approve`, posta första klippet och logga det med `posted`
 - [ ] OMBYGGNAD.md uppgift 1–4
