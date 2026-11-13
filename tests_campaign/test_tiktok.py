@@ -22,6 +22,9 @@ from campaign.cliplog import ClipLog
 
 KEYS = ("ck_test_key", "cs_test_secret")
 REVOKE = "https://open.tiktokapis.com/v2/oauth/revoke/"
+DIRECT = "https://open.tiktokapis.com/v2/post/publish/video/init/"
+CREATOR = "https://open.tiktokapis.com/v2/post/publish/creator_info/query/"
+NO_PUBLISH = "Kontot har inte rätt att publicera. Koppla kontot igen under Inställningar."
 UNREACHABLE = "TikTok svarade inte. Försök igen om en stund."
 
 
@@ -43,13 +46,22 @@ class FakeTikTok:
         self.empty: set[str] = set()
         self.token_delay = 0.0
         self.open_id, self.name = "o1", "clipvault.hq26"  # kontot som loggar in
+        self.scope = "user.info.basic,video.upload,video.publish"
+        self.creator = {"creator_avatar_url": "https://p16/c.jpg", "creator_username": "clipvault.hq26",
+                        "creator_nickname": "Clip Vault", "privacy_level_options": ["FOLLOWER_OF_CREATOR",
+                                                                                  "MUTUAL_FOLLOW_FRIENDS",
+                                                                                  "SELF_ONLY"],
+                        "comment_disabled": False, "duet_disabled": True, "stitch_disabled": True,
+                        "max_video_post_duration_sec": 600}
+        self.creator_error: tuple[str, int] | None = None
+        self.post_ids: list[int] = []
 
     @staticmethod
     def step(request: httpx.Request) -> str:
         if request.method == "PUT":
             return "put"
         urls = {"token": tiktok.TOKEN_URL, "user": tiktok.USER_URL, "init": tiktok.INIT_URL,
-                "status": tiktok.STATUS_URL, "revoke": REVOKE}
+                "direct": DIRECT, "creator": CREATOR, "status": tiktok.STATUS_URL, "revoke": REVOKE}
         return next((name for name, url in urls.items() if str(request.url).startswith(url)), "")
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -67,12 +79,17 @@ class FakeTikTok:
             return httpx.Response(200, json={
                 "access_token": f"act.secret{self.tokens}", "refresh_token": f"rft.secret{self.tokens}",
                 "expires_in": 7200, "refresh_expires_in": 15552000, "open_id": self.open_id,
-                "scope": "user.info.basic,video.upload", "token_type": "Bearer"})
+                "scope": self.scope, "token_type": "Bearer"})
         if step == "user":
             return httpx.Response(200, json={"data": {"user": {
                 "open_id": self.open_id, "display_name": self.name, "avatar_url": "https://p16/a.jpg"}},
                 "error": {"code": "ok"}})
-        if step == "init":
+        if step == "creator":
+            if self.creator_error:
+                code, http = self.creator_error
+                return httpx.Response(http, json={"data": {}, "error": {"code": code, "message": "nej"}})
+            return httpx.Response(200, json={"data": self.creator, "error": {"code": "ok"}})
+        if step in ("init", "direct"):
             if self.init_error:
                 code, http = self.init_error
                 return httpx.Response(http, json={"error": {"code": code, "message": "nej"}})
@@ -87,7 +104,8 @@ class FakeTikTok:
             return httpx.Response(201 if int(last) + 1 == int(total) else 206)
         if step == "status":
             status = self.statuses.get(json.loads(request.content)["publish_id"], self.status)
-            return httpx.Response(200, json={"data": {"status": status, "fail_reason": "file_format_check_failed"},
+            return httpx.Response(200, json={"data": {"status": status, "fail_reason": "file_format_check_failed",
+                                                      "publicaly_available_post_id": self.post_ids},
                                              "error": {"code": "ok"}})
         if step == "revoke":
             return httpx.Response(200, json={})
@@ -120,12 +138,13 @@ ACCOUNTS = "tiktok_accounts.json"
 
 
 def _connect(settings, expires_in_s: int = 7200, open_id: str = "o1", name: str = "clipvault.hq26",
-             access: str = "act.old", refresh_days: int = 180) -> None:
+             access: str = "act.old", refresh_days: int = 180, publish: bool = False) -> None:
     """Spara en token som om Robin redan har kopplat kontot."""
     now = datetime.now(UTC)
     tiktok.TikTok(settings).save_token({
         "access_token": access, "refresh_token": access.replace("act", "rft"), "open_id": open_id,
-        "scopes": ["user.info.basic", "video.upload"], "display_name": name,
+        "scopes": ["user.info.basic", "video.upload", *(["video.publish"] if publish else [])],
+        "display_name": name,
         "avatar_url": "https://p16/a.jpg",
         "expires_at": (now + timedelta(seconds=expires_in_s)).isoformat(),
         "refresh_expires_at": (now + timedelta(days=refresh_days)).isoformat(),
@@ -275,7 +294,7 @@ def test_connect_redirects_to_tiktok_with_pkce(client, settings) -> None:
     query = {k: v[0] for k, v in parse_qs(url.query).items()}
     assert query["client_key"] == KEYS[0]
     assert query["response_type"] == "code"
-    assert query["scope"] == "user.info.basic,video.upload"
+    assert query["scope"] == "user.info.basic,video.upload,video.publish"
     assert query["redirect_uri"] == "http://127.0.0.1:8000/campaign/tiktok/callback/"
     assert query["code_challenge_method"] == "S256"
     assert query["disable_auto_auth"] == "1"  # TikTok frågar vilket konto, så att ett nytt kan läggas till
@@ -316,7 +335,7 @@ def test_callback_saves_the_token_privately_and_goes_back_to_the_web(client, set
     saved = json.loads(path.read_text())["o1"]
     assert saved["access_token"] == "act.secret1"
     assert saved["display_name"] == "clipvault.hq26"
-    assert saved["scopes"] == ["user.info.basic", "video.upload"]
+    assert saved["scopes"] == ["user.info.basic", "video.upload", "video.publish"]
 
     again = client.get("/campaign/tiktok/callback/", params={"code": "c1", "state": state})
     assert again.headers["location"].startswith("http://localhost:3000/settings?tiktok=fel")  # en gång
@@ -343,7 +362,7 @@ def test_status_never_shows_tokens_or_keys(client, settings, fake) -> None:
     status = client.get("/campaign/tiktok/status").json()
     assert status["connected"] is True
     assert status["display_name"] == "clipvault.hq26"
-    assert status["scopes"] == ["user.info.basic", "video.upload"]
+    assert status["scopes"] == ["user.info.basic", "video.upload", "video.publish"]
     assert status["refresh_expires_at"]
     text = json.dumps(status)
     for secret in ("act.secret", "rft.secret", *KEYS):
@@ -584,7 +603,7 @@ def test_two_accounts_are_kept_in_the_order_they_were_added_and_the_same_one_is_
     assert [(a["open_id"], a["display_name"], a["connected"]) for a in status["accounts"]] == [
         ("o1", "clipvault.hq26", True), ("o2", "andra.kontot", True)]
     assert set(status["accounts"][0]) == {"open_id", "display_name", "avatar_url", "scopes", "connected",
-                                          "refresh_expires_at", "pending_24h"}
+                                          "refresh_expires_at", "pending_24h", "can_publish"}
     # de gamla fälten på toppnivå kommer från det första kontot
     assert (status["connected"], status["display_name"], status["pending_24h"]) == (True, "clipvault.hq26", 0)
 
@@ -741,5 +760,263 @@ def test_no_token_is_shown_in_answers_or_the_log(client, settings, fake, caplog)
                 client.get("/campaign/tiktok/status").text,
                 client.post("/campaign/tiktok/accounts/o1/disconnect").text]
     for text in (*answers, caplog.text):
+        for secret in ("act.", "rft.", *KEYS):
+            assert secret not in text
+
+
+# ---------- direktpostning ----------
+
+
+def _direct(client, clip_id: int, **fields):
+    body = {"mode": "direct", "privacy_level": "SELF_ONLY", **fields}
+    return client.post(f"/campaign/clips/{clip_id}/tiktok", json=body)
+
+
+def _post_info(fake) -> dict:
+    (init,) = fake.calls(DIRECT)
+    return json.loads(init.content)
+
+
+def test_status_says_which_accounts_can_publish(client, settings, fake) -> None:
+    _connect(settings)
+    _connect(settings, open_id="o2", name="andra.kontot", access="act.other", publish=True)
+    accounts = client.get("/campaign/tiktok/status").json()["accounts"]
+    assert [(a["open_id"], a["can_publish"]) for a in accounts] == [("o1", False), ("o2", True)]
+
+
+def test_creator_info_is_read_fresh_and_the_username_is_saved(client, settings, fake, monkeypatch) -> None:
+    monkeypatch.setenv("CLIPSMITH_API_KEY", "hemlig")  # läser, som status: ingen nyckel behövs
+    _connect(settings, publish=True)
+    response = client.get("/campaign/tiktok/accounts/o1/creator_info")
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "open_id": "o1", "nickname": "Clip Vault", "username": "clipvault.hq26", "avatar_url": "https://p16/c.jpg",
+        "privacy_level_options": ["FOLLOWER_OF_CREATOR", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"],
+        "comment_disabled": False, "duet_disabled": True, "stitch_disabled": True,
+        "max_video_post_duration_sec": 600}
+    (call,) = fake.calls(CREATOR)
+    assert (call.method, call.headers["authorization"]) == ("POST", "Bearer act.old")
+    assert _saved(settings)["o1"]["username"] == "clipvault.hq26"
+    client.get("/campaign/tiktok/accounts/o1/creator_info")
+    assert len(fake.calls(CREATOR)) == 2  # aldrig sparat svar
+
+
+def test_creator_info_for_a_missing_account_or_one_without_publish_rights(client, settings, fake) -> None:
+    _connect(settings)
+    assert client.get("/campaign/tiktok/accounts/okänt/creator_info").status_code == 404
+    response = client.get("/campaign/tiktok/accounts/o1/creator_info")
+    assert (response.status_code, response.json()["detail"]) == (400, NO_PUBLISH)
+    assert fake.requests == []
+
+
+@pytest.mark.parametrize(("code", "http", "expected"), [
+    ("spam_risk_too_many_posts", 200, 429), ("access_token_invalid", 401, 400),
+    ("rate_limit_exceeded", 429, 429), ("internal_error", 500, 502)])
+def test_creator_info_errors_from_tiktok_are_explained(client, settings, fake, code, http, expected) -> None:
+    _connect(settings, publish=True)
+    fake.creator_error = (code, http)
+    response = client.get("/campaign/tiktok/accounts/o1/creator_info")
+    assert response.status_code == expected
+    assert response.json()["detail"]
+
+
+def test_direct_post_sends_the_choices_to_tiktok(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    clip_id = _clip(settings)
+    response = _direct(client, clip_id, title="No way #fps @timmy", privacy_level="MUTUAL_FOLLOW_FRIENDS",
+                       allow_comment=True, allow_duet=True, allow_stitch=False, brand_organic=True)
+    assert response.status_code == 202, response.text
+    answer = response.json()
+    assert answer == {"clip_id": clip_id, "publish_id": answer["publish_id"], "status": "processing",
+                      "mode": "direct", "created": answer["created"], "open_id": "o1",
+                      "message": "TikTok publicerar klippet. Det kan ta några minuter innan det syns på profilen."}
+    body = _post_info(fake)
+    assert body["post_info"] == {
+        "title": "No way #fps @timmy", "privacy_level": "MUTUAL_FOLLOW_FRIENDS",
+        "disable_comment": False,
+        "disable_duet": True,  # Robin tillät duet, men kontot har stängt av det
+        "disable_stitch": True, "brand_organic_toggle": True, "brand_content_toggle": False}
+    assert body["source_info"] == {"source": "FILE_UPLOAD", "video_size": 25, "chunk_size": 25,
+                                   "total_chunk_count": 1}
+    assert fake.calls(tiktok.INIT_URL) == []  # inte inkorgen
+    assert len(fake.calls(CREATOR)) == 1  # färsk creator_info i samma anrop
+    assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["status"] == "godkand"
+    with tiktok.TikTok(settings)._db() as db:
+        row = db.execute("SELECT mode, privacy_level, status FROM tiktok_uploads").fetchone()
+    assert tuple(row) == ("direct", "MUTUAL_FOLLOW_FRIENDS", "processing")
+
+
+def test_direct_post_with_defaults_and_an_empty_title(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    assert _direct(client, _clip(settings), title="").status_code == 202
+    info = _post_info(fake)["post_info"]
+    assert (info["privacy_level"], info["disable_comment"], info["disable_duet"], info["disable_stitch"]) == (
+        "SELF_ONLY", True, True, True)
+    assert (info["brand_organic_toggle"], info["brand_content_toggle"]) == (False, False)
+    assert info.get("title", "") == ""
+
+
+def test_direct_post_needs_publish_rights(client, settings, fake) -> None:
+    _connect(settings)
+    response = _direct(client, _clip(settings))
+    assert (response.status_code, response.json()["detail"]) == (400, NO_PUBLISH)
+    assert fake.calls(DIRECT) == []
+
+
+@pytest.mark.parametrize("privacy", [None, "PUBLIC_TO_EVERYONE", "nonsens"])
+def test_direct_post_needs_one_of_the_accounts_privacy_options(client, settings, fake, privacy) -> None:
+    _connect(settings, publish=True)
+    response = _direct(client, _clip(settings), privacy_level=privacy)
+    assert (response.status_code, response.json()["detail"]) == (400, "Välj vem som får se klippet.")
+    assert fake.calls(DIRECT) == []
+
+
+def test_branded_content_cannot_be_private(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    response = _direct(client, _clip(settings), privacy_level="SELF_ONLY", brand_content=True)
+    assert (response.status_code, response.json()["detail"]) == (
+        400, "Branded content visibility cannot be set to private.")
+    assert fake.calls(DIRECT) == []
+    response = _direct(client, _clip(settings), privacy_level="FOLLOWER_OF_CREATOR", brand_content=True)
+    assert response.status_code == 202
+    assert _post_info(fake)["post_info"]["brand_content_toggle"] is True
+
+
+def test_a_clip_longer_than_the_account_may_post_is_refused(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    fake.creator["max_video_post_duration_sec"] = 15
+    response = _direct(client, _clip(settings))  # klippet är 19 sekunder
+    assert response.status_code == 400
+    assert "19" in response.json()["detail"] and "15" in response.json()["detail"]
+    assert fake.calls(DIRECT) == []
+
+
+def test_the_title_may_have_2200_utf16_units(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    emoji = "😀" * 1100  # två UTF-16-enheter var
+    assert _direct(client, _clip(settings), title=emoji + "a").status_code == 400
+    assert fake.calls(DIRECT) == []
+    assert _direct(client, _clip(settings), title=emoji).status_code == 202
+
+
+def test_the_draft_limit_does_not_stop_direct_posts(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    for _ in range(5):
+        assert client.post(f"/campaign/clips/{_clip(settings)}/tiktok").status_code == 202
+    assert _direct(client, _clip(settings)).status_code == 202
+    assert client.get("/campaign/tiktok/status").json()["pending_24h"] == 5
+    assert client.post(f"/campaign/clips/{_clip(settings)}/tiktok").status_code == 429
+
+
+def test_the_same_clip_directly_again_right_away_gives_409(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    clip_id = _clip(settings)
+    assert _direct(client, clip_id).status_code == 202
+    assert _direct(client, clip_id).status_code == 409
+    assert client.post(f"/campaign/clips/{clip_id}/tiktok").status_code == 409
+
+
+@pytest.mark.parametrize(("code", "http", "expected", "text"), [
+    ("spam_risk_too_many_posts", 403, 429, "TikTok tar inte emot fler inlägg från kontot i dag. Försök igen i morgon."),
+    ("spam_risk_user_banned_from_posting", 403, 403, None),
+    ("reached_active_user_cap", 403, 429, None),
+    ("unaudited_client_can_only_post_to_private_accounts", 403, 400,
+     ("Kontot måste vara privat i TikTok så länge appen inte är granskad. Gör kontot privat i TikTok-appen "
+      "och försök igen.")),
+    ("privacy_level_option_mismatch", 403, 400, None)])
+def test_direct_post_errors_from_tiktok_in_swedish(client, settings, fake, code, http, expected, text) -> None:
+    _connect(settings, publish=True)
+    fake.init_error = (code, http)
+    response = _direct(client, _clip(settings))
+    assert response.status_code == expected
+    assert response.json()["detail"] == text if text else response.json()["detail"]
+    with tiktok.TikTok(settings)._db() as db:
+        assert db.execute("SELECT COUNT(*) FROM tiktok_uploads").fetchone()[0] == 0
+
+
+def _later(monkeypatch, minutes: int) -> None:
+    moment = datetime.now(UTC) + timedelta(minutes=minutes)
+    monkeypatch.setattr(tiktok, "_now", lambda: moment)
+
+
+def test_direct_post_status_goes_from_processing_to_published_with_a_link(client, settings, fake,
+                                                                          monkeypatch) -> None:
+    _connect(settings, publish=True)
+    clip_id = _clip(settings)
+    _direct(client, clip_id, privacy_level="FOLLOWER_OF_CREATOR")
+    fake.status = "PROCESSING_UPLOAD"
+    latest = client.get(f"/campaign/clips/{clip_id}/tiktok").json()
+    assert (latest["status"], latest["mode"], latest["privacy_level"]) == ("processing", "direct",
+                                                                          "FOLLOWER_OF_CREATOR")
+    assert (latest["post_id"], latest["post_url"]) == (None, None)
+
+    fake.status, fake.post_ids = "PUBLISH_COMPLETE", [7234567890123456789, 1]
+    _later(monkeypatch, 2)
+    latest = client.get(f"/campaign/clips/{clip_id}/tiktok").json()
+    assert (latest["status"], latest["post_id"]) == ("published", "7234567890123456789")
+    assert latest["post_url"] == "https://www.tiktok.com/@clipvault.hq26/video/7234567890123456789"
+    calls = len(fake.calls(tiktok.STATUS_URL))
+    _later(monkeypatch, 10)
+    assert client.get(f"/campaign/clips/{clip_id}/tiktok").json()["status"] == "published"
+    assert len(fake.calls(tiktok.STATUS_URL)) == calls  # klar: ingen mer hämtning
+    assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["status"] == "godkand"
+
+
+def test_a_private_post_has_no_link_and_a_failed_one_is_done(client, settings, fake, monkeypatch) -> None:
+    _connect(settings, publish=True)
+    private, failing = _clip(settings), _clip(settings)
+    _direct(client, private)
+    fake.status = "PUBLISH_COMPLETE"
+    latest = client.get(f"/campaign/clips/{private}/tiktok").json()
+    assert (latest["status"], latest["post_id"], latest["post_url"]) == ("published", None, None)
+
+    _direct(client, failing)
+    fake.status = "FAILED"
+    latest = client.get(f"/campaign/clips/{failing}/tiktok").json()
+    assert latest["status"] == "failed" and "file_format_check_failed" in latest["error"]
+
+
+def test_no_post_url_without_a_username(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    fake.creator["creator_username"] = ""
+    clip_id = _clip(settings)
+    _direct(client, clip_id, privacy_level="FOLLOWER_OF_CREATOR")
+    fake.status, fake.post_ids = "PUBLISH_COMPLETE", [42]
+    latest = client.get(f"/campaign/clips/{clip_id}/tiktok").json()
+    assert (latest["post_id"], latest["post_url"]) == ("42", None)
+
+
+def test_a_draft_reads_as_before_with_the_new_fields(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    clip_id = _clip(settings)
+    response = client.post(f"/campaign/clips/{clip_id}/tiktok", json={"mode": "draft"})
+    assert (response.status_code, response.json()["status"]) == (202, "uploaded")
+    assert fake.calls(CREATOR) == [] and fake.calls(DIRECT) == []
+    latest = client.get(f"/campaign/clips/{clip_id}/tiktok").json()
+    assert (latest["mode"], latest["status"], latest["post_url"]) == ("draft", "uploaded", None)
+    assert client.post(f"/campaign/clips/{_clip(settings)}/tiktok", json={"mode": "annat"}).status_code == 422
+
+
+def test_an_old_uploads_table_gets_the_direct_post_columns(client, settings) -> None:
+    import sqlite3
+
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(settings.data_dir / "klipp.db") as db:
+        db.execute("""CREATE TABLE tiktok_uploads (id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER,
+            publish_id TEXT, status TEXT, error TEXT, created TEXT, checked TEXT, open_id TEXT)""")
+        db.execute("INSERT INTO tiktok_uploads (clip_id, publish_id, status, created, open_id) "
+                   "VALUES (1, 'p', 'uploaded', ?, 'o1')", (datetime.now(UTC).isoformat(),))
+    assert tiktok.TikTok(settings).pending_24h("o1") == 1  # gamla rader är utkast
+    with sqlite3.connect(settings.data_dir / "klipp.db") as db:
+        assert db.execute("SELECT mode, privacy_level, post_id FROM tiktok_uploads").fetchall() == [
+            ("draft", None, None)]
+
+
+def test_no_token_is_shown_by_direct_posting(client, settings, fake, monkeypatch) -> None:
+    _connect(settings, publish=True)
+    clip_id = _clip(settings)
+    answers = [client.get("/campaign/tiktok/accounts/o1/creator_info").text, _direct(client, clip_id).text,
+               client.get(f"/campaign/clips/{clip_id}/tiktok").text]
+    for text in answers:
         for secret in ("act.", "rft.", *KEYS):
             assert secret not in text
