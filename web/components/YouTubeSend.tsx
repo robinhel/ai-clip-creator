@@ -29,6 +29,7 @@ const bytes = (text: string) => new TextEncoder().encode(text).length;
 function uploadText(upload: YouTubeUpload): string {
   if (upload.status === "processed") return "Klar på YouTube.";
   if (upload.status === "failed") return `Misslyckades: ${upload.error ?? "okänt fel"}`;
+  if (upload.status === "uploading") return "Laddas upp…";
   return "YouTube behandlar videon.";
 }
 
@@ -66,13 +67,15 @@ function YouTubeDialog({ clip, channels, upload, onSent, onClose }: DialogProps)
           ? "Titeln får inte innehålla < eller >."
           : chars(title) > TITLE_MAX
             ? `Titeln får vara högst ${TITLE_MAX} tecken.`
-            : bytes(description) > DESCRIPTION_MAX
-              ? `Beskrivningen får vara högst ${DESCRIPTION_MAX} byte.`
-              : !privacy
-                ? "Välj vem som får se klippet."
-                : forKids === null
-                  ? "Svara om klippet är gjort för barn."
-                  : null;
+            : /[<>]/.test(description)
+              ? "Beskrivningen får inte innehålla < eller >."
+              : bytes(description) > DESCRIPTION_MAX
+                ? `Beskrivningen får vara högst ${DESCRIPTION_MAX} byte.`
+                : !privacy
+                  ? "Välj vem som får se klippet."
+                  : forKids === null
+                    ? "Svara om klippet är gjort för barn."
+                    : null;
 
   async function publish() {
     if (reason || !privacy || forKids === null) return;
@@ -132,15 +135,15 @@ function YouTubeDialog({ clip, channels, upload, onSent, onClose }: DialogProps)
           <div className="min-w-0 space-y-4">
             {result ? (
               <div className="space-y-3">
-                {result.status === "uploaded" && (
+                {(result.status === "uploading" || result.status === "uploaded") && (
                   <p role="status" className="rounded-lg border border-[#174a2a] bg-[#0d1a12] px-3 py-2 text-sm text-good">
                     {message}
                   </p>
                 )}
-                {result.status === "uploaded" && (
+                {(result.status === "uploading" || result.status === "uploaded") && (
                   <p className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="size-4 animate-spin" aria-hidden />
-                    Behandlas. Appen frågar YouTube var 10:e sekund.
+                    {result.status === "uploading" ? "Laddas upp." : "Behandlas."} Appen frågar YouTube var 10:e sekund.
                   </p>
                 )}
                 {result.status === "processed" && (
@@ -311,7 +314,8 @@ export function YouTubeSend({ clip, captionDirty, hasProblems, onUpdate }: Props
   }, [clip.id]);
 
   // Medan YouTube behandlar videon: fråga om läget var 10:e sekund, också efter ett misslyckat anrop.
-  const processing = upload?.status === "uploaded";
+  // Också uploading: servern gör en gammal uploading-rad till failed efter 10 min.
+  const processing = upload?.status === "uploading" || upload?.status === "uploaded";
   useEffect(() => {
     if (!processing) return;
     const timer = setTimeout(() => {
