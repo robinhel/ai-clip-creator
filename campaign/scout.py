@@ -25,6 +25,7 @@ import sys
 import threading
 import time
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -56,7 +57,8 @@ POSTS_FOR_MEDIAN = 20
 DEFAULT_CPM = 1.05
 MAX_MIN_VIEWS = 10_000
 
-LIMIT_TEXT = "ClippingAlpha tar inte emot fler anrop i dag utan inloggning. Bevakningen fortsätter i morgon."
+BLOCK_S = 3600  # efter ClippingAlphas -32001: försök igen om en timme (när deras dygn börjar är okänt)
+STOCKHOLM = ZoneInfo("Europe/Stockholm")
 OWN_LIMIT_TEXT = f"Dagens gräns på {CALL_LIMIT} anrop till ClippingAlpha är nådd. Bevakningen fortsätter i morgon."
 REF = re.compile(r"[a-z0-9][a-z0-9-]{0,99}/[a-z0-9][a-z0-9-]{0,99}")
 
@@ -77,6 +79,15 @@ _thread: list[threading.Thread] = []
 
 class ScoutError(Exception):
     """Fel med svensk text som visas i webben."""
+
+
+class LimitError(ScoutError):
+    """En gräns för anrop är nådd. Stoppar hela körningen, inte bara en kampanj."""
+
+
+def _limit_text(until: datetime) -> str:
+    return (f"ClippingAlpha tar inte emot fler anrop just nu. Bevakningen försöker igen kl. "
+            f"{until.astimezone(STOCKHOLM):%H:%M}.")
 
 
 class _SessionLost(Exception):
@@ -377,12 +388,11 @@ class Scout:
                 "SET calls = calls + excluded.calls WHERE calls + excluded.calls <= ?",
                 (_now().date().isoformat(), n, CALL_LIMIT)).rowcount == 1
         if not counted:
-            raise ScoutError(OWN_LIMIT_TEXT)
+            raise LimitError(OWN_LIMIT_TEXT)
 
-    def _block_today(self) -> None:
-        with self._db() as db:
-            db.execute("INSERT INTO scout_calls (day, calls) VALUES (?, ?) ON CONFLICT(day) DO UPDATE "
-                       "SET calls = max(calls, excluded.calls)", (_now().date().isoformat(), CALL_LIMIT))
+    def _blocked_until(self) -> datetime | None:
+        until = _time(self._get("blocked_until"))
+        return until if until and until > _now() else None
 
     def median(self) -> tuple[float, str]:
         """Robins medianvisningar per inlägg, eller rapportens 1 260 tills det finns 20 inlägg med visningar."""
@@ -398,6 +408,9 @@ class Scout:
     # ---------- MCP ----------
 
     def _post(self, http: httpx.Client, message: dict) -> dict | None:
+        until = self._blocked_until()
+        if until:  # ClippingAlpha har sagt nej nyss: inget anrop, inte heller från Kontrollera nu
+            raise LimitError(_limit_text(until))
         self._count()
         wait = MIN_GAP_S - (time.monotonic() - _last_call[0])
         if wait > 0:
@@ -414,8 +427,9 @@ class Scout:
         body = _body(response, message.get("id"))
         error = (body or {}).get("error")
         if isinstance(error, dict) and error.get("code") == -32001:
-            self._block_today()
-            raise ScoutError(LIMIT_TEXT)
+            until = _now() + timedelta(seconds=BLOCK_S)  # ett nytt nej skjuter fram spärren en timme till
+            self._put(blocked_until=_iso(until))
+            raise LimitError(_limit_text(until))
         if response.status_code == 404 and _session["id"]:
             raise _SessionLost
         if response.status_code >= 400:
@@ -462,7 +476,7 @@ class Scout:
             self._put(last_run=_iso(_now()))
             before = self.calls_today()
             self._run()
-            # Bara en lyckad körning: efter -32001 är räkningen satt till gränsen och säger inget om kostnaden.
+            # Bara en lyckad körning: en avbruten körning säger inget om vad en hel körning kostar.
             self._put(error=None, updated_at=_iso(_now()), last_cost=str(max(self.calls_today() - before, 1)))
         except ScoutError as error:
             log.warning("Kampanjbevakningen: %s", error)
@@ -527,7 +541,7 @@ class Scout:
                 fresh = {"campaign": self._tool(http, "get_campaign", {"campaign": ref}).get("campaign") or {},
                          "analytics": self._tool(http, "get_campaign_analytics", {"campaign": ref})}
             except ScoutError as error:
-                if str(error) in (LIMIT_TEXT, OWN_LIMIT_TEXT):
+                if isinstance(error, LimitError):
                     raise
                 # En trasig kampanj får inte stoppa de andra. Den får betyg från sökträffen och provas om 6 timmar.
                 log.warning("Kampanjbevakningen: detaljerna för %s: %s", ref, error)
@@ -586,7 +600,9 @@ class Scout:
         runs = (CALL_LIMIT - self.calls_today()) / float(self._get("last_cost") or 1)
         interval = left_s if runs < 1 else max(INTERVAL_S, left_s / runs)
         last = _time(self._get("last_run"))
-        return max(0.0, interval - ((now - last).total_seconds() if last else interval))
+        until = self._blocked_until()
+        return max(0.0, interval - ((now - last).total_seconds() if last else interval),
+                   (until - now).total_seconds() if until else 0.0)
 
     def ran_recently(self) -> bool:
         last = _time(self._get("last_run"))
