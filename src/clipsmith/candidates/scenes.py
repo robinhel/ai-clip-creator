@@ -23,7 +23,11 @@ def find_scene_cuts(
         "-vf", f"scale=320:-2,select='gt(scene,{threshold})',metadata=print:file=-",
         "-f", "null", "-",
     ]
-    out = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout  # nosec B603
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)  # nosec B603
+    if result.returncode != 0:  # a broken file gives no cuts; the other signals still run
+        log.warning("scene search failed for %s: %s", mp4.name, result.stderr.strip()[-300:])
+        return []
+    out = result.stdout
     cuts = [
         (round(float(t), 2), float(score))
         for t, score in re.findall(r"pts_time:(\S+)\s+lavfi\.scene_score=(\S+)", out)

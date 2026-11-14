@@ -187,6 +187,8 @@ def process_vod(
     candidates = build_candidates(
         chat, existing_clips, cfg.candidates, transcript=transcript, mp4_path=mp4_path
     )
+    # Scene and audio signals cover the whole video; keep only the chosen part.
+    candidates = [c for c in candidates if c.t_center >= start_s and (not end_s or c.t_center <= end_s)]
 
     if not candidates:
         log.info("no chat signals — falling back to evenly-spaced transcript samples")

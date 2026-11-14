@@ -37,8 +37,9 @@ needs earlier context to make sense. Prefer fewer, better clips.
 
 """
 
-# The answer's JSON and rules. A campaign's own instructions (llm.instructions) replace only the intro.
-ANSWER_FORMAT = f"""\
+# The answer's JSON and rules. A campaign's own instructions (llm.instructions) replace the intro and
+# _TRANSCRIPT_RULE.
+_ANSWER_HEAD = f"""\
 Respond ONLY with a valid JSON object matching this schema (no markdown, no extra text):
 {{
   "include": <bool>,           // true = make a clip, false = skip
@@ -51,13 +52,19 @@ Respond ONLY with a valid JSON object matching this schema (no markdown, no extr
 
 Rules:
 - Times are absolute VOD seconds. The transcript lines show offsets relative to the candidate center.
-- Choose start and end from what is said in the transcript. Do not just centre a fixed window.
+"""
+
+# Twitch only: a campaign's own instructions say how to choose start and end.
+_TRANSCRIPT_RULE = "- Choose start and end from what is said in the transcript. Do not just centre a fixed window.\n"
+
+_ANSWER_TAIL = """\
 - If include is false, still fill start_offset_s, end_offset_s and title_es with a best estimate.
 - score is one overall grade: how strong the hook is, how well the clip flows, and how likely it
   is to go viral on TikTok. 90+ is rare and exceptional, 50 is average, below 30 is weak.\
 """
 
-SYSTEM_PROMPT = _STREAM_INTRO + ANSWER_FORMAT
+ANSWER_FORMAT = _ANSWER_HEAD + _ANSWER_TAIL
+SYSTEM_PROMPT = _STREAM_INTRO + _ANSWER_HEAD + _TRANSCRIPT_RULE + _ANSWER_TAIL
 
 SYSTEM_PROMPT_V2 = f"""\
 You select moments from an English-language Twitch gaming stream for TikTok/Shorts/Reels.

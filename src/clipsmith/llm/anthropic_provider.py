@@ -91,8 +91,8 @@ class AnthropicProvider:
         """A text naming the frame times, then the frames, spread evenly over the candidate's window."""
         if not self._frames or self._video is None:
             return []
-        start = t_center - self._frame_span_s / 2
-        times = [max(0.0, start + self._frame_span_s * (i + 0.5) / self._frames) for i in range(self._frames)]
+        start = max(0.0, t_center - self._frame_span_s / 2)  # near the start the window moves, no repeats
+        times = [start + self._frame_span_s * (i + 0.5) / self._frames for i in range(self._frames)]
         shots = [(at, _frame(self._video, at)) for at in times]
         shots = [(at, data) for at, data in shots if data]  # a time after the end gives no frame
         if not shots:
