@@ -116,3 +116,58 @@ def test_a_moment_near_the_end_still_goes_to_claude_with_the_frames_that_exist(s
     assert provider.pick("(no transcript available for this window)", _candidate(58.0), "ctx") is not None
     images = [block for block in calls[0]["messages"][0]["content"] if block["type"] == "image"]
     assert len(images) == 2
+
+
+def test_an_ffmpeg_error_in_the_scene_search_gives_no_cuts_and_no_cache(tmp_path, monkeypatch) -> None:
+    from clipsmith.candidates import scenes
+
+    failed = subprocess.CompletedProcess([], 1, stdout="", stderr="moov atom not found\nInvalid data")
+    monkeypatch.setattr(scenes.subprocess, "run", lambda *a, **k: failed)
+    assert scenes.find_scene_cuts(tmp_path / "trasig.mp4", 0.3, cache_dir=tmp_path) == []
+    assert list(tmp_path.glob("scene_cuts_*.json")) == []
+
+
+def test_candidates_outside_start_and_end_are_dropped(tmp_path, monkeypatch) -> None:
+    from clipsmith import pipeline as cs_pipeline
+    from clipsmith.candidates.builder import load_candidates
+    from clipsmith.models.transcript import Segment, Transcript
+    from clipsmith.models.twitch import Video
+
+    vod = tmp_path / "vod"
+    vod.mkdir()
+    (vod / "vod.mp4").touch()
+    (vod / "transcript.json").write_text(Transcript(video_id="vod", language="en", segments=[
+        Segment(start=150.0, end=152.0, text="For Azeroth.", words=[])]).to_json(), encoding="utf-8")
+    (vod / "chat.json").write_text(ChatLog(video_id="vod", messages=[]).to_json(), encoding="utf-8")
+    cfg = load_config(PAKET / "config.blizzard_nordics.yaml").model_copy(update={"work_dir": tmp_path})
+    found = [_candidate(t) for t in (50.0, 99.0, 150.0, 199.0, 260.0)]  # scen- och ljudsignaler från hela videon
+    monkeypatch.setattr(cs_pipeline, "build_candidates", lambda *a, **k: list(found))
+    monkeypatch.setattr(cs_pipeline, "load_or_detect_webcam_rect", lambda *a: None)
+    video = Video(id="vod", user_id="", user_login="local", title="vod", created_at="", published_at="",
+                  url="", duration="", type="archive")
+    secrets = SimpleNamespace(twitch_client_id="", twitch_client_secret="")
+    cs_pipeline.process_vod(video, cfg, secrets, skip_download=True, skip_transcribe=True, skip_chat=True,
+                            skip_select=True, start_s=100.0, end_s=200.0)
+    assert [c.t_center for c in load_candidates(vod / "candidates.json")] == [150.0, 199.0]
+
+
+def test_blizzards_prompt_has_no_twitch_transcript_rule_and_asks_for_3_to_7_words() -> None:
+    from clipsmith.llm.prompts import get_system_prompt
+
+    cfg = load_config(PAKET / "config.blizzard_nordics.yaml")
+    system = get_system_prompt("v1", cfg.llm.instructions)
+    assert "what is said in the transcript" not in system
+    assert "3-10" not in system
+    assert "3-7 words" in cfg.llm.instructions
+
+
+def test_frames_near_the_start_move_the_window_instead_of_repeating_the_first_frame(settings, monkeypatch) -> None:
+    from clipsmith.llm import anthropic_provider
+
+    asked: list[float] = []
+    monkeypatch.setattr(anthropic_provider, "_frame", lambda video, at: asked.append(at) or b"jpeg")
+    monkeypatch.setattr("campaign.config.load_settings", lambda: settings)
+    provider = get_provider(load_config(PAKET / "config.blizzard_nordics.yaml"), KEY, video=Path("trailer.mp4"))
+    provider._frame_blocks(5.0)
+    assert len(set(asked)) == 4
+    assert min(asked) >= 0
