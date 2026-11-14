@@ -33,7 +33,8 @@ def _frame(video: Path, at: float, width: int = 512) -> bytes:
     """One small JPEG from the video at `at` seconds. Empty when the time is past the end."""
     cmd = ["ffmpeg", "-v", "error", "-ss", f"{at:.2f}", "-i", str(video), "-frames:v", "1",
            "-vf", f"scale={width}:-2", "-q:v", "5", "-f", "image2pipe", "-vcodec", "mjpeg", "-"]
-    return subprocess.run(cmd, capture_output=True, check=True).stdout  # nosec B603 — fixed args, own path
+    result = subprocess.run(cmd, capture_output=True, check=False)  # nosec B603 — fixed args, own path
+    return result.stdout if result.returncode == 0 else b""  # ffmpeg fails when at is past the end
 
 
 def _reason(exc: Exception) -> str:
