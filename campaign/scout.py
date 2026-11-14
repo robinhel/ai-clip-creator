@@ -43,6 +43,7 @@ BEST = {**BASE, "sort": "alpha", "limit": 25}
 CALL_LIMIT = 300  # per dygn (UTC); ClippingAlpha tar 500 utan inloggning
 MIN_GAP_S = 1.0  # högst ett anrop i sekunden
 INTERVAL_S = 600  # var 10:e minut
+STEP_S = 60  # tråden sover högst så länge innan den räknar om väntan
 BEST_EVERY_S = 3600  # sökningen på Alpha-betyg en gång i timmen
 DETAIL_MAX_AGE_S = 6 * 3600
 DETAILS_PER_RUN = 10  # högst 20 anrop per körning för detaljer
@@ -647,7 +648,12 @@ def _view(row: sqlite3.Row, now: datetime) -> dict:
 def _loop(settings: Settings) -> None:
     while True:
         try:
-            time.sleep(Scout(settings).wait_s())  # också vid start, så att en omstart inte kostar en extra körning
+            # Väntan räknas om mot väggklockan efter varje kort steg, också vid start. Den monotona klockan står
+            # still när Macen sover, och efter midnatt UTC finns nya anrop.
+            wait = Scout(settings).wait_s()
+            if wait > 0:
+                time.sleep(min(wait, STEP_S))
+                continue
             Scout(settings).run_once()
         except Exception:  # run_once fångar redan allt; det här är bara så att tråden aldrig dör
             log.exception("Kampanjbevakningen")
