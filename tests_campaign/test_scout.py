@@ -646,24 +646,47 @@ def test_the_wait_until_the_next_run_follows_the_calls_left(settings, monkeypatc
     assert s.wait_s() == pytest.approx(wait, abs=1)
 
 
-def test_the_thread_waits_before_its_first_run(settings, monkeypatch) -> None:
-    class Stop(BaseException):
-        pass
+class _Ran(BaseException):
+    pass
 
-    monkeypatch.setattr(scout, "_now", lambda: NOW)
-    s = scout.Scout(settings)
-    s._put(last_run=scout._iso(NOW - timedelta(seconds=240)), last_cost="1")
-    slept, ran = [], []
-    monkeypatch.setattr(scout.Scout, "run_once", lambda self: ran.append(1))
+
+def _run_loop(settings, monkeypatch, start: datetime, jump: timedelta = timedelta()) -> list[float]:
+    """Kör _loop med en fejkad väggklocka. Varje sömn flyttar klockan lika långt; den första också jump
+    (datorn sov). Fejkad run_once kastar _Ran, så att loopen slutar. Svaret är sömnstegen före körningen."""
+    clock = [start]
+    monkeypatch.setattr(scout, "_now", lambda: clock[0])
+    slept: list[float] = []
 
     def sleep(seconds):
         slept.append(seconds)
-        raise Stop
+        clock[0] += timedelta(seconds=seconds) + (jump if len(slept) == 1 else timedelta())
+        assert len(slept) < 200, "loopen kör aldrig"
+
+    def run_once(self):
+        raise _Ran
 
     monkeypatch.setattr(scout.time, "sleep", sleep)
-    with pytest.raises(Stop):
+    monkeypatch.setattr(scout.Scout, "run_once", run_once)
+    with pytest.raises(_Ran):
         scout._loop(settings)
-    assert ran == [] and slept == [pytest.approx(360, abs=1)]
+    return slept
+
+
+def test_the_thread_waits_before_its_first_run_in_short_steps(settings, monkeypatch) -> None:
+    monkeypatch.setattr(scout, "_now", lambda: NOW)
+    scout.Scout(settings)._put(last_run=scout._iso(NOW - timedelta(seconds=240)), last_cost="1")
+    assert _run_loop(settings, monkeypatch, NOW) == [60] * 6  # 360 s kvar, i steg om högst 60 s
+
+
+def test_the_thread_runs_right_after_midnight_even_if_the_mac_slept(settings, monkeypatch) -> None:
+    evening = datetime(2026, 11, 13, 22, 45, tzinfo=UTC)
+    monkeypatch.setattr(scout, "_now", lambda: evening)
+    s = scout.Scout(settings)
+    s._count(300)  # dagens gräns nådd: väntan är till midnatt UTC, cirka en timme
+    s._put(last_run="2026-11-13T22:29:51+00:00", last_cost="1")
+    assert s.wait_s() > 3500
+    # Datorn sover i två timmar under den första sömnen. Väggklockan går förbi midnatt.
+    assert _run_loop(settings, monkeypatch, evening, jump=timedelta(hours=2)) == [60]
 
 
 def test_a_run_saves_what_it_cost(settings, fake, monkeypatch) -> None:
