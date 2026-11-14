@@ -103,3 +103,16 @@ def test_scene_changes_give_candidates_in_a_video_without_speech_or_loud_sound(t
     assert build_candidates(chat, [], CandidatesConfig(audio_energy_enabled=False), mp4_path=mp4) == []
     assert load_config(PAKET / "config.blizzard_nordics.yaml").candidates.scene_enabled
     assert not load_config(PAKET / "config.timmy.yaml").candidates.scene_enabled
+
+
+@needs_ffmpeg
+def test_a_moment_near_the_end_still_goes_to_claude_with_the_frames_that_exist(settings, monkeypatch,
+                                                                              tmp_path) -> None:
+    mp4 = make_clip(tmp_path / "trailer.mp4", size="1920x1080", seconds=60)
+    monkeypatch.setattr("campaign.config.load_settings", lambda: settings)
+    provider = get_provider(load_config(PAKET / "config.blizzard_nordics.yaml"), KEY, video=mp4)
+    calls = _fake_claude(provider)
+    # Fönstret är 45 s runt 58 s: två av fyra rutor ligger efter slutet.
+    assert provider.pick("(no transcript available for this window)", _candidate(58.0), "ctx") is not None
+    images = [block for block in calls[0]["messages"][0]["content"] if block["type"] == "image"]
+    assert len(images) == 2
