@@ -411,22 +411,41 @@ def test_a_lost_session_is_started_again_once(settings, fake) -> None:
     assert scout.Scout(settings).overview()["error"] is None
 
 
-def test_the_limit_at_clippingalpha_stops_the_day(client, settings, fake, monkeypatch) -> None:
+def _blocked(settings) -> datetime | None:
+    return scout._time(scout.Scout(settings)._get("blocked_until"))
+
+
+def test_the_limit_at_clippingalpha_waits_an_hour_not_a_day(client, settings, fake, monkeypatch) -> None:
     fake.add("timmy/streams")
     fake.limit_reached = True
     scout.Scout(settings).run_once()  # dör inte
     answer = client.get("/campaign/scout").json()
-    assert "ClippingAlpha" in answer["error"] and "i morgon" in answer["error"]
-    assert answer["calls_today"] == 300
-    count = len(fake.requests)
+    # NOW är 12:00 UTC, alltså 13:00 i Stockholm i november
+    assert answer["error"] == "ClippingAlpha tar inte emot fler anrop just nu. Bevakningen försöker igen kl. 14:00."
+    assert answer["calls_today"] == 1  # bara anropet som faktiskt gjordes (initialize)
+    assert _blocked(settings) == NOW + timedelta(hours=1)
+    assert scout.Scout(settings).wait_s() == pytest.approx(3600, abs=1)
+
+    _later(monkeypatch, minutes=30)  # till exempel Kontrollera nu: inga anrop medan spärren gäller
+    assert scout.Scout(settings).wait_s() == pytest.approx(1800, abs=1)
     scout.Scout(settings).run_once()
-    assert len(fake.requests) == count  # inga fler anrop i dag
+    assert len(fake.requests) == 1
+    assert scout.Scout(settings).calls_today() == 1
+
+    _later(monkeypatch, minutes=61)  # spärren har gått ut, men ClippingAlpha säger nej igen
+    assert scout.Scout(settings).wait_s() == 0
+    scout.Scout(settings).run_once()
+    assert _blocked(settings) == NOW + timedelta(minutes=121)
+    assert client.get("/campaign/scout").json()["error"].endswith("kl. 15:01.")
+    assert scout.Scout(settings).calls_today() == 2
 
     fake.limit_reached = False
-    _later(monkeypatch, days=1)
+    _later(monkeypatch, minutes=122)
+    assert scout.Scout(settings).wait_s() == 0
     scout.Scout(settings).run_once()
     answer = client.get("/campaign/scout").json()
-    assert (answer["error"], answer["calls_today"]) == (None, 6)
+    assert (answer["error"], answer["calls_today"]) == (None, 8)
+    assert [c["ref"] for c in answer["campaigns"]] == ["timmy/streams"]
 
 
 def test_our_own_limit_of_300_calls_a_day(settings, fake, monkeypatch) -> None:
@@ -615,7 +634,8 @@ def test_the_limit_inside_the_details_still_stops_the_run(settings, fake) -> Non
     fake.limit_at = "get_campaign"
     scout.Scout(settings).run_once()
     overview = scout.Scout(settings).overview()
-    assert overview["error"] == scout.LIMIT_TEXT and overview["calls_today"] == 300
+    assert overview["error"].startswith("ClippingAlpha tar inte emot fler anrop just nu.")
+    assert overview["calls_today"] == 5  # initialize, initialized, två sökningar och get_campaign
     assert len(fake.calls("tools/call", "get_campaign")) == 1  # nästa kampanj provas inte
 
 
