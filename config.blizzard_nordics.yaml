@@ -75,7 +75,7 @@ llm:
     When someone speaks, also choose start and end from what is said.
 
     title_es becomes the first line of the post's caption. Write it in English, as a real fan would:
-    3-10 words, true to what the clip shows. No hashtags, no invented facts, numbers or dates.
+    3-7 words, true to what the clip shows. No hashtags, no invented facts, numbers or dates.
     The game is out now: never write "coming soon". Do not call it gameplay unless it is gameplay.
 
     Add the field "format" to your JSON with the id that fits the clip best:
