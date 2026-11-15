@@ -230,7 +230,8 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
                 className="h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand"
               />
               <span className="block text-xs text-muted-foreground">
-                Ny rubrik ger ny caption från kampanjens mall. En caption du har skrivit själv behålls.
+                Ny rubrik ger ny caption från kampanjens mall. En caption du har skrivit själv behålls. Kräver
+                kampanjen ingen egen text, står rubriken också överst i klippet de första sekunderna.
               </span>
             </label>
 
