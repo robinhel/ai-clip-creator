@@ -355,3 +355,36 @@ def test_no_calibration_for_one_clip_or_in_legacy() -> None:
         _cfg(selection_mode="legacy"),
     )  # type: ignore[arg-type]
     assert one.ranked == [] and legacy.ranked == []
+
+
+class _Payoff(_Fixed):
+    def pick(self, tw: str, c: CandidateMoment, sc: str) -> ClipPick:
+        pick = super().pick(tw, c, sc)
+        pick.payoff_start_s, pick.payoff_end_s = 104.6, 125.0
+        return pick
+
+
+def test_v2_snap_never_cuts_the_payoff() -> None:
+    # nearest borders are 105 and 118, but the payoff runs 104.6-125
+    picks = select_clips(
+        [_candidate(110.0)],
+        _sentences(),
+        _Payoff(104.5, 119.0),
+        "ctx",
+        _cfg(min_seconds=10, max_seconds=30),
+    )  # type: ignore[arg-type]
+    assert picks[0].pick.start_offset_s == pytest.approx(100.0)
+    assert picks[0].pick.end_offset_s == pytest.approx(130.0)
+
+
+def test_calibration_with_the_wrong_number_of_scores_keeps_the_first_scores(caplog) -> None:
+    picker = _Ranker([91])
+    picks = select_clips(
+        [_candidate(300.0, 80.0), _candidate(500.0, 60.0)],
+        _make_transcript_with_content(),
+        picker,
+        "ctx",
+        _cfg(),
+    )  # type: ignore[arg-type]
+    assert [p.pick.score for p in picks] == [0, 0]
+    assert "rank" in caplog.text

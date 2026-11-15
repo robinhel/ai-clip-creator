@@ -101,3 +101,31 @@ def test_get_provider_passes_the_selection_mode(monkeypatch) -> None:
     cfg.clip.selection_mode = "legacy"
     provider = get_provider(cfg, SimpleNamespace(anthropic_api_key="k"))
     assert provider._system_prompt == SYSTEM_PROMPT  # type: ignore[attr-defined]
+
+
+def test_v2_without_subscores_keeps_claudes_score(tmp_path) -> None:
+    answer = {k: v for k, v in _ANSWER.items() if k not in ("hook", "engagement", "value", "shareability")}
+    provider, _ = _provider(tmp_path, {**answer, "score": 70})
+    pick = provider.pick("text", _candidate(), "ctx")
+    assert pick is not None and pick.score == 70
+
+
+def test_a_subscore_that_is_not_a_number_becomes_0(tmp_path) -> None:
+    provider, _ = _provider(tmp_path, {**_ANSWER, "hook": "high"})
+    pick = provider.pick("text", _candidate(), "ctx")
+    assert pick is not None and pick.hook == 0 and pick.score == 53
+
+
+def test_rank_sends_one_line_per_clip(tmp_path) -> None:
+    provider, _ = _provider(tmp_path, {"scores": [50, 60]})
+    provider.rank(["Big\nplay | starts: so\nthen", "B"], "ctx")
+    text = provider._client.messages.create.call_args.kwargs["messages"][0]["content"][0]["text"]
+    assert "1. Big play | starts: so then\n2. B" in text
+
+
+def test_v2_stream_context_names_the_field_title() -> None:
+    from clipsmith.llm.prompts import build_stream_context, get_system_prompt
+
+    ctx = build_stream_context("timmy", "t", "1h", language="sv", mode="v2")
+    assert "Write title in sv" in ctx and "title_es" not in ctx
+    assert "title_es" not in get_system_prompt("v1", "", mode="v2")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import re
 
 import pytest
 from helpers import _seg, _transcript, _word
@@ -259,8 +260,14 @@ def _margin_v(ass: str) -> int:
     return int(style.split(",")[-2])
 
 
-def test_captions_sit_above_the_bottom_safe_zone() -> None:
-    assert _margin_v(_render_ass([], _cfg())) == int(1920 * 0.20)
+def test_box_captions_sit_above_the_bottom_safe_zone() -> None:
+    assert _margin_v(_render_ass([], _cfg(style="box"))) == int(1920 * 0.20)
+
+
+def test_outline_captions_keep_the_old_placement() -> None:
+    assert _margin_v(_render_ass([], _cfg())) == 80
+    stacked = ReframeConfig(mode="stacked", split_ratio=0.4)
+    assert _margin_v(_render_ass([], _cfg(), stacked)) == 80
 
 
 def test_stacked_captions_sit_on_the_seam() -> None:
@@ -281,3 +288,37 @@ def test_write_ass_uses_reframe_for_placement(tmp_path) -> None:
     ass = out.read_text(encoding="utf-8-sig")
     assert _margin_v(ass) == int(1920 * 0.5 - 72 / 2)
     assert "HEJ" in ass
+
+
+def _plain_lines(lines: list[tuple[float, float, str]]) -> list[str]:
+    return list(dict.fromkeys(re.sub(r"{[^}]*}", "", t) for _, _, t in lines))
+
+
+def test_box_lines_fit_the_width_and_a_long_word_stands_alone() -> None:
+    words = [
+        _word(300.0, 300.3, "unbelievable"),
+        _word(300.4, 300.7, "absolutely"),
+        _word(300.8, 301.1, "a"),
+        _word(301.2, 301.5, "supercalifragilistic"),
+        _word(301.6, 301.9, "b"),
+    ]
+    t = _transcript(_seg(300.0, 301.9, "x", words))
+    lines = _plain_lines(_caption_lines(t, 300.0, 310.0, style="box"))
+    assert lines == ["UNBELIEVABLE", "ABSOLUTELY A", "SUPERCALIFRAGILISTIC", "B"]
+
+
+@pytest.mark.parametrize("style", ["box", "outline"])
+def test_braces_and_backslashes_are_removed_from_words(style: str) -> None:
+    t = _transcript(_seg(300.0, 300.3, "x", [_word(300.0, 300.3, "a{b}\\c")]))
+    text = _caption_lines(t, 300.0, 310.0, style=style)[0][2]
+    assert re.sub(r"{\\(kf|3a)[^}]*}", "", text).upper() == "ABC"
+    fallback = _caption_lines(_transcript(_seg(300.0, 301.0, "a{b}\\c")), 300.0, 310.0, style=style)
+    assert fallback[0][2].upper() == "ABC"
+
+
+def test_box_colour_must_be_an_ass_colour() -> None:
+    from pydantic import ValidationError
+
+    assert CaptionConfig(box_colour="&H0000d7ff").box_colour == "&H0000d7ff"
+    with pytest.raises(ValidationError):
+        CaptionConfig(box_colour="&H00FF}{\\b1")

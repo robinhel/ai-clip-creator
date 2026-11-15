@@ -117,3 +117,29 @@ def test_finish_vod_sends_the_pick_title(setup, settings, monkeypatch) -> None: 
     profile = load_profile("skiimasktimmy", settings.profiles_dir)
     workflow.finish_vod("123", profile, settings, log, game="Bodycam", review=False)
     assert titles == ["No way"]
+
+
+def test_control_characters_in_the_title_become_spaces(blizzard) -> None:
+    graph = build_filter(blizzard, has_overlay=False, has_audio=False, font=None, title="Huge\x00clutch\nnow")
+    assert "\x00" not in graph and "\n" not in graph
+    assert "Huge clutch now" in graph
+
+
+@needs_ffmpeg
+def test_no_hook_from_the_file_name_when_there_is_no_title(setup, settings, monkeypatch) -> None:  # noqa: F811
+    from campaign import workflow
+
+    _client, log, clip_id = setup
+    titles = []
+    real = workflow.finish_clip
+
+    def spy(*args, **kwargs):
+        titles.append(kwargs.get("title"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(workflow, "finish_clip", spy)
+    monkeypatch.setattr(workflow, "load_picks", lambda path: [{}])
+    log.update(clip_id, status="underkand")
+    profile = load_profile("skiimasktimmy", settings.profiles_dir)
+    workflow.finish_vod("123", profile, settings, log, game="Bodycam", review=False)
+    assert titles == [""]
