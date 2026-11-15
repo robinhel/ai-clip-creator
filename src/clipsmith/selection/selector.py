@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 
 from ..llm.base import ClipPick, ClipPicker, LLMUnavailable
 from ..models.candidates import CandidateMoment
-from ..models.transcript import Transcript
+from ..models.transcript import Transcript, Word
 from ..settings import ClipConfig
 
 log = logging.getLogger(__name__)
@@ -16,6 +16,8 @@ log = logging.getLogger(__name__)
 # Seconds of transcript to send before/after the candidate center.
 WINDOW_PRE_S = 60.0
 WINDOW_POST_S = 30.0
+# A sentence border further than this from Claude's time is not the one Claude meant.
+SNAP_MAX_S = 8.0
 
 
 @dataclass
@@ -76,6 +78,8 @@ def select_clips(
         min_gap_s=config.min_clip_gap_s,
         max_n=max_candidates,
     )
+    v2 = config.selection_mode == "v2"
+    borders = _sentence_borders(transcript) if v2 else ([], [])
     picks: list[PickResult] = []
     picked_centers: set[float] = set()
     asked = failed = 0
@@ -114,13 +118,13 @@ def select_clips(
             log.debug("LLM rejected t=%.1f: %s", candidate.t_center, pick.reason)
             continue
 
-        pick = _clamp_duration(pick, config)
+        pick = _snap_to_sentences(pick, borders, config) if v2 else _clamp_duration(pick, config)
         log.info(
             "  accepted: [%.1f-%.1f] (%.1fs) - %s",
             pick.start_offset_s,
             pick.end_offset_s,
             pick.duration_s,
-            pick.title_es.encode("ascii", "replace").decode("ascii"),
+            pick.title.encode("ascii", "replace").decode("ascii"),
         )
         picks.append(PickResult(candidate=candidate, pick=pick))
         picked_centers.add(candidate.t_center)
@@ -129,6 +133,8 @@ def select_clips(
         raise LLMUnavailable(
             f"Claude svarade inte: inget av {asked} svar gick att läsa. Kör igen när det fungerar."
         )
+    if v2:
+        _calibrate(picks, transcript, picker, stream_context)
 
     # Fallback: if LLM was too strict, force-accept top candidates to meet min_picks.
     if len(picks) < min_picks and top:
@@ -158,7 +164,7 @@ def select_clips(
                 include=True,
                 start_offset_s=start_s,
                 end_offset_s=end_s,
-                title_es="Momento destacado",
+                title="Momento destacado",
                 reason="Force-accepted: LLM accepted fewer than min_picks candidates.",
             )
             forced_pick = _clamp_duration(forced_pick, config)
@@ -191,6 +197,70 @@ def _extract_transcript_window(transcript: Transcript, t_center: float) -> str:
     if not lines:
         return "(no transcript available for this window)"
     return "\n".join(lines)
+
+
+def _sentence_borders(transcript: Transcript) -> tuple[list[float], list[float]]:
+    """Times where sentences start and end, from the words' punctuation. A segment without words
+    counts as one word."""
+    starts: list[float] = []
+    ends: list[float] = []
+    sentence_done = True
+    for seg in transcript.segments:
+        for word in seg.words or [Word(seg.start, seg.end, seg.text, 1.0)]:
+            if sentence_done:
+                starts.append(word.start)
+            sentence_done = word.word.strip().rstrip("\"')]").endswith((".", "!", "?", "…"))
+            if sentence_done:
+                ends.append(word.end)
+    return starts, ends
+
+
+def _nearest(times: list[float], t: float) -> float | None:
+    near = [x for x in times if abs(x - t) <= SNAP_MAX_S]
+    return min(near, key=lambda x: abs(x - t), default=None)
+
+
+def _snap_to_sentences(
+    pick: ClipPick, borders: tuple[list[float], list[float]], config: ClipConfig
+) -> ClipPick:
+    """Move the start to the nearest sentence start and the end to the nearest sentence end that
+    keeps the length within limits. No border nearby: the time stays. Then clamp as before."""
+    starts, ends = borders
+    start = _nearest(starts, pick.start_offset_s)
+    if start is not None:
+        pick.start_offset_s = start
+    fits = [e for e in ends if config.min_seconds <= e - pick.start_offset_s <= config.max_seconds]
+    end = _nearest(fits, pick.end_offset_s)
+    if end is not None:
+        pick.end_offset_s = end
+    return _clamp_duration(pick, config)
+
+
+def _calibrate(
+    picks: list[PickResult], transcript: Transcript, picker: ClipPicker, stream_context: str
+) -> None:
+    """One extra call where Claude compares the VOD's accepted clips, so a score means the same in
+    every VOD. Skipped for a picker without rank (OpenAI, Ollama) and for fewer than two clips."""
+    rank = getattr(picker, "rank", None)
+    if rank is None or len(picks) < 2:
+        return
+    lines = []
+    for result in picks:
+        p = result.pick
+        said = " ".join(
+            seg.text.strip()
+            for seg in transcript.segments
+            if seg.start < p.end_offset_s and seg.end > p.start_offset_s
+        )
+        lines.append(
+            f"{p.title} | hook {p.hook}, engagement {p.engagement}, value {p.value}, "
+            f"shareability {p.shareability}, total {p.score} | starts: {said[:300]}"
+        )
+    scores = rank(lines, stream_context)
+    if scores is None:
+        return
+    for result, score in zip(picks, scores, strict=True):
+        result.pick.score = score
 
 
 def _clamp_duration(pick: ClipPick, config: ClipConfig) -> ClipPick:

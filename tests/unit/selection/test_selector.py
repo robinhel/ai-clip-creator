@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
-
 from helpers import _seg, _transcript
+
 from clipsmith.llm.base import ClipPick, LLMUnavailable
 from clipsmith.llm.prompts import build_stream_context
 from clipsmith.models.candidates import CandidateMoment
@@ -204,25 +204,38 @@ def test_build_stream_context_says_focus_and_target_length() -> None:
 
 def test_select_clips_skips_a_moment_without_speech_by_default() -> None:
     picker = _AcceptAll()
-    picks = select_clips([_candidate(5000.0)], _make_transcript_with_content(), picker, "ctx", ClipConfig())  # type: ignore[arg-type]
+    picks = select_clips(
+        [_candidate(5000.0)], _make_transcript_with_content(), picker, "ctx", ClipConfig()
+    )  # type: ignore[arg-type]
     assert picks == []
     assert picker.calls == []
 
 
 # ── v2: whole sentences and calibration ──────────────────────────────────────
 
-from helpers import _word  # noqa: E402
+from helpers import _word
 
 
 def _sentences() -> object:
     # Three sentences: 100-104, 105-118, 119-130
     return _transcript(
-        _seg(100.0, 118.0, " So the boss is here. Watch this, I am going to solo him right now!", [
-            _word(100.0, 100.5, "So"), _word(100.5, 101.0, "the"), _word(101.0, 101.5, "boss"),
-            _word(101.5, 102.0, "is"), _word(102.0, 104.0, "here."),
-            _word(105.0, 106.0, "Watch"), _word(106.0, 107.0, "this,"), _word(107.0, 110.0, "I"),
-            _word(110.0, 115.0, "am"), _word(115.0, 118.0, "now!"),
-        ]),
+        _seg(
+            100.0,
+            118.0,
+            " So the boss is here. Watch this, I am going to solo him right now!",
+            [
+                _word(100.0, 100.5, "So"),
+                _word(100.5, 101.0, "the"),
+                _word(101.0, 101.5, "boss"),
+                _word(101.5, 102.0, "is"),
+                _word(102.0, 104.0, "here."),
+                _word(105.0, 106.0, "Watch"),
+                _word(106.0, 107.0, "this,"),
+                _word(107.0, 110.0, "I"),
+                _word(110.0, 115.0, "am"),
+                _word(115.0, 118.0, "now!"),
+            ],
+        ),
         _seg(119.0, 130.0, " No way.", [_word(119.0, 125.0, "No"), _word(125.0, 130.0, "way.")]),
     )
 
@@ -232,34 +245,60 @@ class _Fixed:
         self.start, self.end, self.score = start, end, score
 
     def pick(self, tw: str, c: CandidateMoment, sc: str) -> ClipPick:
-        return ClipPick(include=True, start_offset_s=self.start, end_offset_s=self.end,
-                        title="T", reason="r", score=self.score)
+        return ClipPick(
+            include=True,
+            start_offset_s=self.start,
+            end_offset_s=self.end,
+            title="T",
+            reason="r",
+            score=self.score,
+        )
 
 
 def test_v2_moves_start_and_end_to_the_nearest_sentence_borders() -> None:
-    picks = select_clips([_candidate(110.0)], _sentences(), _Fixed(106.5, 127.0), "ctx",
-                         _cfg(min_seconds=10, max_seconds=30))  # type: ignore[arg-type]
+    picks = select_clips(
+        [_candidate(110.0)],
+        _sentences(),
+        _Fixed(106.5, 127.0),
+        "ctx",
+        _cfg(min_seconds=10, max_seconds=30),
+    )  # type: ignore[arg-type]
     assert picks[0].pick.start_offset_s == pytest.approx(105.0)
     assert picks[0].pick.end_offset_s == pytest.approx(130.0)
 
 
 def test_v2_end_border_must_keep_the_clip_length_within_limits() -> None:
     # nearest end 118 would give 13 s; min is 20, so the end goes to 130 (7 s away) instead
-    picks = select_clips([_candidate(110.0)], _sentences(), _Fixed(105.0, 123.0), "ctx",
-                         _cfg(min_seconds=20, max_seconds=30))  # type: ignore[arg-type]
+    picks = select_clips(
+        [_candidate(110.0)],
+        _sentences(),
+        _Fixed(105.0, 123.0),
+        "ctx",
+        _cfg(min_seconds=20, max_seconds=30),
+    )  # type: ignore[arg-type]
     assert picks[0].pick.end_offset_s == pytest.approx(130.0)
 
 
 def test_v2_no_border_nearby_leaves_the_times_and_clamps() -> None:
-    picks = select_clips([_candidate(300.0)], _sentences(), _Fixed(290.0, 350.0), "ctx",
-                         _cfg(min_seconds=10, max_seconds=30, ask_without_speech=True))  # type: ignore[arg-type]
+    picks = select_clips(
+        [_candidate(300.0)],
+        _sentences(),
+        _Fixed(290.0, 350.0),
+        "ctx",
+        _cfg(min_seconds=10, max_seconds=30, ask_without_speech=True),
+    )  # type: ignore[arg-type]
     assert picks[0].pick.start_offset_s == pytest.approx(290.0)
     assert picks[0].pick.duration_s == pytest.approx(30.0)
 
 
 def test_legacy_keeps_the_times_claude_gave() -> None:
-    picks = select_clips([_candidate(110.0)], _sentences(), _Fixed(106.5, 127.0), "ctx",
-                         _cfg(min_seconds=10, max_seconds=30, selection_mode="legacy"))  # type: ignore[arg-type]
+    picks = select_clips(
+        [_candidate(110.0)],
+        _sentences(),
+        _Fixed(106.5, 127.0),
+        "ctx",
+        _cfg(min_seconds=10, max_seconds=30, selection_mode="legacy"),
+    )  # type: ignore[arg-type]
     assert (picks[0].pick.start_offset_s, picks[0].pick.end_offset_s) == (106.5, 127.0)
 
 
@@ -280,8 +319,13 @@ class _Ranker(_AcceptAll):
 
 def test_v2_calibrates_the_accepted_clips_in_one_extra_call() -> None:
     picker = _Ranker([91, 40])
-    picks = select_clips([_candidate(300.0, 80.0), _candidate(500.0, 60.0)],
-                         _make_transcript_with_content(), picker, "ctx", _cfg())  # type: ignore[arg-type]
+    picks = select_clips(
+        [_candidate(300.0, 80.0), _candidate(500.0, 60.0)],
+        _make_transcript_with_content(),
+        picker,
+        "ctx",
+        _cfg(),
+    )  # type: ignore[arg-type]
     assert len(picker.ranked) == 1 and len(picker.ranked[0]) == 2
     assert "Primer candidato" in picker.ranked[0][0]  # Claude sees what is said in the clip
     assert [p.pick.score for p in picks] == [91, 40]
@@ -289,8 +333,13 @@ def test_v2_calibrates_the_accepted_clips_in_one_extra_call() -> None:
 
 def test_failed_calibration_keeps_the_first_scores() -> None:
     picker = _Ranker(None)
-    picks = select_clips([_candidate(300.0, 80.0), _candidate(500.0, 60.0)],
-                         _make_transcript_with_content(), picker, "ctx", _cfg())  # type: ignore[arg-type]
+    picks = select_clips(
+        [_candidate(300.0, 80.0), _candidate(500.0, 60.0)],
+        _make_transcript_with_content(),
+        picker,
+        "ctx",
+        _cfg(),
+    )  # type: ignore[arg-type]
     assert [p.pick.score for p in picks] == [0, 0]
 
 
@@ -298,6 +347,11 @@ def test_no_calibration_for_one_clip_or_in_legacy() -> None:
     one = _Ranker([99])
     select_clips([_candidate(300.0)], _make_transcript_with_content(), one, "ctx", _cfg())  # type: ignore[arg-type]
     legacy = _Ranker([99, 98])
-    select_clips([_candidate(300.0, 80.0), _candidate(500.0, 60.0)], _make_transcript_with_content(),
-                 legacy, "ctx", _cfg(selection_mode="legacy"))  # type: ignore[arg-type]
+    select_clips(
+        [_candidate(300.0, 80.0), _candidate(500.0, 60.0)],
+        _make_transcript_with_content(),
+        legacy,
+        "ctx",
+        _cfg(selection_mode="legacy"),
+    )  # type: ignore[arg-type]
     assert one.ranked == [] and legacy.ranked == []
