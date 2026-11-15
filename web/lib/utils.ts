@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import type { CampaignClip, Platform } from "./types"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -40,3 +41,6 @@ export const usd = new Intl.NumberFormat("sv-SE", { style: "currency", currency:
 
 /** Händelse när ett klipp har ändrats, så att sidomenyns siffror läses om. */
 export const SUMMARY_CHANGED = "klipp:summary-changed"
+
+/** Kampanjen postar på plattformen. Äldre servrar skickar inte platforms: då alla. */
+export const allows = (clip: CampaignClip, platform: Platform) => !clip.platforms || clip.platforms.includes(platform)

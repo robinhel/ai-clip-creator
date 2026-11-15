@@ -46,9 +46,10 @@ export function ClipPosts({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (c
       .catch(() => setHelper(false));
   }, []);
 
-  // Tiden kvar räknas om varje minut.
+  // Tiden kvar räknas om varje minut, och direkt när ett inlägg börjar vänta.
   useEffect(() => {
     if (!helper || !waiting) return;
+    setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(timer);
   }, [helper, waiting]);
