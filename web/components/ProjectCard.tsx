@@ -47,7 +47,7 @@ export function ProjectCard({ run }: { run: CampaignRunInfo }) {
             className={`h-full w-full object-cover ${active ? "grayscale-[.6]" : ""}`}
           />
         ) : (
-          <div className="grid h-full place-items-center text-sm text-muted-foreground tabular-nums">
+          <div className="grid h-full place-items-center px-3 text-center text-sm break-all text-muted-foreground tabular-nums">
             VOD {run.vod_id}
           </div>
         )}
