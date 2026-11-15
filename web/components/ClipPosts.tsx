@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { ExternalLink, Plus, Send } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, Clock, Copy, ExternalLink, Plus, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -17,6 +17,10 @@ const BACK: Partial<Record<PostStatus, PostStatus>> = {
   betald: "inskickad",
 };
 
+// Content Rewards tar bara emot ett inlägg inom 30 minuter efter att det publicerats.
+const WINDOW_MS = 30 * 60_000;
+const stockholm = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit" });
+
 /** Klippets inlägg, ett per plattform, och ett formulär för att lägga till fler. */
 export function ClipPosts({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (clip: CampaignClip) => void }) {
   const posts = clip.posts ?? [];
@@ -28,6 +32,43 @@ export function ClipPosts({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (c
   const [adding, setAdding] = useState(false);
   const [platform, setPlatform] = useState<Platform | "">("");
   const [url, setUrl] = useState("");
+  // Hjälpen att skicka in. Av tills servern har svarat, och av hos äldre servrar: då är allt som förut.
+  const [helper, setHelper] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const [asked, setAsked] = useState<number | null>(null);
+  const [helpNote, setHelpNote] = useState<string | null>(null);
+  const waiting = posts.some((p) => p.status === "postad");
+
+  useEffect(() => {
+    api.campaign.preferences
+      .get()
+      .then((p) => setHelper(p.submit_helper))
+      .catch(() => setHelper(false));
+  }, []);
+
+  // Tiden kvar räknas om varje minut.
+  useEffect(() => {
+    if (!helper || !waiting) return;
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, [helper, waiting]);
+
+  async function openRewards(post: ClipPost, rewardsUrl: string) {
+    setHelpNote(null);
+    // Kopieringen startar medan sidan har fokus (Chrome nekar annars), sedan öppnas fliken.
+    const copying = navigator.clipboard.writeText(post.url);
+    const tab = window.open(rewardsUrl, "_blank");
+    if (tab) tab.opener = null;
+    let copied = true;
+    try {
+      await copying;
+    } catch {
+      copied = false;
+    }
+    setAsked(post.id);
+    if (!copied) setHelpNote("Webbläsaren lät inte appen kopiera länken. Kopiera den från raden ovanför.");
+    else if (!tab) setHelpNote("Webbläsaren stoppade den nya fliken. Länken är kopierad; öppna kampanjen i Content Rewards själv.");
+  }
 
   /** true när servern sparade. */
   async function run(call: () => Promise<CampaignClip>): Promise<boolean> {
@@ -98,10 +139,46 @@ export function ClipPosts({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (c
                 <ExternalLink className="size-3.5 shrink-0" aria-hidden />
               </a>
             )}
+            {helper && post.status === "postad" && editing !== post.id && (() => {
+              const deadline = Date.parse(post.created) + WINDOW_MS;
+              const left = Math.ceil((deadline - now) / 60_000);
+              return (
+                <div data-submit-help className="space-y-2 rounded-lg border border-line bg-background p-2.5">
+                  {left > 0 ? (
+                    <p className="flex items-center gap-1.5 text-[13px] tabular-nums">
+                      <Clock className="size-3.5 shrink-0 text-brand" aria-hidden />
+                      Skicka in före kl. {stockholm.format(deadline)} ({left} min kvar)
+                    </p>
+                  ) : (
+                    <p className="flex items-start gap-1.5 rounded-lg border border-[#3a3018] px-2.5 py-1.5 text-[13px] text-warn/80">
+                      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                      Mer än 30 minuter har gått. Content Rewards tar troligen inte emot inlägget.
+                    </p>
+                  )}
+                  {clip.content_rewards_url ? (
+                    <Button size="sm" disabled={busy} onClick={() => openRewards(post, clip.content_rewards_url!)}>
+                      <Copy aria-hidden />
+                      Kopiera länken och öppna Content Rewards
+                    </Button>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Länken till kampanjen i Content Rewards saknas.</p>
+                  )}
+                  {asked === post.id && (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
+                      <span>Gick inskicket igenom?</span>
+                      <Button size="sm" variant="outline" disabled={busy} onClick={() => run(() => api.campaign.posts.patch(post.id, { status: "inskickad" }))}>
+                        Ja, markera inskickad
+                      </Button>
+                    </div>
+                  )}
+                  {asked === post.id && helpNote && <p className="text-xs text-muted-foreground">{helpNote}</p>}
+                </div>
+              );
+            })()}
             {editing !== post.id && (
               <div className="flex flex-wrap gap-x-3 gap-y-1.5">
                 {post.status === "postad" && (
-                  <Button size="sm" disabled={busy} onClick={() => run(() => api.campaign.posts.patch(post.id, { status: "inskickad" }))}>
+                  <Button size="sm" variant={helper ? "outline" : "default"} disabled={busy} onClick={() => run(() => api.campaign.posts.patch(post.id, { status: "inskickad" }))}>
                     <Send aria-hidden />
                     Inskickad i Content Rewards
                   </Button>

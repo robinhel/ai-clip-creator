@@ -37,6 +37,9 @@ const SUBSCORES: [keyof ClipSubscores, string][] = [
   ["shareability", "Delbarhet"],
 ];
 
+/** Kampanjen postar på plattformen. Äldre servrar skickar inte platforms: då alla. */
+export const allows = (clip: CampaignClip, platform: Platform) => !clip.platforms || clip.platforms.includes(platform);
+
 /** Färg efter betyg, som i skissen: grönt från 80, gult från 60. */
 export function scoreTone(score: number | null): string {
   if (score == null) return "text-muted-foreground";
@@ -595,10 +598,10 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
           </>
         )}
 
-        {clip.status === "godkand" && (
+        {clip.status === "godkand" && allows(clip, "tiktok") && (
           <TikTokSend clip={clip} captionDirty={captionDirty} hasProblems={hasProblems} onUpdate={onUpdate} />
         )}
-        {clip.status === "godkand" && (
+        {clip.status === "godkand" && allows(clip, "youtube_shorts") && (
           <YouTubeSend clip={clip} captionDirty={captionDirty} hasProblems={hasProblems} onUpdate={onUpdate} />
         )}
         {clip.status === "godkand" && (

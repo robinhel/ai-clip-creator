@@ -16,6 +16,7 @@ import type {
   ClipPostPatch,
   ClipTranscript,
   Platform,
+  Preferences,
   Rect,
   ReframeInfo,
   Run,
@@ -50,6 +51,9 @@ const FIELD_LABEL: Record<string, string> = {
   caption: "captionen",
   title: "titeln",
 };
+
+// shortcut: läst en gång per sidladdning och delad av alla klipprader; en ändring i en annan flik syns först efter omladdning.
+let preferences: Promise<Preferences> | null = null;
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${PROXY}${path}`, {
@@ -191,6 +195,18 @@ export const api = {
       list: () => apiFetch<ScheduledPost[]>("/campaign/schedule"),
       // Bara väntande poster kan avbrytas, annars 409.
       cancel: (id: number) => apiFetch<unknown>(`/campaign/schedule/${id}`, { method: "DELETE" }),
+    },
+    preferences: {
+      get: () =>
+        (preferences ??= apiFetch<Preferences>("/campaign/preferences").catch((err) => {
+          preferences = null; // försök igen nästa gång
+          throw err;
+        })),
+      save: (body: Preferences) =>
+        apiFetch<Preferences>("/campaign/preferences", { method: "PUT", body: JSON.stringify(body) }).then((saved) => {
+          preferences = Promise.resolve(saved);
+          return saved;
+        }),
     },
     summary: () => apiFetch<CampaignSummary>("/campaign/summary"),
     scout: {
