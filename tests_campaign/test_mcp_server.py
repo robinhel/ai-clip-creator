@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 
 import httpx
 import pytest
@@ -89,9 +90,11 @@ def test_annotations_say_what_publishes_and_what_only_reads():
     ("finish_run", {"run_id": 8}, "POST", "/campaign/runs/8/finish", None),
     ("set_campaign_active", {"profile_id": "blizzard_nordics", "active": False}, "PUT",
      "/campaign/profiles/blizzard_nordics/active", {"active": False}),
-    ("dismiss_scout", {"ref": "blizzard/wow"}, "POST", "/campaign/scout/blizzard/wow/dismiss", None),
+    ("dismiss_scout", {"ref": "blizzard/wow"}, "POST", "/campaign/scout/blizzard%2Fwow/dismiss", None),
     ("dismiss_scout", {"ref": "blizzard/wow", "dismissed": False}, "POST",
-     "/campaign/scout/blizzard/wow/undismiss", None),
+     "/campaign/scout/blizzard%2Fwow/undismiss", None),
+    ("get_campaign", {"profile_id": "a b"}, "GET", "/campaign/profiles/a%20b", None),
+    ("tiktok_creator_info", {"open_id": "-_x/y"}, "GET", "/campaign/tiktok/accounts/-_x%2Fy/creator_info", None),
     ("upload_youtube", {"clip_id": 5, "title": "Big play", "privacy": "public", "made_for_kids": False},
      "POST", "/campaign/clips/5/youtube",
      {"title": "Big play", "privacy": "public", "made_for_kids": False, "notify_subscribers": True}),
@@ -156,3 +159,98 @@ def test_api_key_is_sent_when_the_app_has_one(app, monkeypatch):
     monkeypatch.setattr(mcp_server, "api_key", lambda: "hemlig")
     _call("summary", {})
     assert app.requests[-1].headers["x-api-key"] == "hemlig"
+
+
+@pytest.mark.parametrize(("tool", "arguments"), [
+    ("dismiss_scout", {"ref": "../clips/5/tiktok?"}),
+    ("vod_info", {"vod_id": "../../clips/5/youtube"}),
+    ("get_campaign_yaml", {"profile_id": "../clips/5#"}),
+    ("set_campaign_active", {"profile_id": "x/../../clips/5", "active": True}),
+])
+def test_a_text_in_the_path_cannot_reach_another_route(app, tool, arguments):
+    _call(tool, arguments)
+    for request in app.requests:
+        path = request.url.raw_path.decode()
+        assert "/clips/" not in path and "?" not in path and "#" not in path, path
+
+
+def test_dismiss_with_a_tricky_ref_stays_in_the_scout(app):
+    _call("dismiss_scout", {"ref": "../clips/5/tiktok?"})
+    path = app.requests[-1].url.raw_path.decode()
+    assert path.startswith("/campaign/scout/") and "/clips/" not in path
+
+
+@pytest.mark.parametrize("ref", ["..", "."])
+def test_dot_segments_are_refused_without_a_call(app, ref):
+    result = _call("dismiss_scout", {"ref": ref})
+    assert result.is_error and app.requests == []
+
+
+def test_the_real_scout_route_decodes_the_slash(settings, monkeypatch):
+    """Appens {ref:path} avkodar %2F, så att blizzard/wow fortfarande träffar rätt kampanj."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from campaign import api, scout_api
+    from campaign.scout import Scout
+
+    scout = Scout(settings)
+    with scout._db() as db:
+        db.execute("INSERT INTO scout_campaigns (ref, data) VALUES ('blizzard/wow', '{}')")
+    web = FastAPI()
+    web.include_router(scout_api.router)
+    web.dependency_overrides[api.get_settings] = lambda: settings
+    monkeypatch.setattr(mcp_server, "http_client", lambda: TestClient(web, base_url=mcp_server.BASE_URL))
+    monkeypatch.setattr(mcp_server, "api_key", lambda: None)
+    result = _call("dismiss_scout", {"ref": "blizzard/wow"})
+    assert not result.is_error, result.content
+    with scout._db() as db:
+        assert db.execute("SELECT dismissed FROM scout_campaigns WHERE ref = 'blizzard/wow'").fetchone()[0] == 1
+
+
+def test_tools_that_cost_money_say_so_first():
+    tools = _tools()
+    paid = [name for name, tool in tools.items()
+            if tool.annotations.open_world_hint and not tool.annotations.destructive_hint and name != "refresh_scout"]
+    assert {"start_run", "retry_run", "finish_run"} <= set(paid)
+    for name in paid:
+        assert tools[name].description.startswith("Kostar pengar"), name
+    assert tools["finish_run"].description.startswith("Kostar pengar (bildgranskning med Claude). Fråga Robin först.")
+
+
+def test_risky_descriptions_ask_robin_first():
+    tools = _tools()
+    assert tools["update_clip"].description.startswith("Att godkänna (godkand) kräver Robins ja.")
+    assert tools["delete_post"].description.startswith("Tar bort för gott. Fråga Robin först.")
+
+
+def test_a_timeout_says_the_call_may_have_gone_through(monkeypatch):
+    def slow(request):
+        raise httpx.ReadTimeout("för långsamt", request=request)
+
+    monkeypatch.setattr(mcp_server, "http_client",
+                        lambda: httpx.Client(base_url=mcp_server.BASE_URL, transport=httpx.MockTransport(slow)))
+    monkeypatch.setattr(mcp_server, "api_key", lambda: None)
+    result = _call("upload_youtube", {"clip_id": 5, "title": "x", "privacy": "public", "made_for_kids": False})
+    assert result.is_error
+    assert ("Appen svarade inte inom 10 minuter. Anropet kan ha gått igenom. Kolla upload_status eller "
+            "list_schedule innan du försöker igen.") in result.content[0].text
+
+
+def test_api_key_is_read_fresh_from_the_environment_or_env_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(mcp_server, "ROOT", tmp_path)
+    monkeypatch.delenv("CLIPSMITH_API_KEY", raising=False)
+    assert mcp_server.api_key() is None
+    (tmp_path / ".env").write_text("CLIPSMITH_API_KEY=fran-filen\nANTHROPIC_API_KEY=annan\n")
+    assert mcp_server.api_key() == "fran-filen"
+    monkeypatch.setenv("CLIPSMITH_API_KEY", "fran-miljon")
+    assert mcp_server.api_key() == "fran-miljon"
+    assert os.environ.get("ANTHROPIC_API_KEY") != "annan"  # bara appens nyckel läses, inget annat ur .env
+
+
+def test_a_too_big_overlay_is_refused_before_it_is_read(app, tmp_path):
+    big = tmp_path / "stor.png"
+    with big.open("wb") as file:
+        file.truncate(10 * 1024 * 1024 + 1)
+    result = _call("upload_overlay", {"profile_id": "x", "png_path": str(big)})
+    assert result.is_error and "10 MB" in result.content[0].text and app.requests == []
