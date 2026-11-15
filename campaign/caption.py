@@ -6,6 +6,9 @@ import re
 
 from .profile import Profile
 
+# Snabblägets rubrik (clipsmith selector._signal_picks). Robin skriver en egen innan klippet postas.
+PLACEHOLDER = re.compile(r"\bMoment \d+:\d{2}:\d{2}\b")
+
 
 def _game_tag(game: str) -> str:
     return "#" + re.sub(r"[^a-z0-9]", "", game.lower())
@@ -44,6 +47,9 @@ def check_caption(text: str, profile: Profile) -> list[str]:
     """Lista det som saknas i en caption enligt kampanjens regler."""
     low = text.lower()
     problems = []
+    placeholder = PLACEHOLDER.search(text)
+    if placeholder:
+        problems.append(f"Captionen har kvar platshållaren {placeholder.group()}. Skriv en egen text.")
     tag_line = profile.caption_tag_line
     must_text, where = text, ""
     if tag_line:

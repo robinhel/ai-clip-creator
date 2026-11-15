@@ -18,6 +18,8 @@ class ClipConfig(BaseModel):
     ask_without_speech: bool = False  # ask the LLM about moments with no transcript (trailers, music)
     # v2: part grades, cuts on whole sentences and one calibration call per VOD. legacy: as before.
     selection_mode: Literal["legacy", "v2"] = "v2"
+    select: Literal["llm", "signals"] = "llm"  # signals = the top candidates become clips, no LLM call
+    signals_top_n: int = 15  # how many clips signals mode makes per run
 
 
 class CandidatesConfig(BaseModel):
@@ -31,6 +33,9 @@ class CandidatesConfig(BaseModel):
     audio_energy_window_s: float = 2.0
     audio_energy_peak_multiplier: float = 2.0
     audio_energy_boost: float = 15.0
+    # Chat messages with one of these words (whole word, any case) add reaction_weight to a chat peak.
+    reaction_words: list[str] = []
+    reaction_weight: float = 0.0
     scene_enabled: bool = False  # picture cuts as candidates, for video without speech (trailers)
     scene_threshold: float = 0.3  # ffmpeg scene score 0-1
     scene_boost: float = 30.0

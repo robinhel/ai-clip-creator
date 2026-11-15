@@ -232,3 +232,10 @@ def test_the_white_text_is_drawn_only_when_there_is_no_overlay(settings):
     profile = load_profile("skiimasktimmy", settings.profiles_dir)
     assert "drawtext" not in build_filter(profile, has_overlay=True, has_audio=True, font=None)
     assert "drawtext" in build_filter(profile, has_overlay=False, has_audio=True, font=None)
+
+
+def test_the_signals_mode_placeholder_title_must_be_replaced(settings):
+    profile = load_profile("skiimasktimmy", settings.profiles_dir)
+    placeholder = build_caption("Moment 0:36:35", profile, game="Bodycam")
+    assert any(p.startswith("Captionen har kvar platshållaren Moment 0:36:35") for p in check_caption(placeholder, profile))
+    assert check_caption(build_caption("Moment of truth at 0:36", profile, game="Bodycam"), profile) == []

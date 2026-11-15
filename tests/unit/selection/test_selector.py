@@ -9,6 +9,7 @@ from clipsmith.llm.base import ClipPick, LLMUnavailable
 from clipsmith.llm.prompts import build_stream_context
 from clipsmith.models.candidates import CandidateMoment
 from clipsmith.selection.selector import (
+    SIGNALS_REASON,
     _extract_transcript_window,
     select_clips,
 )
@@ -388,3 +389,25 @@ def test_calibration_with_the_wrong_number_of_scores_keeps_the_first_scores(capl
     )  # type: ignore[arg-type]
     assert [p.pick.score for p in picks] == [0, 0]
     assert "rank" in caplog.text
+
+
+# ── fast mode: clips straight from the signals, no LLM ───────────────────────
+
+
+class _NeverAsk:
+    def pick(self, *args: object) -> ClipPick:
+        raise AssertionError("the LLM must not be asked in signals mode")
+
+
+def test_signals_mode_picks_the_top_n_spread_candidates_without_the_llm() -> None:
+    cfg = _cfg(select="signals", signals_top_n=2, min_clip_gap_s=60, preroll_s=20, postroll_s=8)
+    candidates = [_candidate(300.0, 90.0), _candidate(320.0, 80.0), _candidate(900.0, 70.0), _candidate(5.0, 60.0)]
+    picks = select_clips(candidates, _transcript(), _NeverAsk(), "ctx", cfg)  # type: ignore[arg-type]
+    assert [p.candidate.t_center for p in picks] == [300.0, 900.0]  # 320 is too close to 300
+    first = picks[0].pick
+    assert (first.start_offset_s, first.end_offset_s) == (280.0, 308.0)  # 20 s before, 8 s after
+    assert first.include and first.title_es == "Moment 0:05:00"
+    assert first.reason.startswith(SIGNALS_REASON) and "chat_density" in first.reason
+    short = select_clips([_candidate(5.0)], _transcript(), _NeverAsk(), "ctx", _cfg(select="signals"))  # type: ignore[arg-type]
+    assert (short[0].pick.start_offset_s, short[0].pick.end_offset_s) == (0.0, 15.0)  # min length holds
+    assert ClipConfig().select == "llm"
