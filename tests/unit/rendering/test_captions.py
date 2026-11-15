@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import itertools
+import re
 
 import pytest
-
 from helpers import _seg, _transcript, _word
+
 from clipsmith.rendering.captions import (
     _ass_time,
     _caption_lines,
     _render_ass,
+    _write_ass,
 )
-from clipsmith.settings import CaptionConfig
+from clipsmith.settings import CaptionConfig, ReframeConfig
 
 
 def _cfg(**kw: object) -> CaptionConfig:
@@ -21,6 +23,7 @@ def _cfg(**kw: object) -> CaptionConfig:
         "font_size": 72,
         "outline": 3,
         "position": "bottom",
+        "style": "outline",
     }
     defaults.update(kw)
     return CaptionConfig(**defaults)  # type: ignore[arg-type]
@@ -195,3 +198,127 @@ def test_render_ass_playres() -> None:
     ass = _render_ass([], _cfg())
     assert "PlayResX: 1080" in ass
     assert "PlayResY: 1920" in ass
+
+
+# ── style "box" och säker zon ─────────────────────────────────────────────────
+
+_ON = "{\\3a&H00&}"
+
+
+def _four_words() -> list[tuple[float, float, str]]:
+    words = [
+        _word(300.0, 300.3, "no"),
+        _word(300.4, 300.7, "way"),
+        _word(300.8, 301.1, "bro"),
+        _word(301.2, 301.5, "what"),
+    ]
+    t = _transcript(_seg(300.0, 301.5, "no way bro what", words))
+    return _caption_lines(t, 300.0, 310.0, style="box")
+
+
+def test_caption_config_defaults_to_box_style() -> None:
+    cfg = CaptionConfig()
+    assert cfg.style == "box"
+    assert cfg.box_colour.startswith("&H")
+
+
+def test_box_lines_have_at_most_three_words_in_capitals() -> None:
+    for _, _, text in _four_words():
+        plain = text.replace(_ON, "").replace("{\\3a&HFF&}", "")
+        assert len(plain.split()) <= 3
+        assert plain == plain.upper()
+
+
+def test_box_highlights_one_word_per_event_in_spoken_order() -> None:
+    lines = _four_words()
+    active = [t.split(_ON)[1].split("{")[0] for _, _, t in lines]
+    assert active == ["NO", "WAY", "BRO", "WHAT"]
+    assert all(t.count(_ON) == 1 for _, _, t in lines)
+    assert lines[1][0] == pytest.approx(0.4, abs=0.01)  # the box moves when the word is said
+
+
+def test_box_events_do_not_overlap() -> None:
+    lines = _four_words()
+    for (_, e1, _), (s2, _, _) in itertools.pairwise(lines):
+        assert e1 <= s2 + 1e-9
+
+
+def test_render_box_has_box_layer_and_clean_text_layer() -> None:
+    ass = _render_ass(
+        [(0.0, 1.0, f"NO {_ON}WAY{{\\3a&HFF&}} BRO")], _cfg(style="box", box_colour="&H0000D7FF")
+    )
+    assert "Style: Box," in ass and ",3," in ass.split("Style: Box,")[1].split("\n")[0]
+    assert "&H0000D7FF" in ass
+    dialogues = [ln for ln in ass.splitlines() if ln.startswith("Dialogue:")]
+    assert len(dialogues) == 2
+    text_layer = next(d for d in dialogues if ",Text," in d)
+    assert text_layer.endswith(",NO WAY BRO")
+
+
+def _margin_v(ass: str) -> int:
+    style = next(ln for ln in ass.splitlines() if ln.startswith("Style:"))
+    return int(style.split(",")[-2])
+
+
+def test_box_captions_sit_above_the_bottom_safe_zone() -> None:
+    assert _margin_v(_render_ass([], _cfg(style="box"))) == int(1920 * 0.20)
+
+
+def test_outline_captions_keep_the_old_placement() -> None:
+    assert _margin_v(_render_ass([], _cfg())) == 80
+    stacked = ReframeConfig(mode="stacked", split_ratio=0.4)
+    assert _margin_v(_render_ass([], _cfg(), stacked)) == 80
+
+
+def test_stacked_captions_sit_on_the_seam() -> None:
+    reframe = ReframeConfig(mode="stacked", split_ratio=0.4)
+    ass = _render_ass([], _cfg(style="box", font_size=72), reframe)
+    # bottom-aligned: the line's middle lands on the seam at 1920 * 0.4
+    assert _margin_v(ass) == int(1920 * 0.6 - 72 / 2)
+    assert ",2," in ass
+
+
+def test_write_ass_uses_reframe_for_placement(tmp_path) -> None:
+    words = [_word(300.0, 300.3, "hej")]
+    t = _transcript(_seg(300.0, 300.3, "hej", words))
+    out = tmp_path / "c.ass"
+    _write_ass(
+        t, 300.0, 310.0, _cfg(style="box"), out, ReframeConfig(mode="stacked", split_ratio=0.5)
+    )
+    ass = out.read_text(encoding="utf-8-sig")
+    assert _margin_v(ass) == int(1920 * 0.5 - 72 / 2)
+    assert "HEJ" in ass
+
+
+def _plain_lines(lines: list[tuple[float, float, str]]) -> list[str]:
+    return list(dict.fromkeys(re.sub(r"{[^}]*}", "", t) for _, _, t in lines))
+
+
+def test_box_lines_fit_the_width_and_a_long_word_stands_alone() -> None:
+    words = [
+        _word(300.0, 300.3, "unbelievable"),
+        _word(300.4, 300.7, "absolutely"),
+        _word(300.8, 301.1, "a"),
+        _word(301.2, 301.5, "supercalifragilistic"),
+        _word(301.6, 301.9, "b"),
+    ]
+    t = _transcript(_seg(300.0, 301.9, "x", words))
+    lines = _plain_lines(_caption_lines(t, 300.0, 310.0, style="box"))
+    assert lines == ["UNBELIEVABLE", "ABSOLUTELY A", "SUPERCALIFRAGILISTIC", "B"]
+
+
+@pytest.mark.parametrize("style", ["box", "outline"])
+def test_braces_and_backslashes_are_removed_from_words(style: str) -> None:
+    t = _transcript(_seg(300.0, 300.3, "x", [_word(300.0, 300.3, "a{b}\\c")]))
+    text = _caption_lines(t, 300.0, 310.0, style=style)[0][2]
+    assert re.sub(r"{\\(kf|3a)[^}]*}", "", text).upper() == "ABC"
+    fallback = _caption_lines(_transcript(_seg(300.0, 301.0, "a{b}\\c")), 300.0, 310.0, style=style)
+    assert fallback[0][2].upper() == "ABC"
+
+
+def test_box_colour_must_be_an_ass_colour() -> None:
+    from pydantic import ValidationError
+
+    assert CaptionConfig(box_colour="&H0000d7ff").box_colour == "&H0000d7ff"
+    with pytest.raises(ValidationError):
+        CaptionConfig(box_colour="&H00FF}{\\b1")

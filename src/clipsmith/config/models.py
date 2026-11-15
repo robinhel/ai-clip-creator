@@ -16,6 +16,8 @@ class ClipConfig(BaseModel):
     min_clip_gap_s: int = 120  # minimum seconds between candidates sent to LLM
     min_picks: int = 0  # force-accept top candidates if the LLM accepts fewer than this
     ask_without_speech: bool = False  # ask the LLM about moments with no transcript (trailers, music)
+    # v2: part grades, cuts on whole sentences and one calibration call per VOD. legacy: as before.
+    selection_mode: Literal["legacy", "v2"] = "v2"
     select: Literal["llm", "signals"] = "llm"  # signals = the top candidates become clips, no LLM call
     signals_top_n: int = 15  # how many clips signals mode makes per run
 
@@ -97,6 +99,11 @@ class CaptionConfig(BaseModel):
     font_size: int = 72  # ASS pts at 1080×1920; 72 ≈ TikTok-style captions
     outline: int = 3
     position: str = "bottom"
+    # "box": bold capitals, up to 3 words, a coloured box behind the word being said, above the bottom
+    # safe zone or on the seam when stacked. "outline": the old karaoke look and placement (MarginV 80).
+    style: Literal["box", "outline"] = "box"
+    # ASS &HAABBGGRR; default gold
+    box_colour: str = Field(default="&H0000D7FF", pattern=r"^&H[0-9A-Fa-f]{8}$")
 
 
 class ReframeConfig(BaseModel):

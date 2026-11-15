@@ -30,6 +30,7 @@ def get_provider(
             frames=config.llm.frames if video else 0,
             video=video,
             frame_span_s=config.clip.max_seconds,
+            mode=config.clip.selection_mode,
         )
     if provider == "openai":
         return OpenAIProvider(
@@ -48,10 +49,10 @@ def get_provider(
 
 
 __all__ = [
+    "AnthropicProvider",
     "ClipPick",
     "ClipPicker",
-    "AnthropicProvider",
-    "OpenAIProvider",
     "OllamaProvider",
+    "OpenAIProvider",
     "get_provider",
 ]

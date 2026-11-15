@@ -81,11 +81,63 @@ Skip: dead air, filler, anything needing prior context.\
 """  # nosec B608 - prompttext till Claude, ingen SQL
 
 
-def get_system_prompt(version: str = "v1", instructions: str = "") -> str:
+# selection_mode "v2": four part grades instead of one score, plus the payoff. Own text, nothing copied.
+SCORED_ANSWER_FORMAT = """\
+Respond ONLY with a valid JSON object matching this schema (no markdown, no extra text):
+{
+  "include": <bool>,           // true = make a clip, false = skip
+  "start_offset_s": <number>,  // VOD seconds where the clip starts
+  "end_offset_s": <number>,    // VOD seconds where the clip ends
+  "payoff_start_s": <number>,  // VOD seconds where the payoff starts: the play, the punchline, the reaction
+  "payoff_end_s": <number>,    // VOD seconds where the payoff ends
+  "title": <string>,           // 3-7 word title, no hashtags, no spoilers
+  "reason": <string>,          // 1-2 sentences: why, and the first sentence of the clip
+  "hook": <integer>,           // 0-25
+  "engagement": <integer>,     // 0-25
+  "value": <integer>,          // 0-25
+  "shareability": <integer>    // 0-25
+}
+
+Grade each part from 0 to 25:
+- hook: read only the first sentence of the clip, as a stranger scrolling past with no context.
+  Give 20 or more ONLY when that sentence alone stops them: a bold claim, a number, something
+  at stake, or a question they want answered. Greetings, small talk or a sentence that needs
+  earlier context get 10 or less.
+- engagement: the clip holds attention to the end with rising tension, a reaction or a payoff.
+- value: the viewer gets something: a laugh, a surprise, a skill, a strong opinion.
+- shareability: someone would send it to a friend or comment on it.
+Be strict. Most moments total 40-60. A total of 80 or more is rare.
+
+Rules:
+- Times are absolute VOD seconds. The transcript lines show offsets relative to the candidate center.
+- Start on the first word of a sentence and end after the last word of a sentence.
+- If include is false, still fill the times and title with a best estimate.
+"""
+
+SCORED_SYSTEM_PROMPT = _STREAM_INTRO + SCORED_ANSWER_FORMAT + _TRANSCRIPT_RULE
+
+# One extra call per VOD: the accepted clips side by side, so a score means the same in every VOD.
+RANK_PROMPT = """\
+You get every clip accepted from one stream, each with its title, its first grades and what is said
+at its start. Compare the clips with each other and give each one a final score from 0 to 100.
+Use a fixed scale, the same for every stream:
+- 85-95: the strongest clips. A stranger stops at the first sentence and watches to the end.
+- 60-84: good clips with a clear hook and a payoff.
+- 40-59: usable but ordinary.
+- below 40: weak. The hook needs context or the payoff is missing.
+Spread the scores so the order is clear, but do not lift weak clips: if all are weak, all stay low.
+Respond ONLY with JSON, one score per clip in the given order: {"scores": [<integer>, ...]}\
+"""
+
+
+def get_system_prompt(version: str = "v1", instructions: str = "", *, mode: str = "legacy") -> str:
     """Return the system prompt for the given version string, or the campaign's own instructions
-    followed by the answer format."""
+    followed by the answer format. mode "v2" asks for the four part grades and the payoff."""
+    answer_format = SCORED_ANSWER_FORMAT if mode == "v2" else ANSWER_FORMAT
     if instructions.strip():
-        return f"{instructions.strip()}\n\n{ANSWER_FORMAT}"
+        return f"{instructions.strip()}\n\n{answer_format}"
+    if mode == "v2":
+        return SCORED_SYSTEM_PROMPT
     return SYSTEM_PROMPT_V2 if version == "v2" else SYSTEM_PROMPT
 
 
@@ -155,6 +207,7 @@ def build_stream_context(
     game: str = "",
     language: str = "English",
     formats: list[dict] | None = None,
+    mode: str = "legacy",
 ) -> str:
     """Build the stable per-VOD context block sent before candidate prompts.
 
@@ -170,14 +223,20 @@ def build_stream_context(
         f"Platform: Twitch (clips for TikTok/YouTube Shorts)\n"
     )
     if language.lower() not in ("english", "en"):
-        context += f"Write title_es in {language}, not English. This applies instead of the instructions.\n"
+        field = "title" if mode == "v2" else "title_es"  # the name the answer format uses
+        context += (
+            f"Write {field} in {language}, not English. This applies instead of the instructions.\n"
+        )
     if formats:
-        lines = [f"- {f['id']}: {f.get('name') or f['id']}. {f.get('description') or ''}".rstrip()
-                 for f in formats]
+        lines = [
+            f"- {f['id']}: {f.get('name') or f['id']}. {f.get('description') or ''}".rstrip()
+            for f in formats
+        ]
         context += (
             "Clip formats for this campaign. Only include moments that fit one of them, and add the "
             'field "format" to your JSON with the id of the format the clip fits best:\n'
-            + "\n".join(lines) + "\n"
+            + "\n".join(lines)
+            + "\n"
         )
     if clip_range:
         context += (

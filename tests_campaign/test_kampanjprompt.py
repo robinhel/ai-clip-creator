@@ -45,7 +45,9 @@ def _candidate(t: float) -> CandidateMoment:
 
 def test_without_own_instructions_claude_gets_exactly_todays_prompt_and_no_frames(settings, monkeypatch) -> None:
     monkeypatch.setattr("campaign.config.load_settings", lambda: settings)
-    provider = get_provider(load_config(PAKET / "config.timmy.yaml"), KEY, video=Path("finns-inte.mp4"))
+    cfg = load_config(PAKET / "config.timmy.yaml")
+    cfg.clip.selection_mode = "legacy"  # v2 har en egen prompt; det här skyddar den gamla
+    provider = get_provider(cfg, KEY, video=Path("finns-inte.mp4"))
     calls = _fake_claude(provider)
     provider.pick("[+0.0s] no way", _candidate(100.0), "ctx")
     system = calls[0]["system"][0]["text"]

@@ -79,7 +79,7 @@ def _cut_one(
     ass_path: Path | None = None
     if config.caption.enabled:
         ass_path = out_path.with_suffix(".ass")
-        _write_ass(transcript, start, end, config.caption, ass_path)
+        _write_ass(transcript, start, end, config.caption, ass_path, config.reframe)
 
     cmd = _build_ffmpeg_cmd(mp4_path, start, end, ass_path, config.reframe, out_path)
     log.info("clip %d  [%.1f-%.1fs]  ->  %s", index, start, end, out_path.name)

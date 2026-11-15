@@ -184,10 +184,12 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
     tmp_raw, tmp_done = _tmp(raw, "trim"), _tmp(done, "edit")
     tmp_original = original.with_name(f".{original.name}.tmp")
     try:
-        if trimmed or not done.exists():
+        new_hook = profile.hook_text and new_title != clip["title"]  # rubriken står i bilden
+        if trimmed or new_hook or not done.exists():
             if trimmed:
                 _trim(source_path(raw), tmp_raw, new_in, new_out, settings.encoder)
-            rendered = finish_clip(tmp_raw if trimmed else raw, tmp_done, profile, settings.root, settings.encoder)
+            rendered = finish_clip(tmp_raw if trimmed else raw, tmp_done, profile, settings.root,
+                                   settings.encoder, title=new_title)
 
         # Precis före bytet: klippet kan ha postats under tiden. Sedan tas ett gammalt ja bort, så att
         # inget godkännande gäller den nya filen om något går fel efteråt.

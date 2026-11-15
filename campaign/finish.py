@@ -7,12 +7,17 @@ rendering (rendering/clipper.py) så att klippet bara kodas en gång.
 
 from __future__ import annotations
 
+import re
+import textwrap
 from pathlib import Path
 
 from .media import find_font, need, probe, run
 from .profile import Profile
 
 WIDTH, HEIGHT = 1080, 1920
+HOOK_SECONDS = 3
+HOOK_FONT_SIZE = 64
+HOOK_LINE_CHARS = 22  # ryms i 1080 px vid HOOK_FONT_SIZE
 
 ENCODER_ARGS = {
     "libx264": ["-c:v", "libx264", "-preset", "medium", "-crf", "19"],
@@ -28,7 +33,38 @@ def _esc(value: str) -> str:
     return value
 
 
-def build_filter(profile: Profile, has_overlay: bool, has_audio: bool, font: str | None) -> str:
+def _hook_esc(value: str) -> str:
+    """Text utan citattecken till drawtext: först optionsnivån, sedan filtergrafens nivå."""
+    for char in "\\':":
+        value = value.replace(char, "\\" + char)
+    for char in "\\'[],;":
+        value = value.replace(char, "\\" + char)
+    return value
+
+
+def _hook(
+    profile: Profile, title: str, font: str | None, last: str, text_on_top: bool
+) -> list[str]:
+    """Titeln centrerad i övre säkra zonen de första sekunderna, på upp till tre rader."""
+    lines = textwrap.wrap(title, HOOK_LINE_CHARS, max_lines=3, placeholder="…")
+    top = int(HEIGHT * profile.safe_top) + (int(profile.text_font_size * 1.6) if text_on_top else 0)
+    font_part = f"fontfile='{_esc(font)}':" if font else ""
+    parts = []
+    for i, line in enumerate(lines):
+        out = "withhook" if i == len(lines) - 1 else f"hook{i}"
+        parts.append(
+            f"[{last}]drawtext={font_part}expansion=none:text={_hook_esc(line)}:"
+            f"fontsize={HOOK_FONT_SIZE}:fontcolor=white:borderw=5:bordercolor=black@0.9:"
+            f"x=(w-text_w)/2:y={top + i * int(HOOK_FONT_SIZE * 1.25)}:"
+            f"enable='lt(t,{HOOK_SECONDS})'[{out}]"
+        )
+        last = out
+    return parts
+
+
+def build_filter(
+    profile: Profile, has_overlay: bool, has_audio: bool, font: str | None, title: str = ""
+) -> str:
     """Filtergrafen. Ingång 0 är klippet, ingång 1 är overlay-bilden om den finns."""
     parts = ["[0:v]setsar=1[base]"]
     last = "base"
@@ -54,6 +90,11 @@ def build_filter(profile: Profile, has_overlay: bool, has_audio: bool, font: str
             f"borderw=4:bordercolor=black@0.85:x=(w-text_w)/2:y={y}[withtext]"
         )
         last = "withtext"
+    title = re.sub(r"[\x00-\x1f]", " ", title).strip()  # ett styrtecken (NUL) stoppar ffmpeg-anropet
+    if profile.hook_text and title:
+        text_on_top = bool(profile.text) and not has_overlay and profile.text_position == "top"
+        parts += _hook(profile, title, font, last, text_on_top)
+        last = "withhook"
     parts.append(f"[{last}]format=yuv420p[vout]")
     if has_audio:
         parts.append(f"[0:a]loudnorm=I={profile.lufs}:TP=-1.5:LRA=11[aout]")
@@ -61,7 +102,7 @@ def build_filter(profile: Profile, has_overlay: bool, has_audio: bool, font: str
 
 
 def finish_clip(
-    src: Path, out: Path, profile: Profile, root: Path, encoder: str = "libx264"
+    src: Path, out: Path, profile: Profile, root: Path, encoder: str = "libx264", title: str = ""
 ) -> dict:
     """Rendera den kampanjklara versionen. Returnerar ett manifest om vad som gjordes."""
     info = probe(src)
@@ -75,7 +116,7 @@ def finish_clip(
         cmd += ["-i", str(overlay)]
     cmd += [
         "-filter_complex",
-        build_filter(profile, has_overlay, info["has_audio"], font),
+        build_filter(profile, has_overlay, info["has_audio"], font, title),
         "-map",
         "[vout]",
     ]
@@ -90,4 +131,5 @@ def finish_clip(
         "overlay_applied": has_overlay,
         "text_applied": bool(profile.text),
         "text": profile.text,
+        "hook_text": title.strip() if profile.hook_text and title.strip() else None,
     }

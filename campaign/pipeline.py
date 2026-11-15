@@ -179,8 +179,9 @@ def make_clips(
 
         context = build_stream_context(
             channel, title, duration, focus=focus, clip_range=(cfg.clip.min_seconds, cfg.clip.max_seconds),
-            game=game or "", language=profile.language, formats=profile.formats)
-        picks = select_clips(candidates, transcript, SimpleNamespace(pick=ask), context, cfg.clip)
+            game=game or "", language=profile.language, formats=profile.formats, mode=cfg.clip.selection_mode)
+        picks = select_clips(candidates, transcript, SimpleNamespace(pick=ask, rank=getattr(picker, "rank", None)),
+                             context, cfg.clip)
         for result in picks:
             if result.pick.format not in profile.format_ids:
                 result.pick.format = None  # ett id som kampanjen inte har blir inget format
