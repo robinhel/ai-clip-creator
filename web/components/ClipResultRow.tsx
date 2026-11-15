@@ -15,7 +15,7 @@ import { CopyButton } from "@/components/CopyButton";
 import { TikTokSend } from "@/components/TikTokSend";
 import { YouTubeSend } from "@/components/YouTubeSend";
 import { api } from "@/lib/api";
-import { clock, cn, SUMMARY_CHANGED } from "@/lib/utils";
+import { allows, clock, cn, SUMMARY_CHANGED } from "@/lib/utils";
 import type { CampaignClip, CampaignClipPatch, CampaignFormat, ClipEditInfo, ClipSubscores, ClipTranscript, Platform } from "@/lib/types";
 
 // Längsta caption på TikTok och Instagram.
@@ -36,9 +36,6 @@ const SUBSCORES: [keyof ClipSubscores, string][] = [
   ["value", "Värde"],
   ["shareability", "Delbarhet"],
 ];
-
-/** Kampanjen postar på plattformen. Äldre servrar skickar inte platforms: då alla. */
-export const allows = (clip: CampaignClip, platform: Platform) => !clip.platforms || clip.platforms.includes(platform);
 
 /** Färg efter betyg, som i skissen: grönt från 80, gult från 60. */
 export function scoreTone(score: number | null): string {

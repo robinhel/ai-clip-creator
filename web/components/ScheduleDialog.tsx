@@ -4,12 +4,11 @@ import { useState } from "react";
 import { BellRing, CalendarClock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { allows } from "@/components/ClipResultRow";
 import { accountName, tiktokAccounts } from "@/components/TikTokCard";
 import { NEED_DISCLOSURE, TikTokFields, useCreatorInfo, useTikTokForm } from "@/components/TikTokDirectPost";
 import { useYouTubeForm, YouTubeFields } from "@/components/YouTubeSend";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { allows, cn } from "@/lib/utils";
 import type { CampaignClip, ScheduleCreate, ScheduledPost, SchedulePlatform, TikTokStatus, YouTubeStatus } from "@/lib/types";
 
 const TZ = "Europe/Stockholm";
