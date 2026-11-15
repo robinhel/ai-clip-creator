@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from helpers import _seg, _transcript
+from helpers import _seg, _transcript, _word
 
 from clipsmith.llm.base import ClipPick, LLMUnavailable
 from clipsmith.llm.prompts import build_stream_context
@@ -213,8 +213,6 @@ def test_select_clips_skips_a_moment_without_speech_by_default() -> None:
 
 
 # ── v2: whole sentences and calibration ──────────────────────────────────────
-
-from helpers import _word
 
 
 def _sentences() -> object:
