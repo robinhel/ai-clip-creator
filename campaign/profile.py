@@ -7,6 +7,8 @@ from pathlib import Path
 
 import yaml
 
+PLATFORMS = ("tiktok", "youtube_shorts", "instagram_reels")
+
 
 @dataclass
 class Profile:
@@ -50,6 +52,12 @@ class Profile:
     @property
     def format_ids(self) -> list[str]:
         return [f["id"] for f in self.formats]
+
+    @property
+    def platforms(self) -> list[str]:
+        """Där kampanjen postas. Saknas listan eller är den tom: alla plattformar."""
+        value = self.raw.get("platforms")
+        return [str(p) for p in value] if isinstance(value, list) and value else list(PLATFORMS)
 
     @property
     def min_views(self) -> int:

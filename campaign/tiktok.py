@@ -25,6 +25,7 @@ from pathlib import Path
 import httpx
 
 from .config import Settings
+from .preferences import add_post
 
 AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/"
 TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
@@ -486,6 +487,7 @@ class TikTok:
         if upload is None:
             return None
         checked = upload["checked"] and datetime.fromisoformat(upload["checked"])
+        fetched = False
         if upload["status"] not in DONE and (not checked or (_now() - checked).total_seconds() >= STATUS_CACHE_S):
             try:
                 with http_client() as http:
@@ -493,6 +495,7 @@ class TikTok:
                     upload.update(self._fetch_status(http, access, upload["publish_id"], upload["mode"] == "direct"))
                 self._set(upload["id"], status=upload["status"], error=upload["error"], post_id=upload["post_id"],
                           checked=_iso(_now()))
+                fetched = True
             except TikTokError:
                 pass  # TikTok svarar inte eller är inte kopplat: visa det som är sparat
             if upload["mode"] == "direct" and upload["status"] in ("uploading", "processing") \
@@ -501,11 +504,14 @@ class TikTok:
                 self._set(upload["id"], status="failed", error=STUCK, checked=_iso(_now()))
         account = self.accounts().get(upload["open_id"] or "") or {}
         username = account.get("username")
+        post_url = f"https://www.tiktok.com/@{username}/video/{upload['post_id']}" \
+            if upload["post_id"] and username else None
+        if fetched and upload["status"] == "published" and post_url:  # just blev publicerat: en gång
+            add_post(self.settings, clip_id, "tiktok", post_url)
         return {**{key: upload[key] for key in ("clip_id", "publish_id", "status", "error", "created", "open_id",
                                                 "mode", "privacy_level", "post_id")},
                 "display_name": account.get("display_name"),
-                "post_url": f"https://www.tiktok.com/@{username}/video/{upload['post_id']}"
-                if upload["post_id"] and username else None}
+                "post_url": post_url}
 
     def _fetch_status(self, http: httpx.Client, access: str, publish_id: str, direct: bool = False) -> dict:
         try:

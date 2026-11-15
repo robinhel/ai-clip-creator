@@ -15,13 +15,13 @@ from urllib.parse import quote, urlparse
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi import Path as PathParam
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from clipsmith.api.deps import get_db, verify_api_key
 from clipsmith.db.models import PipelineEvent, Run, RunStatus
 
-from . import editor, estimate, streams
+from . import editor, estimate, preferences, streams
 from .budget import BudgetExceeded, budget_from_settings
 from .caption import check_caption
 from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog
@@ -488,10 +488,15 @@ def _public(clip: dict, settings: Settings) -> dict:
     out["signals"] = clip["signals"] or []
     out["reason"] = clip["reason"] or ""
     out["engagement"] = ClipLog.engagement(clip)
+    out["content_rewards_url"], out["platforms"] = None, list(PLATFORMS)
     try:
         profile = load_profile(clip["profile"], settings.profiles_dir)
         out["engagement_min"] = profile.engagement_min(clip["views"] or 0)
         out["min_views"] = profile.min_views
+        out["platforms"] = profile.platforms
+        links = profile.raw.get("links")
+        url = links.get("content_rewards") if isinstance(links, dict) else None
+        out["content_rewards_url"] = url if isinstance(url, str) and url.startswith("https://") else None
     except SystemExit:
         out["engagement_min"] = None
         out["min_views"] = None
@@ -713,6 +718,25 @@ def _apply_to_posts(log: ClipLog, clip: dict, fields: dict) -> None:
         log.update_post(posts[0]["id"], **link, **stats)
     elif link or stats:
         fields.update(link, **stats)
+
+
+# ---------- inställningar ----------
+
+
+class Preferences(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # okända nycklar ger 422
+    submit_helper: bool
+
+
+@router.get("/preferences", summary="Robins val: hjälpen för inskick till Content Rewards")
+def get_preferences(settings: Settings = Depends(get_settings)) -> dict:
+    return {"submit_helper": preferences.submit_helper(settings)}
+
+
+@router.put("/preferences", summary="Slå på eller av hjälpen för inskick", dependencies=[Depends(verify_api_key)])
+def put_preferences(body: Preferences, settings: Settings = Depends(get_settings)) -> dict:
+    preferences.save_submit_helper(settings, body.submit_helper)
+    return {"submit_helper": preferences.submit_helper(settings)}
 
 
 # ---------- översikt ----------
