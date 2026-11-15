@@ -145,3 +145,33 @@ def test_no_hook_from_the_file_name_when_there_is_no_title(setup, settings, monk
     profile = load_profile("skiimasktimmy", settings.profiles_dir)
     workflow.finish_vod("123", profile, settings, log, game="Bodycam", review=False)
     assert titles == [""]
+
+
+def test_a_title_of_only_control_characters_gives_no_hook(blizzard) -> None:
+    graph = build_filter(blizzard, has_overlay=False, has_audio=False, font=None, title="\x00\n")
+    assert "withhook" not in graph and "drawtext" not in graph
+
+
+@needs_ffmpeg
+def test_no_hook_from_the_file_name_when_the_clip_is_edited_in_the_app(
+    setup, settings, monkeypatch
+) -> None:  # noqa: F811
+    from campaign import workflow
+
+    _client, log, clip_id = setup
+    titles = []
+    real = workflow.finish_clip
+
+    def spy(*args, **kwargs):
+        titles.append(kwargs.get("title"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(workflow, "finish_clip", spy)
+    monkeypatch.setattr(workflow, "load_picks", lambda path: [{}])
+    monkeypatch.setattr(workflow, "edit_meta", lambda raw: {"edited": True})
+    log.update(
+        clip_id, status="underkand", title="No way"
+    )  # filnamnsreserven för clip_01_no_way.mp4
+    profile = load_profile("skiimasktimmy", settings.profiles_dir)
+    workflow.finish_vod("123", profile, settings, log, game="Bodycam", review=False)
+    assert titles == [""]
