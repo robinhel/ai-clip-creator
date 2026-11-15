@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import secrets
-from pathlib import Path
 from time import monotonic
 from typing import Literal
 from urllib.parse import urlencode
@@ -19,7 +18,7 @@ from clipsmith.api.deps import verify_api_key
 from . import editor
 from .api import _get, _log, get_settings
 from .config import Settings
-from .media import probe
+from .schedule import ScheduleError, clip_file, clip_seconds
 from .tiktok import AUTH_URL, SCOPES, TikTok, TikTokError
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
@@ -135,19 +134,15 @@ def upload_clip(clip_id: int, body: UploadBody | None = None, settings: Settings
     if editor.lock.locked():  # filen kan bytas mitt i uppladdningen
         raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
     clip = _get(_log(settings), clip_id)
-    if clip["status"] != "godkand":
-        raise HTTPException(400, "Bara godkända klipp kan laddas upp till TikTok.")
-    if clip["problems"]:
-        raise HTTPException(400, "Klippet har problem. Rätta dem innan du laddar upp.")
-    path = Path(clip["file"] or "").resolve()
-    if not path.is_relative_to(settings.out_dir.resolve()) or path.suffix != ".mp4" or not path.exists():
-        raise HTTPException(400, "Klippets fil finns inte. Gör klippet kampanjklart igen.")
+    try:
+        path = clip_file(settings, clip, "Bara godkända klipp kan laddas upp till TikTok.")
+    except ScheduleError as error:
+        raise HTTPException(error.status, str(error)) from error
     body = body or UploadBody()
     post, duration_s = None, 0.0
     if body.mode == "direct":
         post = body.model_dump(exclude={"open_id", "mode"})
-        has_times = clip["start_s"] is not None and clip["end_s"] is not None
-        duration_s = clip["end_s"] - clip["start_s"] if has_times else probe(path)["duration"]
+        duration_s = clip_seconds(clip, path)
     try:
         return TikTok(settings).upload(clip_id, path, body.open_id, post, duration_s)
     except TikTokError as error:

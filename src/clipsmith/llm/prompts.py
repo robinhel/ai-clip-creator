@@ -35,7 +35,7 @@ A good clip:
 Reject (include: false) dead air, menu or loading time, mid-story filler, and anything that
 needs earlier context to make sense. Prefer fewer, better clips.
 
-"""
+"""  # nosec B608 - prompttext till Claude, ingen SQL
 
 # The answer's JSON and rules. A campaign's own instructions (llm.instructions) replace the intro and
 # _TRANSCRIPT_RULE.
@@ -78,7 +78,7 @@ Reply ONLY with valid JSON (no markdown):
 Include ONLY moments with a clear hook in the first 2 seconds and a payoff or strong reaction.
 Start right before the action, end right after the reaction.
 Skip: dead air, filler, anything needing prior context.\
-"""
+"""  # nosec B608 - prompttext till Claude, ingen SQL
 
 
 # selection_mode "v2": four part grades instead of one score, plus the payoff. Own text, nothing copied.

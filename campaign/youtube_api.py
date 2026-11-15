@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import secrets
-from pathlib import Path
 from time import monotonic
 from urllib.parse import urlencode
 
@@ -18,7 +17,7 @@ from clipsmith.api.deps import verify_api_key
 from . import editor
 from .api import _get, _log, get_settings
 from .config import Settings
-from .media import probe
+from .schedule import ScheduleError, clip_file, clip_seconds
 from .tiktok_api import _only_local
 from .youtube import AUTH_URL, SCOPES, YouTube, YouTubeError
 
@@ -108,15 +107,11 @@ def youtube_upload_clip(clip_id: int, body: YouTubeBody, settings: Settings = De
     if editor.lock.locked():  # filen kan bytas mitt i uppladdningen
         raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
     clip = _get(_log(settings), clip_id)
-    if clip["status"] != "godkand":
-        raise HTTPException(400, "Bara godkända klipp kan laddas upp till YouTube.")
-    if clip["problems"]:
-        raise HTTPException(400, "Klippet har problem. Rätta dem innan du laddar upp.")
-    path = Path(clip["file"] or "").resolve()
-    if not path.is_relative_to(settings.out_dir.resolve()) or path.suffix != ".mp4" or not path.exists():
-        raise HTTPException(400, "Klippets fil finns inte. Gör klippet kampanjklart igen.")
-    has_times = clip["start_s"] is not None and clip["end_s"] is not None
-    duration_s = clip["end_s"] - clip["start_s"] if has_times else probe(path)["duration"]
+    try:
+        path = clip_file(settings, clip, "Bara godkända klipp kan laddas upp till YouTube.")
+    except ScheduleError as error:
+        raise HTTPException(error.status, str(error)) from error
+    duration_s = clip_seconds(clip, path)
     try:
         return YouTube(settings).upload(clip_id, path, body.channel_id, body.model_dump(exclude={"channel_id"}),
                                         duration_s)
