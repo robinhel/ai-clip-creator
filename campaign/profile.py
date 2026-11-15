@@ -60,6 +60,13 @@ class Profile:
         return [str(p) for p in value] if isinstance(value, list) and value else list(PLATFORMS)
 
     @property
+    def content_rewards_url(self) -> str | None:
+        """Kampanjen i Content Rewards, bara en https-adress."""
+        links = self.raw.get("links")
+        url = links.get("content_rewards") if isinstance(links, dict) else None
+        return url if isinstance(url, str) and url.startswith("https://") else None
+
+    @property
     def min_views(self) -> int:
         return int(self.payment.get("min_views", 0))
 

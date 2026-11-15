@@ -28,14 +28,13 @@ from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog
 from .config import Settings, load_settings
 from .media import need, probe, run
 from .pipeline import finish_run, run_campaign_vod
-from .profile import Profile, load_profile
+from .profile import PLATFORMS, Profile, load_profile
 from .vodinfo import VodNotFound, vod_facts
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
 logger = logging.getLogger(__name__)
 _start_lock = threading.Lock()  # bara en körning i taget, också när två anrop kommer samtidigt
 
-PLATFORMS = ("tiktok", "youtube_shorts", "instagram_reels")
 
 # Vilka steg ett klipp får ta. Från underkand kommer man bara vidare genom att rätta problemen.
 # Efter postningen går det att ta ett steg bakåt, så att ett felklick går att ångra.
@@ -494,9 +493,7 @@ def _public(clip: dict, settings: Settings) -> dict:
         out["engagement_min"] = profile.engagement_min(clip["views"] or 0)
         out["min_views"] = profile.min_views
         out["platforms"] = profile.platforms
-        links = profile.raw.get("links")
-        url = links.get("content_rewards") if isinstance(links, dict) else None
-        out["content_rewards_url"] = url if isinstance(url, str) and url.startswith("https://") else None
+        out["content_rewards_url"] = profile.content_rewards_url
     except SystemExit:
         out["engagement_min"] = None
         out["min_views"] = None

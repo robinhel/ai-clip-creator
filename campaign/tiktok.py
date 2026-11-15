@@ -487,12 +487,14 @@ class TikTok:
         if upload is None:
             return None
         checked = upload["checked"] and datetime.fromisoformat(upload["checked"])
+        seen = upload["checked"] or upload["created"]  # senast appen såg inlägget opublicerat
         fetched = False
         if upload["status"] not in DONE and (not checked or (_now() - checked).total_seconds() >= STATUS_CACHE_S):
             try:
                 with http_client() as http:
                     access = self._access_token(http, upload["open_id"])
-                    upload.update(self._fetch_status(http, access, upload["publish_id"], upload["mode"] == "direct"))
+                    upload.update(self._fetch_status(http, access, upload["publish_id"], upload["mode"] == "direct",
+                                                    upload["privacy_level"] == "PUBLIC_TO_EVERYONE"))
                 self._set(upload["id"], status=upload["status"], error=upload["error"], post_id=upload["post_id"],
                           checked=_iso(_now()))
                 fetched = True
@@ -507,13 +509,14 @@ class TikTok:
         post_url = f"https://www.tiktok.com/@{username}/video/{upload['post_id']}" \
             if upload["post_id"] and username else None
         if fetched and upload["status"] == "published" and post_url:  # just blev publicerat: en gång
-            add_post(self.settings, clip_id, "tiktok", post_url)
+            add_post(self.settings, clip_id, "tiktok", post_url, created=seen)  # tiden blir hellre för kort
         return {**{key: upload[key] for key in ("clip_id", "publish_id", "status", "error", "created", "open_id",
                                                 "mode", "privacy_level", "post_id")},
                 "display_name": account.get("display_name"),
                 "post_url": post_url}
 
-    def _fetch_status(self, http: httpx.Client, access: str, publish_id: str, direct: bool = False) -> dict:
+    def _fetch_status(self, http: httpx.Client, access: str, publish_id: str, direct: bool = False,
+                      public: bool = False) -> dict:
         try:
             response = http.post(STATUS_URL, json={"publish_id": publish_id}, headers={
                 "Authorization": f"Bearer {access}", "Content-Type": "application/json; charset=UTF-8"})
@@ -527,7 +530,9 @@ class TikTok:
         status = str(data["status"]).lower()
         if direct and status != "failed":
             post_ids = data.get("publicaly_available_post_id") or []  # bara för offentliga inlägg
-            return {"status": "published" if status == "publish_complete" else "processing", "error": None,
+            # Ett offentligt inlägg får sitt id först efter TikToks granskning: tills dess frågar appen igen.
+            done = status == "publish_complete" and (bool(post_ids) or not public)
+            return {"status": "published" if done else "processing", "error": None,
                     "post_id": str(post_ids[0]) if post_ids else None}
         if status == "send_to_user_inbox":
             return {"status": "uploaded", "error": None}

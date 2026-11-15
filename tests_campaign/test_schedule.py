@@ -244,7 +244,8 @@ def _tiktok_row(settings, clip_id, status="processing", mode="direct", open_id="
     with TikTok(settings)._db() as db:
         db.execute("INSERT INTO tiktok_uploads (clip_id, publish_id, status, created, open_id, mode) "
                    "VALUES (?, 'p0', ?, ?, ?, ?)",
-                   (clip_id, status, (datetime.now(UTC) - timedelta(hours=1)).isoformat(), open_id, mode))
+                   # 30 minuter: äldre än knappens spärr, yngre än gränsen då TikTok räknas som fast (1 h)
+                   (clip_id, status, (datetime.now(UTC) - timedelta(minutes=30)).isoformat(), open_id, mode))
 
 
 def test_clip_already_on_the_youtube_channel_cannot_be_scheduled(client, settings, clip_id):
