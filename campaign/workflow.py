@@ -106,7 +106,7 @@ def finish_vod(
             # Klippet är redigerat i appen: loggens rubrik och tider gäller, inte picks.json. edit_meta kollar
             # råklippets storlek och ändringstid, så ett nytt råklipp från clipsmith får picks.json igen.
             title, start, end = redo["title"], redo["start_s"], redo["end_s"]
-            hook = title
+            hook = "" if title == title_from_name(src) else title  # filnamnsreserven blir ingen hook
         if not redo and start is not None and end is not None and log.overlaps(vod_id, start, end):
             results.append({"file": src.name, "skipped": "samma del av VOD:en är redan klippt"})
             continue
