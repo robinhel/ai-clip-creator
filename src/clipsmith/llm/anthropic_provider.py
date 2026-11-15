@@ -142,7 +142,7 @@ class AnthropicProvider:
                                 }
                             ],
                             messages=[
-                                {
+                                {  # type: ignore[misc,list-item]  # images är list[dict]
                                     "role": "user",
                                     "content": [
                                         {
