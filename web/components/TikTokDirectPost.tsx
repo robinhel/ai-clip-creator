@@ -12,7 +12,7 @@ import type { CampaignClip, TikTokAccount, TikTokCreatorInfo, TikTokPrivacy, Tik
 // TikTok granskar texterna på engelska i den här dialogen. De står ordagrant som i TikToks riktlinjer.
 const MUSIC_URL = "https://www.tiktok.com/legal/page/global/music-usage-confirmation/en";
 const BC_URL = "https://www.tiktok.com/legal/page/global/bc-policy/en";
-const NEED_DISCLOSURE = "You need to indicate if your content promotes yourself, a third party, or both.";
+export const NEED_DISCLOSURE = "You need to indicate if your content promotes yourself, a third party, or both.";
 const BC_PRIVATE = "Branded content visibility cannot be set to private.";
 const TITLE_MAX = 2200;
 
@@ -57,10 +57,24 @@ interface Props {
   onClose: (updated?: CampaignClip) => void;
 }
 
-/** Publicera ett godkänt klipp direkt på TikTok. Monteras när den öppnas, så creator_info läses färskt varje gång. */
-export function TikTokDirectPost({ clip, account, upload, onSent, onClose }: Props) {
+/** Läser kontot färskt hos TikTok, som riktlinjerna kräver före varje post. */
+export function useCreatorInfo(openId: string | undefined) {
   const [creator, setCreator] = useState<TikTokCreatorInfo | null>(null);
   const [creatorError, setCreatorError] = useState<string | null>(null);
+  useEffect(() => {
+    setCreator(null);
+    setCreatorError(null);
+    if (!openId) return;
+    api.campaign.tiktok
+      .creatorInfo(openId)
+      .then(setCreator)
+      .catch((err) => setCreatorError(err instanceof Error ? err.message : "Kunde inte läsa kontot hos TikTok"));
+  }, [openId]);
+  return { creator, creatorError };
+}
+
+/** Fälten och reglerna för Direct Post. Schemaläggningen använder samma. */
+export function useTikTokForm(clip: CampaignClip, creator: TikTokCreatorInfo | null) {
   const [title, setTitle] = useState(clip.caption ?? "");
   const [privacy, setPrivacy] = useState<TikTokPrivacy | "">("");
   const [allowComment, setAllowComment] = useState(false);
@@ -69,18 +83,6 @@ export function TikTokDirectPost({ clip, account, upload, onSent, onClose }: Pro
   const [disclose, setDisclose] = useState(false);
   const [yourBrand, setYourBrand] = useState(false);
   const [branded, setBranded] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState<CampaignClip | null>(null);
-
-  useEffect(() => {
-    api.campaign.tiktok
-      .creatorInfo(account.open_id)
-      .then(setCreator)
-      .catch((err) => setCreatorError(err instanceof Error ? err.message : "Kunde inte läsa kontot hos TikTok"));
-  }, [account.open_id]);
 
   // Uppåt, som servern: 60,4 s är över en gräns på 60 s.
   const length = clip.start_s != null && clip.end_s != null ? Math.ceil(clip.end_s - clip.start_s) : null;
@@ -96,24 +98,164 @@ export function TikTokDirectPost({ clip, account, upload, onSent, onClose }: Pro
           ? "Välj vem som får se klippet."
           : null;
   const needDisclosure = disclose && !yourBrand && !branded;
-  const canPublish = !!creator && !reason && !needDisclosure && !sending;
+  // Fälten som skickas, utan konto och läge. null tills allt är ifyllt.
+  const fields =
+    !creator || reason || needDisclosure || !privacy
+      ? null
+      : {
+          title,
+          privacy_level: privacy,
+          allow_comment: allowComment,
+          allow_duet: allowDuet,
+          allow_stitch: allowStitch,
+          brand_organic: disclose && yourBrand,
+          brand_content: brandedOn,
+        };
+
+  return {
+    title, setTitle, privacy, setPrivacy, allowComment, setAllowComment, allowDuet, setAllowDuet, allowStitch, setAllowStitch,
+    disclose, setDisclose, yourBrand, setYourBrand, branded, setBranded, brandedOn, reason, needDisclosure, fields,
+  };
+}
+
+/** Beskrivning, vem som får se, kommentarer, duett, stitch, märkning och avtalstexten, ordagrant som TikTok kräver. */
+export function TikTokFields({ creator, form }: { creator: TikTokCreatorInfo | null; form: ReturnType<typeof useTikTokForm> }) {
+  const {
+    title, setTitle, privacy, setPrivacy, allowComment, setAllowComment, allowDuet, setAllowDuet, allowStitch, setAllowStitch,
+    disclose, setDisclose, yourBrand, setYourBrand, branded, setBranded, brandedOn,
+  } = form;
+  return (
+    <>
+      <label className="block">
+        <span className="flex justify-between text-[13px] text-muted-foreground">
+          Beskrivning
+          <span className={cn("tabular-nums", utf16(title) > TITLE_MAX && "text-bad")}>
+            {utf16(title)} / {TITLE_MAX}
+          </span>
+        </span>
+        <textarea
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          rows={4}
+          className="mt-1 w-full resize-y rounded-xl border border-line bg-background px-3 py-2 text-sm outline-none focus:border-brand"
+        />
+      </label>
+
+      <label className="block">
+        <span className="text-[13px] text-muted-foreground">Vem får se</span>
+        <select
+          value={privacy}
+          onChange={(e) => {
+            setPrivacy(e.target.value as TikTokPrivacy);
+            // Branded content går inte ihop med Bara jag, också när reglaget är av och rutan dold.
+            if (e.target.value === "SELF_ONLY") setBranded(false);
+          }}
+          disabled={!creator}
+          className="mt-1 h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand [&>option]:bg-panel"
+        >
+          <option value="" disabled>
+            Välj…
+          </option>
+          {creator?.privacy_level_options.map((p) => {
+            const off = p === "SELF_ONLY" && brandedOn;
+            return (
+              <option key={p} value={p} disabled={off} title={off ? BC_PRIVATE : undefined}>
+                {PRIVACY_LABEL[p] ?? p}
+              </option>
+            );
+          })}
+        </select>
+        {brandedOn && creator?.privacy_level_options.includes("SELF_ONLY") && (
+          <span className="mt-1 block text-xs text-muted-foreground">{BC_PRIVATE}</span>
+        )}
+        {/* Listan följer TikToks val utan förval, men en ogranskad app får bara posta privat. */}
+        <span className="mt-1 block text-xs text-muted-foreground">
+          TikTok har inte granskat appen än. Tills dess fungerar bara Bara jag.
+        </span>
+      </label>
+
+      <div className="flex flex-wrap gap-x-5 gap-y-2">
+        <Check label="Allow comment" checked={allowComment} disabled={!creator || creator.comment_disabled} onChange={setAllowComment} />
+        <Check label="Allow duet" checked={allowDuet} disabled={!creator || creator.duet_disabled} onChange={setAllowDuet} />
+        <Check label="Allow stitch" checked={allowStitch} disabled={!creator || creator.stitch_disabled} onChange={setAllowStitch} />
+      </div>
+
+      <div className="rounded-xl border border-line p-3">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={disclose}
+          onClick={() => setDisclose(!disclose)}
+          className="flex w-full items-center justify-between gap-3 text-sm font-medium"
+        >
+          Disclose video content
+          <span className={cn("flex h-5 w-9 items-center rounded-full border px-0.5 transition-colors", disclose ? "border-brand bg-brand" : "border-line bg-[#1c1c22]")}>
+            <span className={cn("size-3.5 rounded-full bg-white transition-transform", disclose && "translate-x-4")} />
+          </span>
+        </button>
+        {disclose && (
+          <div className="mt-3 space-y-2">
+            <Check label="Your brand" checked={yourBrand} onChange={setYourBrand} />
+            <Check
+              label="Branded content"
+              checked={branded}
+              disabled={privacy === "SELF_ONLY"}
+              title={privacy === "SELF_ONLY" ? BC_PRIVATE : undefined}
+              onChange={setBranded}
+            />
+            {privacy === "SELF_ONLY" && <p className="text-xs text-muted-foreground">{BC_PRIVATE}</p>}
+            {(branded || yourBrand) && (
+              <p className="text-xs text-warn">
+                {branded ? "Your video will be labeled as 'Paid partnership'" : "Your video will be labeled as 'Promotional content'"}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        {brandedOn ? (
+          <>
+            By posting, you agree to TikTok&apos;s{" "}
+            <a href={BC_URL} target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-4">
+              Branded Content Policy
+            </a>{" "}
+            and{" "}
+            <a href={MUSIC_URL} target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-4">
+              Music Usage Confirmation
+            </a>
+          </>
+        ) : (
+          <>
+            By posting, you agree to TikTok&apos;s{" "}
+            <a href={MUSIC_URL} target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-4">
+              Music Usage Confirmation
+            </a>
+          </>
+        )}
+      </p>
+    </>
+  );
+}
+
+/** Publicera ett godkänt klipp direkt på TikTok. Monteras när den öppnas, så creator_info läses färskt varje gång. */
+export function TikTokDirectPost({ clip, account, upload, onSent, onClose }: Props) {
+  const { creator, creatorError } = useCreatorInfo(account.open_id);
+  const form = useTikTokForm(clip, creator);
+  const { reason, needDisclosure } = form;
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<CampaignClip | null>(null);
+  const canPublish = !!form.fields && !sending;
 
   async function publish() {
-    if (!canPublish || !privacy) return;
+    if (!canPublish || !form.fields) return;
     setSending(true);
     setError(null);
     try {
-      const result = await api.campaign.clips.sendToTikTok(clip.id, {
-        open_id: account.open_id,
-        mode: "direct",
-        title,
-        privacy_level: privacy,
-        allow_comment: allowComment,
-        allow_duet: allowDuet,
-        allow_stitch: allowStitch,
-        brand_organic: disclose && yourBrand,
-        brand_content: brandedOn,
-      });
+      const result = await api.campaign.clips.sendToTikTok(clip.id, { open_id: account.open_id, mode: "direct", ...form.fields });
       setMessage(result.message ?? "TikTok publicerar klippet.");
       onSent(result);
     } catch (err) {
@@ -234,114 +376,7 @@ export function TikTokDirectPost({ clip, account, upload, onSent, onClose }: Pro
               </div>
             ) : (
               <>
-                <label className="block">
-                  <span className="flex justify-between text-[13px] text-muted-foreground">
-                    Beskrivning
-                    <span className={cn("tabular-nums", utf16(title) > TITLE_MAX && "text-bad")}>
-                      {utf16(title)} / {TITLE_MAX}
-                    </span>
-                  </span>
-                  <textarea
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    rows={4}
-                    className="mt-1 w-full resize-y rounded-xl border border-line bg-background px-3 py-2 text-sm outline-none focus:border-brand"
-                  />
-                </label>
-
-                <label className="block">
-                  <span className="text-[13px] text-muted-foreground">Vem får se</span>
-                  <select
-                    value={privacy}
-                    onChange={(e) => {
-                      setPrivacy(e.target.value as TikTokPrivacy);
-                      // Branded content går inte ihop med Bara jag, också när reglaget är av och rutan dold.
-                      if (e.target.value === "SELF_ONLY") setBranded(false);
-                    }}
-                    disabled={!creator}
-                    className="mt-1 h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand [&>option]:bg-panel"
-                  >
-                    <option value="" disabled>
-                      Välj…
-                    </option>
-                    {creator?.privacy_level_options.map((p) => {
-                      const off = p === "SELF_ONLY" && brandedOn;
-                      return (
-                        <option key={p} value={p} disabled={off} title={off ? BC_PRIVATE : undefined}>
-                          {PRIVACY_LABEL[p] ?? p}
-                        </option>
-                      );
-                    })}
-                  </select>
-                  {brandedOn && creator?.privacy_level_options.includes("SELF_ONLY") && (
-                    <span className="mt-1 block text-xs text-muted-foreground">{BC_PRIVATE}</span>
-                  )}
-                  {/* Listan följer TikToks val utan förval, men en ogranskad app får bara posta privat. */}
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    TikTok har inte granskat appen än. Tills dess fungerar bara Bara jag.
-                  </span>
-                </label>
-
-                <div className="flex flex-wrap gap-x-5 gap-y-2">
-                  <Check label="Allow comment" checked={allowComment} disabled={!creator || creator.comment_disabled} onChange={setAllowComment} />
-                  <Check label="Allow duet" checked={allowDuet} disabled={!creator || creator.duet_disabled} onChange={setAllowDuet} />
-                  <Check label="Allow stitch" checked={allowStitch} disabled={!creator || creator.stitch_disabled} onChange={setAllowStitch} />
-                </div>
-
-                <div className="rounded-xl border border-line p-3">
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={disclose}
-                    onClick={() => setDisclose(!disclose)}
-                    className="flex w-full items-center justify-between gap-3 text-sm font-medium"
-                  >
-                    Disclose video content
-                    <span className={cn("flex h-5 w-9 items-center rounded-full border px-0.5 transition-colors", disclose ? "border-brand bg-brand" : "border-line bg-[#1c1c22]")}>
-                      <span className={cn("size-3.5 rounded-full bg-white transition-transform", disclose && "translate-x-4")} />
-                    </span>
-                  </button>
-                  {disclose && (
-                    <div className="mt-3 space-y-2">
-                      <Check label="Your brand" checked={yourBrand} onChange={setYourBrand} />
-                      <Check
-                        label="Branded content"
-                        checked={branded}
-                        disabled={privacy === "SELF_ONLY"}
-                        title={privacy === "SELF_ONLY" ? BC_PRIVATE : undefined}
-                        onChange={setBranded}
-                      />
-                      {privacy === "SELF_ONLY" && <p className="text-xs text-muted-foreground">{BC_PRIVATE}</p>}
-                      {(branded || yourBrand) && (
-                        <p className="text-xs text-warn">
-                          {branded ? "Your video will be labeled as 'Paid partnership'" : "Your video will be labeled as 'Promotional content'"}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <p className="text-xs text-muted-foreground">
-                  {brandedOn ? (
-                    <>
-                      By posting, you agree to TikTok&apos;s{" "}
-                      <a href={BC_URL} target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-4">
-                        Branded Content Policy
-                      </a>{" "}
-                      and{" "}
-                      <a href={MUSIC_URL} target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-4">
-                        Music Usage Confirmation
-                      </a>
-                    </>
-                  ) : (
-                    <>
-                      By posting, you agree to TikTok&apos;s{" "}
-                      <a href={MUSIC_URL} target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-4">
-                        Music Usage Confirmation
-                      </a>
-                    </>
-                  )}
-                </p>
+                <TikTokFields creator={creator} form={form} />
 
                 <div className="space-y-1.5">
                   <Button className="h-10 w-full" disabled={!canPublish} title={needDisclosure ? NEED_DISCLOSURE : undefined} onClick={publish}>

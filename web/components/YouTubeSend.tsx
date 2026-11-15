@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { channelName } from "@/components/YouTubeCard";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { CampaignClip, YouTubeChannel, YouTubePrivacy, YouTubeStatus, YouTubeUpload } from "@/lib/types";
+import type { CampaignClip, YouTubeChannel, YouTubePrivacy, YouTubeSendBody, YouTubeStatus, YouTubeUpload } from "@/lib/types";
 
 const POLL_MS = 10_000;
 const TITLE_MAX = 100;
@@ -43,18 +43,14 @@ interface DialogProps {
   onClose: (updated?: CampaignClip) => void;
 }
 
-function YouTubeDialog({ clip, channels, upload, onSent, onClose }: DialogProps) {
-  const [channelId, setChannelId] = useState(channels[0].channel_id);
+/** Fälten och reglerna för en uppladdning till YouTube. Schemaläggningen använder samma. */
+export function useYouTubeForm(clip: CampaignClip, channels: YouTubeChannel[]) {
+  const [channelId, setChannelId] = useState(channels[0]?.channel_id ?? "");
   const [title, setTitle] = useState(clip.title ?? "");
   const [description, setDescription] = useState(clip.caption ?? "");
   const [privacy, setPrivacy] = useState<YouTubePrivacy | "">("");
   const [forKids, setForKids] = useState(false); // spelklippen är inte gjorda för barn
   const [notify, setNotify] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState<CampaignClip | null>(null);
 
   // Uppåt, som TikTok: 180,4 s är över gränsen.
   const length = clip.start_s != null && clip.end_s != null ? Math.ceil(clip.end_s - clip.start_s) : null;
@@ -74,20 +70,131 @@ function YouTubeDialog({ clip, channels, upload, onSent, onClose }: DialogProps)
                 : !privacy
                   ? "Välj vem som får se klippet."
                   : null;
+  const body: YouTubeSendBody | null =
+    reason || !privacy
+      ? null
+      : { channel_id: channelId, title: title.trim(), description, privacy, made_for_kids: forKids, notify_subscribers: notify };
+
+  return { channelId, setChannelId, title, setTitle, description, setDescription, privacy, setPrivacy, forKids, setForKids, notify, setNotify, reason, body };
+}
+
+/** Kanal, titel, beskrivning, vem som får se, gjort för barn och meddela prenumeranter. */
+export function YouTubeFields({ clip, channels, form }: {
+  clip: CampaignClip;
+  channels: YouTubeChannel[];
+  form: ReturnType<typeof useYouTubeForm>;
+}) {
+  const { channelId, setChannelId, title, setTitle, description, setDescription, privacy, setPrivacy, forKids, setForKids, notify, setNotify } = form;
+  return (
+    <>
+      {channels.length > 1 && (
+        <label className="block">
+          <span className="text-[13px] text-muted-foreground">Kanal</span>
+          <select value={channelId} onChange={(e) => setChannelId(e.target.value)} className={cn(field, "h-9 [&>option]:bg-panel")}>
+            {channels.map((c) => (
+              <option key={c.channel_id} value={c.channel_id}>
+                {channelName(c)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      <label className="block">
+        <span className="flex justify-between text-[13px] text-muted-foreground">
+          Titel
+          <span className={cn("tabular-nums", chars(title) > TITLE_MAX && "text-bad")}>
+            {chars(title)} / {TITLE_MAX}
+          </span>
+        </span>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} className={cn(field, "h-9")} />
+      </label>
+
+      <label className="block">
+        <span className="flex justify-between text-[13px] text-muted-foreground">
+          Beskrivning
+          <span className={cn("tabular-nums", bytes(description) > DESCRIPTION_MAX && "text-bad")}>
+            {bytes(description)} / {DESCRIPTION_MAX}
+          </span>
+        </span>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          rows={4}
+          className={cn(field, "resize-y rounded-xl py-2")}
+        />
+      </label>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block">
+          <span className="text-[13px] text-muted-foreground">Vem får se</span>
+          <select
+            value={privacy}
+            onChange={(e) => setPrivacy(e.target.value as YouTubePrivacy)}
+            className={cn(field, "h-9 [&>option]:bg-panel")}
+          >
+            <option value="" disabled>
+              Välj…
+            </option>
+            {PRIVACY.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <fieldset>
+          <legend className="text-[13px] text-muted-foreground">Gjort för barn?</legend>
+          <div className="mt-2.5 flex gap-5 text-sm">
+            {(
+              [
+                [true, "Ja"],
+                [false, "Nej"],
+              ] as const
+            ).map(([value, label]) => (
+              <label key={label} className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="radio"
+                  name={`barn-${clip.id}`}
+                  checked={forKids === value}
+                  onChange={() => setForKids(value)}
+                  className="size-4 accent-[var(--brand,#7c5cff)]"
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </div>
+
+      <label className="flex cursor-pointer items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={notify}
+          onChange={(e) => setNotify(e.target.checked)}
+          className="size-4 accent-[var(--brand,#7c5cff)]"
+        />
+        Meddela prenumeranter
+      </label>
+    </>
+  );
+}
+
+function YouTubeDialog({ clip, channels, upload, onSent, onClose }: DialogProps) {
+  const form = useYouTubeForm(clip, channels);
+  const { reason } = form;
+  const [sending, setSending] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<CampaignClip | null>(null);
 
   async function publish() {
-    if (reason || !privacy) return;
+    if (!form.body) return;
     setSending(true);
     setError(null);
     try {
-      const result = await api.campaign.clips.sendToYouTube(clip.id, {
-        channel_id: channelId,
-        title: title.trim(),
-        description,
-        privacy,
-        made_for_kids: forKids,
-        notify_subscribers: notify,
-      });
+      const result = await api.campaign.clips.sendToYouTube(clip.id, form.body);
       setMessage(result.message ?? "YouTube behandlar videon.");
       onSent(result);
     } catch (err) {
@@ -178,95 +285,7 @@ function YouTubeDialog({ clip, channels, upload, onSent, onClose }: DialogProps)
               </div>
             ) : (
               <>
-                {channels.length > 1 && (
-                  <label className="block">
-                    <span className="text-[13px] text-muted-foreground">Kanal</span>
-                    <select value={channelId} onChange={(e) => setChannelId(e.target.value)} className={cn(field, "h-9 [&>option]:bg-panel")}>
-                      {channels.map((c) => (
-                        <option key={c.channel_id} value={c.channel_id}>
-                          {channelName(c)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-
-                <label className="block">
-                  <span className="flex justify-between text-[13px] text-muted-foreground">
-                    Titel
-                    <span className={cn("tabular-nums", chars(title) > TITLE_MAX && "text-bad")}>
-                      {chars(title)} / {TITLE_MAX}
-                    </span>
-                  </span>
-                  <input value={title} onChange={(e) => setTitle(e.target.value)} className={cn(field, "h-9")} />
-                </label>
-
-                <label className="block">
-                  <span className="flex justify-between text-[13px] text-muted-foreground">
-                    Beskrivning
-                    <span className={cn("tabular-nums", bytes(description) > DESCRIPTION_MAX && "text-bad")}>
-                      {bytes(description)} / {DESCRIPTION_MAX}
-                    </span>
-                  </span>
-                  <textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    rows={4}
-                    className={cn(field, "resize-y rounded-xl py-2")}
-                  />
-                </label>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="text-[13px] text-muted-foreground">Vem får se</span>
-                    <select
-                      value={privacy}
-                      onChange={(e) => setPrivacy(e.target.value as YouTubePrivacy)}
-                      className={cn(field, "h-9 [&>option]:bg-panel")}
-                    >
-                      <option value="" disabled>
-                        Välj…
-                      </option>
-                      {PRIVACY.map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <fieldset>
-                    <legend className="text-[13px] text-muted-foreground">Gjort för barn?</legend>
-                    <div className="mt-2.5 flex gap-5 text-sm">
-                      {(
-                        [
-                          [true, "Ja"],
-                          [false, "Nej"],
-                        ] as const
-                      ).map(([value, label]) => (
-                        <label key={label} className="flex cursor-pointer items-center gap-2">
-                          <input
-                            type="radio"
-                            name={`barn-${clip.id}`}
-                            checked={forKids === value}
-                            onChange={() => setForKids(value)}
-                            className="size-4 accent-[var(--brand,#7c5cff)]"
-                          />
-                          {label}
-                        </label>
-                      ))}
-                    </div>
-                  </fieldset>
-                </div>
-
-                <label className="flex cursor-pointer items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={notify}
-                    onChange={(e) => setNotify(e.target.checked)}
-                    className="size-4 accent-[var(--brand,#7c5cff)]"
-                  />
-                  Meddela prenumeranter
-                </label>
+                <YouTubeFields clip={clip} channels={channels} form={form} />
 
                 <div className="space-y-1.5">
                   <Button className="h-10 w-full" disabled={!!reason || sending} onClick={publish}>
