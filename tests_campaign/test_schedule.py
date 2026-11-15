@@ -11,10 +11,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from campaign import api, schedule, schedule_api
+from campaign import api, schedule, schedule_api, scout
 from campaign.cliplog import ClipLog
 from campaign.tiktok import TikTok
-from campaign.youtube import YouTube, YouTubeError
+from campaign.youtube import BUSY, YouTube, YouTubeError
 
 YT_FIELDS = {"title": "Big play", "description": "#ad", "privacy": "public", "made_for_kids": False,
              "notify_subscribers": True}
@@ -147,6 +147,7 @@ def test_rejected_or_broken_clip_fails_at_the_time(client, settings, clip_id, no
     row = _row(settings, post_id)
     assert row["status"] == "failed" and row["error"]
     assert FakeYouTube.calls == []
+    assert notes == [(f"Timmy lands it laddades inte upp: {row['error']}", "http://localhost:3000/queue")]
 
 
 def test_late_under_six_hours_runs_and_says_late(client, settings, clip_id, notes):
@@ -166,6 +167,8 @@ def test_late_over_six_hours_fails(client, settings, clip_id, notes):
     row = _row(settings, post_id)
     assert row["status"] == "failed" and row["error"] == "Missad: Macen var avstängd vid tiden."
     assert FakeYouTube.calls == []
+    assert notes == [("Timmy lands it laddades inte upp: Missad: Macen var avstängd vid tiden.",
+                      "http://localhost:3000/queue")]
 
 
 def test_youtube_daily_limit_is_checked_at_the_time(client, settings, clip_id, notes):
@@ -203,7 +206,89 @@ def test_tiktok_with_direct_post_posts_with_saved_fields(client, settings, clip_
     assert _row(settings, post_id)["status"] == "done"
     assert FakeTikTok.calls[0][1] == "open1"
     assert FakeTikTok.calls[0][2]["privacy_level"] == "PUBLIC_TO_EVERYONE"
-    assert "TikTok" in notes[0][0]
+    assert notes[0][0] == "Timmy lands it skickades till TikTok. Skicka in länken i Content Rewards inom 30 minuter."
+
+
+def test_reminder_stays_a_reminder_when_the_account_can_publish_later(client, settings, clip_id, notes):
+    at = _at(timedelta(hours=1))
+    post_id = _post(client, clip_id, "tiktok", at=at, fields={}, account="open1").json()["id"]
+    FakeTikTok.publish = True  # kontot fick video.publish efter att påminnelsen schemalades
+    _run(settings, at, timedelta(seconds=1))
+    assert _row(settings, post_id)["status"] == "reminded"
+    assert FakeTikTok.calls == []
+
+
+def test_another_upload_going_on_waits_for_the_next_round(client, settings, clip_id, notes):
+    at = _at(timedelta(hours=1))
+    post_id = _post(client, clip_id, at=at).json()["id"]
+    FakeYouTube.error = YouTubeError(BUSY, 409)
+    _run(settings, at, timedelta(seconds=1))
+    assert _row(settings, post_id)["status"] == "waiting" and notes == []
+    FakeYouTube.error = None
+    _run(settings, at, timedelta(seconds=31))
+    assert _row(settings, post_id)["status"] == "done"
+
+
+def _youtube_row(settings, clip_id, channel="UC1", status="uploaded", age=timedelta(hours=1)):
+    """En uppladdning med den vanliga YouTube-knappen."""
+    with YouTube(settings)._db() as db:
+        db.execute("INSERT INTO youtube_uploads (clip_id, channel_id, status, created) VALUES (?, ?, ?, ?)",
+                   (clip_id, channel, status, (datetime.now(UTC) - age).isoformat(timespec="seconds")))
+
+
+def _tiktok_row(settings, clip_id, status="processing", mode="direct", open_id="open1"):
+    with TikTok(settings)._db() as db:
+        db.execute("INSERT INTO tiktok_uploads (clip_id, publish_id, status, created, open_id, mode) "
+                   "VALUES (?, 'p0', ?, ?, ?, ?)",
+                   (clip_id, status, (datetime.now(UTC) - timedelta(hours=1)).isoformat(), open_id, mode))
+
+
+def test_clip_already_on_the_youtube_channel_cannot_be_scheduled(client, settings, clip_id):
+    _youtube_row(settings, clip_id, status="failed")
+    _youtube_row(settings, clip_id, channel="UC2")
+    assert _post(client, clip_id).status_code == 201  # en misslyckad, eller en annan kanal, spärrar inte
+    client.delete("/campaign/schedule/1")
+    _youtube_row(settings, clip_id)
+    answer = _post(client, clip_id)
+    assert answer.status_code == 409 and answer.json()["detail"] == "Klippet finns redan på kanalen."
+
+
+def test_button_upload_after_scheduling_stops_the_scheduled_upload(client, settings, clip_id, notes):
+    at = _at(timedelta(hours=1))
+    post_id = _post(client, clip_id, at=at).json()["id"]
+    _youtube_row(settings, clip_id)  # Robin tryckte på knappen kl. 19, schemat är kl. 20
+    _run(settings, at, timedelta(seconds=1))
+    row = _row(settings, post_id)
+    assert row["status"] == "failed" and row["error"] == "Klippet finns redan på kanalen."
+    assert FakeYouTube.calls == []
+    assert notes == [("Timmy lands it laddades inte upp: Klippet finns redan på kanalen.",
+                      "http://localhost:3000/queue")]
+
+
+def test_clip_already_direct_posted_to_the_tiktok_account_is_stopped(client, settings, clip_id, notes):
+    FakeTikTok.publish = True
+    fields = {"title": "Big play #ad", "privacy_level": "PUBLIC_TO_EVERYONE"}
+    _tiktok_row(settings, clip_id, mode="draft")
+    _tiktok_row(settings, clip_id, status="failed")
+    at = _at(timedelta(hours=1))
+    post_id = _post(client, clip_id, "tiktok", at=at, fields=fields, account="open1").json()["id"]
+    _tiktok_row(settings, clip_id)
+    _run(settings, at, timedelta(seconds=1))
+    assert _row(settings, post_id)["error"] == "Klippet finns redan på kanalen." and FakeTikTok.calls == []
+    answer = _post(client, clip_id, "tiktok", fields=fields, account="open1")
+    assert answer.status_code == 409 and answer.json()["detail"] == "Klippet finns redan på kanalen."
+
+
+@pytest.mark.parametrize(("url", "opens"), [
+    ("https://contentrewards.com/c/x", True), ("http://localhost:3000/queue", True),
+    ("http://evil.example/queue", False), ("file:///etc/passwd", False), (None, False)])
+def test_notice_opens_only_safe_addresses(monkeypatch, url, opens):
+    calls = []
+    monkeypatch.setattr(scout.subprocess, "run", lambda args, **kwargs: calls.append(args))
+    monkeypatch.setattr(scout.sys, "platform", "darwin")
+    monkeypatch.setattr(scout.shutil, "which", lambda name: "/bin/terminal-notifier")
+    scout.notify_mac("Hej", url)
+    assert ("-open" in calls[0]) is opens
 
 
 def test_second_waiting_post_for_same_platform_is_409(client, clip_id):
