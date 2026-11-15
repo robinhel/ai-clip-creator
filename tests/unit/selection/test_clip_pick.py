@@ -180,3 +180,21 @@ def test_scored_prompt_asks_for_subscores_title_and_payoff() -> None:
     # legacy is exactly today's prompt
     assert get_system_prompt("v1", "", mode="legacy") == SYSTEM_PROMPT
     assert get_system_prompt("v1") == SYSTEM_PROMPT
+
+
+@pytest.mark.parametrize("bad", [float("inf"), "1e999", "abc"])
+def test_a_grade_or_score_that_is_not_a_number_becomes_0(bad: object) -> None:
+    pick = ClipPick.from_dict({"include": True, "hook": bad, "score": bad})
+    assert (pick.hook, pick.score) == (0, 0)
+
+
+def test_snap_keeps_the_payoff_when_the_start_snaps_earlier() -> None:
+    from clipsmith.selection.selector import _snap_to_sentences
+
+    pick = ClipPick(
+        include=True, start_offset_s=110, end_offset_s=140, payoff_start_s=109, payoff_end_s=139
+    )
+    out = _snap_to_sentences(
+        pick, ([105.0, 110.0], [136.0, 141.0]), ClipConfig(min_seconds=10, max_seconds=30)
+    )
+    assert out.end_offset_s >= 139 and out.duration_s <= 30
