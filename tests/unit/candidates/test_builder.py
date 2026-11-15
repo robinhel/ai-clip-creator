@@ -205,3 +205,43 @@ def test_transcript_hype_merges_with_clip_command():
     ]
     assert merged, "clip_command and nearby transcript_hype should merge"
     assert merged[0].score > 25.0
+
+
+# ── reaction words in chat (off by default) ──────────────────────────────────
+
+
+def _reactions_chat() -> list[ChatMessage]:
+    # Steady chat, then a burst at 100-110 s where half the messages react.
+    quiet = [_msg(float(t), "hey") for t in range(0, 200, 4)]
+    burst = [_msg(100.0 + i * 0.5, text) for i, text in enumerate(["LMAO", "no way!!", "W", "omg", "ok"] * 2)]
+    return sorted(quiet + burst, key=lambda m: m.time_in_seconds)
+
+
+def test_reaction_words_are_off_by_default() -> None:
+    msgs = _reactions_chat()
+    assert CandidatesConfig().reaction_words == [] and CandidatesConfig().reaction_weight == 0.0
+    assert compute_density_scores(msgs, window_s=10, peak_multiplier=2.0) == compute_density_scores(
+        msgs, window_s=10, peak_multiplier=2.0, reaction_words=["lmao", "w"], reaction_weight=0.0)
+
+
+def test_reaction_words_raise_the_score_as_whole_words_ignoring_case() -> None:
+    words = ["lmao", "no way", "w", "omg", "??"]
+    plain = dict(compute_density_scores(_reactions_chat(), window_s=10, peak_multiplier=2.0))
+    loud = dict(compute_density_scores(_reactions_chat(), window_s=10, peak_multiplier=2.0,
+                                       reaction_words=words, reaction_weight=1.0))
+    best = max(plain, key=plain.get)
+    assert loud[best] == plain[best] + 8  # LMAO, no way, W, omg twice; "ok" is not a reaction
+    # "w" is a whole word: "wow" and "what" do not count, "W" and "w!" do. "??" counts inside "what??".
+    msgs = [_msg(0.0, "wow"), _msg(1.0, "what"), _msg(2.0, "W"), _msg(3.0, "w!"), _msg(4.0, "what??")]
+    off = compute_density_scores(msgs, window_s=10, peak_multiplier=0.0)[0][1]
+    on = compute_density_scores(msgs, window_s=10, peak_multiplier=0.0, reaction_words=words, reaction_weight=1.0)
+    assert on[0][1] == off + 3
+
+
+def test_build_candidates_uses_the_reaction_words_from_the_config() -> None:
+    cfg = CandidatesConfig(density_window_s=10, density_peak_multiplier=2.0, audio_energy_enabled=False,
+                           reaction_words=["lmao", "no way", "w", "omg"], reaction_weight=1.0)
+    with_words = build_candidates(_chat(_reactions_chat()), [], cfg)
+    without = build_candidates(_chat(_reactions_chat()), [], cfg.model_copy(update={"reaction_weight": 0.0}))
+    assert [c.t_center for c in with_words] == [c.t_center for c in without]
+    assert "reactions" in " ".join(with_words[0].reasons)
