@@ -125,7 +125,7 @@ def finish_vod(
             results.append({"id": clip_id, "file": src.name, "problems": source_problems})
             continue
 
-        manifest = finish_clip(src, out, profile, settings.root, settings.encoder)
+        manifest = finish_clip(src, out, profile, settings.root, settings.encoder, title=title)
         caption = build_caption(title, profile, game)
         out.with_suffix(".txt").write_text(caption + "\n", encoding="utf-8")
 
