@@ -208,6 +208,10 @@ def cmd_approve(args, settings: Settings) -> int:
 
 def cmd_posted(args, settings: Settings) -> int:
     log = _log(settings)
+    status = log.get(args.clip_id)["status"]
+    if status not in ("godkand", *POST_STATUSES):  # samma regel som webben: bara godkända klipp postas
+        print(f"#{args.clip_id} är {status}. Godkänn klippet innan det markeras som postat.")
+        return 1
     same = [p for p in log.posts(args.clip_id) if p["platform"] == (args.platform or "tiktok")]
     if same:  # samma plattform igen: byt länken
         log.update_post(same[0]["id"], url=args.url)

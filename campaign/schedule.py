@@ -225,12 +225,26 @@ class Schedule:
                              (_iso(now),)).fetchall()
         for row in due:
             if editor.lock.locked():  # filen kan bytas mitt i uppladdningen: nästa varv
-                return
+                break
             with self._db() as db:  # running före uppladdningen: ett annat varv tar aldrig samma post
                 if db.execute("UPDATE scheduled_posts SET status = 'running', updated = ? "
                               "WHERE id = ? AND status = 'waiting'", (_iso(now), row["id"])).rowcount != 1:
                     continue
             self._run(self.get(row["id"]), now)
+        self._ask_tiktok()
+
+    def _ask_tiktok(self) -> None:
+        """Direktinlägg som TikTok behandlar: latest() skapar inlägget när det blir publicerat, utan att någon
+        behöver titta i webben. Cachen på en minut i latest() skyddar TikTok."""
+        tiktok = TikTok(self.settings)
+        with tiktok._db() as db:
+            clips = [row[0] for row in db.execute(
+                "SELECT DISTINCT clip_id FROM tiktok_uploads WHERE mode = 'direct' AND status = 'processing'")]
+        for clip_id in clips:
+            try:
+                tiktok.latest(clip_id)
+            except Exception:
+                log.exception("Status från TikTok för klipp %s", clip_id)
 
     def _run(self, post: dict, now: datetime) -> None:
         late_s = (now - datetime.fromisoformat(post["at"])).total_seconds()
@@ -260,7 +274,9 @@ class Schedule:
         else:
             done = "är uppe på YouTube" if post["platform"] == "youtube" else "skickades till TikTok"
             if submit_helper(self.settings):  # webben har länken och tiden; notisen öppnar kön
-                before = (_now() + timedelta(minutes=30)).astimezone(STOCKHOLM)
+                # Samma start som inlägget: TikTok-inlägget räknas från uppladdningen (TikTok.latest).
+                start = datetime.fromisoformat(result["created"]) if result.get("created") else _now()
+                before = (start + timedelta(minutes=30)).astimezone(STOCKHOLM)
                 message, url = f"{title} {done}. Skicka in länken i Content Rewards före kl. {before:%H:%M}.", None
             else:
                 message = f"{title} {done}. Skicka in länken i Content Rewards inom 30 minuter."
@@ -288,12 +304,10 @@ class Schedule:
 
     def _content_rewards(self, profile: str | None) -> str | None:
         try:
-            links = load_profile(profile or "", self.settings.profiles_dir).raw.get("links") or {}
+            return load_profile(profile or "", self.settings.profiles_dir).content_rewards_url
         except (SystemExit, Exception):  # kampanjen finns inte längre: notisen öppnar kön
             log.warning("Kampanjen %s går inte att läsa", profile, exc_info=True)
             return None
-        url = links.get("content_rewards") if isinstance(links, dict) else None
-        return url if isinstance(url, str) and url.startswith("https://") else None
 
 
 # ---------- tråden ----------

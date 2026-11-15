@@ -354,7 +354,8 @@ class YouTube:
             result = self._upload(clip_id, path, channel_id, video, metadata, size)
         finally:
             _upload_lock.release()
-        add_post(self.settings, clip_id, "youtube_shorts", result["url"])  # bara när hjälpen för inskick är på
+        if video["privacy"] == "public":  # bara ett offentligt inlägg kan skickas in; hjälpen avgör sedan
+            add_post(self.settings, clip_id, "youtube_shorts", result["url"])
         return result
 
     def _upload(self, clip_id: int, path: Path, channel_id: str | None, video: dict, metadata: dict,

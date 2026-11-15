@@ -185,14 +185,15 @@ class ClipLog:
             raise SystemExit(f"Hittar inget inlägg med id {post_id}.")
         return dict(row)
 
-    def add_post(self, clip_id: int, platform: str, url: str) -> int:
-        """Ett nytt inlägg med status postad. Samma plattform två gånger ger sqlite3.IntegrityError."""
+    def add_post(self, clip_id: int, platform: str, url: str, created: str | None = None) -> int:
+        """Ett nytt inlägg med status postad. Samma plattform två gånger ger sqlite3.IntegrityError.
+        created: när inlägget publicerades, om det var före nu."""
         self.get(clip_id)
         now = _now()
         with self._db() as db:
             cursor = db.execute(
                 "INSERT INTO posts (clip_id, platform, url, status, created, updated) VALUES (?,?,?,?,?,?)",
-                (clip_id, platform, url, "postad", now, now),
+                (clip_id, platform, url, "postad", created or now, now),
             )
             post_id = int(cursor.lastrowid)
         self._sync(clip_id)

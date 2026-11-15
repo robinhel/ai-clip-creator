@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Literal
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from clipsmith.api.deps import verify_api_key
@@ -56,7 +56,7 @@ def _get_post(log: ClipLog, post_id: int) -> dict:
 
 @router.post("/clips/{clip_id}/posts", status_code=201, summary="Lägg till ett inlägg på en plattform",
              dependencies=[Depends(verify_api_key)])
-def add_post(clip_id: int, body: NewPost, settings: Settings = Depends(get_settings)) -> dict:
+def add_post(clip_id: int, body: NewPost, response: Response, settings: Settings = Depends(get_settings)) -> dict:
     log = _log(settings)
     clip = _get(log, clip_id)
     if clip["status"] not in ("godkand", "postad", "inskickad", "analytics_inskickad", "betald"):
@@ -69,6 +69,9 @@ def add_post(clip_id: int, body: NewPost, settings: Settings = Depends(get_setti
     try:
         log.add_post(clip_id, body.platform, body.url.strip())
     except sqlite3.IntegrityError as error:
+        if any(p["platform"] == body.platform and p["url"] == body.url.strip() for p in log.posts(clip_id)):
+            response.status_code = 200  # samma inlägg igen, till exempel lagt in av hjälpen efter uppladdningen
+            return _public(log.get(clip_id), settings)
         raise HTTPException(409, "Klippet har redan ett inlägg på den plattformen. Ändra länken i stället.") from error
     return _public(log.get(clip_id), settings)
 
