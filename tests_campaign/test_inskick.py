@@ -8,7 +8,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from campaign import api
+import sqlite3
+
+from campaign import api, preferences
+from campaign.cli import main
 from campaign.cliplog import ClipLog
 
 from .conftest import set_profile
@@ -81,3 +84,22 @@ def test_the_clip_has_the_campaigns_platforms(client, settings, platforms, expec
     clip_id = _clip(settings)
     (clip,) = [c for c in client.get("/campaign/clips").json() if c["id"] == clip_id]
     assert clip["platforms"] == expected
+
+
+def test_a_database_error_when_the_post_is_made_never_fails_the_upload(settings, monkeypatch, caplog):
+    def broken(self, *args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(ClipLog, "add_post", broken)
+    preferences.add_post(settings, _clip(settings), "tiktok", "https://www.tiktok.com/@a/video/1")
+    assert "inlägget" in caplog.text.lower()
+
+
+@pytest.mark.parametrize("status", ["renderad", "nekad", "underkand"])
+def test_the_cli_does_not_post_a_clip_that_is_not_approved(settings, monkeypatch, status):
+    monkeypatch.setenv("KLIPP_ROOT", str(settings.root))
+    clip_id = _clip(settings)
+    log = ClipLog(settings.data_dir / "klipp.db")
+    log.update(clip_id, status=status)
+    assert main(["posted", str(clip_id), "https://www.tiktok.com/@a/video/1"]) != 0
+    assert log.posts(clip_id) == [] and log.get(clip_id)["status"] == status

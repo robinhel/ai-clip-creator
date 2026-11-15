@@ -142,6 +142,7 @@ def test_cli_finish_status_and_facit(settings, monkeypatch, capsys):
 
     assert main(["finish", "v1", "--no-review"]) == 0
     assert "KLAR #1" in capsys.readouterr().out
+    assert main(["mark", "1", "godkand"]) == 0
     assert main(["posted", "1", "https://example.com/v"]) == 0
     assert main(["stats", "1", "--views", "2500", "--likes", "30"]) == 0
     assert "klarar kravet" in capsys.readouterr().out

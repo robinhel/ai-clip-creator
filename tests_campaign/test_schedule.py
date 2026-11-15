@@ -425,3 +425,40 @@ def test_a_clip_posted_on_youtube_can_still_be_sent_to_tiktok_at_the_time(client
     ClipLog(settings.data_dir / "klipp.db").add_post(clip_id, "youtube_shorts", "https://www.youtube.com/shorts/v1")
     _run(settings, at, timedelta(seconds=1))
     assert _row(settings, post_id)["status"] == "done" and len(FakeTikTok.calls) == 1
+
+
+
+@pytest.mark.parametrize("status", ["nekad", "renderad", "underkand"])
+def test_clip_file_still_stops_a_clip_that_is_not_approved(settings, clip_id, status):
+    log = ClipLog(settings.data_dir / "klipp.db")
+    log.update(clip_id, status=status)
+    with pytest.raises(schedule.ScheduleError):
+        schedule.clip_file(settings, log.get(clip_id), "youtube")
+
+
+def _direct_row(settings, clip_id, status):
+    with TikTok(settings)._db() as db:
+        db.execute("INSERT INTO tiktok_uploads (clip_id, publish_id, status, created, open_id, mode) "
+                   "VALUES (?, 'p', ?, ?, 'open1', 'direct')", (clip_id, status, datetime.now(UTC).isoformat()))
+
+
+def test_each_round_asks_tiktok_about_direct_posts_that_are_processing(settings, clip_id, notes, monkeypatch):
+    asked = []
+    monkeypatch.setattr(FakeTikTok, "latest", lambda self, clip: asked.append(clip))
+    other = ClipLog(settings.data_dir / "klipp.db").add(
+        vod_id="v", profile="skiimasktimmy", file="x.mp4", title="t", caption="c", status="godkand")
+    _direct_row(settings, clip_id, "processing")
+    _direct_row(settings, other, "published")
+    schedule.Schedule(settings).run_due()
+    assert asked == [clip_id]
+
+
+def test_the_tiktok_notice_uses_the_upload_time(client, settings, clip_id, notes, monkeypatch):
+    FakeTikTok.publish = True
+    monkeypatch.setattr(FakeTikTok, "upload", lambda self, clip, path, account, post, duration: {
+        "publish_id": "p1", "status": "processing", "created": "2026-11-20T16:40:00+00:00"})
+    at = _at(timedelta(hours=1))
+    fields = {"title": "Big play #ad", "privacy_level": "PUBLIC_TO_EVERYONE"}
+    _post(client, clip_id, "tiktok", at=at, fields=fields, account="open1")
+    _run(settings, at, timedelta(seconds=1))
+    assert notes[0][0] == "Timmy lands it skickades till TikTok. Skicka in länken i Content Rewards före kl. 18:10."
