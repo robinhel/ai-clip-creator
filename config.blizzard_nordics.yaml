@@ -84,7 +84,7 @@ llm:
     - cinematic_beat: one scene from a trailer with a clear start and end
 
 caption:
-  enabled: false        # Whisper hittar på text i musik, och kampanjen kräver ingen text på bilden
+  enabled: true
 
 reframe:
   mode: center          # mitten av 16:9-bilden blir 9:16, ingen facecam
