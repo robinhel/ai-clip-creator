@@ -281,7 +281,7 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
       data-active={active || undefined}
       className="relative before:absolute before:inset-y-6 before:-left-4 before:w-[3px] before:rounded-full before:bg-brand before:opacity-0 data-active:before:opacity-100 grid grid-cols-[56px_minmax(0,1fr)] gap-x-4 gap-y-4 border-b border-line py-6 lg:grid-cols-[56px_230px_minmax(0,1fr)_200px] lg:gap-x-5"
     >
-      <div className="row-span-2 pt-0.5 text-center" aria-label={clip.score == null ? "Inget betyg" : `Betyg ${clip.score} av 99`}>
+      <div className="row-span-2 pt-0.5 text-center" aria-label={clip.score == null ? "Inget betyg" : `Betyg ${clip.score} av 100`}>
         <p className={cn("text-[32px] leading-none font-extrabold tabular-nums", scoreTone(clip.score))}>
           {clip.score ?? "–"}
         </p>

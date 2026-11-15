@@ -21,6 +21,8 @@ class Profile:
     text_position: str = "top"  # top | bottom
     text_font_size: int = 46
     text_font_file: str | None = None
+    # titeln överst de första sekunderna; None = på när text inte krävs
+    hook_text: bool | None = None
     overlay_file: str | None = None
     overlay_required: bool = False
     overlay_mode: str = "full"  # full | top | bottom
@@ -40,6 +42,10 @@ class Profile:
     preferred_games: list[str] = field(default_factory=list)  # spel som ger poäng i Senaste streams
     active: bool = True  # false = kampanjen syns bara under Kampanjer i appen
     raw: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.hook_text is None:
+            self.hook_text = not self.text_required
 
     @property
     def format_ids(self) -> list[str]:
@@ -118,6 +124,7 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
         text_position=text.get("position", "top"),
         text_font_size=_number(text, "font_size", 46, "on_screen_text.font_size", int),
         text_font_file=text.get("font_file"),
+        hook_text=None if text.get("hook_text") is None else bool(text["hook_text"]),
         overlay_file=overlay.get("file"),
         overlay_required=bool(overlay.get("required", False)),
         overlay_mode=overlay.get("mode", "full"),

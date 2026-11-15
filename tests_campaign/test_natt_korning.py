@@ -496,6 +496,24 @@ def test_text_after_the_json_does_not_lose_the_answer(monkeypatch) -> None:
     assert pick is not None and pick.include
 
 
+class RankingPicker(FakePicker):
+    def __init__(self, answers: list):
+        super().__init__(answers)
+        self.ranked: list[list[str]] = []
+
+    def rank(self, lines, stream_context):
+        self.ranked.append(lines)
+        return [90, 30]
+
+
+def test_the_app_run_calibrates_the_scores_with_rank(settings, vod) -> None:
+    vod.picker = RankingPicker([_yes("clutch"), _yes("clutch", start=400)])
+    _make(settings, vod)
+    assert len(vod.picker.ranked) == 1
+    saved = json.loads((settings.out_dir / "123" / "run_7" / "picks.json").read_text(encoding="utf-8"))
+    assert [item["pick"]["score"] for item in saved] == [90, 30]
+
+
 # ---------- snabbläge utan Claude, och reaktioner i Timmys chatt ----------
 
 
