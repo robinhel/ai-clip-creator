@@ -245,3 +245,25 @@ def test_build_candidates_uses_the_reaction_words_from_the_config() -> None:
     without = build_candidates(_chat(_reactions_chat()), [], cfg.model_copy(update={"reaction_weight": 0.0}))
     assert [c.t_center for c in with_words] == [c.t_center for c in without]
     assert "reactions" in " ".join(with_words[0].reasons)
+
+
+def test_common_reactions_do_not_lower_the_bar_for_the_whole_stream() -> None:
+    # Every message all stream long is "lol": no window stands out, with or without reaction words.
+    msgs = [_msg(float(t), "lol") for t in range(0, 600, 2)]
+    assert compute_density_scores(msgs, window_s=10, peak_multiplier=1.5, reaction_words=["lol"],
+                                  reaction_weight=1.0) == []
+
+
+def test_spam_with_repeated_letters_counts_as_a_reaction() -> None:
+    words = ["w", "haha", "lmao", "lol"]
+    spam = ["WWWWWW", "wWw", "ahahah", "hahaha", "LMAOOOO", "lolll"]
+    msgs = [_msg(float(i), text) for i, text in enumerate([*spam, "wow", "what", "hello"])]
+    off = compute_density_scores(msgs, window_s=20, peak_multiplier=0.0)[0][1]
+    on = compute_density_scores(msgs, window_s=20, peak_multiplier=0.0, reaction_words=words, reaction_weight=1.0)
+    assert on[0][1] == off + len(spam)
+
+
+def test_density_scores_do_not_depend_on_the_message_order() -> None:
+    msgs = _reactions_chat()
+    kwargs = {"window_s": 10, "peak_multiplier": 2.0, "reaction_words": ["lmao", "w"], "reaction_weight": 1.0}
+    assert compute_density_scores(msgs[::-1], **kwargs) == compute_density_scores(msgs, **kwargs)
