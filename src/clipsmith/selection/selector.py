@@ -233,6 +233,10 @@ def _snap_to_sentences(
     """Move the start to the nearest sentence start and the end to the nearest sentence end that
     keeps the length within limits. No border nearby: the time stays. Then clamp as before."""
     starts, ends = borders
+    if pick.payoff_start_s is not None:  # never cut into the payoff
+        starts = [s for s in starts if s <= pick.payoff_start_s]
+    if pick.payoff_end_s is not None:
+        ends = [e for e in ends if e >= pick.payoff_end_s]
     start = _nearest(starts, pick.start_offset_s)
     if start is not None:
         pick.start_offset_s = start
@@ -265,6 +269,11 @@ def _calibrate(
         )
     scores = rank(lines, stream_context)
     if scores is None:
+        return
+    if len(scores) != len(picks):
+        log.warning(
+            "rank gave %d scores for %d clips; the first scores stay", len(scores), len(picks)
+        )
         return
     for result, score in zip(picks, scores, strict=True):
         result.pick.score = score

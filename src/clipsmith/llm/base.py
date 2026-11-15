@@ -36,6 +36,14 @@ def _bounded(value: object, high: int) -> int:
     return min(max(round(float(value or 0)), 0), high)  # type: ignore[arg-type]
 
 
+def _grade(value: object) -> int:
+    """A part grade 0-25. One that is not a number becomes 0 instead of losing the candidate."""
+    try:
+        return _bounded(value, 25)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _seconds(value: object) -> float | None:
     return None if value is None else float(value)  # type: ignore[arg-type]
 
@@ -78,7 +86,7 @@ class ClipPick:
 
     @classmethod
     def from_dict(cls: type[Self], d: dict) -> Self:
-        subscores = {key: _bounded(d.get(key), 25) for key in SUBSCORES}
+        subscores = {key: _grade(d.get(key)) for key in SUBSCORES}
         score = d.get("score")  # a saved score is the calibrated one; keep it
         return cls(
             include=bool(d.get("include", False)),

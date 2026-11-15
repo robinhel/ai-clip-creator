@@ -369,7 +369,7 @@ def test_v2_snap_never_cuts_the_payoff() -> None:
     picks = select_clips(
         [_candidate(110.0)],
         _sentences(),
-        _Payoff(104.5, 119.0),
+        _Payoff(104.5, 123.0),
         "ctx",
         _cfg(min_seconds=10, max_seconds=30),
     )  # type: ignore[arg-type]

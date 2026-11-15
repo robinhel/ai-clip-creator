@@ -92,6 +92,7 @@ def finish_vod(
         index = int(re.match(r"clip_(\d+)", src.name).group(1))
         pick = picks[index - 1] if 0 < index <= len(picks) else {}
         title = pick.get("title") or title_from_name(src)
+        hook = pick.get("title") or ""  # filnamnet blir ingen hook-text
         start, end = pick.get("start"), pick.get("end")
         out = clip_dir / "klara" / src.name
 
@@ -105,6 +106,7 @@ def finish_vod(
             # Klippet är redigerat i appen: loggens rubrik och tider gäller, inte picks.json. edit_meta kollar
             # råklippets storlek och ändringstid, så ett nytt råklipp från clipsmith får picks.json igen.
             title, start, end = redo["title"], redo["start_s"], redo["end_s"]
+            hook = title
         if not redo and start is not None and end is not None and log.overlaps(vod_id, start, end):
             results.append({"file": src.name, "skipped": "samma del av VOD:en är redan klippt"})
             continue
@@ -125,7 +127,7 @@ def finish_vod(
             results.append({"id": clip_id, "file": src.name, "problems": source_problems})
             continue
 
-        manifest = finish_clip(src, out, profile, settings.root, settings.encoder, title=title)
+        manifest = finish_clip(src, out, profile, settings.root, settings.encoder, title=hook)
         caption = build_caption(title, profile, game)
         out.with_suffix(".txt").write_text(caption + "\n", encoding="utf-8")
 

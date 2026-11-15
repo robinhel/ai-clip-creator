@@ -90,7 +90,7 @@ Respond ONLY with a valid JSON object matching this schema (no markdown, no extr
   "end_offset_s": <number>,    // VOD seconds where the clip ends
   "payoff_start_s": <number>,  // VOD seconds where the payoff starts: the play, the punchline, the reaction
   "payoff_end_s": <number>,    // VOD seconds where the payoff ends
-  "title": <string>,           // 3-7 word title, no hashtags, no spoilers (the stream context may call it title_es)
+  "title": <string>,           // 3-7 word title, no hashtags, no spoilers
   "reason": <string>,          // 1-2 sentences: why, and the first sentence of the clip
   "hook": <integer>,           // 0-25
   "engagement": <integer>,     // 0-25
@@ -207,6 +207,7 @@ def build_stream_context(
     game: str = "",
     language: str = "English",
     formats: list[dict] | None = None,
+    mode: str = "legacy",
 ) -> str:
     """Build the stable per-VOD context block sent before candidate prompts.
 
@@ -222,7 +223,10 @@ def build_stream_context(
         f"Platform: Twitch (clips for TikTok/YouTube Shorts)\n"
     )
     if language.lower() not in ("english", "en"):
-        context += f"Write title_es in {language}, not English. This applies instead of the instructions.\n"
+        field = "title" if mode == "v2" else "title_es"  # the name the answer format uses
+        context += (
+            f"Write {field} in {language}, not English. This applies instead of the instructions.\n"
+        )
     if formats:
         lines = [
             f"- {f['id']}: {f.get('name') or f['id']}. {f.get('description') or ''}".rstrip()

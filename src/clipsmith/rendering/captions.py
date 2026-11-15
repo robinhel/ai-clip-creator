@@ -16,6 +16,8 @@ _SAFE_BOTTOM = (
 _BOX_ON = "{\\3a&H00&}"
 _BOX_OFF = "{\\3a&HFF&}"
 _MAX_LINE_CHARS = 28
+_BOX_MAX_LINE_CHARS = 18  # bold capitals at 72 pt: about 18 fit in 1080 px
+_ASS_SPECIAL = re.compile(r"[{}\\]")  # would start an override tag or an escape in ASS
 _MAX_GAP = 0.6  # a longer pause between words starts a new line, so no text shows during silence
 _MAX_WORD = 1.0  # whisper sometimes stretches a word over the silence after it
 _HOLD = 0.3  # keep a line up a little after its last word, but never into the next line
@@ -56,7 +58,10 @@ def _caption_lines(
 def _group_words(
     words: list[Word], clip_start: float, style: str = "outline"
 ) -> list[tuple[float, float, str]]:
-    chunks = _split_lines(words, _BOX_WORDS_PER_LINE if style == "box" else _WORDS_PER_LINE)
+    if style == "box":
+        chunks = _split_lines(words, _BOX_WORDS_PER_LINE, _BOX_MAX_LINE_CHARS, fit=True)
+    else:
+        chunks = _split_lines(words, _WORDS_PER_LINE)
     groups = [_make_karaoke_line(c, clip_start) for c in chunks]
     lines: list[tuple[float, float, str]] = []
     for i, (start, end, text) in enumerate(groups):
@@ -68,17 +73,21 @@ def _group_words(
     return lines
 
 
-def _split_lines(words: list[Word], max_words: int) -> list[list[Word]]:
-    """Split words into lines at a pause, at max_words, or at _MAX_LINE_CHARS."""
+def _split_lines(
+    words: list[Word], max_words: int, max_chars: int = _MAX_LINE_CHARS, fit: bool = False
+) -> list[list[Word]]:
+    """Split words into lines at a pause, at max_words, or at max_chars. fit: a word that would make
+    the line longer than max_chars starts a new line, so a too long word stands alone."""
     chunks: list[list[Word]] = []
     chunk: list[Word] = []
 
     for w in words:
-        if chunk and w.start - _spoken_end(chunk[-1]) > _MAX_GAP:
+        too_wide = fit and len(_chunk_text([*chunk, w])) > max_chars
+        if chunk and (w.start - _spoken_end(chunk[-1]) > _MAX_GAP or too_wide):
             chunks.append(chunk)
             chunk = []
         chunk.append(w)
-        if len(chunk) >= max_words or len(_chunk_text(chunk)) >= _MAX_LINE_CHARS:
+        if len(chunk) >= max_words or len(_chunk_text(chunk)) >= max_chars:
             chunks.append(chunk)
             chunk = []
     if chunk:
@@ -91,7 +100,7 @@ def _box_events(
 ) -> list[tuple[float, float, str]]:
     """One event per word: the whole line, with the box shown behind the word being said."""
     times = [max(0.0, w.start - clip_start) for w in words] + [line_end]
-    texts = [w.word.strip().upper() for w in words]
+    texts = [_clean(w.word).upper() for w in words]
     return [
         (
             times[i],
@@ -112,14 +121,18 @@ def _make_karaoke_line(words: list[Word], clip_start: float) -> tuple[float, flo
     # Each word lasts until the next one starts, so a short gap inside the line keeps the highlight in step.
     ends = [nxt.start for nxt in words[1:]] + [_spoken_end(words[-1])]
     parts = [
-        f"{{\\kf{max(1, round((end - w.start) * 100))}}}{w.word.strip()}"
+        f"{{\\kf{max(1, round((end - w.start) * 100))}}}{_clean(w.word)}"
         for w, end in zip(words, ends)
     ]
     return rel_start, rel_end, " ".join(parts)
 
 
+def _clean(word: str) -> str:
+    return _ASS_SPECIAL.sub("", word.strip())
+
+
 def _chunk_text(words: list[Word]) -> str:
-    return " ".join(w.word.strip() for w in words)
+    return " ".join(_clean(w.word) for w in words)
 
 
 def _fallback_segments(
@@ -136,7 +149,7 @@ def _fallback_segments(
             continue
         rel_start = max(0.0, seg.start - clip_start)
         rel_end = seg.end - clip_start
-        text = seg.text.strip()
+        text = _clean(seg.text)
         seg_words = (text.upper() if style == "box" else text).split()
         n = len(seg_words)
         if not n:
@@ -165,7 +178,10 @@ def _alignment(position: str) -> int:
 
 
 def _placement(config: CaptionConfig, reframe: ReframeConfig | None) -> tuple[int, int]:
-    """(alignment, MarginV): on the seam when stacked, else above the bottom safe zone."""
+    """(alignment, MarginV). box: on the seam when stacked, else above the bottom safe zone.
+    outline: the old placement, MarginV 80."""
+    if config.style == "outline":
+        return _alignment(config.position), 80
     if reframe is not None and reframe.mode == "stacked":
         # bottom-aligned, so the line's middle sits on the seam between facecam and gameplay
         return 2, int(1920 * (1 - reframe.split_ratio) - config.font_size / 2)
