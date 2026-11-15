@@ -175,7 +175,14 @@ function ScheduleDialog({ clip, pending, youtube, tiktok, onClose }: DialogProps
                     <select
                       aria-label="TikTok-konto"
                       value={openId}
-                      onChange={(e) => setOpenId(e.target.value)}
+                      onChange={(e) => {
+                        setOpenId(e.target.value);
+                        // Valen beror på kontots creator_info. Robin väljer om, annars kan posten misslyckas vid tiden.
+                        tt.setPrivacy("");
+                        tt.setAllowComment(false);
+                        tt.setAllowDuet(false);
+                        tt.setAllowStitch(false);
+                      }}
                       className="mt-1 h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand [&>option]:bg-panel"
                     >
                       {accounts.map((a) => (
