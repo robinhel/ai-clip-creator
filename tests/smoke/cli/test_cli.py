@@ -86,5 +86,6 @@ def test_reframe_help_shows_command() -> None:
     result = runner.invoke(app, ["reframe", "--help"])
     assert result.exit_code == 0
     out = _plain(result.output)
-    assert "video-id" in out or "VIDEO_ID" in out
+    # typer-versioner stavar argumentet olika: video-id, VIDEO_ID eller video_id
+    assert "video_id" in out.lower().replace("-", "_")
     assert "stacked" in out
