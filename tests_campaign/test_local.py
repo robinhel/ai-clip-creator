@@ -25,6 +25,7 @@ def blizzard(settings, monkeypatch, tmp_path):
     shutil.copy(PAKET / "profiles" / "blizzard_nordics.yaml", settings.profiles_dir)
     shutil.copy(PAKET / "config.blizzard_nordics.yaml", settings.root)
     monkeypatch.setenv("KLIPP_ROOT", str(settings.root))
+    monkeypatch.chdir(settings.root)  # clipsmiths config har work_dir: ./work, som appen när den körs från repot
     return settings
 
 

@@ -88,8 +88,9 @@ def make_clips(
     min_s: int | None = None,
     max_s: int | None = None,
     run_id: int | None = None,
+    local: bool = False,
 ):
-    """Hela kedjan för en VOD. Returnerar clipsmiths inställningar, som behövs efteråt, och en förklaring
+    """Hela kedjan för en VOD. local: en egen fil som redan ligger i work/<id>/, utan Twitch. Returnerar clipsmiths inställningar, som behövs efteråt, och en förklaring
     när körningen inte gav några nya klipp (annars None).
 
     Körningens råklipp och val hamnar i out/<vod>/run_<id>/, så att två körningar på samma VOD inte blandas.
@@ -113,8 +114,11 @@ def make_clips(
             shown.add(percent)
             emit("download", 5.0 + percent / 10, f"Hämtar: {percent} %")
 
-    emit("download", 5.0, "Hämtar VOD:en")
-    mp4 = download_vod(vod_id, cfg.work_dir.expanduser(), on_progress=downloading)
+    if local:
+        mp4 = cfg.work_dir.expanduser() / vod_id / f"{vod_id}.mp4"
+    else:
+        emit("download", 5.0, "Hämtar VOD:en")
+        mp4 = download_vod(vod_id, cfg.work_dir.expanduser(), on_progress=downloading)
 
     transcript = mp4.parent / "transcript.json"
     if not transcript.exists():
@@ -128,9 +132,10 @@ def make_clips(
                        budget=budget_from_settings(settings))
 
     secrets = load_secrets()
-    user_id, created_at = _twitch_ids(vod_id, channel, secrets)
+    user_id, created_at = ("", "") if local else _twitch_ids(vod_id, channel, secrets)
+    url = "" if local else f"https://www.twitch.tv/videos/{vod_id}"
     video = Video(id=vod_id, user_id=user_id, user_login=channel, title=title, created_at=created_at,
-                  published_at="", url=f"https://www.twitch.tv/videos/{vod_id}", duration=duration,
+                  published_at="", url=url, duration=duration,
                   type="archive")
     # clipsmith hittar kandidaterna. Valet och klippningen görs här, med kampanjens format och språk.
     process_vod(
@@ -222,13 +227,14 @@ def run_campaign_vod(
     min_s: int | None = None,
     max_s: int | None = None,
     app: Any = None,
+    local: bool = False,
 ) -> None:
-    """Bakgrundsjobb för POST /campaign/runs. Skriver förloppet som clipsmiths händelser."""
+    """Bakgrundsjobb för POST /campaign/runs, och för python -m campaign local. Skriver förloppet som clipsmiths händelser."""
     db = get_session()
     try:
         profile = load_profile(profile_name, settings.profiles_dir)
         cfg, why_none = make_clips(vod_id, profile, settings, game=game, start_s=start_s, end_s=end_s,
-                                   focus=focus, min_s=min_s, max_s=max_s, run_id=run_id,
+                                   focus=focus, min_s=min_s, max_s=max_s, run_id=run_id, local=local,
                                    emit=lambda stage, pct, msg: _emit(db, run_id, stage, pct, msg))
         _harvest_clips(db, run_id, vod_id, cfg)
         _emit(db, run_id, "done", 100.0, why_none or "Klart", status=RunStatus.done)
