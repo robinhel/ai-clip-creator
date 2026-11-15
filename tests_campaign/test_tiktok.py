@@ -20,6 +20,8 @@ from fastapi.testclient import TestClient
 from campaign import api, tiktok, tiktok_api
 from campaign.cliplog import ClipLog
 
+from .conftest import set_helper, set_profile
+
 KEYS = ("ck_test_key", "cs_test_secret")
 REVOKE = "https://open.tiktokapis.com/v2/oauth/revoke/"
 DIRECT = "https://open.tiktokapis.com/v2/post/publish/video/init/"
@@ -983,7 +985,7 @@ def test_direct_post_status_goes_from_processing_to_published_with_a_link(client
     _later(monkeypatch, 10)
     assert client.get(f"/campaign/clips/{clip_id}/tiktok").json()["status"] == "published"
     assert len(fake.calls(tiktok.STATUS_URL)) == calls  # klar: ingen mer hämtning
-    assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["status"] == "godkand"
+    assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["status"] == "postad"  # inlägget från hjälpen
 
 
 def test_a_private_post_has_no_link_and_a_failed_one_is_done(client, settings, fake, monkeypatch) -> None:
@@ -1085,3 +1087,56 @@ def test_a_direct_post_that_tiktok_finishes_after_an_hour_is_published(client, s
     _old_direct_row(settings, clip_id)
     fake.status = "PUBLISH_COMPLETE"
     assert client.get(f"/campaign/clips/{clip_id}/tiktok").json()["status"] == "published"
+
+
+# ---------- hjälpen för inskick och kampanjens plattformar ----------
+
+
+def _publish(client, settings, fake, monkeypatch, clip_id: int) -> None:
+    _direct(client, clip_id, privacy_level="FOLLOWER_OF_CREATOR")
+    fake.status, fake.post_ids = "PUBLISH_COMPLETE", [7234567890123456789]
+    _later(monkeypatch, 2)
+    assert client.get(f"/campaign/clips/{clip_id}/tiktok").json()["status"] == "published"
+
+
+def test_a_published_direct_post_creates_the_post_once(client, settings, fake, monkeypatch) -> None:
+    _connect(settings, publish=True)
+    clip_id = _clip(settings)
+    _publish(client, settings, fake, monkeypatch, clip_id)
+    log = ClipLog(settings.data_dir / "klipp.db")
+    (post,) = log.posts(clip_id)
+    assert (post["platform"], post["url"]) == (
+        "tiktok", "https://www.tiktok.com/@clipvault.hq26/video/7234567890123456789")
+    log.delete_post(post["id"])  # Robin tog bort det: det kommer inte tillbaka
+    _later(monkeypatch, 10)
+    client.get(f"/campaign/clips/{clip_id}/tiktok")
+    assert log.posts(clip_id) == []
+
+
+def test_no_tiktok_post_when_the_helper_is_off(client, settings, fake, monkeypatch) -> None:
+    set_helper(settings, False)
+    _connect(settings, publish=True)
+    clip_id = _clip(settings)
+    _publish(client, settings, fake, monkeypatch, clip_id)
+    assert ClipLog(settings.data_dir / "klipp.db").posts(clip_id) == []
+
+
+def test_a_draft_or_a_private_post_creates_no_post(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    draft, private = _clip(settings), _clip(settings)
+    client.post(f"/campaign/clips/{draft}/tiktok")
+    _direct(client, private)
+    fake.status = "PUBLISH_COMPLETE"  # inga publicaly_available_post_id: privat
+    client.get(f"/campaign/clips/{private}/tiktok")
+    log = ClipLog(settings.data_dir / "klipp.db")
+    assert log.posts(draft) == [] and log.posts(private) == []
+
+
+@pytest.mark.parametrize("body", [None, {"mode": "direct", "privacy_level": "SELF_ONLY"}])
+def test_a_campaign_without_tiktok_refuses_the_upload(client, settings, fake, body) -> None:
+    set_profile(settings, platforms=["youtube_shorts"])
+    _connect(settings, publish=True)
+    response = client.post(f"/campaign/clips/{_clip(settings)}/tiktok", json=body)
+    assert (response.status_code, response.json()["detail"]) == (400, "Kampanjen postar inte på TikTok.")
+    with tiktok.TikTok(settings)._db() as db:
+        assert db.execute("SELECT COUNT(*) FROM tiktok_uploads").fetchone()[0] == 0
