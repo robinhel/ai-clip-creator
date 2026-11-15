@@ -16,7 +16,7 @@ import { TikTokSend } from "@/components/TikTokSend";
 import { YouTubeSend } from "@/components/YouTubeSend";
 import { api } from "@/lib/api";
 import { clock, cn, SUMMARY_CHANGED } from "@/lib/utils";
-import type { CampaignClip, CampaignClipPatch, CampaignFormat, ClipEditInfo, ClipTranscript, Platform } from "@/lib/types";
+import type { CampaignClip, CampaignClipPatch, CampaignFormat, ClipEditInfo, ClipSubscores, ClipTranscript, Platform } from "@/lib/types";
 
 // Längsta caption på TikTok och Instagram.
 const CAPTION_MAX = 2200;
@@ -29,6 +29,13 @@ const EDITABLE: CampaignClip["status"][] = ["renderad", "underkand", "godkand"];
 // Klippet får laddas ner och captionen kopieras först när Robin har sagt ja.
 const CAN_POST: CampaignClip["status"][] = ["godkand", "postad", "inskickad", "analytics_inskickad", "betald"];
 const POSTED: CampaignClip["status"][] = ["postad", "inskickad", "analytics_inskickad", "betald"];
+// Hook först: de första sekunderna avgör om någon tittar vidare.
+const SUBSCORES: [keyof ClipSubscores, string][] = [
+  ["hook", "Hook"],
+  ["engagement", "Engagemang"],
+  ["value", "Värde"],
+  ["shareability", "Delbarhet"],
+];
 
 /** Färg efter betyg, som i skissen: grönt från 80, gult från 60. */
 export function scoreTone(score: number | null): string {
@@ -334,6 +341,29 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
             {clip.score != null && <span className="font-medium text-[#e4defb]">Claude: </span>}
             {clip.reason}
           </p>
+        )}
+        {clip.subscores && (
+          <dl
+            aria-label="Claudes delpoäng"
+            title="Betyget är summan av delpoängen, justerat mot de andra klippen i samma video."
+            className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4"
+          >
+            {SUBSCORES.map(([key, label]) => {
+              const points = clip.subscores![key];
+              return (
+                <div key={key} className="min-w-0">
+                  <dt className={cn("text-[12px]", key === "hook" ? "font-medium text-foreground" : "text-muted-foreground")}>{label}</dt>
+                  <dd className="text-[13px] font-semibold tabular-nums">
+                    {points}
+                    <span className="font-normal text-muted-foreground">/25</span>
+                  </dd>
+                  <div aria-hidden className="mt-1 h-1 overflow-hidden rounded-full bg-line">
+                    <div className={cn("h-full rounded-full", key === "hook" ? "bg-brand" : "bg-muted-foreground/60")} style={{ width: `${(points / 25) * 100}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </dl>
         )}
 
         {canEditCaption && formats.length > 0 && (

@@ -222,8 +222,17 @@ export interface CampaignClip {
   score: number | null;
   /** Claudes motivering, tom för äldre klipp. */
   reason: string;
+  /** Claudes delpoäng 0–25 vardera. null när Claude inte gav dem (äldre klipp, snabbläget). Saknas hos äldre servrar. */
+  subscores?: ClipSubscores | null;
   /** Ett inlägg per plattform. Klippets status, länk och siffror räknas fram ur dem. Saknas hos äldre servrar. */
   posts?: ClipPost[];
+}
+
+export interface ClipSubscores {
+  hook: number;
+  engagement: number;
+  value: number;
+  shareability: number;
 }
 
 export type PostStatus = "postad" | "inskickad" | "analytics_inskickad" | "betald";
