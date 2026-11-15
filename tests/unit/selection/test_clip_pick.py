@@ -100,7 +100,9 @@ def test_clip_pick_score_defaults_to_zero_for_old_answers() -> None:
     assert ClipPick.from_json(raw).score == 0
 
 
-@pytest.mark.parametrize(("given", "expected"), [(87, 87), ("42", 42), (150, 100), (-5, 0), (55.6, 56)])
+@pytest.mark.parametrize(
+    ("given", "expected"), [(87, 87), ("42", 42), (150, 100), (-5, 0), (55.6, 56)]
+)
 def test_clip_pick_score_is_clamped_to_0_100(given: object, expected: int) -> None:
     assert ClipPick.from_dict({"include": True, "score": given}).score == expected
 
@@ -160,7 +162,15 @@ def test_scored_prompt_asks_for_subscores_title_and_payoff() -> None:
     from clipsmith.llm.prompts import SYSTEM_PROMPT, get_system_prompt
 
     scored = get_system_prompt("v1", "", mode="v2")
-    for key in ("hook", "engagement", "value", "shareability", "title", "payoff_start_s", "payoff_end_s"):
+    for key in (
+        "hook",
+        "engagement",
+        "value",
+        "shareability",
+        "title",
+        "payoff_start_s",
+        "payoff_end_s",
+    ):
         assert f'"{key}"' in scored
     assert "first sentence" in scored
     assert "what is said in the transcript" in scored  # Twitch rule kept without own instructions

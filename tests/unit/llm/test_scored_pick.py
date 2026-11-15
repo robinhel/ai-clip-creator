@@ -17,9 +17,15 @@ pytestmark = pytest.mark.unit
 
 
 def _response(payload: dict) -> SimpleNamespace:
-    usage = SimpleNamespace(input_tokens=1000, output_tokens=100, cache_read_input_tokens=0,
-                            cache_creation_input_tokens=0)
-    return SimpleNamespace(content=[SimpleNamespace(type="text", text=json.dumps(payload))], usage=usage)
+    usage = SimpleNamespace(
+        input_tokens=1000,
+        output_tokens=100,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    return SimpleNamespace(
+        content=[SimpleNamespace(type="text", text=json.dumps(payload))], usage=usage
+    )
 
 
 def _provider(tmp_path, payload: dict, **kwargs) -> tuple[AnthropicProvider, Budget]:
@@ -30,8 +36,18 @@ def _provider(tmp_path, payload: dict, **kwargs) -> tuple[AnthropicProvider, Bud
     return provider, budget
 
 
-_ANSWER = {"include": True, "start_offset_s": 100.0, "end_offset_s": 120.0, "title": "Solo boss",
-           "reason": "r", "hook": 22, "engagement": 18, "value": 15, "shareability": 20, "score": 99}
+_ANSWER = {
+    "include": True,
+    "start_offset_s": 100.0,
+    "end_offset_s": 120.0,
+    "title": "Solo boss",
+    "reason": "r",
+    "hook": 22,
+    "engagement": 18,
+    "value": 15,
+    "shareability": 20,
+    "score": 99,
+}
 
 
 def _candidate() -> CandidateMoment:
@@ -59,7 +75,8 @@ def test_rank_returns_one_score_per_clip_and_goes_via_the_budget(tmp_path) -> No
     assert budget.summary()["by_purpose"]["kalibrera"]["calls"] == 1
     text = json.dumps(provider._client.messages.create.call_args.kwargs["messages"])
     assert "a" in text and "same for every stream" in json.dumps(
-        provider._client.messages.create.call_args.kwargs["system"])
+        provider._client.messages.create.call_args.kwargs["system"]
+    )
 
 
 def test_rank_with_a_wrong_answer_gives_none(tmp_path) -> None:
