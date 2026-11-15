@@ -59,7 +59,7 @@ def _spread_candidates(
 def select_clips(
     candidates: list[CandidateMoment],
     transcript: Transcript,
-    picker: ClipPicker,
+    picker: ClipPicker | None,
     stream_context: str,
     config: ClipConfig,
     *,
@@ -74,6 +74,7 @@ def select_clips(
     """
     if config.select == "signals":
         return _signal_picks(candidates, config)
+    assert picker is not None, "select: llm needs a picker"
     if min_picks is None:
         min_picks = config.min_picks
     top = _spread_candidates(

@@ -225,10 +225,15 @@ def process_vod(
     log.info("stage_start", stage="select")
     if on_stage:
         on_stage("select", 60.0)
-    console.print(
-        f"[cyan]selecting clips[/cyan] via {cfg.llm.provider} (top {max_candidates} candidates)..."
-    )
-    # signals mode makes no LLM call, so no provider (and no budget) is created
+    if cfg.clip.select == "signals":
+        console.print(
+            f"[cyan]selecting clips[/cyan] from the signals (top {cfg.clip.signals_top_n}, no LLM)..."
+        )
+    else:
+        console.print(
+            f"[cyan]selecting clips[/cyan] via {cfg.llm.provider} (top {max_candidates} candidates)..."
+        )
+    # signals mode makes no LLM call, so no provider (and no Claude budget) is created
     picker = None if cfg.clip.select == "signals" else get_provider(
         cfg, secrets, prompt_version=prompt_version, video=mp4_path
     )
