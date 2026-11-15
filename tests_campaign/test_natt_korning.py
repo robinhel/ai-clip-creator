@@ -521,3 +521,53 @@ def test_timmys_config_counts_reactions_in_the_chat() -> None:
     candidates = load_config(PAKET / "config.timmy.yaml").candidates
     assert candidates.reaction_weight > 0 and {"lmao", "w", "kekw"} <= set(candidates.reaction_words)
     assert load_config(PAKET / "config.timmy.yaml").clip.select == "llm"
+
+
+def _signals_config(settings) -> None:
+    import yaml
+
+    path = settings.root / "config.timmy.yaml"
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["clip"]["select"] = "signals"
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+
+def test_finishing_again_in_signals_mode_makes_no_image_review(settings, vod, monkeypatch) -> None:
+    _signals_config(settings)
+    monkeypatch.setattr(pipeline, "Brain", lambda *a, **k: pytest.fail("ingen Brain i snabbläget"))
+    monkeypatch.setattr(pipeline, "budget_from_settings", lambda *a: pytest.fail("ingen Budget i snabbläget"))
+    profile = load_profile("skiimasktimmy", settings.profiles_dir)
+    pipeline.finish("123", profile, settings, "Bodycam", 7)
+    assert vod.finish["review"] is False and vod.finish["brain"] is None
+
+
+def test_cli_finish_in_signals_mode_makes_no_image_review(settings, monkeypatch) -> None:
+    from campaign import cli
+
+    shutil.copy(PAKET / "config.timmy.yaml", settings.root / "config.timmy.yaml")
+    _signals_config(settings)
+    monkeypatch.setenv("KLIPP_ROOT", str(settings.root))
+    seen: dict = {}
+    monkeypatch.setattr(cli, "Brain", lambda *a, **k: pytest.fail("ingen Brain i snabbläget"))
+    monkeypatch.setattr(cli, "finish_vod", lambda *a, **k: seen.update(k) or [])
+    assert cli.main(["finish", "123", "--profile", "skiimasktimmy"]) == 0
+    assert seen["review"] is False and seen["brain"] is None
+
+
+def test_the_placeholder_problem_goes_away_when_the_caption_or_title_is_changed(client, settings) -> None:  # noqa: F811
+    from campaign import editor
+    from campaign.caption import build_caption, check_caption
+
+    profile = load_profile("skiimasktimmy", settings.profiles_dir)
+    caption = build_caption("Moment 0:36:35", profile)
+    log = ClipLog(settings.data_dir / "klipp.db")
+    clip_id = log.add(vod_id="123", profile="skiimasktimmy", file=str(settings.out_dir / "123" / "x.mp4"),
+                      title="Moment 0:36:35", caption=caption, status="underkand", start_s=0.0, end_s=28.0,
+                      clip_format="clutch", problems=check_caption(caption, profile))
+    assert log.get(clip_id)["problems"]
+    # Redigeraren: en ny rubrik ger en ny caption från mallen, utan platshållaren.
+    assert check_caption(editor._caption(log.get(clip_id), "Huge clutch", profile, None), profile) == []
+    # Appen: en egen caption tar bort problemet och klippet väntar på ett ja igen.
+    body = {"caption": caption.replace("Moment 0:36:35", "Huge clutch")}
+    answer = client.patch(f"/campaign/clips/{clip_id}", json=body).json()
+    assert (answer["status"], answer["problems"]) == ("renderad", [])
