@@ -104,7 +104,9 @@ def test_get_provider_passes_the_selection_mode(monkeypatch) -> None:
 
 
 def test_v2_without_subscores_keeps_claudes_score(tmp_path) -> None:
-    answer = {k: v for k, v in _ANSWER.items() if k not in ("hook", "engagement", "value", "shareability")}
+    answer = {
+        k: v for k, v in _ANSWER.items() if k not in ("hook", "engagement", "value", "shareability")
+    }
     provider, _ = _provider(tmp_path, {**answer, "score": 70})
     pick = provider.pick("text", _candidate(), "ctx")
     assert pick is not None and pick.score == 70

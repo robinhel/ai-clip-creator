@@ -120,7 +120,9 @@ def test_finish_vod_sends_the_pick_title(setup, settings, monkeypatch) -> None: 
 
 
 def test_control_characters_in_the_title_become_spaces(blizzard) -> None:
-    graph = build_filter(blizzard, has_overlay=False, has_audio=False, font=None, title="Huge\x00clutch\nnow")
+    graph = build_filter(
+        blizzard, has_overlay=False, has_audio=False, font=None, title="Huge\x00clutch\nnow"
+    )
     assert "\x00" not in graph and "\n" not in graph
     assert "Huge clutch now" in graph
 

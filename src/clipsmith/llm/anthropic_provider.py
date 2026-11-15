@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from ..models.candidates import CandidateMoment
 from ..telemetry import LLM_CALL_DURATION, llm_call_duration, llm_calls_total, tracer
-from .base import ClipPick, LLMUnavailable
+from .base import SUBSCORES, ClipPick, LLMUnavailable, _bounded
 from .prompts import RANK_PROMPT, build_candidate_prompt, get_system_prompt
 from .retry import RetryConfig, build_retry
 
@@ -181,7 +181,8 @@ class AnthropicProvider:
     def rank(self, lines: list[str], stream_context: str) -> list[int] | None:
         """Final scores 0-100 for the VOD's accepted clips, compared side by side. None when it fails:
         the first scores stay, and the picks are kept."""
-        clips = "\n".join(f"{i}. {line}" for i, line in enumerate(lines, 1))
+        # one line per clip: a line break in a title or the transcript would look like the next clip
+        clips = "\n".join(f"{i}. {' '.join(line.split())}" for i, line in enumerate(lines, 1))
         try:
             if self._budget is not None:
                 self._budget.check()  # over budget: no call, the picks are already paid for
@@ -195,7 +196,7 @@ class AnthropicProvider:
             scores = json.JSONDecoder().raw_decode(text, max(start, 0))[0]["scores"]
             if len(scores) != len(lines):
                 raise ValueError(f"{len(scores)} scores for {len(lines)} clips")
-            return [min(max(round(float(score)), 0), 100) for score in scores]
+            return [_bounded(score, 100) for score in scores]
         except Exception as exc:  # noqa: BLE001 — any failure keeps the first scores
             log.warning("llm_rank_failed provider=anthropic error=%s", exc)
             return None
@@ -236,8 +237,10 @@ class AnthropicProvider:
                     purpose="valja",
                 )
                 pick = ClipPick.from_json(text)
-                if self._mode == "v2":
-                    pick.score = pick.hook + pick.engagement + pick.value + pick.shareability
+                subscores = [getattr(pick, key) for key in SUBSCORES]
+                # no part grades: Claude's own score stays
+                if self._mode == "v2" and any(subscores):
+                    pick.score = sum(subscores)
                 elapsed = time.monotonic() - t0
                 llm_call_duration.record(elapsed, {"provider": "anthropic"})
                 LLM_CALL_DURATION.labels(provider="anthropic").observe(elapsed)

@@ -7,6 +7,7 @@ rendering (rendering/clipper.py) så att klippet bara kodas en gång.
 
 from __future__ import annotations
 
+import re
 import textwrap
 from pathlib import Path
 
@@ -45,6 +46,7 @@ def _hook(
     profile: Profile, title: str, font: str | None, last: str, text_on_top: bool
 ) -> list[str]:
     """Titeln centrerad i övre säkra zonen de första sekunderna, på upp till tre rader."""
+    title = re.sub(r"[\x00-\x1f]", " ", title)  # ett styrtecken (NUL) stoppar ffmpeg-anropet
     lines = textwrap.wrap(title, HOOK_LINE_CHARS, max_lines=3, placeholder="…")
     top = int(HEIGHT * profile.safe_top) + (int(profile.text_font_size * 1.6) if text_on_top else 0)
     font_part = f"fontfile='{_esc(font)}':" if font else ""
