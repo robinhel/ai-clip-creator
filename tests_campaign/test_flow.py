@@ -74,6 +74,24 @@ def test_picks_bring_score_and_reason_to_the_cliplog(tmp_path) -> None:
     assert (old["score"], old["reason"]) == (None, "")
 
 
+def test_picks_bring_claudes_subscores_only_when_claude_gave_them(tmp_path) -> None:
+    from campaign.workflow import load_picks
+
+    picks = tmp_path / "picks.json"
+    v2 = {"start_offset_s": 1, "end_offset_s": 20, "title": "A", "score": 71, "reason": "Big hook.",
+          "hook": 23, "engagement": 17, "value": 9, "shareability": 14}
+    picks.write_text(json.dumps([
+        {"candidate": {}, "pick": v2},
+        # legacy: the answer had no subscores, so ClipPick saved zeros
+        {"candidate": {}, "pick": {**v2, "hook": 0, "engagement": 0, "value": 0, "shareability": 0}},
+        {"candidate": {}, "pick": {**v2, "reason": "Force-accepted to reach min_picks"}},
+    ]), encoding="utf-8")
+    claude, legacy, forced = load_picks(picks)
+    assert claude["subscores"] == {"hook": 23, "engagement": 17, "value": 9, "shareability": 14}
+    assert legacy["subscores"] is None
+    assert forced["subscores"] is None
+
+
 @needs_ffmpeg
 def test_finished_clip_keeps_claudes_score_and_reason(settings) -> None:
     from campaign.profile import load_profile
@@ -84,11 +102,13 @@ def test_finished_clip_keeps_claudes_score_and_reason(settings) -> None:
     picks = settings.work_dir / "123" / "picks.json"
     picks.parent.mkdir(parents=True)
     picks.write_text(json.dumps([{"candidate": {}, "pick": {
-        "start_offset_s": 10, "end_offset_s": 30, "title_es": "No way", "score": 91, "reason": "Clutch."}}]))
+        "start_offset_s": 10, "end_offset_s": 30, "title_es": "No way", "score": 91, "reason": "Clutch.",
+        "hook": 24, "engagement": 22, "value": 20, "shareability": 21}}]))
     log = ClipLog(settings.data_dir / "klipp.db")
     finish_vod("123", load_profile("skiimasktimmy", settings.profiles_dir), settings, log, review=False)
     clip = log.list()[0]
     assert (clip["score"], clip["reason"]) == (91, "Clutch.")
+    assert clip["subscores"] == {"hook": 24, "engagement": 22, "value": 20, "shareability": 21}
 
 
 # ---------- leta efter och längd ----------
@@ -314,13 +334,16 @@ def test_run_list_is_newest_first_with_status_and_clip_counts(client, settings) 
 def test_clips_have_score_reason_and_filter_on_run(client, settings) -> None:  # noqa: F811
     run_id = _run_with_events(settings, ["download"])
     log = ClipLog(settings.data_dir / "klipp.db")
-    log.add(vod_id=VOD, profile="skiimasktimmy", file="/x/a.mp4", title="a", caption="c", score=77, reason="Hook.")
+    parts = {"hook": 25, "engagement": 18, "value": 12, "shareability": 22}
+    log.add(vod_id=VOD, profile="skiimasktimmy", file="/x/a.mp4", title="a", caption="c", score=77, reason="Hook.",
+            subscores=parts)
     log.add(vod_id="123", profile="skiimasktimmy", file="/x/b.mp4", title="b", caption="c")
 
     clips = client.get("/campaign/clips", params={"run_id": run_id}).json()
     assert [(c["title"], c["score"], c["reason"]) for c in clips] == [("a", 77, "Hook.")]
+    assert clips[0]["subscores"] == parts
     old = client.get("/campaign/clips", params={"vod_id": "123"}).json()[0]
-    assert (old["score"], old["reason"]) == (None, "")
+    assert (old["score"], old["reason"], old["subscores"]) == (None, "", None)
     assert client.get("/campaign/clips", params={"run_id": 999}).json() == []
 
 
