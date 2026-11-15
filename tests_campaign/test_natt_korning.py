@@ -494,3 +494,30 @@ def test_text_after_the_json_does_not_lose_the_answer(monkeypatch) -> None:
     provider, _, _ = _provider([answer], monkeypatch)
     pick = provider.pick("text", _candidate(), "ctx")
     assert pick is not None and pick.include
+
+
+# ---------- snabbläge utan Claude, och reaktioner i Timmys chatt ----------
+
+
+def test_signals_mode_makes_clips_without_claude_budget_or_image_review(settings, vod, monkeypatch) -> None:
+    from campaign.workflow import load_picks
+    from clipsmith.config.loaders import load_config
+
+    cfg = load_config(settings.root / "config.timmy.yaml")
+    cfg = cfg.model_copy(update={"clip": cfg.clip.model_copy(update={"select": "signals"})})
+    monkeypatch.setattr(pipeline, "clipsmith_config", lambda profile, s: cfg)
+    monkeypatch.setattr(pipeline, "get_provider", lambda *a, **k: pytest.fail("Claude ska inte frågas"))
+    monkeypatch.setattr(pipeline, "budget_from_settings", lambda *a: pytest.fail("Budget ska inte röras"))
+    _, why = _make(settings, vod)
+    assert why is None and vod.finish["review"] is False and vod.finish["brain"] is None
+    picks = load_picks(settings.out_dir / "123" / "run_7" / "picks.json")
+    assert [p["score"] for p in picks] == [None, None]  # inget betyg från Claude att visa
+    assert picks[0]["title"] == "Moment 0:01:40"
+
+
+def test_timmys_config_counts_reactions_in_the_chat() -> None:
+    from clipsmith.config.loaders import load_config
+
+    candidates = load_config(PAKET / "config.timmy.yaml").candidates
+    assert candidates.reaction_weight > 0 and {"lmao", "w", "kekw"} <= set(candidates.reaction_words)
+    assert load_config(PAKET / "config.timmy.yaml").clip.select == "llm"
