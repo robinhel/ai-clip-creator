@@ -238,6 +238,66 @@ function SetupCard({ checks, error, loading, onRun }: {
   );
 }
 
+/** Hjälpen att skicka in i Content Rewards. Sparas direkt; vid fel står switchen kvar som innan. */
+function SubmitHelperCard() {
+  const [on, setOn] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.campaign.preferences
+      .get()
+      .then((p) => setOn(p.submit_helper))
+      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte läsa inställningen"));
+  }, []);
+
+  async function toggle() {
+    if (on === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setOn((await api.campaign.preferences.save({ submit_helper: !on })).submit_helper);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kunde inte spara inställningen");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section aria-label="Content Rewards" className="mt-4 rounded-2xl border border-line bg-panel p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 id="submit-helper" className="text-lg font-semibold">
+            Hjälp att skicka in i Content Rewards
+          </h2>
+          <p className="mt-0.5 max-w-[640px] text-sm text-muted-foreground">
+            Appen lägger in länken när ett klipp har laddats upp, kopierar den och öppnar kampanjen. Du trycker Skicka själv.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={!!on}
+          aria-labelledby="submit-helper"
+          disabled={on === null || busy}
+          onClick={toggle}
+          className="mt-1 shrink-0 disabled:opacity-60"
+        >
+          <span className={cn("flex h-6 w-11 items-center rounded-full border px-0.5 transition-colors", on ? "border-brand bg-brand" : "border-line bg-[#1c1c22]")}>
+            <span className={cn("size-4.5 rounded-full bg-white transition-transform", on && "translate-x-5")} />
+          </span>
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className="mt-3 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** tiktokResult och tiktokReason: ?tiktok= och ?orsak= från serverns callback efter inloggningen på TikTok. */
 export function SettingsClient({ tiktokResult, tiktokReason }: { tiktokResult?: string; tiktokReason?: string }) {
   const [groups, setGroups] = useState<KeyGroup[] | null>(null);
@@ -272,6 +332,7 @@ export function SettingsClient({ tiktokResult, tiktokReason }: { tiktokResult?: 
         sparade.
       </p>
       <SetupCard checks={checks} error={setupError} loading={setupLoading} onRun={runSetup} />
+      <SubmitHelperCard />
       {error && (
         <p role="alert" className="mt-6 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">
           {error}

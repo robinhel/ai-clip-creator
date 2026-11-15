@@ -4,6 +4,7 @@ import { useState } from "react";
 import { BellRing, CalendarClock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { allows } from "@/components/ClipResultRow";
 import { accountName, tiktokAccounts } from "@/components/TikTokCard";
 import { NEED_DISCLOSURE, TikTokFields, useCreatorInfo, useTikTokForm } from "@/components/TikTokDirectPost";
 import { useYouTubeForm, YouTubeFields } from "@/components/YouTubeSend";
@@ -53,7 +54,14 @@ function ScheduleDialog({ clip, pending, youtube, tiktok, onClose }: DialogProps
   const channels = youtube?.accounts.filter((c) => c.connected && !c.needs_login) ?? [];
   const accounts = tiktok ? tiktokAccounts(tiktok).filter((a) => a.connected) : [];
   const taken = (p: SchedulePlatform) => pending.some((x) => x.platform === p);
-  const ytBlock = taken("youtube") ? "Redan schemalagt." : channels.length === 0 ? "Ingen YouTube-kanal är kopplad." : null;
+  const ytBlock = !allows(clip, "youtube_shorts")
+    ? "Kampanjen postar inte på YouTube."
+    : taken("youtube")
+      ? "Redan schemalagt."
+      : channels.length === 0
+        ? "Ingen YouTube-kanal är kopplad."
+        : null;
+  const ttBlock = !allows(clip, "tiktok") ? "Kampanjen postar inte på TikTok." : taken("tiktok") ? "Redan schemalagt." : null;
   const [platform, setPlatform] = useState<SchedulePlatform>(ytBlock ? "tiktok" : "youtube");
   const [local, setLocal] = useState("");
   const [openId, setOpenId] = useState(accounts[0]?.open_id ?? "");
@@ -72,8 +80,8 @@ function ScheduleDialog({ clip, pending, youtube, tiktok, onClose }: DialogProps
   const formReason =
     platform === "youtube"
       ? ytBlock ?? yt.reason
-      : taken("tiktok")
-        ? "Redan schemalagt."
+      : ttBlock
+        ? ttBlock
         : !direct
           ? null
           : creatorError
@@ -124,7 +132,7 @@ function ScheduleDialog({ clip, pending, youtube, tiktok, onClose }: DialogProps
           <div className="min-w-0 space-y-4">
             <div role="radiogroup" aria-label="Plattform" className="grid grid-cols-2 gap-2">
               {(["youtube", "tiktok"] as const).map((p) => {
-                const off = p === "youtube" ? !!ytBlock : taken("tiktok");
+                const off = p === "youtube" ? ytBlock : ttBlock;
                 return (
                   <label
                     key={p}
@@ -138,12 +146,12 @@ function ScheduleDialog({ clip, pending, youtube, tiktok, onClose }: DialogProps
                       type="radio"
                       name={`plattform-${clip.id}`}
                       checked={platform === p}
-                      disabled={off}
+                      disabled={!!off}
                       onChange={() => setPlatform(p)}
                       className="size-4 accent-[var(--brand,#7c5cff)]"
                     />
                     <span className="font-medium">{PLATFORM_NAME[p]}</span>
-                    {off && <span className="ml-auto text-xs text-muted-foreground">{p === "youtube" ? ytBlock : "Redan schemalagt."}</span>}
+                    {off && <span className="ml-auto text-right text-xs text-muted-foreground">{off}</span>}
                   </label>
                 );
               })}
@@ -249,7 +257,10 @@ interface BarProps {
 /** Raden ovanför ett godkänt klipp: när det är schemalagt, och knappen Schemalägg för plattformar som är lediga. */
 export function ScheduleBar({ clip, pending, youtube, tiktok, onScheduled }: BarProps) {
   const [open, setOpen] = useState(false);
-  const free = !(["youtube", "tiktok"] as const).every((p) => pending.some((x) => x.platform === p));
+  // Någon plattform som kampanjen postar på och som inte redan är schemalagd.
+  const free = ([["youtube", "youtube_shorts"], ["tiktok", "tiktok"]] as const).some(
+    ([p, name]) => allows(clip, name) && !pending.some((x) => x.platform === p)
+  );
   const block = clip.problems.length > 0 ? "Rätta problemen först." : null;
 
   return (

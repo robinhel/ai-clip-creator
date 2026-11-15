@@ -226,6 +226,16 @@ export interface CampaignClip {
   subscores?: ClipSubscores | null;
   /** Ett inlägg per plattform. Klippets status, länk och siffror räknas fram ur dem. Saknas hos äldre servrar. */
   posts?: ClipPost[];
+  /** Kampanjens sida i Content Rewards (https), annars null. Saknas hos äldre servrar. */
+  content_rewards_url?: string | null;
+  /** Plattformarna kampanjen postar på. Saknas hos äldre servrar: alla. */
+  platforms?: Platform[];
+}
+
+/** GET och PUT /campaign/preferences. */
+export interface Preferences {
+  /** Hjälpen att skicka in i Content Rewards. */
+  submit_helper: boolean;
 }
 
 export interface ClipSubscores {
