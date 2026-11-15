@@ -108,7 +108,7 @@ def youtube_upload_clip(clip_id: int, body: YouTubeBody, settings: Settings = De
         raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
     clip = _get(_log(settings), clip_id)
     try:
-        path = clip_file(settings, clip, "Bara godkända klipp kan laddas upp till YouTube.")
+        path = clip_file(settings, clip, "youtube", "Bara godkända klipp kan laddas upp till YouTube.")
     except ScheduleError as error:
         raise HTTPException(error.status, str(error)) from error
     duration_s = clip_seconds(clip, path)

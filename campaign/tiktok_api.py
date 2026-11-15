@@ -135,7 +135,7 @@ def upload_clip(clip_id: int, body: UploadBody | None = None, settings: Settings
         raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
     clip = _get(_log(settings), clip_id)
     try:
-        path = clip_file(settings, clip, "Bara godkända klipp kan laddas upp till TikTok.")
+        path = clip_file(settings, clip, "tiktok", "Bara godkända klipp kan laddas upp till TikTok.")
     except ScheduleError as error:
         raise HTTPException(error.status, str(error)) from error
     body = body or UploadBody()

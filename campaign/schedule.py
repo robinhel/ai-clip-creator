@@ -13,17 +13,18 @@ import os
 import sqlite3
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from pydantic import ValidationError
 
 from . import editor
-from .cliplog import ClipLog
+from .cliplog import POST_STATUSES, ClipLog
 from .config import Settings, load_settings
 from .media import probe
-from .profile import load_profile
-from .scout import notify_mac
+from .preferences import submit_helper
+from .profile import PLATFORMS, load_profile
+from .scout import STOCKHOLM, notify_mac
 from .tiktok import TITLE_MAX as TIKTOK_TITLE_MAX
 from .tiktok import TikTok, TikTokError
 from .youtube import BUSY, YouTube, YouTubeError
@@ -57,12 +58,26 @@ def _iso(moment: datetime) -> str:
     return moment.astimezone(UTC).isoformat(timespec="seconds")
 
 
-def clip_file(settings: Settings, clip: dict, refused: str = "Bara godkända klipp kan schemaläggas.") -> Path:
-    """Klippets fil. Bara ett godkänt klipp utan problem laddas upp, av knapparna och av schemat."""
-    if clip["status"] != "godkand":
+NAMES = {"youtube": ("youtube_shorts", "YouTube"), "tiktok": ("tiktok", "TikTok")}
+
+
+def clip_file(settings: Settings, clip: dict, platform: str,
+              refused: str = "Bara godkända klipp kan schemaläggas.") -> Path:
+    """Klippets fil. Bara ett godkänt (eller redan postat) klipp utan problem laddas upp, av knapparna och av
+    schemat, och bara till en plattform som kampanjen postar på och där klippet inte redan har ett inlägg."""
+    if clip["status"] not in ("godkand", *POST_STATUSES):  # postad: inlägget kan ha skapats av hjälpen
         raise ScheduleError(refused)
     if clip["problems"]:
         raise ScheduleError("Klippet har problem. Rätta dem innan du laddar upp.")
+    key, name = NAMES[platform]
+    try:
+        platforms = load_profile(clip["profile"], settings.profiles_dir).platforms
+    except SystemExit:  # kampanjen finns inte längre: som före plattformslistan
+        platforms = list(PLATFORMS)
+    if key not in platforms:
+        raise ScheduleError(f"Kampanjen postar inte på {name}.")
+    if any(post["platform"] == key for post in ClipLog(settings.data_dir / "klipp.db").posts(clip["id"])):
+        raise ScheduleError(f"Klippet har redan ett inlägg på {name}.")
     path = Path(clip["file"] or "").resolve()
     if not path.is_relative_to(settings.out_dir.resolve()) or path.suffix != ".mp4" or not path.exists():
         raise ScheduleError("Klippets fil finns inte. Gör klippet kampanjklart igen.")
@@ -139,7 +154,7 @@ class Schedule:
             clip = self.clips.get(clip_id)
         except SystemExit as error:
             raise ScheduleError("Klippet finns inte.", 404) from error
-        fields = self._check(platform, account, fields, clip_seconds(clip, clip_file(self.settings, clip)))
+        fields = self._check(platform, account, fields, clip_seconds(clip, clip_file(self.settings, clip, platform)))
         self._not_there_yet(clip_id, platform, account)
         now = _iso(_now())
         try:
@@ -244,8 +259,12 @@ class Schedule:
             message, url = f"Dags att posta {title} på TikTok", None
         else:
             done = "är uppe på YouTube" if post["platform"] == "youtube" else "skickades till TikTok"
-            message = f"{title} {done}. Skicka in länken i Content Rewards inom 30 minuter."
-            url = self._content_rewards(post["profile"])
+            if submit_helper(self.settings):  # webben har länken och tiden; notisen öppnar kön
+                before = (_now() + timedelta(minutes=30)).astimezone(STOCKHOLM)
+                message, url = f"{title} {done}. Skicka in länken i Content Rewards före kl. {before:%H:%M}.", None
+            else:
+                message = f"{title} {done}. Skicka in länken i Content Rewards inom 30 minuter."
+                url = self._content_rewards(post["profile"])
         notify_mac(f"Försenad: {message}" if late else message, url or queue)
 
     def _upload(self, post: dict) -> tuple[str, dict]:
@@ -253,7 +272,7 @@ class Schedule:
             clip = self.clips.get(post["clip_id"])
         except SystemExit as error:
             raise ScheduleError("Klippet finns inte längre.") from error
-        path = clip_file(self.settings, clip, "Klippet är inte längre godkänt.")
+        path = clip_file(self.settings, clip, post["platform"], "Klippet är inte längre godkänt.")
         duration_s = clip_seconds(clip, path)
         self._not_there_yet(post["clip_id"], post["platform"], post["account"])
         if post["platform"] == "youtube":

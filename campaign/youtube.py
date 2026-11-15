@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from .config import Settings
+from .preferences import add_post
 
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -350,9 +351,11 @@ class YouTube:
         if not _upload_lock.acquire(blocking=False):
             raise YouTubeError(BUSY, 409)
         try:
-            return self._upload(clip_id, path, channel_id, video, metadata, size)
+            result = self._upload(clip_id, path, channel_id, video, metadata, size)
         finally:
             _upload_lock.release()
+        add_post(self.settings, clip_id, "youtube_shorts", result["url"])  # bara när hjälpen för inskick är på
+        return result
 
     def _upload(self, clip_id: int, path: Path, channel_id: str | None, video: dict, metadata: dict,
                 size: int) -> dict:
