@@ -116,6 +116,62 @@ def cmd_finish(args, settings: Settings) -> int:
     return 0
 
 
+def cmd_local(args, settings: Settings) -> int:
+    """En egen videofil som ett projekt i appen. Samma kedja som en körning från appen, utan Twitch."""
+    from clipsmith.api.worker import _emit, _harvest_clips
+    from clipsmith.db.models import Run, RunStatus
+    from clipsmith.db.session import get_session, init_db
+    from clipsmith.models.chat import ChatLog
+
+    from .pipeline import clipsmith_config, run_campaign_vod
+
+    src = Path(args.file)
+    if not src.is_file() or src.suffix.lower() != ".mp4":
+        raise SystemExit(f"Hittar ingen .mp4-fil: {src}")
+    profile = _profile(settings, args.profile)
+    vod_id = src.stem
+    mp4 = settings.work_dir / vod_id / f"{vod_id}.mp4"
+    if args.only_register and not mp4.exists():
+        raise SystemExit(f"{src.name} är inte körd: {mp4} saknas. Kör utan --only-register.")
+    if not mp4.exists():
+        print(f"Kopierar {src.name} till {mp4.parent}")
+        mp4.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, mp4)
+    chat = mp4.parent / "chat.json"
+    if not chat.exists():  # en egen fil har ingen chatt; annars frågar clipsmith Twitch efter den
+        chat.write_text(ChatLog(video_id=vod_id, messages=[]).to_json(), encoding="utf-8")
+
+    init_db(settings.work_dir / "clipsmith.db")  # samma databas som servern
+    db = get_session()
+    try:
+        run = Run(vod_id=vod_id, channel=profile.streamer, status=RunStatus.pending)
+        db.add(run)
+        db.commit()
+        run_id = run.id
+    finally:
+        db.close()
+    _log(settings).add_run(run_id, vod_id, profile.name, args.game, title=vod_id.replace("_", " ").strip(),
+                           channel_name=profile.streamer, thumbnail_url=None,
+                           duration_s=round(probe(mp4)["duration"]))
+    if args.only_register:
+        db = get_session()
+        try:
+            _harvest_clips(db, run_id, vod_id, clipsmith_config(profile, settings))
+            _emit(db, run_id, "done", 100.0, "Registrerad. Klippen gjordes utanför appen.", status=RunStatus.done)
+        finally:
+            db.close()
+    else:
+        run_campaign_vod(run_id, vod_id, profile.name, args.game, settings, local=True)
+    db = get_session()
+    try:
+        run = db.get(Run, run_id)
+        status, error = run.status, run.error
+    finally:
+        db.close()
+    print(f"Projekt {run_id}: {status.value}" + (f". {error}" if error else ""))
+    return 0 if status == RunStatus.done else 1
+
+
 def cmd_approve(args, settings: Settings) -> int:
     log = _log(settings)
     waiting = log.list("renderad")
@@ -257,6 +313,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-review", action="store_true", help="Hoppa över bildgranskningen")
     p.add_argument("--subdir", help="Undermapp i out/<vod>/, t.ex. stacked")
     p.set_defaults(func=cmd_finish)
+
+    p = sub.add_parser("local", help="Gör en egen videofil till ett projekt i appen och kör kedjan")
+    p.add_argument("file", help="Sökväg till en .mp4-fil, till exempel en trailer från kampanjens mapp")
+    p.add_argument("--profile")
+    p.add_argument("--game", help="Spelets namn, blir en hashtag")
+    p.add_argument("--only-register", action="store_true",
+                   help="Filen är redan körd: gör bara projektet, kör inget om och anropa inte Claude")
+    p.set_defaults(func=cmd_local)
 
     p = sub.add_parser("approve", help="Säg ja eller nej till klippen som väntar")
     p.set_defaults(func=cmd_approve)
