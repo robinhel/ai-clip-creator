@@ -154,8 +154,10 @@ def test_a_title_of_only_control_characters_gives_no_hook(blizzard) -> None:
 
 @needs_ffmpeg
 def test_no_hook_from_the_file_name_when_the_clip_is_edited_in_the_app(
-    setup, settings, monkeypatch
-) -> None:  # noqa: F811
+    setup,  # noqa: F811
+    settings,
+    monkeypatch,
+) -> None:
     from campaign import workflow
 
     _client, log, clip_id = setup

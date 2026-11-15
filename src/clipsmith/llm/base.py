@@ -36,11 +36,11 @@ def _bounded(value: object, high: int) -> int:
     return min(max(round(float(value or 0)), 0), high)  # type: ignore[arg-type]
 
 
-def _grade(value: object) -> int:
-    """A part grade 0-25. One that is not a number becomes 0 instead of losing the candidate."""
+def _grade(value: object, high: int = 25) -> int:
+    """A grade 0-high. One that is not a number becomes 0 instead of losing the candidate."""
     try:
-        return _bounded(value, 25)
-    except (TypeError, ValueError):
+        return _bounded(value, high)
+    except (TypeError, ValueError, OverflowError):
         return 0
 
 
@@ -94,7 +94,7 @@ class ClipPick:
             end_offset_s=float(d.get("end_offset_s", 0.0)),
             title=str(d.get("title") or d.get("title_es") or ""),
             reason=str(d.get("reason", "")),
-            score=_bounded(sum(subscores.values()) if score is None else score, 100),
+            score=_grade(sum(subscores.values()) if score is None else score, 100),
             format=str(d["format"]) if d.get("format") else None,
             payoff_start_s=_seconds(d.get("payoff_start_s")),
             payoff_end_s=_seconds(d.get("payoff_end_s")),

@@ -237,6 +237,8 @@ def _snap_to_sentences(
         starts = [s for s in starts if s <= pick.payoff_start_s]
     if pick.payoff_end_s is not None:
         ends = [e for e in ends if e >= pick.payoff_end_s]
+        # a start further back than max_seconds before the payoff's end would make the clamp cut it
+        starts = [s for s in starts if s >= pick.payoff_end_s - config.max_seconds]
     start = _nearest(starts, pick.start_offset_s)
     if start is not None:
         pick.start_offset_s = start
