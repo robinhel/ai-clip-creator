@@ -136,7 +136,18 @@ def select_clips(
     if v2:
         _calibrate(picks, transcript, picker, stream_context)
 
-    # Fallback: if LLM was too strict, force-accept top candidates to meet min_picks.
+    _force_accept(picks, top, picked_centers, min_picks, config)
+    return picks
+
+
+def _force_accept(
+    picks: list[PickResult],
+    top: list[CandidateMoment],
+    picked_centers: set[float],
+    min_picks: int,
+    config: ClipConfig,
+) -> None:
+    """Fallback: if the LLM was too strict, force-accept top candidates to meet min_picks."""
     if len(picks) < min_picks and top:
         log.warning(
             "LLM accepted only %d/%d candidates — force-accepting top picks to reach min_picks=%d",
@@ -144,8 +155,6 @@ def select_clips(
             len(top),
             min_picks,
         )
-        from ..llm.base import ClipPick
-
         for candidate in top:
             if len(picks) >= min_picks:
                 break
@@ -177,8 +186,6 @@ def select_clips(
             )
             picks.append(PickResult(candidate=candidate, pick=forced_pick))
             picked_centers.add(candidate.t_center)
-
-    return picks
 
 
 def _extract_transcript_window(transcript: Transcript, t_center: float) -> str:
