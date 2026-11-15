@@ -19,6 +19,8 @@ import type {
   Rect,
   ReframeInfo,
   Run,
+  ScheduleCreate,
+  ScheduledPost,
   ScoutStatus,
   StreamInfo,
   TikTokCreatorInfo,
@@ -156,6 +158,9 @@ export const api = {
       youtube: (id: number) => apiFetch<YouTubeUpload | null>(`/campaign/clips/${id}/youtube`),
       sendToYouTube: (id: number, body: YouTubeSendBody) =>
         apiFetch<YouTubeUpload>(`/campaign/clips/${id}/youtube`, { method: "POST", body: JSON.stringify(body) }),
+      /** 201 med posten, 400 med svensk text, 409 om plattformen redan har en väntande post. */
+      schedule: (id: number, body: ScheduleCreate) =>
+        apiFetch<ScheduledPost>(`/campaign/clips/${id}/schedule`, { method: "POST", body: JSON.stringify(body) }),
       edit: (id: number) => apiFetch<ClipEditInfo>(`/campaign/clips/${id}/edit`),
       saveEdit: (id: number, body: { in_s?: number; out_s?: number; title?: string }) =>
         apiFetch<CampaignClip>(`/campaign/clips/${id}/edit`, { method: "POST", body: JSON.stringify(body) }),
@@ -181,6 +186,11 @@ export const api = {
       disconnectAccount: (openId: string) =>
         apiFetch<unknown>(`/campaign/tiktok/accounts/${encodeURIComponent(openId)}/disconnect`, { method: "POST" }),
       connectUrl: `${DIRECT}/campaign/tiktok/connect`,
+    },
+    schedule: {
+      list: () => apiFetch<ScheduledPost[]>("/campaign/schedule"),
+      // Bara väntande poster kan avbrytas, annars 409.
+      cancel: (id: number) => apiFetch<unknown>(`/campaign/schedule/${id}`, { method: "DELETE" }),
     },
     summary: () => apiFetch<CampaignSummary>("/campaign/summary"),
     scout: {

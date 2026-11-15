@@ -405,6 +405,35 @@ export interface YouTubeUpload {
   message?: string;
 }
 
+export type SchedulePlatform = "youtube" | "tiktok";
+export type ScheduleStatus = "waiting" | "running" | "done" | "reminded" | "failed" | "cancelled";
+
+/** En schemalagd uppladdning. at är UTC; account är channel_id eller open_id. */
+export interface ScheduledPost {
+  id: number;
+  clip_id: number;
+  clip_title: string | null;
+  profile: string;
+  platform: SchedulePlatform;
+  account: string | null;
+  at: string;
+  fields: Record<string, unknown>;
+  status: ScheduleStatus;
+  error: string | null;
+  /** Till exempel video_id och url efter en uppladdning. */
+  result: Record<string, unknown> | null;
+  /** Körd efter tiden, till exempel för att Macen sov. */
+  late: boolean;
+}
+
+/** POST /campaign/clips/{id}/schedule. at har tidszon. fields är tom för en påminnelse om TikTok. */
+export interface ScheduleCreate {
+  platform: SchedulePlatform;
+  at: string;
+  account?: string;
+  fields: YouTubeSendBody | Omit<TikTokSendBody, "open_id" | "mode"> | Record<string, never>;
+}
+
 /** En del av kampanjens betyg, med en kort svensk förklaring. */
 export interface ScoutPart {
   key: string;

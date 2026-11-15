@@ -1,12 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClipResultRow } from "@/components/ClipResultRow";
+import { ScheduleBar } from "@/components/ScheduleDialog";
+import { ScheduledList } from "@/components/ScheduledList";
 import { api } from "@/lib/api";
-import type { CampaignClip, CampaignProfile, CampaignProfileDetail, CampaignRunInfo, CampaignStatus } from "@/lib/types";
+import type {
+  CampaignClip,
+  CampaignProfile,
+  CampaignProfileDetail,
+  CampaignRunInfo,
+  CampaignStatus,
+  ScheduledPost,
+  TikTokStatus,
+  YouTubeStatus,
+} from "@/lib/types";
 
 /** Kampanjens regler för postningen och länkarna till Content Rewards och analytics-formuläret. */
 function CampaignRules({ detail }: { detail: CampaignProfileDetail }) {
@@ -72,6 +83,14 @@ export function QueueClient() {
   const [details, setDetails] = useState<CampaignProfileDetail[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  // null: servern har inget schema (äldre server), då döljs delen.
+  const [schedule, setSchedule] = useState<ScheduledPost[] | null>(null);
+  const [youtube, setYoutube] = useState<YouTubeStatus | null>(null);
+  const [tiktok, setTiktok] = useState<TikTokStatus | null>(null);
+
+  const loadSchedule = useCallback(() => {
+    api.campaign.schedule.list().then(setSchedule).catch(() => setSchedule(null));
+  }, []);
 
   const load = useCallback(async () => {
     setRefreshing(true);
@@ -91,12 +110,16 @@ export function QueueClient() {
         .catch(() => {});
       setRuns(runData);
       setError(null);
+      loadSchedule();
+      // Kontonas namn i schemat och valen i dialogen.
+      api.campaign.youtube.status().then(setYoutube).catch(() => setYoutube(null));
+      api.campaign.tiktok.status().then(setTiktok).catch(() => setTiktok(null));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Kunde inte hämta klippen");
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [loadSchedule]);
 
   useEffect(() => {
     load();
@@ -148,6 +171,8 @@ export function QueueClient() {
 
       {clips === null && !error && <p className="mt-6 text-sm text-muted-foreground">Hämtar klipp…</p>}
 
+      {schedule && <ScheduledList posts={schedule} youtube={youtube} tiktok={tiktok} onChange={loadSchedule} />}
+
       {details.map((d) => (
         <CampaignRules key={d.name} detail={d} />
       ))}
@@ -167,15 +192,25 @@ export function QueueClient() {
                 </p>
               ) : (
                 items.map((clip, i) => (
-                  <ClipResultRow
-                    // Ny nyckel när servern har sparat, så att fälten visar det sparade.
-                    key={`${clip.id}-${clip.updated}`}
-                    clip={clip}
-                    number={i + 1}
-                    formats={profiles.find((p) => p.name === clip.profile)?.formats ?? []}
-                    runId={runIdFor(clip)}
-                    onUpdate={handleUpdate}
-                  />
+                  // Ny nyckel när servern har sparat, så att fälten visar det sparade.
+                  <Fragment key={`${clip.id}-${clip.updated}`}>
+                    {schedule && clip.status === "godkand" && (
+                      <ScheduleBar
+                        clip={clip}
+                        pending={schedule.filter((p) => p.clip_id === clip.id && (p.status === "waiting" || p.status === "running"))}
+                        youtube={youtube}
+                        tiktok={tiktok}
+                        onScheduled={loadSchedule}
+                      />
+                    )}
+                    <ClipResultRow
+                      clip={clip}
+                      number={i + 1}
+                      formats={profiles.find((p) => p.name === clip.profile)?.formats ?? []}
+                      runId={runIdFor(clip)}
+                      onUpdate={handleUpdate}
+                    />
+                  </Fragment>
                 ))
               )}
             </section>
