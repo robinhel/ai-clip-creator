@@ -1140,3 +1140,46 @@ def test_a_campaign_without_tiktok_refuses_the_upload(client, settings, fake, bo
     assert (response.status_code, response.json()["detail"]) == (400, "Kampanjen postar inte på TikTok.")
     with tiktok.TikTok(settings)._db() as db:
         assert db.execute("SELECT COUNT(*) FROM tiktok_uploads").fetchone()[0] == 0
+
+
+def test_publish_complete_without_a_public_id_waits_for_the_id(client, settings, fake, monkeypatch) -> None:
+    """Ett offentligt inlägg får sitt id först efter TikToks granskning. Utan id frågar appen igen."""
+    fake.creator["privacy_level_options"] = ["PUBLIC_TO_EVERYONE", "SELF_ONLY"]
+    _connect(settings, publish=True)
+    clip_id = _clip(settings)
+    _direct(client, clip_id, privacy_level="PUBLIC_TO_EVERYONE")
+    fake.status = "PUBLISH_COMPLETE"
+    assert client.get(f"/campaign/clips/{clip_id}/tiktok").json()["status"] == "processing"
+    assert ClipLog(settings.data_dir / "klipp.db").posts(clip_id) == []
+    fake.post_ids = [99]
+    _later(monkeypatch, 2)
+    latest = client.get(f"/campaign/clips/{clip_id}/tiktok").json()
+    assert (latest["status"], latest["post_id"]) == ("published", "99")
+    assert [p["url"] for p in ClipLog(settings.data_dir / "klipp.db").posts(clip_id)] == [
+        "https://www.tiktok.com/@clipvault.hq26/video/99"]
+
+
+def test_the_tiktok_post_starts_when_the_app_last_saw_it_unpublished(client, settings, fake, monkeypatch) -> None:
+    _connect(settings, publish=True)
+    clip_id = _clip(settings)
+    _direct(client, clip_id, privacy_level="FOLLOWER_OF_CREATOR")
+    fake.status = "PROCESSING_UPLOAD"
+    _later(monkeypatch, 2)
+    seen = tiktok._now().isoformat(timespec="seconds")
+    assert client.get(f"/campaign/clips/{clip_id}/tiktok").json()["status"] == "processing"
+    fake.status, fake.post_ids = "PUBLISH_COMPLETE", [7]
+    _later(monkeypatch, 20)  # ingen frågade på 18 minuter
+    client.get(f"/campaign/clips/{clip_id}/tiktok")
+    (post,) = ClipLog(settings.data_dir / "klipp.db").posts(clip_id)
+    assert post["created"] == seen  # tiden kan bara bli för kort, aldrig för lång
+
+
+def test_the_first_check_uses_the_upload_time(client, settings, fake, monkeypatch) -> None:
+    _connect(settings, publish=True)
+    clip_id = _clip(settings)
+    created = _direct(client, clip_id, privacy_level="FOLLOWER_OF_CREATOR").json()["created"]
+    fake.status, fake.post_ids = "PUBLISH_COMPLETE", [7]
+    _later(monkeypatch, 15)
+    client.get(f"/campaign/clips/{clip_id}/tiktok")
+    (post,) = ClipLog(settings.data_dir / "klipp.db").posts(clip_id)
+    assert post["created"] == created

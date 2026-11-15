@@ -123,3 +123,13 @@ def test_todo_reminds_about_each_post(settings) -> None:
     assert any("TikTok" in item and "visningar" in item for item in todo)
     assert any("Reels" in item and "skärminspelningen" in item for item in todo)
     assert not any("posta klippet" in item for item in todo)
+
+
+def test_the_same_link_again_is_fine_but_another_link_is_409(client, settings) -> None:  # noqa: F811
+    """Webbens Spara som postlänk efter en uppladdning, när hjälpen redan har lagt in inlägget."""
+    clip_id = _clip(settings, status="godkand", clip_format="funny")
+    assert _post(client, clip_id, "tiktok", TIKTOK).status_code == 201
+    again = _post(client, clip_id, "tiktok", TIKTOK)
+    assert again.status_code == 200, again.text
+    assert [p["url"] for p in again.json()["posts"]] == [TIKTOK]
+    assert _post(client, clip_id, "tiktok", "https://www.tiktok.com/@me/video/2").status_code == 409

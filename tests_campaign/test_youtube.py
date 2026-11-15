@@ -753,3 +753,11 @@ def test_a_clip_posted_on_tiktok_can_go_to_youtube_but_not_twice(client, setting
     again = _send(client, clip_id)
     assert (again.status_code, again.json()["detail"]) == (400, "Klippet har redan ett inlägg på YouTube.")
     assert len(fake.calls("upload")) == 1
+
+
+@pytest.mark.parametrize("privacy", ["unlisted", "private"])
+def test_a_video_that_is_not_public_creates_no_post(client, settings, fake, privacy) -> None:
+    _connect(settings)
+    clip_id = _clip(settings)
+    assert _send(client, clip_id, privacy=privacy).status_code == 202
+    assert ClipLog(settings.data_dir / "klipp.db").posts(clip_id) == []
