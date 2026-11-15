@@ -100,8 +100,8 @@ def test_clip_pick_score_defaults_to_zero_for_old_answers() -> None:
     assert ClipPick.from_json(raw).score == 0
 
 
-@pytest.mark.parametrize(("given", "expected"), [(87, 87), ("42", 42), (150, 99), (-5, 0), (55.6, 56)])
-def test_clip_pick_score_is_clamped_to_0_99(given: object, expected: int) -> None:
+@pytest.mark.parametrize(("given", "expected"), [(87, 87), ("42", 42), (150, 100), (-5, 0), (55.6, 56)])
+def test_clip_pick_score_is_clamped_to_0_100(given: object, expected: int) -> None:
     assert ClipPick.from_dict({"include": True, "score": given}).score == expected
 
 
@@ -113,3 +113,60 @@ def test_prompt_and_schema_ask_for_score() -> None:
     assert "TikTok" in CLIP_PICK_JSON_SCHEMA["properties"]["score"]["description"]
     assert CLIP_PICK_JSON_SCHEMA["properties"]["score"]["maximum"] == 99
     assert "score" in CLIP_PICK_JSON_SCHEMA["required"]
+
+
+# ── title, subscores and payoff (v2) ─────────────────────────────────────────
+
+
+def test_title_is_read_from_title_and_old_title_es() -> None:
+    assert ClipPick.from_dict({"title": "New"}).title == "New"
+    assert ClipPick.from_dict({"title_es": "Old"}).title == "Old"
+
+
+def test_old_title_es_still_works_in_the_constructor_and_as_attribute() -> None:
+    pick = ClipPick(include=True, start_offset_s=0, end_offset_s=20, title_es="Old", reason="r")
+    assert pick.title == "Old"
+    assert pick.title_es == "Old"
+
+
+def test_picks_json_keeps_title_es_for_old_readers() -> None:
+    d = ClipPick(include=True, start_offset_s=0, end_offset_s=20, title="T").to_dict()
+    assert d["title"] == "T" and d["title_es"] == "T"
+
+
+def test_subscores_are_0_25_and_give_the_score_when_there_is_none() -> None:
+    pick = ClipPick.from_dict(
+        {"include": True, "hook": 22, "engagement": 30, "value": -3, "shareability": "10"}
+    )
+    assert (pick.hook, pick.engagement, pick.value, pick.shareability) == (22, 25, 0, 10)
+    assert pick.score == 57
+
+
+def test_a_saved_score_wins_over_the_sum() -> None:
+    # picks.json holds the calibrated score; reading it back must not undo the calibration
+    pick = ClipPick.from_dict({"include": True, "hook": 20, "engagement": 20, "score": 91})
+    assert pick.score == 91
+
+
+def test_payoff_times_and_roundtrip() -> None:
+    pick = ClipPick.from_dict({"include": True, "payoff_start_s": "12.5", "payoff_end_s": 15})
+    assert (pick.payoff_start_s, pick.payoff_end_s) == (12.5, 15.0)
+    assert ClipPick.from_dict({"include": True}).payoff_start_s is None
+    again = ClipPick.from_dict(pick.to_dict())
+    assert again == pick
+
+
+def test_scored_prompt_asks_for_subscores_title_and_payoff() -> None:
+    from clipsmith.llm.prompts import SYSTEM_PROMPT, get_system_prompt
+
+    scored = get_system_prompt("v1", "", mode="v2")
+    for key in ("hook", "engagement", "value", "shareability", "title", "payoff_start_s", "payoff_end_s"):
+        assert f'"{key}"' in scored
+    assert "first sentence" in scored
+    assert "what is said in the transcript" in scored  # Twitch rule kept without own instructions
+    own = get_system_prompt("v1", "Campaign X rules.", mode="v2")
+    assert own.startswith("Campaign X rules.") and '"hook"' in own
+    assert "what is said in the transcript" not in own and "3-10" not in own
+    # legacy is exactly today's prompt
+    assert get_system_prompt("v1", "", mode="legacy") == SYSTEM_PROMPT
+    assert get_system_prompt("v1") == SYSTEM_PROMPT
