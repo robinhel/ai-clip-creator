@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from campaign.budget import Budget
 from campaign.config import Settings
@@ -105,3 +106,17 @@ def fake_twitch(monkeypatch):
     monkeypatch.setattr(vodinfo.twitch, "get_video", get_video)
     monkeypatch.setattr(vodinfo.twitch, "gql_query", gql_query)
     return state
+
+
+def set_profile(settings: Settings, **changes) -> None:
+    """Ändra kopian av Timmys profil i testmappen, aldrig filen i repot."""
+    path = settings.profiles_dir / "skiimasktimmy.yaml"
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data.update(changes)
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+
+
+def set_helper(settings: Settings, on: bool) -> None:
+    """Hjälpen för inskick till Content Rewards, som Inställningar sparar den."""
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    (settings.data_dir / "preferences.json").write_text(f'{{"submit_helper": {str(on).lower()}}}')

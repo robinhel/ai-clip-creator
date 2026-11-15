@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import ClassVar
@@ -15,6 +16,8 @@ from campaign import api, schedule, schedule_api, scout
 from campaign.cliplog import ClipLog
 from campaign.tiktok import TikTok
 from campaign.youtube import BUSY, YouTube, YouTubeError
+
+from .conftest import set_helper, set_profile
 
 YT_FIELDS = {"title": "Big play", "description": "#ad", "privacy": "public", "made_for_kids": False,
              "notify_subscribers": True}
@@ -115,8 +118,9 @@ def test_post_runs_after_its_time_and_only_once(client, settings, clip_id, notes
     assert row["status"] == "done" and json.loads(row["result"])["video_id"] == "v1"
     assert len(notes) == 1
     message, url = notes[0]
-    assert message == ("Timmy lands it är uppe på YouTube. Skicka in länken i Content Rewards inom 30 minuter.")
-    assert url == "http://localhost:3000/queue"  # Timmys profil har ingen links.content_rewards
+    assert re.fullmatch(r"Timmy lands it är uppe på YouTube\. Skicka in länken i Content Rewards före kl\. "
+                        r"\d\d:\d\d\.", message), message
+    assert url == "http://localhost:3000/queue"
 
 
 def test_status_is_running_before_the_upload(client, settings, clip_id, notes, monkeypatch):
@@ -206,7 +210,7 @@ def test_tiktok_with_direct_post_posts_with_saved_fields(client, settings, clip_
     assert _row(settings, post_id)["status"] == "done"
     assert FakeTikTok.calls[0][1] == "open1"
     assert FakeTikTok.calls[0][2]["privacy_level"] == "PUBLIC_TO_EVERYONE"
-    assert notes[0][0] == "Timmy lands it skickades till TikTok. Skicka in länken i Content Rewards inom 30 minuter."
+    assert notes[0][0].startswith("Timmy lands it skickades till TikTok. Skicka in länken i Content Rewards före kl. ")
 
 
 def test_reminder_stays_a_reminder_when_the_account_can_publish_later(client, settings, clip_id, notes):
@@ -360,3 +364,64 @@ def test_interrupted_running_post_fails_on_start(client, settings, clip_id, note
         db.execute("UPDATE scheduled_posts SET status = 'running' WHERE id = ?", (post_id,))
     schedule.Schedule(settings).fail_interrupted()
     assert _row(settings, post_id)["status"] == "failed"
+
+
+# ---------- hjälpen för inskick och kampanjens plattformar ----------
+
+CR = "https://contentrewards.com/c/campaigns/abc"
+
+
+def test_with_the_helper_the_notice_says_the_time_in_swedish_time(client, settings, clip_id, notes, monkeypatch):
+    set_profile(settings, links={"content_rewards": CR})
+    at = _at(timedelta(hours=1))
+    _post(client, clip_id, at=at)
+    monkeypatch.setattr(schedule, "_now", lambda: datetime(2026, 11, 20, 16, 53, 10, tzinfo=UTC))  # 17:53 i Sverige
+    _run(settings, at, timedelta(seconds=1))
+    assert notes == [("Timmy lands it är uppe på YouTube. Skicka in länken i Content Rewards före kl. 18:23.",
+                      "http://localhost:3000/queue")]
+
+
+def test_without_the_helper_the_notice_is_as_before(client, settings, clip_id, notes):
+    set_helper(settings, False)
+    set_profile(settings, links={"content_rewards": CR})
+    at = _at(timedelta(hours=1))
+    _post(client, clip_id, at=at)
+    _run(settings, at, timedelta(seconds=1))
+    assert notes == [("Timmy lands it är uppe på YouTube. Skicka in länken i Content Rewards inom 30 minuter.", CR)]
+
+
+def test_a_reminder_notice_does_not_change_with_the_helper(client, settings, clip_id, notes):
+    at = _at(timedelta(hours=1))
+    _post(client, clip_id, "tiktok", at=at, fields={}, account="open1")
+    _run(settings, at, timedelta(seconds=1))
+    assert notes == [("Dags att posta Timmy lands it på TikTok", "http://localhost:3000/queue")]
+
+
+@pytest.mark.parametrize(("platforms", "platform", "text"), [
+    (["tiktok"], "youtube", "Kampanjen postar inte på YouTube."),
+    (["youtube_shorts"], "tiktok", "Kampanjen postar inte på TikTok.")])
+def test_a_platform_the_campaign_does_not_use_cannot_be_scheduled(client, settings, clip_id, platforms, platform,
+                                                                  text):
+    set_profile(settings, platforms=platforms)
+    answer = _post(client, clip_id, platform, fields=YT_FIELDS if platform == "youtube" else {})
+    assert (answer.status_code, answer.json()["detail"]) == (400, text)
+
+
+def test_a_platform_removed_after_scheduling_fails_at_the_time(client, settings, clip_id, notes):
+    at = _at(timedelta(hours=1))
+    post_id = _post(client, clip_id, at=at).json()["id"]
+    set_profile(settings, platforms=["tiktok"])
+    _run(settings, at, timedelta(seconds=1))
+    row = _row(settings, post_id)
+    assert (row["status"], row["error"]) == ("failed", "Kampanjen postar inte på YouTube.")
+    assert FakeYouTube.calls == []
+
+
+def test_a_clip_posted_on_youtube_can_still_be_sent_to_tiktok_at_the_time(client, settings, clip_id, notes):
+    FakeTikTok.publish = True
+    at = _at(timedelta(hours=1))
+    fields = {"title": "Big play #ad", "privacy_level": "PUBLIC_TO_EVERYONE"}
+    post_id = _post(client, clip_id, "tiktok", at=at, fields=fields, account="open1").json()["id"]
+    ClipLog(settings.data_dir / "klipp.db").add_post(clip_id, "youtube_shorts", "https://www.youtube.com/shorts/v1")
+    _run(settings, at, timedelta(seconds=1))
+    assert _row(settings, post_id)["status"] == "done" and len(FakeTikTok.calls) == 1

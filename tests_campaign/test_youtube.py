@@ -20,6 +20,8 @@ from fastapi.testclient import TestClient
 from campaign import api, youtube, youtube_api
 from campaign.cliplog import ClipLog
 
+from .conftest import set_helper, set_profile
+
 KEYS = ("cid_test.apps.googleusercontent.com", "GOCSPX-test_secret")
 ACCOUNTS = "youtube_accounts.json"
 RELOGIN = "Logga in på YouTube igen under Inställningar."
@@ -403,7 +405,7 @@ def test_upload_sends_the_short_with_the_choices(client, settings, fake) -> None
         "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False, "containsSyntheticMedia": False}}
     (put,) = fake.calls("put")
     assert (str(put.url), put.content, put.headers["content-type"]) == (SESSION, bytes(range(25)), "video/mp4")
-    assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["status"] == "godkand"
+    assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["status"] == "postad"  # inlägget skapas av hjälpen
     with youtube.YouTube(settings)._db() as db:
         row = dict(db.execute("SELECT clip_id, channel_id, video_id, status, privacy FROM youtube_uploads").fetchone())
     assert row == {"clip_id": clip_id, "channel_id": "UC1", "video_id": "vid1", "status": "uploaded",
@@ -454,6 +456,7 @@ def test_with_two_channels_the_upload_must_say_which(client, settings, fake) -> 
 
 
 def test_same_clip_to_the_same_channel_right_away_gives_409(client, settings, fake, monkeypatch) -> None:
+    set_helper(settings, False)  # med hjälpen på stoppar inlägget på youtube_shorts redan andra försöket (400)
     _connect(settings)
     _connect(settings, channel_id="UC2", title="Andra", access="ya29.other")
     clip_id = _clip(settings)
@@ -697,3 +700,56 @@ def test_another_upload_in_progress_gives_409_at_once(client, settings, fake) ->
         409, "En annan uppladdning till YouTube pågår. Vänta tills den är klar.")
     assert fake.requests == []
     assert _send(client, clip_id).status_code == 202
+
+
+# ---------- hjälpen för inskick och kampanjens plattformar ----------
+
+
+def test_a_successful_upload_creates_the_post_when_the_helper_is_on(client, settings, fake) -> None:
+    _connect(settings)
+    clip_id = _clip(settings)
+    before = datetime.now(UTC).replace(microsecond=0)
+    assert _send(client, clip_id).status_code == 202
+    log = ClipLog(settings.data_dir / "klipp.db")
+    (post,) = log.posts(clip_id)
+    assert (post["platform"], post["url"], post["status"]) == (
+        "youtube_shorts", "https://www.youtube.com/shorts/vid1", "postad")
+    assert datetime.fromisoformat(post["created"]) >= before  # tiden när appen fick adressen
+    assert log.get(clip_id)["status"] == "postad"
+
+
+def test_no_post_is_created_when_the_helper_is_off(client, settings, fake) -> None:
+    set_helper(settings, False)
+    _connect(settings)
+    clip_id = _clip(settings)
+    assert _send(client, clip_id).status_code == 202
+    log = ClipLog(settings.data_dir / "klipp.db")
+    assert log.posts(clip_id) == [] and log.get(clip_id)["status"] == "godkand"
+
+
+def test_a_failed_upload_creates_no_post(client, settings, fake) -> None:
+    _connect(settings)
+    clip_id = _clip(settings)
+    fake.put_status = 400
+    assert _send(client, clip_id).status_code == 502
+    assert ClipLog(settings.data_dir / "klipp.db").posts(clip_id) == []
+
+
+def test_a_campaign_without_youtube_refuses_the_upload(client, settings, fake) -> None:
+    set_profile(settings, platforms=["tiktok"])
+    _connect(settings)
+    response = _send(client, _clip(settings))
+    assert (response.status_code, response.json()["detail"]) == (400, "Kampanjen postar inte på YouTube.")
+    assert fake.calls("upload") == []
+
+
+def test_a_clip_posted_on_tiktok_can_go_to_youtube_but_not_twice(client, settings, fake) -> None:
+    _connect(settings)
+    clip_id = _clip(settings)
+    log = ClipLog(settings.data_dir / "klipp.db")
+    log.add_post(clip_id, "tiktok", "https://www.tiktok.com/@a/video/1")
+    assert log.get(clip_id)["status"] == "postad"
+    assert _send(client, clip_id).status_code == 202
+    again = _send(client, clip_id)
+    assert (again.status_code, again.json()["detail"]) == (400, "Klippet har redan ett inlägg på YouTube.")
+    assert len(fake.calls("upload")) == 1
