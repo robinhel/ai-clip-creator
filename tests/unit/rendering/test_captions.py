@@ -5,14 +5,14 @@ from __future__ import annotations
 import itertools
 
 import pytest
-
 from helpers import _seg, _transcript, _word
+
 from clipsmith.rendering.captions import (
     _ass_time,
     _caption_lines,
     _render_ass,
+    _write_ass,
 )
-from clipsmith.rendering.captions import _write_ass
 from clipsmith.settings import CaptionConfig, ReframeConfig
 
 
@@ -243,7 +243,9 @@ def test_box_events_do_not_overlap() -> None:
 
 
 def test_render_box_has_box_layer_and_clean_text_layer() -> None:
-    ass = _render_ass([(0.0, 1.0, f"NO {_ON}WAY{{\\3a&HFF&}} BRO")], _cfg(style="box", box_colour="&H0000D7FF"))
+    ass = _render_ass(
+        [(0.0, 1.0, f"NO {_ON}WAY{{\\3a&HFF&}} BRO")], _cfg(style="box", box_colour="&H0000D7FF")
+    )
     assert "Style: Box," in ass and ",3," in ass.split("Style: Box,")[1].split("\n")[0]
     assert "&H0000D7FF" in ass
     dialogues = [ln for ln in ass.splitlines() if ln.startswith("Dialogue:")]
@@ -273,7 +275,9 @@ def test_write_ass_uses_reframe_for_placement(tmp_path) -> None:
     words = [_word(300.0, 300.3, "hej")]
     t = _transcript(_seg(300.0, 300.3, "hej", words))
     out = tmp_path / "c.ass"
-    _write_ass(t, 300.0, 310.0, _cfg(style="box"), out, ReframeConfig(mode="stacked", split_ratio=0.5))
+    _write_ass(
+        t, 300.0, 310.0, _cfg(style="box"), out, ReframeConfig(mode="stacked", split_ratio=0.5)
+    )
     ass = out.read_text(encoding="utf-8-sig")
     assert _margin_v(ass) == int(1920 * 0.5 - 72 / 2)
     assert "HEJ" in ass

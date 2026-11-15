@@ -92,6 +92,9 @@ class CaptionConfig(BaseModel):
     font_size: int = 72  # ASS pts at 1080×1920; 72 ≈ TikTok-style captions
     outline: int = 3
     position: str = "bottom"
+    # "box": bold capitals, up to 3 words, a coloured box behind the word being said; "outline": the old karaoke look
+    style: Literal["box", "outline"] = "box"
+    box_colour: str = "&H0000D7FF"  # ASS &HAABBGGRR; default gold
 
 
 class ReframeConfig(BaseModel):
