@@ -2,7 +2,31 @@
 
 from __future__ import annotations
 
+import re
+from bisect import bisect_left
+from itertools import accumulate
+
 from ..models.chat import ChatMessage
+
+_REPEATS = re.compile(r"([a-z])\1+", re.IGNORECASE)
+_LAUGH = re.compile(r"(?<!\w)a?(?:ha){2,}h?(?!\w)", re.IGNORECASE)
+
+
+def _squeeze(text: str) -> str:
+    """Chat spam as one word: "WWWWWW" and "wWw" become "w", "LMAOOOO" "lmao", "ahahah" "haha"."""
+    return _LAUGH.sub("haha", _REPEATS.sub(r"\1", text))
+
+
+def _reaction_pattern(words: list[str]) -> re.Pattern[str] | None:
+    """Whole words, ignoring case: "w" matches "W" and "w!" but not "wow". "??" matches anywhere."""
+    parts = [
+        ("(?<!\\w)" if w[0].isalnum() else "")
+        + re.escape(w)
+        + ("(?!\\w)" if w[-1].isalnum() else "")
+        for w in (_squeeze(w.strip()) for w in words)
+        if w
+    ]
+    return re.compile("|".join(parts), re.IGNORECASE) if parts else None
 
 
 def compute_density_scores(
@@ -11,21 +35,33 @@ def compute_density_scores(
     window_s: float = 15.0,
     peak_multiplier: float = 4.0,
     step_s: float = 5.0,
+    reaction_words: list[str] | None = None,
+    reaction_weight: float = 0.0,
 ) -> list[tuple[float, float]]:
     """Return (t_center, score) for windows that exceed peak_multiplier × baseline.
 
-    Score = messages_in_window + 0.5 × hype_emotes_in_window, normalised by
+    Score = messages_in_window + 0.5 × hype_emotes_in_window
+    + reaction_weight × messages_with_a_reaction_word, normalised by
     baseline, so higher-than-baseline windows get a proportional score boost.
     """
     if not messages:
         return []
+    ordered = sorted(messages, key=lambda m: m.time_in_seconds)
+    times = [m.time_in_seconds for m in ordered]
+    pattern = _reaction_pattern(reaction_words or []) if reaction_weight else None
+    # Running totals, so each window is two bisects instead of a pass over the whole chat.
+    hype = [0, *accumulate(m.hype_emote_count for m in ordered)]
+    if pattern:
+        reacts = [0, *accumulate(int(bool(pattern.search(_squeeze(m.message)))) for m in ordered)]
+    else:
+        reacts = [0] * (len(ordered) + 1)
 
-    times = [m.time_in_seconds for m in messages]
-    t_min, t_max = min(times), max(times)
+    t_min, t_max = times[0], times[-1]
     total_duration = max(t_max - t_min, 1.0)
 
-    # Baseline: average messages per window_s across the whole VOD.
-    baseline = len(messages) * window_s / total_duration
+    # Baseline: average score per window_s across the whole VOD, reactions included,
+    # so reactions that are common all stream long do not lower the bar everywhere.
+    baseline = (len(messages) + reaction_weight * reacts[-1]) * window_s / total_duration
 
     if baseline < 1.0:
         baseline = 1.0  # avoid div-by-zero for very sparse chats
@@ -33,10 +69,11 @@ def compute_density_scores(
     results: list[tuple[float, float]] = []
     t = t_min
     while t <= t_max:
-        window_msgs = [m for m in messages if t <= m.time_in_seconds < t + window_s]
-        count = len(window_msgs)
-        hype = sum(m.hype_emote_count for m in window_msgs)
-        raw_score = count + 0.5 * hype
+        lo, hi = bisect_left(times, t), bisect_left(times, t + window_s)
+        count = hi - lo
+        raw_score = (
+            count + 0.5 * (hype[hi] - hype[lo]) + reaction_weight * (reacts[hi] - reacts[lo])
+        )
         ratio = raw_score / baseline
 
         if ratio >= peak_multiplier:

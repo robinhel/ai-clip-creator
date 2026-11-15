@@ -96,10 +96,13 @@ def cmd_finish(args, settings: Settings) -> int:
     profile = _profile(settings, args.profile)
     for problem in profile.problems(settings.root):
         print(f"VARNING: {problem}")
-    brain = Brain(settings, _budget(settings))
+    from .pipeline import signals_mode
+
+    review = not args.no_review and not signals_mode(profile, settings)  # snabbläget: ingen Claude-budget
+    brain = Brain(settings, _budget(settings)) if review else None
     results = finish_vod(
         args.vod_id, profile, settings, _log(settings), brain=brain,
-        game=args.game, review=not args.no_review, subdir=args.subdir,
+        game=args.game, review=review, subdir=args.subdir,
     )
     for result in results:
         if "skipped" in result:

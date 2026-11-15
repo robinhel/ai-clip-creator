@@ -6,9 +6,11 @@ import json
 import re
 from pathlib import Path
 
+from clipsmith.selection.selector import SIGNALS_REASON
+
 from .brain import Brain
 from .budget import BudgetExceeded
-from .caption import build_caption
+from .caption import PLACEHOLDER, build_caption
 from .cliplog import ClipLog
 from .config import Settings
 from .editor import edit_meta
@@ -37,7 +39,8 @@ def load_picks(path: Path) -> list[dict]:
                 "title": pick.get("title") or pick.get("title_es") or "",
                 "format": pick.get("format"),
                 "signals": item.get("candidate", {}).get("sources", []),
-                "score": None if forced else pick.get("score"),  # None för picks från före betyget
+                # None för picks från före betyget och för snabbläget: inget betyg från Claude att visa
+                "score": None if forced or reason.startswith(SIGNALS_REASON) else pick.get("score"),
                 "reason": FORCED_REASON if forced else reason,
             }
         )
@@ -93,6 +96,7 @@ def finish_vod(
         pick = picks[index - 1] if 0 < index <= len(picks) else {}
         title = pick.get("title") or title_from_name(src)
         hook = pick.get("title") or ""  # filnamnet blir ingen hook-text
+        hook = "" if PLACEHOLDER.search(hook) else hook  # snabblägets "Moment h:mm:ss" blir ingen hook-text
         start, end = pick.get("start"), pick.get("end")
         out = clip_dir / "klara" / src.name
 

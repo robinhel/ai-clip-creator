@@ -147,6 +147,21 @@ def test_no_hook_from_the_file_name_when_there_is_no_title(setup, settings, monk
     assert titles == [""]
 
 
+@needs_ffmpeg
+def test_no_hook_from_the_signals_placeholder_title(setup, settings, monkeypatch) -> None:  # noqa: F811
+    from campaign import workflow
+
+    _client, log, clip_id = setup
+    titles = []
+    real = workflow.finish_clip
+    monkeypatch.setattr(workflow, "finish_clip", lambda *a, **k: titles.append(k.get("title")) or real(*a, **k))
+    monkeypatch.setattr(workflow, "load_picks", lambda path: [{"title": "Moment 0:01:40"}])
+    log.update(clip_id, status="underkand")
+    profile = load_profile("skiimasktimmy", settings.profiles_dir)
+    workflow.finish_vod("123", profile, settings, log, game="Bodycam", review=False)
+    assert titles == [""]
+
+
 def test_a_title_of_only_control_characters_gives_no_hook(blizzard) -> None:
     graph = build_filter(blizzard, has_overlay=False, has_audio=False, font=None, title="\x00\n")
     assert "withhook" not in graph and "drawtext" not in graph
