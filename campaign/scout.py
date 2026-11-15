@@ -323,15 +323,18 @@ def evaluate(data: dict, median: float, cpm_median: float, now: datetime) -> tup
 
 
 def notify(title: str, score: int, page_url: str | None) -> None:
-    """Notis på Macen. Argument som lista, inget skal."""
+    notify_mac(f"Ny kampanj: {title}, {score} poäng", _safe(page_url))
+
+
+def notify_mac(message: str, url: str | None = None) -> None:
+    """Notis på Macen som öppnar url vid klick. Argument som lista, inget skal. Används också av schemat."""
     if sys.platform != "darwin":
         return
-    message = f"Ny kampanj: {title}, {score} poäng"
     tool = shutil.which("terminal-notifier")
     if tool:
         args = [tool, "-title", "Klipp", "-message", message]
-        if _safe(page_url):
-            args += ["-open", page_url]
+        if url:
+            args += ["-open", url]
     else:  # texten är ett argument till skriptet, så citattecken i titeln blir aldrig AppleScript-kod
         args = ["osascript", "-e", "on run argv", "-e", 'display notification (item 1 of argv) with title "Klipp"',
                 "-e", "end run", message]
