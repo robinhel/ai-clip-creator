@@ -228,7 +228,10 @@ def process_vod(
     console.print(
         f"[cyan]selecting clips[/cyan] via {cfg.llm.provider} (top {max_candidates} candidates)..."
     )
-    picker = get_provider(cfg, secrets, prompt_version=prompt_version, video=mp4_path)
+    # signals mode makes no LLM call, so no provider (and no budget) is created
+    picker = None if cfg.clip.select == "signals" else get_provider(
+        cfg, secrets, prompt_version=prompt_version, video=mp4_path
+    )
     stream_context = build_stream_context(
         channel=video.user_login,
         vod_title=video.title,

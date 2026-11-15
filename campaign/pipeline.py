@@ -50,13 +50,14 @@ def clipsmith_config(profile: Profile, settings: Settings):
 
 
 def finish(vod_id: str, profile: Profile, settings: Settings, game: str | None,
-           run_id: int | None = None) -> list[dict]:
+           run_id: int | None = None, review: bool = True) -> list[dict]:
+    """review=False: ingen bildgranskning och ingen Budget, som i snabbläget utan Claude."""
     log = ClipLog(settings.data_dir / "klipp.db")
-    brain = Brain(settings, budget_from_settings(settings))
+    brain = Brain(settings, budget_from_settings(settings)) if review else None
     subdir = f"run_{run_id}"
     if not (settings.out_dir / vod_id / subdir).is_dir():
         subdir = None  # en körning från före mapparna per körning har klippen direkt i out/<vod>/
-    return finish_vod(vod_id, profile, settings, log, brain=brain, game=game, review=True, subdir=subdir)
+    return finish_vod(vod_id, profile, settings, log, brain=brain, game=game, review=review, subdir=subdir)
 
 
 def _twitch_ids(vod_id: str, channel: str, secrets) -> tuple[str, str]:
@@ -159,7 +160,8 @@ def make_clips(
         transcript = Transcript.from_json((mp4.parent / "transcript.json").read_text(encoding="utf-8"))
         transcript.segments = [s for s in transcript.segments  # samma del av VOD:en som kandidaterna
                                if s.start >= start_s and (not end_s or s.start <= end_s)]
-        picker = get_provider(cfg, secrets, video=mp4)
+        fast = cfg.clip.select == "signals"  # snabbläget: inget anrop till Claude och ingen Budget
+        picker = None if fast else get_provider(cfg, secrets, video=mp4)
 
         def ask(*args):
             nonlocal asked
@@ -186,7 +188,7 @@ def make_clips(
         return cfg, f"Claude valde inga av {asked} kandidater." if asked else "Inga kandidater hittades."
 
     emit("finish", 90.0, "Lägger på overlay, text och caption och kontrollerar reglerna")
-    results = finish(vod_id, profile, settings, game, run_id)
+    results = finish(vod_id, profile, settings, game, run_id, review=cfg.clip.select != "signals")
     if not any("id" in result for result in results):
         reasons = ", ".join(dict.fromkeys(result["skipped"] for result in results if "skipped" in result))
         return cfg, f"Inga nya klipp. Claude valde {len(picks)}, men {reasons}."

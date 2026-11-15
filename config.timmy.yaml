@@ -30,6 +30,10 @@ candidates:
   audio_energy_window_s: 2.0
   audio_energy_peak_multiplier: 2.0
   audio_energy_boost: 15.0
+  # Chattmeddelanden med ett reaktionsord räknas dubbelt i chattoppen. Hela ord, oavsett versaler:
+  # "w" träffar "W" men inte "wow".
+  reaction_words: ["lmao", "lmfao", "lol", "omg", "no way", "kekw", "w", "l", "wtf", "haha", "??"]
+  reaction_weight: 1.0
   # Engelska i stället för de spanska standardorden. clipsmith letar efter orden
   # som delar av text ("run" träffar även "running"), så håll listan till tydliga uttryck.
   hype_keywords:
