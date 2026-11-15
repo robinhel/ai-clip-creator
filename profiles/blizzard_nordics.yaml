@@ -73,7 +73,7 @@ caption:
 audio:
   lufs: -14
 
-platforms: [tiktok, youtube_shorts]
+platforms: [tiktok]   # Robin 15 nov: Blizzard postas inte på YouTube
 
 # Minst 0,5 % engagemang: 5 likes per 1 000 visningar.
 engagement_min_percent:
