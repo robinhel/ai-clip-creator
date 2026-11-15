@@ -8,6 +8,7 @@ import re
 import pytest
 from helpers import _seg, _transcript, _word
 
+from clipsmith.models.transcript import Word
 from clipsmith.rendering.captions import (
     _ass_time,
     _caption_lines,
@@ -322,3 +323,45 @@ def test_box_colour_must_be_an_ass_colour() -> None:
     assert CaptionConfig(box_colour="&H0000d7ff").box_colour == "&H0000d7ff"
     with pytest.raises(ValidationError):
         CaptionConfig(box_colour="&H00FF}{\\b1")
+
+
+# ── Whisper's music hallucinations ────────────────────────────────────────────
+# Real cases from Blizzard trailers (15 Nov 2026): over pure music Whisper wrote " You" with 9 %
+# certainty, and in a real voice-over it heard the true word "thunder." with only 6 %.
+
+
+def _unsure(start: float, end: float, text: str, probability: float) -> Word:
+    return Word(start=start, end=end, word=text, probability=probability)
+
+
+def test_unsure_you_over_music_gives_no_caption() -> None:
+    t = _transcript(_seg(302.5, 303.2, " You", [_unsure(302.5, 303.2, " You", 0.09)]))
+    assert _caption_lines(t, 300.0, 310.0) == []
+    assert _caption_lines(t, 300.0, 310.0, "box") == []
+
+
+def test_unsure_thanks_for_watching_gives_no_caption() -> None:
+    words = [
+        _unsure(301.0, 301.3, " Thanks", 0.2),
+        _unsure(301.3, 301.5, " for", 0.4),
+        _unsure(301.5, 302.0, " watching!", 0.3),
+    ]
+    t = _transcript(_seg(301.0, 302.0, " Thanks for watching!", words))
+    assert _caption_lines(t, 300.0, 310.0) == []
+
+
+def test_hallucination_is_dropped_but_real_speech_next_to_it_stays() -> None:
+    t = _transcript(
+        _seg(301.0, 301.5, " You", [_unsure(301.0, 301.5, " You", 0.09)]),
+        _seg(305.0, 305.5, " thunder.", [_unsure(305.0, 305.5, " thunder.", 0.06)]),
+    )
+    text = " ".join(line[2] for line in _caption_lines(t, 300.0, 310.0))
+    assert "thunder." in text
+    assert "You" not in text
+
+
+def test_sure_thank_you_is_real_speech_and_stays() -> None:
+    words = [_unsure(301.0, 301.3, " Thank", 0.95), _unsure(301.3, 301.6, " you.", 0.9)]
+    t = _transcript(_seg(301.0, 301.6, " Thank you.", words))
+    text = " ".join(line[2] for line in _caption_lines(t, 300.0, 310.0))
+    assert "Thank" in text and "you." in text
