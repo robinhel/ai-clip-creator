@@ -27,12 +27,12 @@ STAT_KEYS = ("views", "likes", "comments", "shares")
 COLUMNS = (
     "id, vod_id, profile, start_s, end_s, title, format, signals, file, caption, status, "
     "problems, warnings, review, platform, url, views, likes, comments, shares, note, "
-    "created, updated, score, reason"
+    "created, updated, score, reason, subscores"
 )
 
 # Kolumner som kom till efter första versionen. Saknas de läggs de till när loggen öppnas.
 NEW_COLUMNS = {
-    "clips": {"score": "INTEGER", "reason": "TEXT"},
+    "clips": {"score": "INTEGER", "reason": "TEXT", "subscores": "TEXT"},
     "runs": {"focus": "TEXT", "min_s": "INTEGER", "max_s": "INTEGER", "title": "TEXT",
              "channel_name": "TEXT", "thumbnail_url": "TEXT", "duration_s": "INTEGER", "created": "TEXT",
              "start_s": "REAL", "end_s": "REAL"},
@@ -104,7 +104,7 @@ class ClipLog:
     @staticmethod
     def _row(row: sqlite3.Row) -> dict:
         clip = dict(row)
-        for key in ("signals", "problems", "warnings", "review"):
+        for key in ("signals", "problems", "warnings", "review", "subscores"):
             clip[key] = json.loads(clip[key]) if clip[key] else None
         return clip
 
@@ -112,20 +112,22 @@ class ClipLog:
             status: str = "renderad", start_s: float | None = None, end_s: float | None = None,
             clip_format: str | None = None, signals: list | None = None,
             problems: list | None = None, warnings: list | None = None,
-            review: dict | None = None, score: int | None = None, reason: str = "") -> int:
+            review: dict | None = None, score: int | None = None, reason: str = "",
+            subscores: dict | None = None) -> int:
         if status not in STATUSES:
             raise ValueError(f"Okänd status: {status}")
         with self._db() as db:
             cursor = db.execute(
                 """INSERT INTO clips (vod_id, profile, start_s, end_s, title, format, signals,
-                   file, caption, status, problems, warnings, review, created, updated, score, reason)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   file, caption, status, problems, warnings, review, created, updated, score, reason,
+                   subscores)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (vod_id, profile, start_s, end_s, title, clip_format,
                  json.dumps(signals or []), file, caption, status,
                  json.dumps(problems or [], ensure_ascii=False),
                  json.dumps(warnings or [], ensure_ascii=False),
                  json.dumps(review, ensure_ascii=False) if review else None,
-                 _now(), _now(), score, reason),
+                 _now(), _now(), score, reason, json.dumps(subscores) if subscores else None),
             )
             return int(cursor.lastrowid)
 
@@ -151,11 +153,11 @@ class ClipLog:
             raise ValueError(f"Okänd status: {fields['status']}")
         allowed = {"status", "platform", "url", "views", "likes", "comments", "shares",
                    "note", "format", "title", "caption", "problems", "warnings", "review", "file",
-                   "start_s", "end_s", "score", "reason"}
+                   "start_s", "end_s", "score", "reason", "subscores"}
         unknown = set(fields) - allowed
         if unknown:
             raise ValueError(f"Fält som inte får ändras: {sorted(unknown)}")
-        for key in ("problems", "warnings", "review"):
+        for key in ("problems", "warnings", "review", "subscores"):
             if key in fields:
                 fields[key] = json.dumps(fields[key], ensure_ascii=False) if fields[key] is not None else None
         self.get(clip_id)

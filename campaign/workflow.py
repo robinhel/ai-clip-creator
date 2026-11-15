@@ -6,6 +6,7 @@ import json
 import re
 from pathlib import Path
 
+from clipsmith.llm.base import SUBSCORES
 from clipsmith.selection.selector import SIGNALS_REASON
 
 from .brain import Brain
@@ -42,6 +43,9 @@ def load_picks(path: Path) -> list[dict]:
                 # None för picks från före betyget och för snabbläget: inget betyg från Claude att visa
                 "score": None if forced or reason.startswith(SIGNALS_REASON) else pick.get("score"),
                 "reason": FORCED_REASON if forced else reason,
+                # Claudes delpoäng 0-25 (val v2). None när svaret saknade dem: då sparade clipsmith nollor.
+                "subscores": None if forced or not any(pick.get(key) for key in SUBSCORES)
+                else {key: pick.get(key) or 0 for key in SUBSCORES},
             }
         )
     return picks
@@ -62,7 +66,7 @@ def _save(log: ClipLog, redo: dict | None, common: dict, **fields) -> int | None
         return log.add(**common, **fields)
     if log.get(redo["id"])["status"] != "underkand":
         return None
-    picked = {key: common[key] for key in ("title", "start_s", "end_s", "score", "reason")}
+    picked = {key: common[key] for key in ("title", "start_s", "end_s", "score", "reason", "subscores")}
     if common.get("clip_format"):
         picked["format"] = common["clip_format"]
     log.update(redo["id"], **picked, **fields)
@@ -118,7 +122,7 @@ def finish_vod(
         common = dict(
             vod_id=vod_id, profile=profile.name, title=title, start_s=start, end_s=end,
             clip_format=pick.get("format"), signals=pick.get("signals"),
-            score=pick.get("score"), reason=pick.get("reason", ""),
+            score=pick.get("score"), reason=pick.get("reason", ""), subscores=pick.get("subscores"),
         )
 
         source_problems = check_source(probe(src))
