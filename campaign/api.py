@@ -778,4 +778,4 @@ def _earnings(clips: list[dict], settings: Settings, posts: list[dict]) -> dict:
 
 
 # Vägarna för inlägg ligger i posts_api.py och registreras på samma router.
-from . import posts_api  # noqa: F401
+from . import posts_api  # noqa: E402, F401
