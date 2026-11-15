@@ -35,6 +35,8 @@ LATE_S = 120  # senare än så efter tiden räknas som försenad
 MISSED_S = 6 * 3600
 YOUTUBE_DAILY = 100
 MISSED = "Missad: Macen var avstängd vid tiden."
+ALREADY = "Klippet finns redan på kanalen."
+TIKTOK_LIVE = ("uploading", "uploaded", "processing", "published")
 FINISHED = ("done", "reminded", "failed", "cancelled")
 _thread: list[threading.Thread] = []
 
@@ -55,17 +57,21 @@ def _iso(moment: datetime) -> str:
     return moment.astimezone(UTC).isoformat(timespec="seconds")
 
 
-def clip_file(settings: Settings, clip: dict) -> tuple[Path, float]:
-    """Klippets fil och längd, med samma kontroller som uppladdningsknapparna."""
+def clip_file(settings: Settings, clip: dict, refused: str = "Bara godkända klipp kan schemaläggas.") -> Path:
+    """Klippets fil. Bara ett godkänt klipp utan problem laddas upp, av knapparna och av schemat."""
     if clip["status"] != "godkand":
-        raise ScheduleError("Bara godkända klipp kan schemaläggas.")
+        raise ScheduleError(refused)
     if clip["problems"]:
-        raise ScheduleError("Klippet har problem. Rätta dem innan du schemalägger.")
+        raise ScheduleError("Klippet har problem. Rätta dem innan du laddar upp.")
     path = Path(clip["file"] or "").resolve()
     if not path.is_relative_to(settings.out_dir.resolve()) or path.suffix != ".mp4" or not path.exists():
         raise ScheduleError("Klippets fil finns inte. Gör klippet kampanjklart igen.")
+    return path
+
+
+def clip_seconds(clip: dict, path: Path) -> float:
     has_times = clip["start_s"] is not None and clip["end_s"] is not None
-    return path, clip["end_s"] - clip["start_s"] if has_times else probe(path)["duration"]
+    return clip["end_s"] - clip["start_s"] if has_times else probe(path)["duration"]
 
 
 class Schedule:
@@ -133,8 +139,8 @@ class Schedule:
             clip = self.clips.get(clip_id)
         except SystemExit as error:
             raise ScheduleError("Klippet finns inte.", 404) from error
-        _, duration_s = clip_file(self.settings, clip)
-        fields = self._check(platform, account, fields, duration_s)
+        fields = self._check(platform, account, fields, clip_seconds(clip, clip_file(self.settings, clip)))
+        self._not_there_yet(clip_id, platform, account)
         now = _iso(_now())
         try:
             with self._db() as db:
@@ -167,6 +173,17 @@ class Schedule:
         if account and TikTok(self.settings).can_publish(account) and not post.get("privacy_level"):
             raise ScheduleError("Välj vem som får se klippet.")
         return post
+
+    def _not_there_yet(self, clip_id: int, platform: str, account: str | None) -> None:
+        """Knapparnas spärr gäller bara 10 minuter. Ett klipp som redan finns på kanalen laddas inte upp igen."""
+        if platform == "youtube":
+            last = YouTube(self.settings)._latest_row(clip_id, account)
+            there = last is not None and last["status"] != "failed"
+        else:
+            last = TikTok(self.settings)._latest_row(clip_id, account, "direct") if account else None
+            there = last is not None and last["status"] in TIKTOK_LIVE
+        if there:
+            raise ScheduleError(ALREADY, 409)
 
     def cancel(self, post_id: int) -> dict:
         post = self.get(post_id)
@@ -202,47 +219,51 @@ class Schedule:
 
     def _run(self, post: dict, now: datetime) -> None:
         late_s = (now - datetime.fromisoformat(post["at"])).total_seconds()
-        if late_s > MISSED_S:
-            self._set(post["id"], status="failed", error=MISSED)
-            return
+        title = post["clip_title"] or f"Klipp {post['clip_id']}"
+        queue = f"{self.settings.web_url}/queue"
         late = late_s > LATE_S
         try:
+            if late_s > MISSED_S:
+                raise ScheduleError(MISSED)
             status, result = self._upload(post)
         except (ScheduleError, YouTubeError, TikTokError) as error:
             if str(error) == BUSY:  # en annan uppladdning pågår: försök nästa varv
                 self._set(post["id"], status="waiting")
                 return
             self._set(post["id"], status="failed", error=str(error))
+            notify_mac(f"{title} laddades inte upp: {error}", queue)
             return
         except Exception:  # tråden får aldrig dö; posten körs inte igen
             log.exception("Schemalagd post %s", post["id"])
-            self._set(post["id"], status="failed", error="Uppladdningen fick ett oväntat fel. Titta på kontot.")
+            error_text = "Uppladdningen fick ett oväntat fel. Titta på kontot."
+            self._set(post["id"], status="failed", error=error_text)
+            notify_mac(f"{title} laddades inte upp: {error_text}", queue)
             return
         self._set(post["id"], status=status, error=None, result=json.dumps({**result, "late": late}))
-        title = post["clip_title"] or f"Klipp {post['clip_id']}"
-        name = "YouTube" if post["platform"] == "youtube" else "TikTok"
         if status == "reminded":
             message, url = f"Dags att posta {title} på TikTok", None
         else:
-            message = f"{title} är uppe på {name}. Skicka in länken i Content Rewards inom 30 minuter."
+            done = "är uppe på YouTube" if post["platform"] == "youtube" else "skickades till TikTok"
+            message = f"{title} {done}. Skicka in länken i Content Rewards inom 30 minuter."
             url = self._content_rewards(post["profile"])
-        notify_mac(f"Försenad: {message}" if late else message, url or f"{self.settings.web_url}/queue")
+        notify_mac(f"Försenad: {message}" if late else message, url or queue)
 
     def _upload(self, post: dict) -> tuple[str, dict]:
         try:
             clip = self.clips.get(post["clip_id"])
         except SystemExit as error:
             raise ScheduleError("Klippet finns inte längre.") from error
-        if clip["status"] != "godkand":
-            raise ScheduleError("Klippet är inte längre godkänt.")
-        path, duration_s = clip_file(self.settings, clip)
+        path = clip_file(self.settings, clip, "Klippet är inte längre godkänt.")
+        duration_s = clip_seconds(clip, path)
+        self._not_there_yet(post["clip_id"], post["platform"], post["account"])
         if post["platform"] == "youtube":
             youtube = YouTube(self.settings)
             if youtube.uploads_today() >= YOUTUBE_DAILY:
                 raise ScheduleError(f"Dagens gräns på {YOUTUBE_DAILY} uppladdningar till YouTube är nådd.")
             return "done", youtube.upload(post["clip_id"], path, post["account"], post["fields"], duration_s)
         tiktok = TikTok(self.settings)
-        if not (post["account"] and tiktok.can_publish(post["account"])):
+        # Påminnelse om inte Robin valde konto och vem som får se det, och kontot får publicera.
+        if not (post["account"] and post["fields"].get("privacy_level") and tiktok.can_publish(post["account"])):
             return "reminded", {}
         return "done", tiktok.upload(post["clip_id"], path, post["account"], post["fields"], duration_s)
 

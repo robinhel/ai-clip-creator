@@ -25,6 +25,7 @@ import sys
 import threading
 import time
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -333,7 +334,8 @@ def notify_mac(message: str, url: str | None = None) -> None:
     tool = shutil.which("terminal-notifier")
     if tool:
         args = [tool, "-title", "Klipp", "-message", message]
-        if url:
+        parts = urlparse(url or "")
+        if parts.scheme == "https" or (parts.scheme == "http" and parts.hostname == "localhost"):  # aldrig file://
             args += ["-open", url]
     else:  # texten är ett argument till skriptet, så citattecken i titeln blir aldrig AppleScript-kod
         args = ["osascript", "-e", "on run argv", "-e", 'display notification (item 1 of argv) with title "Klipp"',
