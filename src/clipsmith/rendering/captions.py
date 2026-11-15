@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from ..models.transcript import Transcript, Word
+from ..models.transcript import Segment, Transcript, Word
 from ..settings import CaptionConfig, ReframeConfig
 
 _WORDS_PER_LINE = 5
@@ -21,6 +21,18 @@ _ASS_SPECIAL = re.compile(r"[{}\\]")  # would start an override tag or an escape
 _MAX_GAP = 0.6  # a longer pause between words starts a new line, so no text shows during silence
 _MAX_WORD = 1.0  # whisper sometimes stretches a word over the silence after it
 _HOLD = 0.3  # keep a line up a little after its last word, but never into the next line
+# Phrases Whisper invents over music or silence. Dropped only when Whisper is unsure of them: a
+# streamer who clearly says "thank you" keeps the caption. Probability alone is not enough, since
+# real words over loud music can also score low ("thunder." got 0.06 in a Blizzard trailer).
+_HALLUCINATIONS = {
+    "you",
+    "thank you",
+    "thanks for watching",
+    "thank you for watching",
+    "please subscribe",
+    "bye",
+}
+_UNSURE = 0.5
 
 
 def _write_ass(
@@ -44,7 +56,7 @@ def _caption_lines(
     """Return (rel_start, rel_end, ass_text) tuples for the clip range."""
     words: list[Word] = []
     for seg in transcript.segments:
-        if seg.end < clip_start or seg.start > clip_end:
+        if seg.end < clip_start or seg.start > clip_end or _hallucinated(seg):
             continue
         for w in seg.words:
             if clip_start <= w.start and w.end <= clip_end + 0.5:
@@ -53,6 +65,13 @@ def _caption_lines(
     if words:
         return _group_words(words, clip_start, style)
     return _fallback_segments(transcript, clip_start, clip_end, style)
+
+
+def _hallucinated(seg: Segment) -> bool:
+    phrase = " ".join(re.sub(r"[^\w\s]", "", seg.text.lower()).split())
+    if phrase not in _HALLUCINATIONS or not seg.words:
+        return False
+    return sum(w.probability for w in seg.words) / len(seg.words) < _UNSURE
 
 
 def _group_words(
@@ -145,7 +164,7 @@ def _fallback_segments(
     per_line = _BOX_WORDS_PER_LINE if style == "box" else _WORDS_PER_LINE
     lines: list[tuple[float, float, str]] = []
     for seg in transcript.segments:
-        if seg.end < clip_start or seg.start > clip_end:
+        if seg.end < clip_start or seg.start > clip_end or _hallucinated(seg):
             continue
         rel_start = max(0.0, seg.start - clip_start)
         rel_end = seg.end - clip_start
