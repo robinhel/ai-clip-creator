@@ -14,19 +14,18 @@ import os
 import re
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 
 import httpx
+from dotenv import dotenv_values
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from .config import load_settings
-
-BASE_URL = os.environ.get("KLIPP_API_URL", "http://127.0.0.1:8000").rstrip("/")
+BASE_URL = "http://127.0.0.1:8000"
 ROOT = Path(__file__).resolve().parent.parent
+OVERLAY_MAX = 10 * 1024 * 1024
 logging.getLogger("httpx").setLevel(logging.WARNING)  # en loggrad per anrop stör bara
-PUBLISH = "Publicerar utåt. Fråga Robin först."
-COSTS = "Kostar pengar (Twitch-hämtning, transkribering och Claude). Fråga Robin först."
 
 READ = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False)
@@ -50,9 +49,15 @@ def http_client() -> httpx.Client:
 
 
 def api_key() -> str | None:
-    """Appens nyckel (CLIPSMITH_API_KEY), läst med appens egen inställningskod. Skrivs aldrig ut."""
-    load_settings(ROOT)  # läser .env in i miljön, som servern gör
-    return os.environ.get("CLIPSMITH_API_KEY") or None
+    """Appens nyckel (CLIPSMITH_API_KEY), färskt varje gång. Inget annat ur .env läses. Skrivs aldrig ut."""
+    return os.environ.get("CLIPSMITH_API_KEY") or dotenv_values(ROOT / ".env").get("CLIPSMITH_API_KEY") or None
+
+
+def _seg(value: str) -> str:
+    """En text som en del av adressen. Kodas helt, så att / ? # och .. aldrig når en annan väg."""
+    if value in ("", ".", ".."):
+        raise ToolError(f"Ogiltigt id: {value!r}")
+    return quote(value, safe="")
 
 
 def _detail(response: httpx.Response) -> str:
@@ -83,6 +88,9 @@ def _send(method: str, path: str, body: dict | None = None, params: dict | None 
         with http_client() as http:
             response = http.request(method, path, json=body, params=params or None, content=content,
                                     headers=headers)
+    except httpx.TimeoutException as error:
+        raise ToolError("Appen svarade inte inom 10 minuter. Anropet kan ha gått igenom. Kolla upload_status eller "
+                        "list_schedule innan du försöker igen.") from error
     except httpx.HTTPError as error:
         raise ToolError(f"Appen svarar inte på {BASE_URL}. Starta den med clipsmith serve och försök igen.") \
             from error
@@ -122,7 +130,7 @@ def account_status() -> str:
 @server.tool(annotations=READ)
 def tiktok_creator_info(open_id: str) -> str:
     """Ett TikTok-kontos val inför direktpostning: privacy_level_options, längsta klipp, avstängda kommentarer."""
-    return _send("GET", f"/campaign/tiktok/accounts/{open_id}/creator_info")
+    return _send("GET", f"/campaign/tiktok/accounts/{_seg(open_id)}/creator_info")
 
 
 # ---------- streams och projekt ----------
@@ -137,7 +145,7 @@ def list_streams() -> str:
 @server.tool(annotations=READ)
 def vod_info(vod_id: str) -> str:
     """Fakta om en Twitch-VOD innan en körning: kanal, titel, längd, om den är live och om disken räcker."""
-    return _send("GET", f"/campaign/vod/{vod_id}")
+    return _send("GET", f"/campaign/vod/{_seg(vod_id)}")
 
 
 @server.tool(annotations=READ)
@@ -177,8 +185,9 @@ def retry_run(run_id: int) -> str:
 
 @server.tool(annotations=PAID)
 def finish_run(run_id: int) -> str:
-    """Gör projektets klipp kampanjklara igen: overlay, text, caption och regelkontroll. Kan bildgranska med
-    Claude (kostar lite). Använd efter att kampanjens profil har ändrats."""
+    """Kostar pengar (bildgranskning med Claude). Fråga Robin först.
+    Gör projektets klipp kampanjklara igen: overlay, text, caption och regelkontroll. Använd efter att
+    kampanjens profil har ändrats."""
     return _send("POST", f"/campaign/runs/{run_id}/finish")
 
 
@@ -215,8 +224,8 @@ def upload_status(clip_id: int) -> str:
 def update_clip(clip_id: int, status: Literal["renderad", "godkand", "nekad"] | None = None,
                 caption: str | None = None, title: str | None = None, clip_format: str | None = None,
                 note: str | None = None) -> str:
-    """Godkänn (godkand) eller neka (nekad) ett klipp, eller ändra caption, rubrik, format eller anteckning.
-    Godkänn bara när Robin har sagt ja. Captionen kontrolleras igen mot kampanjens regler; problemen syns i svaret.
+    """Att godkänna (godkand) kräver Robins ja.
+    Godkänn (godkand) eller neka (nekad) ett klipp, eller ändra caption, rubrik, format eller anteckning. Captionen kontrolleras igen mot kampanjens regler; problemen syns i svaret.
     Rubriken på bilden ändras med edit_clip."""
     return _send("PATCH", f"/campaign/clips/{clip_id}", {"status": status, "caption": caption, "title": title,
                                                          "format": clip_format, "note": note})
@@ -241,19 +250,19 @@ def list_campaigns() -> str:
 @server.tool(annotations=READ)
 def get_campaign(profile_id: str) -> str:
     """En kampanj i detalj: regler, format, caption, betalning och länkar."""
-    return _send("GET", f"/campaign/profiles/{profile_id}")
+    return _send("GET", f"/campaign/profiles/{_seg(profile_id)}")
 
 
 @server.tool(annotations=READ)
 def get_campaign_yaml(profile_id: str) -> str:
     """Kampanjens profil som YAML-text, med kommentarer. Läs den innan save_campaign_yaml."""
-    return _send("GET", f"/campaign/profiles/{profile_id}/yaml")
+    return _send("GET", f"/campaign/profiles/{_seg(profile_id)}/yaml")
 
 
 @server.tool(annotations=READ)
 def get_reframe(profile_id: str) -> str:
     """Kampanjens 9:16-beskärning: rutorna för kameran och spelet och delningen."""
-    return _send("GET", f"/campaign/profiles/{profile_id}/reframe")
+    return _send("GET", f"/campaign/profiles/{_seg(profile_id)}/reframe")
 
 
 @server.tool(annotations=WRITE)
@@ -268,29 +277,32 @@ def create_campaign(channel: str, streamer: str, fields: dict | None = None) -> 
 @server.tool(annotations=REPLACE)
 def save_campaign_yaml(profile_id: str, yaml: str) -> str:
     """Spara kampanjens hela profil som YAML-text (ersätter filen). Appen kontrollerar texten först."""
-    return _send("PUT", f"/campaign/profiles/{profile_id}/yaml", {"yaml": yaml})
+    return _send("PUT", f"/campaign/profiles/{_seg(profile_id)}/yaml", {"yaml": yaml})
 
 
 @server.tool(annotations=WRITE)
 def set_campaign_active(profile_id: str, active: bool) -> str:
     """Slå på eller stäng av en kampanj i appen. Avstängd döljer dess streams, projekt och klipp."""
-    return _send("PUT", f"/campaign/profiles/{profile_id}/active", {"active": active})
+    return _send("PUT", f"/campaign/profiles/{_seg(profile_id)}/active", {"active": active})
 
 
 @server.tool(annotations=REPLACE)
 def upload_overlay(profile_id: str, png_path: str) -> str:
     """Byt kampanjens overlay mot en PNG-fil på Macen (sökväg). Ersätter den gamla."""
+    path = Path(png_path).expanduser()
     try:
-        data = Path(png_path).expanduser().read_bytes()
+        if path.stat().st_size > OVERLAY_MAX:
+            raise ToolError(f"Filen är större än 10 MB: {png_path}")
+        data = path.read_bytes()
     except OSError as error:
         raise ToolError(f"Filen går inte att läsa: {png_path}") from error
-    return _send("PUT", f"/campaign/profiles/{profile_id}/overlay", content=data, content_type="image/png")
+    return _send("PUT", f"/campaign/profiles/{_seg(profile_id)}/overlay", content=data, content_type="image/png")
 
 
 @server.tool(annotations=REPLACE)
 def save_reframe(profile_id: str, webcam_rects: list[dict], gameplay_rect: dict, split_ratio: float) -> str:
     """Spara kampanjens 9:16-beskärning. Rutor som {x, y, w, h}; läs get_reframe först."""
-    return _send("PUT", f"/campaign/profiles/{profile_id}/reframe",
+    return _send("PUT", f"/campaign/profiles/{_seg(profile_id)}/reframe",
                  {"webcam_rects": webcam_rects, "gameplay_rect": gameplay_rect, "split_ratio": split_ratio})
 
 
@@ -312,7 +324,7 @@ def refresh_scout() -> str:
 @server.tool(annotations=WRITE)
 def dismiss_scout(ref: str, dismissed: bool = True) -> str:
     """Dölj en kampanj i bevakningen (ref som 'varumarke/serie'), eller visa den igen med dismissed=false."""
-    return _send("POST", f"/campaign/scout/{ref}/{'dismiss' if dismissed else 'undismiss'}")
+    return _send("POST", f"/campaign/scout/{_seg(ref)}/{'dismiss' if dismissed else 'undismiss'}")
 
 
 # ---------- schemat ----------
@@ -397,7 +409,8 @@ def save_stats(post_id: int, views: int | None = None, likes: int | None = None,
 
 @server.tool(annotations=REPLACE)
 def delete_post(post_id: int) -> str:
-    """Ta bort ett inlägg som lades in fel."""
+    """Tar bort för gott. Fråga Robin först.
+    Ta bort ett inlägg som lades in fel."""
     return _send("DELETE", f"/campaign/posts/{post_id}")
 
 
