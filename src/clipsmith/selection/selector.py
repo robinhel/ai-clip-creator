@@ -13,6 +13,9 @@ from ..settings import ClipConfig
 
 log = logging.getLogger(__name__)
 
+# Reason of a clip that signals mode chose; campaign.workflow shows such clips without a grade.
+SIGNALS_REASON = "Vald av signalerna utan Claude"
+
 # Seconds of transcript to send before/after the candidate center.
 WINDOW_PRE_S = 60.0
 WINDOW_POST_S = 30.0
@@ -69,6 +72,8 @@ def select_clips(
     If the LLM accepts fewer than min_picks, the top-scored remaining candidates
     are force-accepted. min_picks defaults to config.min_picks (0 = never force).
     """
+    if config.select == "signals":
+        return _signal_picks(candidates, config)
     if min_picks is None:
         min_picks = config.min_picks
     top = _spread_candidates(
@@ -172,6 +177,29 @@ def select_clips(
             picks.append(PickResult(candidate=candidate, pick=forced_pick))
             picked_centers.add(candidate.t_center)
 
+    return picks
+
+
+def _signal_picks(candidates: list[CandidateMoment], config: ClipConfig) -> list[PickResult]:
+    """The signals_top_n best candidates, min_clip_gap_s apart, as clips from preroll to postroll.
+    No LLM call: the title is a placeholder the user replaces when reviewing."""
+    top = _spread_candidates(
+        sorted(candidates, key=lambda c: c.score, reverse=True),
+        min_gap_s=config.min_clip_gap_s,
+        max_n=config.signals_top_n,
+    )
+    picks = []
+    for c in top:
+        hours, rest = divmod(int(c.t_center), 3600)
+        pick = ClipPick(
+            include=True,
+            start_offset_s=max(0.0, c.t_center - config.preroll_s),
+            end_offset_s=c.t_center + config.postroll_s,
+            title_es=f"Moment {hours}:{rest // 60:02d}:{rest % 60:02d}",
+            reason=f"{SIGNALS_REASON}: {', '.join(c.sources)}.",
+        )
+        picks.append(PickResult(candidate=c, pick=_clamp_duration(pick, config)))
+    log.info("signals mode: %d clips from %d candidates, no LLM", len(picks), len(candidates))
     return picks
 
 

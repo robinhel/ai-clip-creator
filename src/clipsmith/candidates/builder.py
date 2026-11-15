@@ -65,14 +65,17 @@ def build_candidates(
         chat.messages,
         window_s=config.density_window_s,
         peak_multiplier=config.density_peak_multiplier,
+        reaction_words=config.reaction_words,
+        reaction_weight=config.reaction_weight,
     )
+    kind = "chat density peak with reactions" if config.reaction_weight else "chat density peak"
     for t, score in density_scores:
         raw.append(
             (
                 t,
                 score,
                 "chat_density",
-                f"chat density peak (score={score:.1f}) at t={t:.1f}s",
+                f"{kind} (score={score:.1f}) at t={t:.1f}s",
             )
         )
 

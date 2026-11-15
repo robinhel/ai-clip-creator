@@ -6,6 +6,8 @@ import json
 import re
 from pathlib import Path
 
+from clipsmith.selection.selector import SIGNALS_REASON
+
 from .brain import Brain
 from .budget import BudgetExceeded
 from .caption import build_caption
@@ -37,7 +39,8 @@ def load_picks(path: Path) -> list[dict]:
                 "title": pick.get("title") or pick.get("title_es") or "",
                 "format": pick.get("format"),
                 "signals": item.get("candidate", {}).get("sources", []),
-                "score": None if forced else pick.get("score"),  # None för picks från före betyget
+                # None för picks från före betyget och för snabbläget: inget betyg från Claude att visa
+                "score": None if forced or reason.startswith(SIGNALS_REASON) else pick.get("score"),
                 "reason": FORCED_REASON if forced else reason,
             }
         )
