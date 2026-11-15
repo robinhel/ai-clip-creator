@@ -4,3 +4,5 @@ anthropic>=0.40
 PyYAML>=6.0
 python-dotenv>=1.0
 pytest>=8
+# MCP-servern för Claude Code (campaign/mcp_server.py). Version 2: FastMCP heter MCPServer.
+mcp>=2.3,<3
