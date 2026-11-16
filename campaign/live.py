@@ -11,6 +11,7 @@ import socket
 from collections import deque
 from collections.abc import Iterator
 
+from clipsmith.candidates.math import compute_density_scores
 from clipsmith.models.chat import HYPE_EMOTES, ChatLog, ChatMessage
 
 WINDOW_S = 15.0  # samma fönster som toppsökningen i clipsmith (density_window_s)
@@ -21,6 +22,7 @@ PRE_S = 90.0  # delen börjar så här långt före toppen
 POST_S = 30.0  # och slutar så här långt efter
 AUTHOR_CAP = 3.0  # en avsändare väger högst så här mycket per fönster: en spammare är inte hela chatten
 SURGE_GAIN = 0.5  # ökningen mot förra fönstret räknas extra: en topp är en plötslig ökning
+CHECK_EVERY_S = 1.0  # chatten räknas om högst en gång per sekund
 
 # Skickas som focus till Claudes val, så att src/clipsmith inte behöver ändras.
 CHAT_LAG_FOCUS = ("Liveklipp från en topp i chatten. Chatten reagerar 5-15 sekunder efter det som händer, "
@@ -35,30 +37,29 @@ def message(t: float, text: str, author: str) -> ChatMessage:
                        hype_emote_count=len(set(text.split()) & HYPE_EMOTES))
 
 
-def _weight(msg: ChatMessage) -> float:
-    return 1.0 + 0.5 * msg.hype_emote_count  # som compute_density_scores: hype-emotes räknas extra
-
-
 class PeakFinder:
-    """Hittar toppar i chatten ett meddelande i taget. En topp är ett fönster på 15 sekunder där chatten
-    väger minst `multiplier` gånger det normala, eller ett !clip från en tittare. Varje avsändare har ett tak
+    """Hittar toppar i chatten ett meddelande i taget, med samma regel som körningarna på hela VOD:en
+    (compute_density_scores). En topp är ett fönster på 15 sekunder där chatten väger minst `multiplier`
+    gånger det normala de senaste tio minuterna, eller ett !clip från en tittare. Varje avsändare har ett tak
     per fönster, och en ökning mot förra fönstret räknas extra."""
 
-    def __init__(self, multiplier: float = 3.0) -> None:
+    def __init__(self, multiplier: float = 3.0, author_cap: float | None = AUTHOR_CAP,
+                 surge_gain: float = SURGE_GAIN) -> None:
         self.multiplier = multiplier
-        self._recent: deque[tuple[ChatMessage, float]] = deque()  # meddelandet och dess vikt efter taket
+        self.author_cap = author_cap
+        self.surge_gain = surge_gain
+        self._recent: deque[ChatMessage] = deque()
         self._first: float | None = None
         self._last_peak: float | None = None
+        self._last_check: float | None = None
 
     def add(self, msg: ChatMessage) -> float | None:
         """Lägg till ett meddelande. Returnerar toppens tid i sekunder när en ny topp börjar, annars None."""
         t = msg.time_in_seconds
         if self._first is None:
             self._first = t
-        # Avsändarens vikt de senaste 15 sekunderna räknas mot taket. Det som går över taket väger inget.
-        used = sum(w for m, w in self._recent if m.author == msg.author and m.time_in_seconds > t - WINDOW_S)
-        self._recent.append((msg, max(0.0, min(_weight(msg), AUTHOR_CAP - used))))
-        while self._recent and self._recent[0][0].time_in_seconds < t - BASELINE_S:
+        self._recent.append(msg)
+        while self._recent and self._recent[0].time_in_seconds < t - BASELINE_S:
             self._recent.popleft()
         if self._last_peak is not None and t - self._last_peak < GAP_S:
             return None
@@ -68,15 +69,16 @@ class PeakFinder:
         return None
 
     def _is_burst(self, t: float) -> bool:
-        history = t - self._first - WINDOW_S
-        if t - self._first < WARMUP_S or history <= 0:
+        if t - self._first < WARMUP_S:
             return False
-        window = sum(w for m, w in self._recent if m.time_in_seconds > t - WINDOW_S)
-        previous = sum(w for m, w in self._recent if t - 2 * WINDOW_S < m.time_in_seconds <= t - WINDOW_S)
-        before = sum(w for m, w in self._recent if m.time_in_seconds <= t - WINDOW_S)
-        baseline = max(before * WINDOW_S / min(history, BASELINE_S - WINDOW_S), 1.0)
-        score = window + SURGE_GAIN * max(0.0, window - previous)
-        return score >= self.multiplier * baseline
+        # Högst en räkning per sekund: en stor chatt skriver många meddelanden i sekunden.
+        if self._last_check is not None and t - self._last_check < CHECK_EVERY_S:
+            return False
+        self._last_check = t
+        scores = compute_density_scores(list(self._recent), window_s=WINDOW_S, peak_multiplier=self.multiplier,
+                                        author_cap=self.author_cap, surge_gain=self.surge_gain)
+        # Bara fönster som innehåller det nya meddelandet: en gammal topp har redan räknats.
+        return any(center - WINDOW_S / 2 > t - WINDOW_S for center, _ in scores)
 
 
 def vod_seconds(sent_ms: int, vod_created_at: str) -> float:
