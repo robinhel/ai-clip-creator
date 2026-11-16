@@ -353,3 +353,19 @@ def test_a_campaign_without_accounts_is_not_multi(sched, settings) -> None:
         "multi": False, "max_accounts": 5, "accounts": []}
     assert sched.get("/campaign/clips/999/accounts", params={"platform": "youtube"}).status_code == 404
     assert sched.get(f"/campaign/clips/{clip_id}/accounts", params={"platform": "myspace"}).status_code == 422
+
+
+# ---------- 4. cover_s ----------
+
+
+def test_a_scheduled_tiktok_post_keeps_its_cover_and_a_cover_outside_the_clip_is_400(sched, settings) -> None:
+    clip_id = _clip(settings)  # 30 s
+
+    def plan(cover_s):
+        return sched.post(f"/campaign/clips/{clip_id}/schedule", json={
+            "platform": "tiktok", "account": "openA", "at": _stockholm(1, 12),
+            "fields": {"title": "x", "privacy_level": "SELF_ONLY", "cover_s": cover_s}})
+
+    refused = plan(31.0)
+    assert refused.status_code == 400 and "Omslaget" in refused.json()["detail"]
+    assert plan(4.0).json()["fields"]["cover_s"] == 4.0
