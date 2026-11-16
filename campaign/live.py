@@ -19,6 +19,8 @@ WARMUP_S = 120.0  # före det finns inget normalt läge att jämföra med
 GAP_S = 60.0  # toppar närmare än en minut blir samma klipp
 PRE_S = 90.0  # delen börjar så här långt före toppen
 POST_S = 30.0  # och slutar så här långt efter
+AUTHOR_CAP = 3.0  # en avsändare väger högst så här mycket per fönster: en spammare är inte hela chatten
+SURGE_GAIN = 0.5  # ökningen mot förra fönstret räknas extra: en topp är en plötslig ökning
 
 # Skickas som focus till Claudes val, så att src/clipsmith inte behöver ändras.
 CHAT_LAG_FOCUS = ("Liveklipp från en topp i chatten. Chatten reagerar 5-15 sekunder efter det som händer, "
@@ -39,11 +41,12 @@ def _weight(msg: ChatMessage) -> float:
 
 class PeakFinder:
     """Hittar toppar i chatten ett meddelande i taget. En topp är ett fönster på 15 sekunder där chatten
-    väger minst `multiplier` gånger det normala, eller ett !clip från en tittare."""
+    väger minst `multiplier` gånger det normala, eller ett !clip från en tittare. Varje avsändare har ett tak
+    per fönster, och en ökning mot förra fönstret räknas extra."""
 
     def __init__(self, multiplier: float = 3.0) -> None:
         self.multiplier = multiplier
-        self._recent: deque[ChatMessage] = deque()
+        self._recent: deque[tuple[ChatMessage, float]] = deque()  # meddelandet och dess vikt efter taket
         self._first: float | None = None
         self._last_peak: float | None = None
 
@@ -52,8 +55,10 @@ class PeakFinder:
         t = msg.time_in_seconds
         if self._first is None:
             self._first = t
-        self._recent.append(msg)
-        while self._recent and self._recent[0].time_in_seconds < t - BASELINE_S:
+        # Avsändarens vikt de senaste 15 sekunderna räknas mot taket. Det som går över taket väger inget.
+        used = sum(w for m, w in self._recent if m.author == msg.author and m.time_in_seconds > t - WINDOW_S)
+        self._recent.append((msg, max(0.0, min(_weight(msg), AUTHOR_CAP - used))))
+        while self._recent and self._recent[0][0].time_in_seconds < t - BASELINE_S:
             self._recent.popleft()
         if self._last_peak is not None and t - self._last_peak < GAP_S:
             return None
@@ -66,10 +71,12 @@ class PeakFinder:
         history = t - self._first - WINDOW_S
         if t - self._first < WARMUP_S or history <= 0:
             return False
-        window = sum(_weight(m) for m in self._recent if m.time_in_seconds > t - WINDOW_S)
-        before = sum(_weight(m) for m in self._recent if m.time_in_seconds <= t - WINDOW_S)
+        window = sum(w for m, w in self._recent if m.time_in_seconds > t - WINDOW_S)
+        previous = sum(w for m, w in self._recent if t - 2 * WINDOW_S < m.time_in_seconds <= t - WINDOW_S)
+        before = sum(w for m, w in self._recent if m.time_in_seconds <= t - WINDOW_S)
         baseline = max(before * WINDOW_S / min(history, BASELINE_S - WINDOW_S), 1.0)
-        return window >= self.multiplier * baseline
+        score = window + SURGE_GAIN * max(0.0, window - previous)
+        return score >= self.multiplier * baseline
 
 
 def vod_seconds(sent_ms: int, vod_created_at: str) -> float:
