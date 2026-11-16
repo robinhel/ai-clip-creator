@@ -608,6 +608,19 @@ def test_clips_are_cut_without_subtitles_and_each_gets_a_word_file(settings, vod
 
 
 
+def test_the_word_file_gets_the_hook_from_claudes_payoff(settings, vod) -> None:
+    from campaign import subtitles
+
+    first, second = _yes("clutch"), _yes("funny", start=400)
+    first.payoff_start_s, first.payoff_end_s = 110.0, 118.0
+    second.payoff_start_s, second.payoff_end_s = 401.0, 404.0  # payoff i början: ingen hook
+    vod.picker = FakePicker([first, second])
+    _make(settings, vod, run_id=7)
+    clip_01, clip_02 = vod.cut / "clip_01_x.mp4", vod.cut / "clip_02_x.mp4"
+    assert subtitles.load_words(clip_01, clip_01)["hook"] == [10.0, 13.0]  # högst 3 s, från råklippets start
+    assert "hook" not in subtitles.load_words(clip_02, clip_02)
+
+
 def test_without_reframing_clipsmith_burns_the_subtitles_and_no_word_file_is_written(settings, vod) -> None:
     """mode none skär med -c copy när undertexten är av: klippet börjar på en nyckelbild och orden glider."""
     from campaign import subtitles
