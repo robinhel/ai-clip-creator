@@ -106,6 +106,13 @@ def chunks(size: int) -> tuple[int, list[tuple[int, int]]]:
     return CHUNK, parts
 
 
+def check_cover(post: dict, duration_s: float) -> None:
+    """Omslaget (cover_s) är sekunder in i det färdiga klippet. Bara vid direktpostning."""
+    cover = post.get("cover_s")
+    if cover is not None and not 0 <= cover <= duration_s:
+        raise TikTokError(f"Omslaget måste ligga mellan 0 och {duration_s:g} sekunder in i klippet.", 400)
+
+
 def _json(response: httpx.Response) -> dict:
     try:
         body = response.json()
@@ -409,7 +416,9 @@ class TikTok:
                 **{f"disable_{what}": not post.get(f"allow_{what}") or bool(info.get(f"{what}_disabled"))
                    for what in ("comment", "duet", "stitch")},
                 "brand_organic_toggle": bool(post.get("brand_organic")),
-                "brand_content_toggle": bool(post.get("brand_content"))}
+                "brand_content_toggle": bool(post.get("brand_content")),
+                **({"video_cover_timestamp_ms": round(post["cover_s"] * 1000)}
+                   if post.get("cover_s") is not None else {})}
 
     def upload(self, clip_id: int, path: Path, open_id: str | None = None, post: dict | None = None,
                duration_s: float = 0) -> dict:
@@ -435,6 +444,7 @@ class TikTok:
                     raise TikTokError(NO_PUBLISH, 400)
                 if len((post.get("title") or "").encode("utf-16-le")) // 2 > TITLE_MAX:
                     raise TikTokError(f"Beskrivningen är för lång. TikTok tar högst {TITLE_MAX} tecken.", 400)
+                check_cover(post, duration_s)
             access = self._access_token(http, open_id)
             if post is None and self.pending_24h(open_id) >= PENDING_LIMIT:
                 self._refresh_pending(http, access, open_id)  # bara vid gränsen, så att status/fetch sparas
