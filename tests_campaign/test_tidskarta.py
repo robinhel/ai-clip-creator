@@ -67,6 +67,12 @@ def test_short_pieces_go_and_close_pieces_are_joined() -> None:
     assert timemap.move_words(words, plan) == [_w(4.2, 4.25, "eh")]
 
 
+def test_a_gap_of_exactly_a_tenth_is_cut_despite_float_rounding() -> None:
+    """Ur VOD 2926877904: \"uh\" 10,894–10,994 blir 10,9–11,0 vid 60 bildrutor, och 11,0 - 10,9 < 0,1 i flyttal."""
+    plan = _plan(duration=20.0, fps=60.0, words=[_w(10.894, 10.994, "uh")])
+    assert plan["pieces"] == [(0.0, 10.9), (11.0, 20.0)] and plan["fillers_cut"] == 1
+
+
 def test_nothing_is_cut_when_the_clip_would_be_shorter_than_the_campaign_allows() -> None:
     assert _plan(silences=[(2.0, 6.0)], min_s=9.0) is None
     assert _plan(silences=[(2.0, 6.0)], min_s=6.0) is not None
