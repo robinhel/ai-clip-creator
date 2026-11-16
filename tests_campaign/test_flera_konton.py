@@ -369,3 +369,87 @@ def test_a_scheduled_tiktok_post_keeps_its_cover_and_a_cover_outside_the_clip_is
     refused = plan(31.0)
     assert refused.status_code == 400 and "Omslaget" in refused.json()["detail"]
     assert plan(4.0).json()["fields"]["cover_s"] == 4.0
+
+
+# ---------- 5. POST /clips/{id}/variant ----------
+
+from campaign.brain import Brain  # noqa: E402
+from campaign.budget import Budget, BudgetExceeded  # noqa: E402
+from campaign.caption import check_caption  # noqa: E402
+from campaign.profile import load_profile  # noqa: E402
+
+from .conftest import FakeClient  # noqa: E402
+
+CAPTION_RULES = {"tag_line": "#ad #partner", "must_include": ["@warcraft"], "hashtags": ["#wow"],
+                 "max_extra_hashtags": 1}
+
+
+def _claude(monkeypatch, *titles) -> FakeClient:
+    from campaign import variant
+
+    fake = FakeClient({"title": titles[0]})
+    answers = iter(titles)
+    real = fake.messages.create
+
+    def create(**kwargs):
+        fake.messages.answer = {"title": next(answers, titles[-1])}
+        return real(**kwargs)
+
+    fake.messages.create = create
+    monkeypatch.setattr(variant, "Brain", lambda settings, budget: Brain(settings, budget, client=fake))
+    return fake
+
+
+def _variant(client, clip_id, platform="tiktok", account="openB"):
+    return client.post(f"/campaign/clips/{clip_id}/variant", json={"platform": platform, "account": account})
+
+
+def test_a_variant_differs_from_the_used_texts_and_follows_the_tag_line(sched, settings, monkeypatch) -> None:
+    set_profile(settings, accounts={"tiktok": ["openA", "openB"]}, caption=CAPTION_RULES)
+    clip_id = _clip(settings)
+    assert _schedule(sched, clip_id, "openA", title="Huge clutch").status_code == 201
+    fake = _claude(monkeypatch, "Huge  CLUTCH", "Nobody saw that last shot coming #fyp")
+    answer = _variant(sched, clip_id)
+    assert answer.status_code == 200, answer.text
+    body = answer.json()
+    assert body["title"] == "Nobody saw that last shot coming"  # hashtaggen tas bort; kampanjen sätter dem
+    first, second = body["caption"].split("\n")
+    assert first.startswith(body["title"]) and "@warcraft" in first
+    assert second.startswith("#ad #partner") and "#wow" in second
+    assert check_caption(body["caption"], load_profile("skiimasktimmy", settings.profiles_dir)) == []
+    assert body["description"] is None
+    assert len(fake.messages.calls) == 2  # den första var samma text som på openA
+    assert "Huge clutch" in str(fake.messages.calls[0]["messages"])
+    budget = Budget(settings.data_dir / "budget.db", settings.prices_path, 200.0, 10.0)
+    assert budget.summary()["month_usd"] > 0  # budgeten gäller
+
+
+def test_a_youtube_variant_has_a_description(sched, settings, monkeypatch) -> None:
+    set_profile(settings, accounts={"youtube_shorts": ["UC1", "UC2"]})
+    _claude(monkeypatch, "Timmy reads the whole lobby")
+    body = _variant(sched, _clip(settings), "youtube", "UC2").json()
+    assert body["title"] == "Timmy reads the whole lobby"
+    assert body["description"] == body["caption"] and body["caption"].startswith(body["title"])
+
+
+def test_a_variant_that_is_still_taken_is_400_after_two_tries(sched, settings, monkeypatch) -> None:
+    set_profile(settings, accounts={"tiktok": ["openA", "openB"]})
+    clip_id = _clip(settings)
+    _schedule(sched, clip_id, "openA", title="Huge clutch")
+    fake = _claude(monkeypatch, "huge clutch")
+    answer = _variant(sched, clip_id)
+    assert answer.status_code == 400 and "Försök igen" in answer.json()["detail"]
+    assert len(fake.messages.calls) == 2
+
+
+def test_a_variant_without_a_key_or_budget_is_400_in_swedish(sched, settings, monkeypatch) -> None:
+    clip_id = _clip(settings)
+    settings.anthropic_api_key = ""
+    answer = _variant(sched, clip_id)
+    assert answer.status_code == 400 and "nyckel" in answer.json()["detail"].lower()
+    settings.anthropic_api_key = "nyckel"
+    _claude(monkeypatch, "Anything")
+    monkeypatch.setattr(Budget, "check", lambda self: (_ for _ in ()).throw(BudgetExceeded("Månadstaket är nått.")))
+    answer = _variant(sched, clip_id)
+    assert answer.status_code == 400 and "Månadstaket" in answer.json()["detail"]
+    assert sched.post("/campaign/clips/999/variant", json={"platform": "tiktok", "account": "a"}).status_code == 404
