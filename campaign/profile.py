@@ -43,6 +43,11 @@ class Profile:
     clipsmith_config: str | None = None  # clipsmiths inställningar för kampanjen, t.ex. config.timmy.yaml
     preferred_games: list[str] = field(default_factory=list)  # spel som ger poäng i Senaste streams
     active: bool = True  # false = kampanjen syns bara under Kampanjer i appen
+    # Kontona kampanjen postar från, per plattform (tiktok, youtube_shorts): id, användarnamn eller handle.
+    # Saknas plattformen får alla kopplade konton användas.
+    accounts: dict[str, list[str]] = field(default_factory=dict)
+    max_posts_per_day: int = 3  # per konto och svensk dag
+    min_gap_minutes: int = 120  # schemat varnar när två inlägg på samma konto ligger närmare
     raw: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -98,6 +103,8 @@ class Profile:
             found.append("overlay.mode måste vara full, top eller bottom.")
         if self.min_seconds >= self.max_seconds:
             found.append("clip.min_seconds måste vara mindre än clip.max_seconds.")
+        if self.max_posts_per_day < 1 or self.min_gap_minutes < 0:
+            found.append("posting.max_per_day måste vara minst 1, och posting.min_gap_minutes får inte vara negativ.")
         return found
 
 
@@ -109,6 +116,13 @@ def _number(section: dict, key: str, default: float, label: str, kind: type = fl
     except (TypeError, ValueError):
         what = "ett heltal" if kind is int else "ett tal"
         raise SystemExit(f"{label} måste vara {what}, inte {value!r}.") from None
+
+
+def _accounts(data: dict) -> dict[str, list[str]]:
+    value = data.get("accounts") or {}
+    if not (isinstance(value, dict) and all(isinstance(v, list) for v in value.values())):
+        raise SystemExit("accounts måste vara en karta med en lista per plattform, till exempel tiktok: [konto].")
+    return {str(key): [str(a).strip().lstrip("@") for a in names if str(a).strip()] for key, names in value.items()}
 
 
 def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
@@ -159,5 +173,8 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
         clipsmith_config=data.get("clipsmith_config"),
         preferred_games=[str(g) for g in data.get("preferred_games") or []],
         active=data.get("active") is not False,
+        accounts=_accounts(data),
+        max_posts_per_day=_number(data.get("posting") or {}, "max_per_day", 3, "posting.max_per_day", int),
+        min_gap_minutes=_number(data.get("posting") or {}, "min_gap_minutes", 120, "posting.min_gap_minutes", int),
         raw=data,
     )

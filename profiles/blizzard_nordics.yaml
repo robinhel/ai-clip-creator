@@ -75,6 +75,14 @@ audio:
 
 platforms: [tiktok]   # Robin 15 nov: Blizzard postas inte på YouTube
 
+# Blizzard: "inte på flera konton". Bara clipvault.hq26 får posta, och appen nekar andra konton.
+accounts:
+  tiktok: ["-000Rx8cN3gSEx6rd87rIUKOXqgBCm52XDAc"]   # clipvault.hq26 (open_id)
+
+posting:
+  max_per_day: 3        # per konto och svensk dag
+  min_gap_minutes: 120  # schemat varnar när två inlägg ligger närmare
+
 # Minst 0,5 % engagemang: 5 likes per 1 000 visningar.
 engagement_min_percent:
   - {views_up_to: null, min: 0.5}

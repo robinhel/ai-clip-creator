@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import secrets
+from datetime import UTC, datetime
 from time import monotonic
 from urllib.parse import urlencode
 
@@ -17,7 +18,7 @@ from clipsmith.api.deps import verify_api_key
 from . import editor
 from .api import _get, _log, get_settings
 from .config import Settings
-from .schedule import ScheduleError, clip_file, clip_seconds
+from .schedule import Schedule, ScheduleError, clip_file, clip_seconds
 from .tiktok_api import _only_local
 from .youtube import AUTH_URL, SCOPES, YouTube, YouTubeError
 
@@ -109,6 +110,7 @@ def youtube_upload_clip(clip_id: int, body: YouTubeBody, settings: Settings = De
     clip = _get(_log(settings), clip_id)
     try:
         path = clip_file(settings, clip, "youtube", "Bara godkända klipp kan laddas upp till YouTube.")
+        Schedule(settings).check_account(clip, "youtube", body.channel_id, datetime.now(UTC))
     except ScheduleError as error:
         raise HTTPException(error.status, str(error)) from error
     duration_s = clip_seconds(clip, path)
