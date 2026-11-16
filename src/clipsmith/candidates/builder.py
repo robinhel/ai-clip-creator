@@ -67,6 +67,8 @@ def build_candidates(
         peak_multiplier=config.density_peak_multiplier,
         reaction_words=config.reaction_words,
         reaction_weight=config.reaction_weight,
+        author_cap=config.density_author_cap,
+        surge_gain=config.density_surge_gain,
     )
     kind = "chat density peak with reactions" if config.reaction_weight else "chat density peak"
     for t, score in density_scores:

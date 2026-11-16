@@ -37,12 +37,19 @@ def compute_density_scores(
     step_s: float = 5.0,
     reaction_words: list[str] | None = None,
     reaction_weight: float = 0.0,
+    author_cap: float | None = None,
+    surge_gain: float = 0.0,
 ) -> list[tuple[float, float]]:
     """Return (t_center, score) for windows that exceed peak_multiplier × baseline.
 
     Score = messages_in_window + 0.5 × hype_emotes_in_window
     + reaction_weight × messages_with_a_reaction_word, normalised by
     baseline, so higher-than-baseline windows get a proportional score boost.
+
+    author_cap: one sender adds at most this much to a window, so one spammer is not a hot chat.
+    Messages without an author are not capped.
+    surge_gain: the rise over the previous window counts this much extra, so a sudden jump
+    scores higher than the same level reached slowly. The defaults change nothing.
     """
     if not messages:
         return []
@@ -66,14 +73,30 @@ def compute_density_scores(
     if baseline < 1.0:
         baseline = 1.0  # avoid div-by-zero for very sparse chats
 
+    def window_score(start: float) -> float:
+        lo, hi = bisect_left(times, start), bisect_left(times, start + window_s)
+        if author_cap is None:
+            return hi - lo + 0.5 * (hype[hi] - hype[lo]) + reaction_weight * (reacts[hi] - reacts[lo])
+        per_author: dict[str, float] = {}
+        free = 0.0
+        for i in range(lo, hi):
+            weight = (
+                1
+                + 0.5 * ordered[i].hype_emote_count
+                + reaction_weight * (reacts[i + 1] - reacts[i])
+            )
+            if ordered[i].author:
+                per_author[ordered[i].author] = per_author.get(ordered[i].author, 0.0) + weight
+            else:
+                free += weight
+        return free + sum(min(w, author_cap) for w in per_author.values())
+
     results: list[tuple[float, float]] = []
     t = t_min
     while t <= t_max:
-        lo, hi = bisect_left(times, t), bisect_left(times, t + window_s)
-        count = hi - lo
-        raw_score = (
-            count + 0.5 * (hype[hi] - hype[lo]) + reaction_weight * (reacts[hi] - reacts[lo])
-        )
+        raw_score = window_score(t)
+        if surge_gain:
+            raw_score += surge_gain * max(0.0, raw_score - window_score(t - window_s))
         ratio = raw_score / baseline
 
         if ratio >= peak_multiplier:
