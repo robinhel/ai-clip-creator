@@ -5,10 +5,11 @@ import Link from "next/link";
 import { CheckCircle2, ExternalLink, Loader2, XCircle, SquarePlay } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { AccountList, pickAccount, SuggestText, useClipAccounts } from "@/components/ClipAccounts";
 import { channelName } from "@/components/YouTubeCard";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { CampaignClip, YouTubeChannel, YouTubePrivacy, YouTubeSendBody, YouTubeStatus, YouTubeUpload } from "@/lib/types";
+import type { CampaignClip, ClipAccounts, YouTubeChannel, YouTubePrivacy, YouTubeSendBody, YouTubeStatus, YouTubeUpload } from "@/lib/types";
 
 const POLL_MS = 10_000;
 const TITLE_MAX = 100;
@@ -44,8 +45,10 @@ interface DialogProps {
 }
 
 /** Fälten och reglerna för en uppladdning till YouTube. Schemaläggningen använder samma. */
-export function useYouTubeForm(clip: CampaignClip, channels: YouTubeChannel[]) {
-  const [channelId, setChannelId] = useState(channels[0]?.channel_id ?? "");
+export function useYouTubeForm(clip: CampaignClip, channels: YouTubeChannel[], accounts: ClipAccounts | null = null) {
+  const [picked, setChannelId] = useState(channels[0]?.channel_id ?? "");
+  // Med flera konton: aldrig en kanal där klippet redan är postat.
+  const channelId = pickAccount(accounts, channels.map((c) => c.channel_id), picked);
   const [title, setTitle] = useState(clip.title ?? "");
   const [description, setDescription] = useState(clip.caption ?? "");
   const [privacy, setPrivacy] = useState<YouTubePrivacy | "">("");
@@ -54,8 +57,9 @@ export function useYouTubeForm(clip: CampaignClip, channels: YouTubeChannel[]) {
 
   // Uppåt, som TikTok: 180,4 s är över gränsen.
   const length = clip.start_s != null && clip.end_s != null ? Math.ceil(clip.end_s - clip.start_s) : null;
-  const reason =
-    length != null && length > SHORT_MAX_S
+  const reason = !channelId
+    ? "Klippet ligger redan på alla kampanjens kanaler."
+    : length != null && length > SHORT_MAX_S
       ? `Klippet är ${length} s. En Short får vara högst ${SHORT_MAX_S} s.`
       : !title.trim()
         ? "Skriv en titel."
@@ -79,15 +83,21 @@ export function useYouTubeForm(clip: CampaignClip, channels: YouTubeChannel[]) {
 }
 
 /** Kanal, titel, beskrivning, vem som får se, gjort för barn och meddela prenumeranter. */
-export function YouTubeFields({ clip, channels, form }: {
+export function YouTubeFields({ clip, channels, form, accounts = null, children }: {
   clip: CampaignClip;
   channels: YouTubeChannel[];
   form: ReturnType<typeof useYouTubeForm>;
+  /** Kampanjens kanaler med läge, när klippet kan ligga på flera kanaler. */
+  accounts?: ClipAccounts | null;
+  /** Visas mellan kanalen och titeln, till exempel Föreslå ny text. */
+  children?: React.ReactNode;
 }) {
   const { channelId, setChannelId, title, setTitle, description, setDescription, privacy, setPrivacy, forKids, setForKids, notify, setNotify } = form;
   return (
     <>
-      {channels.length > 1 && (
+      {accounts?.multi ? (
+        <AccountList label="Kanal" info={accounts} connected={channels.map((c) => c.channel_id)} value={channelId} onChange={setChannelId} />
+      ) : channels.length > 1 && (
         <label className="block">
           <span className="text-[13px] text-muted-foreground">Kanal</span>
           <select value={channelId} onChange={(e) => setChannelId(e.target.value)} className={cn(field, "h-9 [&>option]:bg-panel")}>
@@ -99,6 +109,7 @@ export function YouTubeFields({ clip, channels, form }: {
           </select>
         </label>
       )}
+      {children}
 
       <label className="block">
         <span className="flex justify-between text-[13px] text-muted-foreground">
@@ -181,7 +192,8 @@ export function YouTubeFields({ clip, channels, form }: {
 }
 
 function YouTubeDialog({ clip, channels, upload, onSent, onClose }: DialogProps) {
-  const form = useYouTubeForm(clip, channels);
+  const { info: accounts } = useClipAccounts(clip.id, "youtube");
+  const form = useYouTubeForm(clip, channels, accounts);
   const { reason } = form;
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -285,7 +297,18 @@ function YouTubeDialog({ clip, channels, upload, onSent, onClose }: DialogProps)
               </div>
             ) : (
               <>
-                <YouTubeFields clip={clip} channels={channels} form={form} />
+                <YouTubeFields clip={clip} channels={channels} form={form} accounts={accounts}>
+                  <SuggestText
+                    clipId={clip.id}
+                    platform="youtube"
+                    account={form.channelId}
+                    info={accounts}
+                    onText={(v) => {
+                      form.setTitle(v.title);
+                      form.setDescription(v.description ?? v.caption);
+                    }}
+                  />
+                </YouTubeFields>
 
                 <div className="space-y-1.5">
                   <Button className="h-10 w-full" disabled={!!reason || sending} onClick={publish}>

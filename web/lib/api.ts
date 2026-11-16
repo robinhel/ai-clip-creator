@@ -9,6 +9,8 @@ import type {
   CampaignRunInfo,
   CampaignStatus,
   CaptionWord,
+  ClipAccounts,
+  ClipVariant,
   CampaignSummary,
   KeyGroup,
   SetupCheck,
@@ -166,6 +168,11 @@ export const api = {
       /** 201 med posten, 400 med svensk text, 409 om plattformen redan har en väntande post. */
       schedule: (id: number, body: ScheduleCreate) =>
         apiFetch<ScheduledPost>(`/campaign/clips/${id}/schedule`, { method: "POST", body: JSON.stringify(body) }),
+      accounts: (id: number, platform: "tiktok" | "youtube") =>
+        apiFetch<ClipAccounts>(`/campaign/clips/${id}/accounts?platform=${platform}`),
+      // Claude skriver texten; budgeten gäller. 400 med svensk text vid saknad nyckel eller nådd budget.
+      variant: (id: number, body: { platform: "tiktok" | "youtube"; account: string }) =>
+        apiFetch<ClipVariant>(`/campaign/clips/${id}/variant`, { method: "POST", body: JSON.stringify(body) }),
       edit: (id: number) => apiFetch<ClipEditInfo>(`/campaign/clips/${id}/edit`),
       saveEdit: (id: number, body: { in_s?: number; out_s?: number; title?: string; words?: CaptionWord[] }) =>
         apiFetch<CampaignClip>(`/campaign/clips/${id}/edit`, { method: "POST", body: JSON.stringify(body) }),

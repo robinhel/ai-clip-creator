@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Loader2, Monitor, Send, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AccountList, pickAccount, useClipAccounts } from "@/components/ClipAccounts";
 import { accountName, tiktokAccounts } from "@/components/TikTokCard";
 import { TikTokDirectPost } from "@/components/TikTokDirectPost";
 import { api } from "@/lib/api";
@@ -48,6 +49,7 @@ export function TikTokSend({ clip, captionDirty, hasProblems, onUpdate }: Props)
   const [desktop, setDesktop] = useState<string | null>(null);
   const [direct, setDirect] = useState(false);
   const [pollTick, setPollTick] = useState(0);
+  const { info, reload } = useClipAccounts(clip.id, "tiktok");
 
   useEffect(() => {
     api.campaign.tiktok.status().then(setStatus).catch(() => setStatus(null));
@@ -70,8 +72,14 @@ export function TikTokSend({ clip, captionDirty, hasProblems, onUpdate }: Props)
   }, [publishing, pollTick, clip.id]);
 
   const accounts = status ? tiktokAccounts(status).filter((a) => a.connected) : [];
-  // Det sparade kontot om det fortfarande är kopplat, annars det första.
-  const account = accounts.find((a) => a.open_id === picked) ?? accounts[0];
+  // Det sparade kontot om det fortfarande är kopplat, annars det första. Med flera konton: aldrig ett där klippet redan är postat.
+  const account = info?.multi
+    ? accounts.find((a) => a.open_id === pickAccount(info, accounts.map((x) => x.open_id), picked))
+    : (accounts.find((a) => a.open_id === picked) ?? accounts[0]);
+  const choose = (openId: string) => {
+    setPicked(openId);
+    localStorage.setItem(PICKED, openId);
+  };
 
   async function send() {
     setSending(true);
@@ -83,6 +91,7 @@ export function TikTokSend({ clip, captionDirty, hasProblems, onUpdate }: Props)
       setUpload({ ...result, display_name: result.display_name ?? account?.display_name ?? null });
       setMessage(result.message ?? null);
       api.campaign.tiktok.status().then(setStatus).catch(() => {});
+      reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Kunde inte skicka klippet till TikTok");
     } finally {
@@ -134,14 +143,20 @@ export function TikTokSend({ clip, captionDirty, hasProblems, onUpdate }: Props)
 
   return (
     <div className="space-y-1.5">
-      {accounts.length > 1 && (
+      {info?.multi ? (
+        <AccountList
+          label="TikTok-konto"
+          info={info}
+          connected={accounts.map((a) => a.open_id)}
+          value={account?.open_id ?? ""}
+          onChange={choose}
+          disabled={sending}
+        />
+      ) : accounts.length > 1 && (
         <select
           aria-label="TikTok-konto"
           value={account?.open_id}
-          onChange={(e) => {
-            setPicked(e.target.value);
-            localStorage.setItem(PICKED, e.target.value);
-          }}
+          onChange={(e) => choose(e.target.value)}
           disabled={sending}
           className="h-9 w-full rounded-lg border border-line bg-panel px-2.5 text-sm outline-none focus:border-brand [&>option]:bg-panel"
         >
@@ -178,7 +193,10 @@ export function TikTokSend({ clip, captionDirty, hasProblems, onUpdate }: Props)
           Posta på datorn
         </Button>
       </div>
-      {status && !account && (
+      {status && !account && info?.multi && accounts.length > 0 && (
+        <p className="text-xs text-muted-foreground">Klippet ligger redan på alla kampanjens kopplade TikTok-konton.</p>
+      )}
+      {status && !account && !(info?.multi && accounts.length > 0) && (
         <p className="text-xs text-muted-foreground">
           Inget TikTok-konto är kopplat.{" "}
           <Link href="/settings" className="text-brand underline-offset-4 hover:underline">
@@ -230,6 +248,7 @@ export function TikTokSend({ clip, captionDirty, hasProblems, onUpdate }: Props)
         <TikTokDirectPost
           clip={clip}
           account={account}
+          accounts={info}
           upload={upload}
           onSent={(u) => {
             setMessage(null);
@@ -237,6 +256,7 @@ export function TikTokSend({ clip, captionDirty, hasProblems, onUpdate }: Props)
           }}
           onClose={(updated) => {
             setDirect(false);
+            reload();
             if (updated) onUpdate?.(updated);
           }}
         />
