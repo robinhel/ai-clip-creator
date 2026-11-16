@@ -258,7 +258,7 @@ def test_a_too_big_overlay_is_refused_before_it_is_read(app, tmp_path):
 
 def test_the_accounts_of_a_clip_and_a_new_text_for_another_account(app):
     tools = _tools()
-    assert tools["clip_accounts"].annotations.readOnlyHint
+    assert tools["clip_accounts"].annotations.read_only_hint
     assert tools["suggest_variant"].description.startswith("Kostar pengar (Claude). Fråga Robin först.")
     _call("clip_accounts", {"clip_id": 5, "platform": "tiktok"})
     assert (app.requests[-1].method, app.requests[-1].url.raw_path.decode()) == (
