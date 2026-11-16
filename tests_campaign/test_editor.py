@@ -449,7 +449,7 @@ def _words(settings) -> None:
 def test_an_old_clip_has_no_editable_subtitles(setup) -> None:
     client, _, clip_id = setup
     info = client.get(f"/campaign/clips/{clip_id}/edit").json()
-    assert info["subtitles"] == {"editable": False, "reason": BURNED, "words": []}
+    assert info["subtitles"] == {"editable": False, "reason": BURNED, "words": [], "style": None}
     answer = client.post(f"/campaign/clips/{clip_id}/edit", json={"words": WORDS})
     assert answer.status_code == 400 and answer.json()["detail"] == BURNED
 
@@ -460,14 +460,15 @@ def test_a_campaign_without_subtitles_says_so(setup, settings) -> None:
     config.write_text(config.read_text(encoding="utf-8").replace("caption:\n  enabled: true",
                                                                  "caption:\n  enabled: false"), encoding="utf-8")
     info = client.get(f"/campaign/clips/{clip_id}/edit").json()
-    assert info["subtitles"] == {"editable": False, "reason": "Kampanjen har inga undertexter.", "words": []}
+    assert info["subtitles"] == {"editable": False, "reason": "Kampanjen har inga undertexter.", "words": [],
+                                 "style": None}
 
 
 def test_a_clip_with_a_word_file_shows_its_words(setup, settings) -> None:
     client, _, clip_id = setup
     _words(settings)
     assert client.get(f"/campaign/clips/{clip_id}/edit").json()["subtitles"] == {
-        "editable": True, "reason": None, "words": WORDS}
+        "editable": True, "reason": None, "words": WORDS, "style": "box"}
 
 
 def test_finish_burns_the_words_only_when_the_word_file_belongs_to_the_raw_clip(setup, settings,
@@ -534,6 +535,9 @@ def test_same_words_again_do_not_re_encode(setup, settings, monkeypatch) -> None
 @pytest.mark.parametrize("words", [
     [{"start": 0.5, "end": 0.9, "word": "   "}],
     [{"start": 0.5, "end": 0.9, "word": "x" * 41}],
+    [{"start": 0.5, "end": 0.9, "word": "two\nlines"}],
+    [{"start": 0.5, "end": 0.9, "word": "tab\there"}],
+    [{"start": 0.5, "end": 0.9, "word": "nul\x00"}],
     [{"start": 0.9, "end": 0.9, "word": "a"}],
     [{"start": -0.1, "end": 0.9, "word": "a"}],
     [{"start": 9.0, "end": 10.6, "word": "a"}],
@@ -559,3 +563,35 @@ def test_identity_survives_the_copy_of_the_first_trim(setup, settings) -> None:
     assert client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0}).status_code == 200
     assert (original.stat().st_size, original.stat().st_mtime_ns) == tuple(
         json.loads(subtitles.words_path(raw).read_text())[k] for k in ("raw_size", "raw_mtime_ns"))
+
+
+
+def test_a_word_file_for_an_older_raw_clip_says_so(setup, settings) -> None:
+    client, _, clip_id = setup
+    raw = _paths(settings)[0]
+    _words(settings)
+    data = json.loads(subtitles.words_path(raw).read_text())
+    subtitles.words_path(raw).write_text(json.dumps({**data, "raw_size": data["raw_size"] + 1}))
+    info = client.get(f"/campaign/clips/{clip_id}/edit").json()
+    assert info["subtitles"] == {"editable": False, "words": [], "style": None,
+                                 "reason": "Ordlistan hör inte till klippet längre, så ord går inte att rätta."}
+
+
+def test_words_are_saved_only_after_the_new_clip_is_in_place(setup, settings, monkeypatch) -> None:
+    _, log, clip_id = setup
+    raw, done, _ = _paths(settings)
+    _words(settings)
+    before = subtitles.words_path(raw).read_bytes()
+    real = os.replace
+
+    def fail_on_done(src, dst):
+        if str(dst) == str(done):
+            raise OSError("disken är full")
+        return real(src, dst)
+
+    monkeypatch.setattr(editor.os, "replace", fail_on_done)
+    fixed = [*WORDS[:2], {"start": 2.0, "end": 2.6, "word": "way!"}]
+    with pytest.raises(OSError):
+        editor.edit_clip(log.get(clip_id), load_profile("skiimasktimmy", settings.profiles_dir), settings, log,
+                         words=fixed)
+    assert subtitles.words_path(raw).read_bytes() == before

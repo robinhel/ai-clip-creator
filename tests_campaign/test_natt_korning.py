@@ -605,3 +605,19 @@ def test_clips_are_cut_without_subtitles_and_each_gets_a_word_file(settings, vod
     for raw in (vod.cut / "clip_01_x.mp4", vod.cut / "clip_02_x.mp4"):
         data = subtitles.load_words(raw, raw)
         assert data is not None and data["words"] == [] and data["caption"]["enabled"] is True
+
+
+
+def test_without_reframing_clipsmith_burns_the_subtitles_and_no_word_file_is_written(settings, vod) -> None:
+    """mode none skär med -c copy när undertexten är av: klippet börjar på en nyckelbild och orden glider."""
+    from campaign import subtitles
+
+    config = settings.root / "config.timmy.yaml"
+    text = config.read_text(encoding="utf-8")
+    config.write_text(text.replace("reframe:\n  mode: stacked", "reframe:\n  mode: none"), encoding="utf-8")
+    assert "mode: none" in config.read_text(encoding="utf-8")
+    vod.picker = FakePicker([_yes("clutch"), _no()])
+    _make(settings, vod, run_id=7)
+    assert vod.cut_cfg.caption.enabled is True
+    assert subtitles.load_words(vod.cut / "clip_01_x.mp4", vod.cut / "clip_01_x.mp4") is None
+    assert not list(vod.cut.glob("*.words.json"))

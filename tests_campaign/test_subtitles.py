@@ -132,3 +132,15 @@ def test_json_has_the_identity_of_the_source(tmp_path) -> None:
     saved = json.loads(subtitles.words_path(raw).read_text())
     assert (saved["raw_size"], saved["raw_mtime_ns"]) == (source.stat().st_size, source.stat().st_mtime_ns)
     assert subtitles.load_words(raw, source) is not None and subtitles.load_words(raw, raw) is None
+
+
+def test_a_long_junk_word_is_cut_so_the_word_file_follows_the_servers_rules() -> None:
+    """work/2925991945 har ett skräpord på 180 tecken. Utan kortning gick inga ord i klippet att spara."""
+    from campaign.editor import _check_words
+
+    junk = "a" * 180
+    transcript = Transcript("v", "en", [Segment(100.0, 102.0, junk, [
+        Word(100.5, 101.0, f"  {junk}", 0.9), Word(101.2, 101.5, "ok", 0.9)])])
+    words = subtitles.pick_words(transcript, 100.0, 110.0)
+    assert words[0]["word"] == "a" * 40 and words[1]["word"] == "ok"
+    assert _check_words(words, 10.0) == words
