@@ -205,8 +205,13 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
     }
   }
 
-  function handleEdited(updated: CampaignClip, trimmed: boolean) {
-    const what = trimmed ? `Klippet är trimmat.${updated.title !== clip.title ? " Rubriken är ändrad." : ""}` : "Rubriken är ändrad.";
+  function handleEdited(updated: CampaignClip, trimmed: boolean, wordsChanged = false) {
+    const parts = [
+      trimmed && "Klippet är trimmat.",
+      (updated.title !== clip.title || (!trimmed && !wordsChanged)) && "Rubriken är ändrad.",
+      wordsChanged && "Undertexten är rättad.",
+    ];
+    const what = parts.filter(Boolean).join(" ");
     const again = clip.status === "godkand" ? " Det var godkänt, så det behöver ett nytt ja." : "";
     const result = updated.status === "underkand" ? " Regelkontrollen hittade problem, se nedan." : "";
     editNotice.set(updated.id, { updated: updated.updated, text: `${what}${again}${result}` });

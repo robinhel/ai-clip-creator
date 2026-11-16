@@ -4,9 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, Pause, Play, Repeat, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { CaptionWords } from "@/components/CaptionWords";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { CampaignClip, ClipEditInfo } from "@/lib/types";
+import { lineAt } from "@/lib/words";
+import type { CampaignClip, CaptionWord, ClipEditInfo } from "@/lib/types";
 
 type Handle = "in" | "out";
 
@@ -30,8 +32,8 @@ interface Props {
   info: ClipEditInfo;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Klippet som servern har gjort klart igen, och om tiden ändrades. */
-  onSaved: (clip: CampaignClip, trimmed: boolean) => void;
+  /** Klippet som servern har gjort klart igen, om tiden ändrades och om orden i undertexten ändrades. */
+  onSaved: (clip: CampaignClip, trimmed: boolean, wordsChanged: boolean) => void;
 }
 
 type Ready = ClipEditInfo & { original: NonNullable<ClipEditInfo["original"]>; trim: NonNullable<ClipEditInfo["trim"]> };
@@ -61,6 +63,9 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
   const [inS, setIn] = useState(tenth(info.trim.in_s));
   const [outS, setOut] = useState(tenth(info.trim.out_s));
   const [title, setTitle] = useState(info.title);
+  const subs = info.subtitles;
+  const original = subs?.editable ? subs.words : [];
+  const [words, setWords] = useState<CaptionWord[]>(original);
   const [selected, setSelected] = useState<Handle>("in");
   const [now, setNow] = useState(tenth(info.trim.in_s));
   const [playing, setPlaying] = useState(false);
@@ -79,6 +84,14 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
   const inChanged = inS !== tenth(info.trim.in_s);
   const outChanged = outS !== tenth(info.trim.out_s);
   const titleChanged = title.trim() !== info.title;
+  const wordsChanged = JSON.stringify(words) !== JSON.stringify(original);
+  const wordProblem = !wordsChanged
+    ? null
+    : words.some((w) => !w.word.trim())
+      ? "Ett ord i undertexten är tomt. Skriv det eller ta bort det."
+      : words.some((w) => w.word.trim().length > 40)
+        ? "Ett ord i undertexten får vara högst 40 tecken."
+        : null;
   // Slutet längst ut är originalets exakta längd; tidslinjen visar den avrundad till 0,1 s.
   const outExact = outS >= total ? exact : outS;
   const length = Math.round((outExact - inS) * 1000) / 1000;
@@ -86,7 +99,10 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
   // Bara en ny rubrik: servern kontrollerar inte längden, så den stoppar inte heller här.
   const block =
     (inChanged || outChanged ? problem : null) ??
-    (!title.trim() ? "Skriv en rubrik." : !inChanged && !outChanged && !titleChanged ? "Inget är ändrat." : null);
+    wordProblem ??
+    (!title.trim() ? "Skriv en rubrik." : !inChanged && !outChanged && !titleChanged && !wordsChanged ? "Inget är ändrat." : null);
+  // Råklippet saknar undertext, så raden som sägs ritas ovanpå videon.
+  const line = subs?.editable ? lineAt(words, now) : null;
 
   // Uppspelningen håller sig inom intervallet. timeupdate kommer för sällan, så rutan följs varje bildruta.
   useEffect(() => {
@@ -161,8 +177,9 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
-    // Piltangenterna flyttar valt handtag, utom när man skriver i ett fält eller styr videon.
-    if (["INPUT", "TEXTAREA", "VIDEO"].includes((e.target as HTMLElement).tagName)) return;
+    // Piltangenterna flyttar valt handtag, utom när man skriver i ett fält, styr videon eller står i orden.
+    const target = e.target as HTMLElement;
+    if (["INPUT", "TEXTAREA", "VIDEO"].includes(target.tagName) || target.closest("[data-caption-words]")) return;
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
     e.preventDefault();
     const delta = (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 1 : STEP);
@@ -176,11 +193,13 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
     video.current?.pause();
     try {
       // Bara det som har ändrats, så att servern inte trimmar om klippet för en ny rubrik.
-      const body: { in_s?: number; out_s?: number; title?: string } = {};
+      const body: { in_s?: number; out_s?: number; title?: string; words?: CaptionWord[] } = {};
       if (inChanged) body.in_s = inS;
       if (outChanged) body.out_s = outExact;
       if (titleChanged) body.title = title.trim();
-      onSaved(await api.campaign.clips.saveEdit(clip.id, body), inChanged || outChanged);
+      // Hela listan, bara när den är ändrad. Ett ord som saknas räknas som borttaget.
+      if (wordsChanged) body.words = words.map((w) => ({ ...w, word: w.word.trim() }));
+      onSaved(await api.campaign.clips.saveEdit(clip.id, body), inChanged || outChanged, wordsChanged);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Det gick inte att spara klippet");
       setBusy(false);
@@ -218,6 +237,20 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
               onSeeked={(e) => setNow(tenth(e.currentTarget.currentTime))}
               className="h-full w-full cursor-pointer object-contain"
             />
+            {line && (
+              <p
+                data-caption-preview
+                aria-hidden
+                // Ungefär där undertexten bränns in: ovanför den nedre säkra zonen. Röd innan ordet sägs, vit efter, som karaokeraden.
+                className="pointer-events-none absolute inset-x-3 bottom-[22%] text-center text-[17px] leading-tight font-extrabold uppercase [paint-order:stroke] [-webkit-text-stroke:3px_#000]"
+              >
+                {line.map((w, i) => (
+                  <span key={`${w.start}-${i}`} className={w.start <= now ? "text-white" : "text-[#ff3b3b]"}>
+                    {w.word}{" "}
+                  </span>
+                ))}
+              </p>
+            )}
           </div>
 
           <div className="flex min-w-0 flex-col gap-5">
@@ -347,6 +380,24 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
             ))}
           </div>
         </div>
+
+        {subs?.editable ? (
+          <CaptionWords
+            words={words}
+            original={original}
+            onChange={setWords}
+            now={now}
+            inS={inS}
+            outS={outExact}
+            duration={exact}
+            onSeek={(t) => {
+              video.current?.pause();
+              seek(t);
+            }}
+          />
+        ) : (
+          subs?.reason && <p className="rounded-xl border border-line bg-background px-3 py-2.5 text-sm text-muted-foreground">{subs.reason}</p>
+        )}
 
         {clip.status === "godkand" && (
           <p className="text-sm text-warn">Klippet är godkänt. Efter ändringen behöver det ett nytt ja.</p>
