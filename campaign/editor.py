@@ -278,7 +278,7 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
             # Efter metafilen: source_path(raw) är nu originalet, så ordfilen hör till det. Efter klippet: går
             # bytet fel gäller de gamla orden fortfarande det klipp som ligger där.
             save_words(raw, new_words or [], CaptionConfig(**data["caption"]), ReframeConfig(**data["reframe"]),
-                       source_path(raw))
+                       source_path(raw), hook=data.get("hook"))
     finally:
         if ass:
             ass.unlink(missing_ok=True)

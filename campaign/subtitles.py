@@ -38,12 +38,15 @@ def pick_words(transcript: Transcript, start: float, end: float) -> list[dict]:
 
 
 def save_words(raw: Path, words: list[dict], caption: CaptionConfig, reframe: ReframeConfig,
-               source: Path | None = None) -> None:
-    """Spara orden med källans identitet (originalet om klippet är trimmat, annars råklippet)."""
+               source: Path | None = None, hook: list[float] | None = None) -> None:
+    """Spara orden med källans identitet (originalet om klippet är trimmat, annars råklippet). hook är [a, b]
+    från råklippets start (campaign.timemap.hook_span)."""
     stat = (source or raw).stat()
     data = {"words": words, "caption": caption.model_dump(),
             "reframe": {"mode": reframe.mode, "split_ratio": reframe.split_ratio},
             "raw_size": stat.st_size, "raw_mtime_ns": stat.st_mtime_ns}
+    if hook:
+        data["hook"] = hook
     path = words_path(raw)
     tmp = path.with_name(f".{path.name}.tmp")
     try:
