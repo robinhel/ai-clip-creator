@@ -31,7 +31,8 @@ export function useClipAccounts(clipId: number, platform: Platform, enabled = tr
 }
 
 /** Ett konto går att välja när det är kopplat och klippet inte redan är postat där. */
-const selectable = (a: ClipAccount, connected: string[]) => a.state !== "posted" && connected.includes(a.account);
+// Ett schemalagt konto ger 409 hos servern, precis som ett postat.
+const selectable = (a: ClipAccount, connected: string[]) => a.state === "free" && connected.includes(a.account);
 
 /** Det valda kontot, eller första valbara när det valda inte går (postat eller okopplat). Utan multi: oförändrat. */
 export function pickAccount(info: ClipAccounts | null, connected: string[], current: string): string {
