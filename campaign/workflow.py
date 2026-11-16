@@ -14,12 +14,13 @@ from .budget import BudgetExceeded
 from .caption import PLACEHOLDER, build_caption
 from .cliplog import ClipLog
 from .config import Settings
-from .editor import edit_meta
+from .editor import edit_meta, source_path
 from .finish import finish_clip
 from .media import probe
 from .profile import Profile
 from .review import review_clip, stacked_split
 from .rules import check_clip, check_source
+from .subtitles import load_words, write_ass
 
 FORCED_REASON = "Claude valde inte klippet. Det togs med för att nå min_picks."
 
@@ -135,7 +136,19 @@ def finish_vod(
             results.append({"id": clip_id, "file": src.name, "problems": source_problems})
             continue
 
-        manifest = finish_clip(src, out, profile, settings.root, settings.encoder, title=hook)
+        # Ordfilen finns bara när appen skar klippet utan undertext. Saknas den, eller hör den till ett annat
+        # råklipp, bränns ingen undertext: den kan redan vara inbränd.
+        words = load_words(src, source_path(src))
+        ass = src.with_name(f".{src.stem}.ass") if words else None
+        try:
+            if words and ass:
+                meta = edit_meta(src)
+                in_s, out_s = (meta["in_s"], meta["out_s"]) if meta else (0.0, probe(src)["duration"])
+                write_ass(words, in_s, out_s, ass)
+            manifest = finish_clip(src, out, profile, settings.root, settings.encoder, title=hook, subtitles=ass)
+        finally:
+            if ass:
+                ass.unlink(missing_ok=True)
         caption = build_caption(title, profile, game)
         out.with_suffix(".txt").write_text(caption + "\n", encoding="utf-8")
 

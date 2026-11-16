@@ -29,10 +29,17 @@ def get_original(clip_id: int, settings: Settings = Depends(get_settings)) -> Fi
     return FileResponse(editor.source_path(raw), media_type="video/mp4")
 
 
+class WordIn(BaseModel):
+    start: float
+    end: float
+    word: str  # tomt eller för långt ger 400 med svensk text i editor._check_words
+
+
 class EditBody(BaseModel):
     in_s: float | None = None
     out_s: float | None = None
     title: str | None = Field(default=None, max_length=120)
+    words: list[WordIn] | None = None  # hela listan; fler än 1 000 ord ger 400 i editor._check_words
 
 
 @router.post("/clips/{clip_id}/edit", summary="Trimma klippet och byt rubrik",
@@ -48,7 +55,9 @@ def post_edit(clip_id: int, body: EditBody, request: Request, settings: Settings
                 raise HTTPException(409, "En körning pågår. Vänta tills den är klar.")
         clip = _get(log, clip_id)  # läs inuti låset
         profile = _profile(clip["profile"], settings)
-        editor.edit_clip(clip, profile, settings, log, in_s=body.in_s, out_s=body.out_s, title=body.title)
+        words = None if body.words is None else [w.model_dump() for w in body.words]
+        editor.edit_clip(clip, profile, settings, log, in_s=body.in_s, out_s=body.out_s, title=body.title,
+                         words=words)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
     except editor.EditConflict as error:
