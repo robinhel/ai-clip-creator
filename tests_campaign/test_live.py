@@ -90,3 +90,15 @@ def test_chat_for_the_part_has_times_from_the_part_start() -> None:
     assert log.video_id == "2927104410_live_3"
     assert [m.time_in_seconds for m in log.messages] == [7.0, 67.0]
     assert ChatLog.from_json(log.to_json()).messages[0].hype_emote_count == 1
+
+
+def test_irc_line_becomes_a_message_with_its_time() -> None:
+    from campaign.live import parse_irc
+
+    line = ("@badge-info=;display-name=Fan_1;tmi-sent-ts=1789000000123;user-id=42 "
+            ":fan_1!fan_1@fan_1.tmi.twitch.tv PRIVMSG #skiimasktimmy :KEKW KEKW no way")
+    assert parse_irc(line) == ("fan_1", "KEKW KEKW no way", 1789000000123)
+    # Annat än chattmeddelanden ger None: PING, JOIN och serverns svar.
+    assert parse_irc("PING :tmi.twitch.tv") is None
+    assert parse_irc(":justinfan123!justinfan123@justinfan123.tmi.twitch.tv JOIN #skiimasktimmy") is None
+    assert parse_irc(":tmi.twitch.tv 001 justinfan123 :Welcome, GLHF!") is None
