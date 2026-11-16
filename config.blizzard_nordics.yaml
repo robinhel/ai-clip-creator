@@ -20,6 +20,8 @@ clip:
 candidates:
   density_window_s: 15
   density_peak_multiplier: 3.0
+  density_author_cap: 3.0         # en avsändare väger högst 3 per fönster: en spammare är ingen topp
+  density_surge_gain: 0.5         # ökningen mot förra fönstret räknas extra: en topp är en plötslig ökning
   existing_clip_boost: 100.0
   clip_command_boost: 25.0
   dedupe_window_s: 20
