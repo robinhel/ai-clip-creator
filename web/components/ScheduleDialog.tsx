@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { BellRing, CalendarClock, Loader2 } from "lucide-react";
+import { AlertTriangle, BellRing, CalendarClock, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { accountName, tiktokAccounts } from "@/components/TikTokCard";
@@ -66,6 +66,8 @@ function ScheduleDialog({ clip, pending, youtube, tiktok, onClose }: DialogProps
   const [openId, setOpenId] = useState(accounts[0]?.open_id ?? "");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Sparad post med en varning: dialogen står kvar så att Robin ser den.
+  const [warned, setWarned] = useState<ScheduledPost | null>(null);
 
   const yt = useYouTubeForm(clip, channels);
   const account = accounts.find((a) => a.open_id === openId);
@@ -101,8 +103,10 @@ function ScheduleDialog({ clip, pending, youtube, tiktok, onClose }: DialogProps
     setSending(true);
     setError(null);
     try {
-      await api.campaign.clips.schedule(clip.id, body);
-      onClose(true);
+      const post = await api.campaign.clips.schedule(clip.id, body);
+      if (!post.warning) return onClose(true);
+      setWarned(post);
+      setSending(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Kunde inte schemalägga klippet");
       setSending(false);
@@ -110,7 +114,7 @@ function ScheduleDialog({ clip, pending, youtube, tiktok, onClose }: DialogProps
   }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !sending && onClose(false)}>
+    <Dialog open onOpenChange={(open) => !open && !sending && onClose(!!warned)}>
       <DialogContent className="max-h-[calc(100vh-2rem)] gap-5 overflow-y-auto p-6 sm:max-w-[780px]">
         <div>
           <DialogTitle className="text-lg font-semibold">Schemalägg {clip.title ?? `klipp ${clip.id}`}</DialogTitle>
@@ -224,13 +228,29 @@ function ScheduleDialog({ clip, pending, youtube, tiktok, onClose }: DialogProps
               </>
             )}
 
-            <div className="space-y-1.5">
-              <Button className="h-10 w-full" disabled={!!reason || sending} onClick={schedule}>
-                {sending ? <Loader2 className="animate-spin" aria-hidden /> : platform === "tiktok" && !direct ? <BellRing aria-hidden /> : <CalendarClock aria-hidden />}
-                {sending ? "Schemalägger…" : platform === "tiktok" && !direct ? "Schemalägg påminnelse" : "Schemalägg"}
-              </Button>
-              {reason && <p className="text-xs text-muted-foreground">{reason}</p>}
-            </div>
+            {warned ? (
+              <div role="status" className="space-y-3 rounded-xl border border-line bg-background p-3">
+                <p className="flex items-center gap-2 text-sm text-good">
+                  <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+                  Posten är schemalagd.
+                </p>
+                <p data-schedule-warning className="flex items-start gap-1.5 rounded-lg border border-[#3a3018] px-2.5 py-1.5 text-[13px] text-warn/80">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                  {warned.warning}
+                </p>
+                <Button className="h-10 w-full" variant="outline" onClick={() => onClose(true)}>
+                  Stäng
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Button className="h-10 w-full" disabled={!!reason || sending} onClick={schedule}>
+                  {sending ? <Loader2 className="animate-spin" aria-hidden /> : platform === "tiktok" && !direct ? <BellRing aria-hidden /> : <CalendarClock aria-hidden />}
+                  {sending ? "Schemalägger…" : platform === "tiktok" && !direct ? "Schemalägg påminnelse" : "Schemalägg"}
+                </Button>
+                {reason && <p className="text-xs text-muted-foreground">{reason}</p>}
+              </div>
+            )}
 
             {error && (
               <p role="alert" className="rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">

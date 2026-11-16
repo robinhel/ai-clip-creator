@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ExternalLink, Loader2 } from "lucide-react";
+import { AlertTriangle, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PLATFORM_NAME } from "@/components/ScheduleDialog";
 import { accountName, tiktokAccounts } from "@/components/TikTokCard";
@@ -64,6 +64,12 @@ function Row({ post, account, onChange }: { post: ScheduledPost; account: string
           {post.late && <span className="text-warn">försenad</span>}
         </p>
         {post.error && <p className="mt-0.5 text-xs text-[#fca5a5]">{post.error}</p>}
+        {post.warning && (
+          <p data-schedule-warning className="mt-1 flex items-start gap-1.5 rounded-lg border border-[#3a3018] px-2.5 py-1.5 text-xs text-warn/80">
+            <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
+            {post.warning}
+          </p>
+        )}
         {error && (
           <p role="alert" className="mt-0.5 text-xs text-[#fca5a5]">
             {error}
