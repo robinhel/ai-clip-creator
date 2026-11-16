@@ -39,6 +39,16 @@ def schedule_clip(clip_id: int, body: ScheduleBody, settings: SettingsDep) -> di
         raise HTTPException(error.status, str(error)) from error
 
 
+@router.get("/clips/{clip_id}/accounts", summary="Kampanjens konton för klippet: postat, schemalagt eller ledigt")
+def clip_accounts(clip_id: int, platform: Literal["tiktok", "youtube"], settings: SettingsDep) -> dict:
+    schedule = Schedule(settings)
+    try:
+        clip = schedule.clips.get(clip_id)
+    except SystemExit as error:
+        raise HTTPException(404, "Klippet finns inte.") from error
+    return schedule.accounts_for(clip, platform)
+
+
 @router.delete("/schedule/{post_id}", summary="Avbryt en väntande post", dependencies=[Depends(verify_api_key)])
 def cancel_schedule(post_id: int, settings: SettingsDep) -> dict:
     try:

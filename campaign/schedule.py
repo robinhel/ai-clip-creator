@@ -306,6 +306,22 @@ class Schedule:
         if any(_norm(text) in taken for text in _texts(fields)):
             raise ScheduleError(SAME_TEXT)
 
+    def accounts_for(self, clip: dict, platform: str) -> dict:
+        """Kampanjens konton på plattformen och var klippet ligger: posted, scheduled eller free. Ett konto som
+        profilen nämner med användarnamn eller handle får sitt id om det är kopplat; bara kopplade har namn."""
+        profile = _profile(self.settings, clip["profile"])
+        key = NAMES[platform][0]
+        connected = list((YouTube if platform == "youtube" else TikTok)(self.settings).accounts())
+        uses = self._uses(clip["id"], platform)
+        accounts = []
+        for entry in profile.accounts.get(key, []) if profile else []:
+            account = next((a for a in connected if entry.lstrip("@").lower() in self._names(platform, a)), None)
+            use = uses.get(account) if account else None
+            accounts.append({"account": account or entry, "name": self.label(platform, account) if account else None,
+                             "state": use["state"] if use else "free", "at": use["at"] if use else None,
+                             "text": use["texts"][0] if use and use["texts"] else None})
+        return {"multi": bool(profile and profile.multi(key)), "max_accounts": MAX_ACCOUNTS, "accounts": accounts}
+
     def label(self, platform: str, account: str | None) -> str:
         """Kontots namn för Robin: användarnamn eller kanalnamn, annars id."""
         if account is None:
