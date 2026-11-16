@@ -633,3 +633,21 @@ def test_the_edit_and_the_run_cut_the_same_filler_word(setup, settings, monkeypa
     log.update(clip_id, status="underkand")
     finish_vod("123", load_profile("skiimasktimmy", settings.profiles_dir), settings, log, review=False)
     assert runs == [edits[-1]]
+
+
+# ---------- tidskartan: hook först ----------
+
+
+def test_the_hook_stays_when_words_are_corrected_and_comes_first_when_it_fits(setup, settings, monkeypatch) -> None:
+    client, _, clip_id = setup
+    raw = _paths(settings)[0]
+    subtitles.save_words(raw, WORDS, CaptionConfig(enabled=True, style="box"), ReframeConfig(mode="center"), raw,
+                         hook=[3.5, 5.0])
+    plans = _plans(editor, monkeypatch)
+    fixed = [*WORDS[:2], {"start": 2.0, "end": 2.6, "word": "way!"}, WORDS[3]]
+    assert client.post(f"/campaign/clips/{clip_id}/edit", json={"words": fixed}).status_code == 200
+    assert plans[-1] is None  # 10 s + 1,5 s hook är längre än kampanjens 8 s
+    assert json.loads(subtitles.words_path(raw).read_text())["hook"] == [3.5, 5.0]
+    assert client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 0.5, "out_s": 6.5}).status_code == 200
+    assert plans[-1]["cold_open"] and plans[-1]["pieces"] == [(3.0, 4.5), (0.0, plans[-1]["pieces"][1][1])]
+    assert json.loads(subtitles.words_path(raw).read_text())["hook"] == [3.5, 5.0]

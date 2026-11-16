@@ -11,6 +11,7 @@ import yaml
 from campaign import finish, timemap
 from campaign.media import probe
 from campaign.profile import Profile, load_profile
+from clipsmith.llm.base import ClipPick
 
 from .conftest import needs_ffmpeg
 
@@ -108,6 +109,56 @@ def test_the_campaign_can_turn_off_the_silence_cut(tmp_path, monkeypatch) -> Non
     assert timemap.prepare(tmp_path / "x.mp4", data, 0.0, 10.0, profile, tmp_path / "a") is None
 
 
+# ---------- 5: hook först ----------
+
+
+def test_the_hook_comes_first_and_its_words_show_twice() -> None:
+    words = [_w(5.0, 5.5, "setup"), _w(11.0, 11.5, "payoff")]
+    plan = _plan(duration=20.0, words=words, hook=[10.0, 13.0])
+    assert plan["pieces"] == [(10.0, 13.0), (0.0, 20.0)]
+    assert plan["cold_open"] is True and plan["cold_open_s"] == pytest.approx(3.0)
+    assert timemap.move_words(words, plan) == [
+        _w(1.0, 1.5, "payoff"), _w(8.0, 8.5, "setup"), _w(14.0, 14.5, "payoff")]
+
+
+def test_silence_and_fillers_inside_the_hook_stay_in_the_hook() -> None:
+    words = [_w(10.2, 10.4, "uh"), _w(11.0, 11.5, "payoff")]
+    plan = _plan(duration=20.0, words=words, silences=[(12.0, 13.0)], hook=[10.0, 13.0])
+    assert plan["pieces"][0] == (10.0, 13.0)
+    assert plan["pieces"][1:] == [(0.0, 10.2), (10.4, 12.15), (12.85, 20.0)]
+    moved = timemap.move_words(words, plan)
+    assert [w["word"] for w in moved] == ["uh", "payoff", "payoff"]
+
+
+@pytest.mark.parametrize("hook, max_s", [
+    ([-1.0, 2.0], 60.0),   # börjar före trimningen
+    ([18.0, 21.0], 60.0),  # slutar efter trimningen
+    ([10.0, 13.0], 22.0),  # hook plus klipp blir längre än kampanjen tillåter
+])
+def test_no_hook_outside_the_trim_or_when_the_clip_gets_too_long(hook, max_s) -> None:
+    assert _plan(duration=20.0, hook=hook, max_s=max_s) is None
+
+
+def _pick(start=100.0, payoff=None, payoff_end=None) -> ClipPick:
+    return ClipPick(include=True, start_offset_s=start, end_offset_s=start + 30, title="x",
+                    payoff_start_s=payoff, payoff_end_s=payoff_end)
+
+
+def test_the_hook_comes_from_claudes_payoff_counted_from_the_raw_clip() -> None:
+    assert timemap.hook_span(_pick(payoff=110.0, payoff_end=118.0)) == [10.0, 13.0]  # högst 3 s
+    assert timemap.hook_span(_pick(payoff=110.0, payoff_end=111.5)) == [10.0, 11.5]
+
+
+@pytest.mark.parametrize("payoff, payoff_end", [
+    (None, None),     # Claude gav ingen payoff
+    (110.0, None),
+    (110.0, 110.8),   # kortare än 1 s
+    (102.0, 105.0),   # payoff i början: hooken är redan där
+])
+def test_no_hook_without_a_usable_payoff(payoff, payoff_end) -> None:
+    assert timemap.hook_span(_pick(payoff=payoff, payoff_end=payoff_end)) is None
+
+
 # ---------- filtret ----------
 
 
@@ -122,6 +173,14 @@ def test_the_filter_joins_the_pieces_before_subtitles_overlay_and_sound() -> Non
         "[0:a]atrim=start=2.400000:end=5.000000,asetpts=PTS-STARTPTS[a1];"
         "[v0][a0][v1][a1]concat=n=2:v=1:a=1[cv][ca];[cv]setsar=1,subtitles=filename='/tmp/a.ass'[base];")
     assert "[1:v]scale=" in graph and "[ca]loudnorm=" in graph and "[0:a]loudnorm" not in graph
+
+
+def test_the_hook_is_read_from_its_own_input_so_nothing_waits_in_memory() -> None:
+    profile = Profile(name="x", streamer="y", hook_text=False)
+    graph = finish.build_filter(profile, True, True, None, pieces=[(10.0, 13.0), (0.0, 20.0)], cold_open=True)
+    assert graph.startswith("[1:v]trim=duration=3.000000,setpts=PTS-STARTPTS[v0];"
+                            "[1:a]atrim=duration=3.000000,asetpts=PTS-STARTPTS[a0];")
+    assert "[2:v]scale=" in graph and "[1:v]scale=" not in graph  # overlayen är tredje ingången
 
 
 def test_without_sound_only_the_picture_is_joined() -> None:
@@ -210,3 +269,27 @@ def test_a_clip_without_a_plan_gets_the_manifest_without_cuts(tmp_path, monkeypa
                                   tmp_path)
     assert (manifest["silence_cut_s"], manifest["fillers_cut"], manifest["cold_open_s"]) == (0.0, 0, 0.0)
 
+
+@needs_ffmpeg
+def test_a_real_render_shows_the_hook_first(tmp_path, monkeypatch) -> None:
+    monkeypatch.setitem(finish.ENCODER_ARGS, "libx264", ["-c:v", "libx264", "-preset", "ultrafast"])
+    src = _tone_silence_tone(tmp_path / "src.mp4")
+    info = probe(src)
+    plan = timemap.plan(info["duration"], info["fps"], [], timemap.silences(src), [6.0, 7.5], 3.0, 60.0)
+    assert plan["cold_open"] and plan["pieces"][0] == (6.0, 7.5)
+    out = tmp_path / "out.mp4"
+    manifest = finish.finish_clip(src, out, Profile(name="x", streamer="y", hook_text=False), tmp_path, plan=plan)
+    assert manifest["cold_open_s"] == pytest.approx(1.5)
+    expected = sum(end - start for start, end in plan["pieces"])
+    video, audio = _stream_seconds(out, "v"), _stream_seconds(out, "a")
+    assert video == pytest.approx(expected, abs=1 / 30 + 0.001), video
+    assert audio == pytest.approx(video, abs=0.05), (audio, video)
+    # testsrc visar en räknare: första bildrutan är bildruta 180 (6 s), inte bildruta 0
+    first = subprocess.run(["ffmpeg", "-v", "error", "-i", str(out), "-frames:v", "1", "-f", "rawvideo",
+                            "-pix_fmt", "gray", "-"], capture_output=True, check=True).stdout
+    at_6 = subprocess.run(["ffmpeg", "-v", "error", "-ss", "6", "-i", str(src), "-frames:v", "1", "-f", "rawvideo",
+                           "-pix_fmt", "gray", "-"], capture_output=True, check=True).stdout
+    at_0 = subprocess.run(["ffmpeg", "-v", "error", "-i", str(src), "-frames:v", "1", "-f", "rawvideo",
+                           "-pix_fmt", "gray", "-"], capture_output=True, check=True).stdout
+    diff = lambda a, b: sum(abs(x - y) for x, y in zip(a[::97], b[::97], strict=True))  # noqa: E731
+    assert diff(first, at_6) < diff(first, at_0)
