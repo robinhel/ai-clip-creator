@@ -761,3 +761,12 @@ def test_a_video_that_is_not_public_creates_no_post(client, settings, fake, priv
     clip_id = _clip(settings)
     assert _send(client, clip_id, privacy=privacy).status_code == 202
     assert ClipLog(settings.data_dir / "klipp.db").posts(clip_id) == []
+
+
+def test_the_upload_keeps_its_title_and_description_for_the_text_rule(client, settings, fake) -> None:
+    """Samma klipp på flera kanaler: texten får inte vara samma, så den sparas med uppladdningen."""
+    _connect(settings)
+    assert _send(client, _clip(settings)).status_code == 202
+    with youtube.YouTube(settings)._db() as db:
+        row = db.execute("SELECT title, description FROM youtube_uploads").fetchone()
+    assert tuple(row) == ("No way", "No way #fps #shorts")
