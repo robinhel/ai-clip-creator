@@ -1190,3 +1190,23 @@ def test_a_direct_post_keeps_its_title_for_the_text_rule(client, settings, fake)
     assert _direct(client, _clip(settings), title="No way #fps").status_code == 202
     with tiktok.TikTok(settings)._db() as db:
         assert db.execute("SELECT title FROM tiktok_uploads").fetchone()[0] == "No way #fps"
+
+
+def test_the_cover_becomes_tiktoks_cover_timestamp_in_milliseconds(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    assert _direct(client, _clip(settings), title="x", cover_s=2.5).status_code == 202
+    assert _post_info(fake)["post_info"]["video_cover_timestamp_ms"] == 2500
+
+
+@pytest.mark.parametrize("cover_s", [-0.5, 19.5])
+def test_a_cover_outside_the_clip_is_refused(client, settings, fake, cover_s) -> None:
+    _connect(settings, publish=True)
+    answer = _direct(client, _clip(settings), cover_s=cover_s)  # klippet är 19 s
+    assert answer.status_code == 400 and "Omslaget" in answer.json()["detail"]
+    assert fake.calls(DIRECT) == []
+
+
+def test_without_a_cover_tiktok_chooses(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    assert _direct(client, _clip(settings), title="x").status_code == 202
+    assert "video_cover_timestamp_ms" not in _post_info(fake)["post_info"]
