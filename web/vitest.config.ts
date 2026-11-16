@@ -14,6 +14,8 @@ const dirname =
 export default defineConfig({
   test: {
     projects: [
+      // Rena funktioner i lib/, utan webbläsare: vitest run --project unit
+      { test: { name: 'unit', include: ['lib/**/*.test.ts'], environment: 'node' } },
       {
         extends: true,
         plugins: [

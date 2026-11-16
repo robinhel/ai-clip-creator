@@ -578,6 +578,15 @@ export interface ClipEditInfo {
   max_s: number | null;
   editable: boolean;
   reason: string | null;
+  /** Orden i undertexten, tider i sekunder från råklippets start. Saknas hos äldre servrar. */
+  subtitles?: { editable: boolean; reason: string | null; words: CaptionWord[] };
+}
+
+/** Ett ord i undertexten. */
+export interface CaptionWord {
+  start: number;
+  end: number;
+  word: string;
 }
 
 /** Ungefärlig kostnad för en körning: Berget transkriberar, Claude väljer och granskar. */

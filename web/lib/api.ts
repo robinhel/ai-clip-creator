@@ -8,6 +8,7 @@ import type {
   CampaignRunDetail,
   CampaignRunInfo,
   CampaignStatus,
+  CaptionWord,
   CampaignSummary,
   KeyGroup,
   SetupCheck,
@@ -166,7 +167,7 @@ export const api = {
       schedule: (id: number, body: ScheduleCreate) =>
         apiFetch<ScheduledPost>(`/campaign/clips/${id}/schedule`, { method: "POST", body: JSON.stringify(body) }),
       edit: (id: number) => apiFetch<ClipEditInfo>(`/campaign/clips/${id}/edit`),
-      saveEdit: (id: number, body: { in_s?: number; out_s?: number; title?: string }) =>
+      saveEdit: (id: number, body: { in_s?: number; out_s?: number; title?: string; words?: CaptionWord[] }) =>
         apiFetch<CampaignClip>(`/campaign/clips/${id}/edit`, { method: "POST", body: JSON.stringify(body) }),
       // Utan open_id väljer servern det enda kopplade kontot, och utan mode blir det ett utkast.
       sendToTikTok: (id: number, body?: TikTokSendBody) =>
