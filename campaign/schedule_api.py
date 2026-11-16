@@ -13,6 +13,7 @@ from clipsmith.api.deps import verify_api_key
 from .api import get_settings
 from .config import Settings
 from .schedule import Schedule, ScheduleError
+from .variant import VariantError, suggest
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -47,6 +48,24 @@ def clip_accounts(clip_id: int, platform: Literal["tiktok", "youtube"], settings
     except SystemExit as error:
         raise HTTPException(404, "Klippet finns inte.") from error
     return schedule.accounts_for(clip, platform)
+
+
+class VariantBody(BaseModel):
+    platform: Literal["youtube", "tiktok"]
+    account: str  # YouTubes channel_id eller TikToks open_id
+
+
+@router.post("/clips/{clip_id}/variant", summary="Föreslå en ny text för klippet på ett annat konto (Claude)",
+             dependencies=[Depends(verify_api_key)])
+def clip_variant(clip_id: int, body: VariantBody, settings: SettingsDep) -> dict:
+    try:
+        clip = Schedule(settings).clips.get(clip_id)
+    except SystemExit as error:
+        raise HTTPException(404, "Klippet finns inte.") from error
+    try:
+        return suggest(settings, clip, body.platform, body.account)
+    except VariantError as error:
+        raise HTTPException(error.status, str(error)) from error
 
 
 @router.delete("/schedule/{post_id}", summary="Avbryt en väntande post", dependencies=[Depends(verify_api_key)])
