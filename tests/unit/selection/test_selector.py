@@ -409,3 +409,65 @@ def test_signals_mode_picks_the_top_n_spread_candidates_without_the_llm() -> Non
     short = select_clips([_candidate(5.0)], _transcript(), _NeverAsk(), "ctx", _cfg(select="signals"))  # type: ignore[arg-type]
     assert (short[0].pick.start_offset_s, short[0].pick.end_offset_s) == (0.0, 15.0)  # min length holds
     assert ClipConfig().select == "llm"
+
+
+# ── times from quotes (v2) ────────────────────────────────────────────────────
+
+
+class _Quoted:
+    def __init__(self, start: float, end: float, start_quote: str, end_quote: str) -> None:
+        self.start, self.end, self.start_quote, self.end_quote = start, end, start_quote, end_quote
+
+    def pick(self, tw: str, c: CandidateMoment, sc: str) -> ClipPick:
+        return ClipPick(include=True, start_offset_s=self.start, end_offset_s=self.end, title="T",
+                        reason="r", score=50, start_quote=self.start_quote, end_quote=self.end_quote)
+
+
+def _twice() -> object:
+    """_sentences plus "No way." said a second time at 135-137."""
+    first = _sentences()
+    return _transcript(*first.segments,
+                       _seg(135.0, 137.0, " No way.", [_word(135.0, 136.0, "No"), _word(136.0, 137.0, "way.")]))
+
+
+def test_v2_quotes_give_the_times_even_when_the_seconds_are_wrong() -> None:
+    # the seconds are off by 10 s; the quotes are exact. No snap: the start stays on "the", not on "So" (100.0)
+    picks = select_clips([_candidate(110.0)], _sentences(), _Quoted(90.0, 140.0, "the boss is here", "No way."),
+                         "ctx", _cfg(min_seconds=10, max_seconds=40))  # type: ignore[arg-type]
+    assert picks[0].pick.start_offset_s == pytest.approx(100.5)
+    assert picks[0].pick.end_offset_s == pytest.approx(130.0)
+
+
+def test_v2_quotes_ignore_case_and_punctuation() -> None:
+    picks = select_clips([_candidate(110.0)], _sentences(), _Quoted(100.0, 120.0, "WATCH THIS I am", "no way"),
+                         "ctx", _cfg(min_seconds=10, max_seconds=40))  # type: ignore[arg-type]
+    assert picks[0].pick.start_offset_s == pytest.approx(105.0)
+    assert picks[0].pick.end_offset_s == pytest.approx(130.0)
+
+
+def test_v2_a_quote_said_twice_takes_the_one_nearest_the_seconds() -> None:
+    picks = select_clips([_candidate(110.0)], _twice(), _Quoted(105.0, 138.0, "Watch this", "No way."),
+                         "ctx", _cfg(min_seconds=10, max_seconds=40))  # type: ignore[arg-type]
+    assert picks[0].pick.end_offset_s == pytest.approx(137.0)
+
+
+def test_v2_the_end_quote_is_never_before_the_start_quote() -> None:
+    # the start is the second "No way." (135); the end seconds point at the first one (119-130), before the start
+    picks = select_clips([_candidate(110.0)], _twice(), _Quoted(136.0, 120.0, "No way.", "No way."),
+                         "ctx", _cfg(min_seconds=1, max_seconds=40))  # type: ignore[arg-type]
+    assert picks[0].pick.start_offset_s == pytest.approx(135.0)
+    assert picks[0].pick.end_offset_s == pytest.approx(137.0)
+
+
+def test_v2_a_quote_not_in_the_transcript_falls_back_to_the_seconds() -> None:
+    picks = select_clips([_candidate(110.0)], _sentences(), _Quoted(106.5, 127.0, "never said this", "No way."),
+                         "ctx", _cfg(min_seconds=10, max_seconds=30))  # type: ignore[arg-type]
+    assert picks[0].pick.start_offset_s == pytest.approx(105.0)  # snapped as before
+    assert picks[0].pick.end_offset_s == pytest.approx(130.0)
+
+
+def test_v2_quoted_times_are_still_clamped_to_the_length() -> None:
+    picks = select_clips([_candidate(110.0)], _sentences(), _Quoted(100.0, 130.0, "So the boss", "No way."),
+                         "ctx", _cfg(min_seconds=10, max_seconds=20))  # type: ignore[arg-type]
+    assert picks[0].pick.start_offset_s == pytest.approx(100.0)
+    assert picks[0].pick.duration_s == pytest.approx(20.0)

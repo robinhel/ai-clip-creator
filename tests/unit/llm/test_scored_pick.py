@@ -131,3 +131,10 @@ def test_v2_stream_context_names_the_field_title() -> None:
     ctx = build_stream_context("timmy", "t", "1h", language="sv", mode="v2")
     assert "Write title in sv" in ctx and "title_es" not in ctx
     assert "title_es" not in get_system_prompt("v1", "", mode="v2")
+
+
+def test_v2_asks_for_the_first_and_last_words_as_quotes() -> None:
+    from clipsmith.llm.prompts import get_system_prompt
+
+    for prompt in (get_system_prompt("v1", "", mode="v2"), get_system_prompt("v1", "Campaign rules.", mode="v2")):
+        assert '"start_quote"' in prompt and '"end_quote"' in prompt
