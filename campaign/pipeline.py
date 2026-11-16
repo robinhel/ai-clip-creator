@@ -30,6 +30,7 @@ from .budget import budget_from_settings
 from .cliplog import ClipLog
 from .config import Settings
 from .download import download_vod
+from .memory import selection_memory
 from .profile import Profile, load_profile
 from .subtitles import pick_words, save_words
 from .transcribe import berget_post, transcribe_vod
@@ -84,6 +85,12 @@ def _twitch_ids(vod_id: str, channel: str, secrets) -> tuple[str, str]:
         log.warning("Twitch svarade inte (%s): tittarnas klipp räknas inte för %s", type(error).__name__, vod_id)
         return "", ""
     return user_id, created_at
+
+
+def _with_memory(focus: str, profile: Profile, settings: Settings) -> str:
+    """Körningens focus och minnet om kampanjens tidigare klipp (campaign/memory.py)."""
+    memory = selection_memory(ClipLog(settings.data_dir / "klipp.db"), profile.name, profile.min_views or 2000)
+    return ", and ".join(part for part in (focus.strip(), memory) if part)
 
 
 def make_clips(
@@ -179,7 +186,7 @@ def make_clips(
             return picker.pick(*args)
 
         context = build_stream_context(
-            channel, title, duration, focus=focus, clip_range=(cfg.clip.min_seconds, cfg.clip.max_seconds),
+            channel, title, duration, focus=_with_memory(focus, profile, settings), clip_range=(cfg.clip.min_seconds, cfg.clip.max_seconds),
             game=game or "", language=profile.language, formats=profile.formats, mode=cfg.clip.selection_mode)
         picks = select_clips(candidates, transcript, SimpleNamespace(pick=ask, rank=getattr(picker, "rank", None)),
                              context, cfg.clip)
