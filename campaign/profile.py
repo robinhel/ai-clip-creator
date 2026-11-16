@@ -48,6 +48,10 @@ class Profile:
     accounts: dict[str, list[str]] = field(default_factory=dict)
     max_posts_per_day: int = 3  # per konto och svensk dag
     min_gap_minutes: int = 120  # schemat varnar när två inlägg på samma konto ligger närmare
+    # finish: ta bort tystnad och utfyllnadsord, och visa hooken först (bara klipp med ordfil)
+    cut_silence: bool = True
+    cut_fillers: bool = True
+    cold_open: bool = True
     raw: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -125,6 +129,17 @@ def _accounts(data: dict) -> dict[str, list[str]]:
     return {str(key): [str(a).strip().lstrip("@") for a in names if str(a).strip()] for key, names in value.items()}
 
 
+def _edit(data: dict) -> dict[str, bool]:
+    value = data.get("edit") or {}
+    if not isinstance(value, dict):
+        raise SystemExit("edit måste vara en karta, till exempel edit: {cut_silence: true}.")
+    flags = {key: value.get(key, True) for key in ("cut_silence", "cut_fillers", "cold_open")}
+    for key, flag in flags.items():
+        if not isinstance(flag, bool):
+            raise SystemExit(f"edit.{key} måste vara true eller false, inte {flag!r}.")
+    return flags
+
+
 def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
     """Läs en profil. Ange namnet (skiimasktimmy) eller en sökväg till YAML-filen."""
     path = Path(name_or_path)
@@ -176,5 +191,6 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
         accounts=_accounts(data),
         max_posts_per_day=_number(data.get("posting") or {}, "max_per_day", 3, "posting.max_per_day", int),
         min_gap_minutes=_number(data.get("posting") or {}, "min_gap_minutes", 120, "posting.min_gap_minutes", int),
+        **_edit(data),
         raw=data,
     )

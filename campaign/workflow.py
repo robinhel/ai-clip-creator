@@ -20,7 +20,8 @@ from .media import probe
 from .profile import Profile
 from .review import review_clip, stacked_split
 from .rules import check_clip, check_source
-from .subtitles import load_words, write_ass
+from .subtitles import load_words
+from .timemap import prepare
 
 FORCED_REASON = "Claude valde inte klippet. Det togs med för att nå min_picks."
 
@@ -141,12 +142,14 @@ def finish_vod(
         words = load_words(src, source_path(src))
         ass: Path | None = None
         try:
+            plan = None
             if words:
                 ass = src.with_name(f".{src.stem}.ass")
                 meta = edit_meta(src)
                 in_s, out_s = (meta["in_s"], meta["out_s"]) if meta else (0.0, probe(src)["duration"])
-                write_ass(words, in_s, out_s, ass)
-            manifest = finish_clip(src, out, profile, settings.root, settings.encoder, title=hook, subtitles=ass)
+                plan = prepare(src, words, in_s, out_s, profile, ass)  # tystnad och ehm bort; samma som redigeraren
+            manifest = finish_clip(src, out, profile, settings.root, settings.encoder, title=hook, subtitles=ass,
+                                   plan=plan)
         finally:
             if ass:
                 ass.unlink(missing_ok=True)

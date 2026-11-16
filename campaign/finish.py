@@ -62,14 +62,31 @@ def _hook(
     return parts
 
 
+def _pieces(pieces: list[tuple[float, float]], has_audio: bool) -> list[str]:
+    """Bitarna ur klippet efter varandra (tidskartan). Ut: [cv] och, med ljud, [ca]."""
+    parts, inputs = [], ""
+    for i, (start, end) in enumerate(pieces):
+        span = f"start={start:.6f}:end={end:.6f}"
+        parts.append(f"[0:v]trim={span},setpts=PTS-STARTPTS[v{i}]")
+        inputs += f"[v{i}]"
+        if has_audio:
+            parts.append(f"[0:a]atrim={span},asetpts=PTS-STARTPTS[a{i}]")
+            inputs += f"[a{i}]"
+    outputs = "[cv][ca]" if has_audio else "[cv]"
+    parts.append(f"{inputs}concat=n={len(pieces)}:v=1:a={int(has_audio)}{outputs}")
+    return parts
+
+
 def build_filter(
     profile: Profile, has_overlay: bool, has_audio: bool, font: str | None, title: str = "",
-    subtitles: Path | None = None,
+    subtitles: Path | None = None, pieces: list[tuple[float, float]] | None = None,
 ) -> str:
-    """Filtergrafen. Ingång 0 är klippet, ingång 1 är overlay-bilden om den finns. Undertexten bränns in
-    först, så att overlayen ligger ovanpå den."""
+    """Filtergrafen. Ingång 0 är klippet, ingång 1 är overlay-bilden om den finns. Med bitar (tidskartan)
+    sätts de ihop först. Undertexten bränns in sedan, så att overlayen ligger ovanpå den."""
     burn = f",subtitles=filename='{_esc(str(subtitles))}'" if subtitles else ""
-    parts = [f"[0:v]setsar=1{burn}[base]"]
+    parts = _pieces(pieces, has_audio) if pieces else []
+    video, audio = ("cv", "ca") if pieces else ("0:v", "0:a")
+    parts.append(f"[{video}]setsar=1{burn}[base]")
     last = "base"
     if has_overlay:
         if profile.overlay_mode == "full":
@@ -100,15 +117,16 @@ def build_filter(
         last = "withhook"
     parts.append(f"[{last}]format=yuv420p[vout]")
     if has_audio:
-        parts.append(f"[0:a]loudnorm=I={profile.lufs}:TP=-1.5:LRA=11[aout]")
+        parts.append(f"[{audio}]loudnorm=I={profile.lufs}:TP=-1.5:LRA=11[aout]")
     return ";".join(parts)
 
 
 def finish_clip(
     src: Path, out: Path, profile: Profile, root: Path, encoder: str = "libx264", title: str = "",
-    subtitles: Path | None = None,
+    subtitles: Path | None = None, plan: dict | None = None,
 ) -> dict:
-    """Rendera den kampanjklara versionen. Returnerar ett manifest om vad som gjordes."""
+    """Rendera den kampanjklara versionen. plan är tidskartan (campaign.timemap). Returnerar ett manifest
+    om vad som gjordes."""
     info = probe(src)
     overlay = profile.overlay_path(root)
     has_overlay = overlay is not None and overlay.exists()
@@ -120,7 +138,7 @@ def finish_clip(
         cmd += ["-i", str(overlay)]
     cmd += [
         "-filter_complex",
-        build_filter(profile, has_overlay, info["has_audio"], font, title, subtitles),
+        build_filter(profile, has_overlay, info["has_audio"], font, title, subtitles, plan["pieces"] if plan else None),
         "-map",
         "[vout]",
     ]
@@ -134,6 +152,9 @@ def finish_clip(
         "file": str(out),
         "overlay_applied": has_overlay,
         "subtitles_applied": subtitles is not None,
+        "silence_cut_s": plan["silence_cut_s"] if plan else 0.0,
+        "fillers_cut": plan["fillers_cut"] if plan else 0,
+        "cold_open_s": plan["cold_open_s"] if plan else 0.0,
         "text_applied": bool(profile.text),
         "text": profile.text,
         "hook_text": title.strip() if profile.hook_text and title.strip() else None,
