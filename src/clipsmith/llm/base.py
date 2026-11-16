@@ -65,6 +65,8 @@ class ClipPick:
     shareability: int = 0
     payoff_start_s: float | None = None  # VOD seconds of the payoff, when Claude gave it
     payoff_end_s: float | None = None
+    start_quote: str = ""  # the clip's first words as Claude quoted them (v2); the times are found from them
+    end_quote: str = ""
     if TYPE_CHECKING:
 
         @property
@@ -98,6 +100,8 @@ class ClipPick:
             format=str(d["format"]) if d.get("format") else None,
             payoff_start_s=_seconds(d.get("payoff_start_s")),
             payoff_end_s=_seconds(d.get("payoff_end_s")),
+            start_quote=str(d.get("start_quote") or ""),
+            end_quote=str(d.get("end_quote") or ""),
             hook=subscores["hook"],
             engagement=subscores["engagement"],
             value=subscores["value"],

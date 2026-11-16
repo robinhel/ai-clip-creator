@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import asdict, dataclass
 
@@ -124,7 +125,12 @@ def select_clips(
             log.debug("LLM rejected t=%.1f: %s", candidate.t_center, pick.reason)
             continue
 
-        pick = _snap_to_sentences(pick, borders, config) if v2 else _clamp_duration(pick, config)
+        if v2 and _times_from_quotes(pick, transcript, candidate.t_center):
+            pick = _clamp_duration(pick, config)  # Claude's own words decide the cut: no snap
+        elif v2:
+            pick = _snap_to_sentences(pick, borders, config)
+        else:
+            pick = _clamp_duration(pick, config)
         log.info(
             "  accepted: [%.1f-%.1f] (%.1fs) - %s",
             pick.start_offset_s,
@@ -233,6 +239,54 @@ def _extract_transcript_window(transcript: Transcript, t_center: float) -> str:
     if not lines:
         return "(no transcript available for this window)"
     return "\n".join(lines)
+
+
+def _token(text: str) -> str:
+    return re.sub(r"[^\w]", "", text.lower())
+
+
+def _matches(tokens: list[str], quote: list[str]) -> list[int]:
+    """Indexes where quote starts in tokens."""
+    n = len(quote)
+    return [i for i in range(len(tokens) - n + 1) if tokens[i : i + n] == quote]
+
+
+def _times_from_quotes(pick: ClipPick, transcript: Transcript, t_center: float) -> bool:
+    """Set the times from the words Claude quoted: the start of the start quote's first word and the end
+    of the end quote's last word, in the window Claude saw. A quote said twice takes the place nearest
+    Claude's seconds, and the end is never before the start. A quote that is not found shortens from
+    its far side down to two words. False, and the times stay, when either quote is not found."""
+    start_q = [t for t in (_token(w) for w in pick.start_quote.split()) if t]
+    end_q = [t for t in (_token(w) for w in pick.end_quote.split()) if t]
+    if not start_q or not end_q:
+        return False
+    low, high = t_center - WINDOW_PRE_S, t_center + WINDOW_POST_S
+    words = [
+        w
+        for seg in transcript.segments
+        if seg.end >= low and seg.start <= high
+        for w in seg.words or []
+        if _token(w.word)
+    ]
+    tokens = [_token(w.word) for w in words]
+    starts: list[int] = []
+    for n in range(len(start_q), min(2, len(start_q)) - 1, -1):  # the first words matter most
+        if starts := _matches(tokens, start_q[:n]):
+            break
+    if not starts:
+        return False
+    first = min(starts, key=lambda i: abs(words[i].start - pick.start_offset_s))
+    ends: list[int] = []
+    for n in range(len(end_q), min(2, len(end_q)) - 1, -1):  # the last words matter most
+        found = [i + n - 1 for i in _matches(tokens, end_q[-n:]) if i >= first]
+        if found:
+            ends = found
+            break
+    if not ends:
+        return False
+    last = min(ends, key=lambda i: abs(words[i].end - pick.end_offset_s))
+    pick.start_offset_s, pick.end_offset_s = words[first].start, words[last].end
+    return True
 
 
 def _sentence_borders(transcript: Transcript) -> tuple[list[float], list[float]]:
