@@ -128,6 +128,7 @@ class UploadBody(BaseModel):
     allow_stitch: bool = False
     brand_organic: bool = False
     brand_content: bool = False
+    cover_s: float | None = None  # omslaget, sekunder in i klippet; bara direct
 
 
 @router.post("/clips/{clip_id}/tiktok", status_code=202, summary="Skicka klippet till TikTok som utkast eller direkt",

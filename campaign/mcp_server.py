@@ -373,14 +373,16 @@ def upload_youtube(clip_id: int, title: str, privacy: Literal["public", "unliste
 def send_tiktok(clip_id: int, mode: Literal["draft", "direct"] = "draft", open_id: str | None = None,
                 title: str | None = None, privacy_level: str | None = None, allow_comment: bool | None = None,
                 allow_duet: bool | None = None, allow_stitch: bool | None = None,
-                brand_organic: bool | None = None, brand_content: bool | None = None) -> str:
+                brand_organic: bool | None = None, brand_content: bool | None = None,
+                cover_s: float | None = None) -> str:
     """Publicerar utåt. Fråga Robin först.
     Skicka ett godkänt klipp till TikTok: som utkast i inkorgen (draft) eller direkt postat (direct, kräver
-    privacy_level från tiktok_creator_info). title är captionen vid direktpostning."""
+    privacy_level från tiktok_creator_info). title är captionen vid direktpostning. cover_s är omslaget,
+    sekunder in i klippet (bara direct)."""
     return _send("POST", f"/campaign/clips/{clip_id}/tiktok",
                  {"mode": mode, "open_id": open_id, "title": title, "privacy_level": privacy_level,
                   "allow_comment": allow_comment, "allow_duet": allow_duet, "allow_stitch": allow_stitch,
-                  "brand_organic": brand_organic, "brand_content": brand_content})
+                  "brand_organic": brand_organic, "brand_content": brand_content, "cover_s": cover_s})
 
 
 @server.tool(annotations=WRITE)

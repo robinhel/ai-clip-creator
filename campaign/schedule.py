@@ -26,7 +26,7 @@ from .preferences import submit_helper
 from .profile import PLATFORMS, Profile, load_profile
 from .scout import STOCKHOLM, notify_mac
 from .tiktok import TITLE_MAX as TIKTOK_TITLE_MAX
-from .tiktok import TikTok, TikTokError
+from .tiktok import TikTok, TikTokError, check_cover
 from .youtube import BUSY, YouTube, YouTubeError
 
 log = logging.getLogger(__name__)
@@ -231,6 +231,10 @@ class Schedule:
             raise ScheduleError(str(error)) from error
         if len((post.get("title") or "").encode("utf-16-le")) // 2 > TIKTOK_TITLE_MAX:
             raise ScheduleError(f"Beskrivningen är för lång. TikTok tar högst {TIKTOK_TITLE_MAX} tecken.")
+        try:
+            check_cover(post, duration_s)
+        except TikTokError as error:
+            raise ScheduleError(str(error)) from error
         if account and TikTok(self.settings).can_publish(account) and not post.get("privacy_level"):
             raise ScheduleError("Välj vem som får se klippet.")
         return post
