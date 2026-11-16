@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { CaptionWords } from "@/components/CaptionWords";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { lineAt } from "@/lib/words";
+import { inRange, lineAt } from "@/lib/words";
 import type { CampaignClip, CaptionWord, ClipEditInfo } from "@/lib/types";
 
 type Handle = "in" | "out";
@@ -102,7 +102,8 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
     wordProblem ??
     (!title.trim() ? "Skriv en rubrik." : !inChanged && !outChanged && !titleChanged && !wordsChanged ? "Inget är ändrat." : null);
   // Råklippet saknar undertext, så raden som sägs ritas ovanpå videon.
-  const line = subs?.editable ? lineAt(words, now) : null;
+  const style = subs?.style ?? "box";
+  const line = subs?.editable ? lineAt(words.filter((w) => inRange(w, inS, outExact)), now, style) : null;
 
   // Uppspelningen håller sig inom intervallet. timeupdate kommer för sällan, så rutan följs varje bildruta.
   useEffect(() => {
@@ -240,15 +241,31 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
             {line && (
               <p
                 data-caption-preview
+                data-style={style}
                 aria-hidden
-                // Ungefär där undertexten bränns in: ovanför den nedre säkra zonen. Röd innan ordet sägs, vit efter, som karaokeraden.
-                className="pointer-events-none absolute inset-x-3 bottom-[22%] text-center text-[17px] leading-tight font-extrabold uppercase [paint-order:stroke] [-webkit-text-stroke:3px_#000]"
+                // Ungefär där undertexten bränns in: ovanför den nedre säkra zonen.
+                className="pointer-events-none absolute inset-x-3 bottom-[22%] text-center text-[17px] leading-snug font-extrabold uppercase [paint-order:stroke] [-webkit-text-stroke:3px_#000]"
               >
-                {line.map((w, i) => (
-                  <span key={`${w.start}-${i}`} className={w.start <= now ? "text-white" : "text-[#ff3b3b]"}>
-                    {w.word}{" "}
-                  </span>
-                ))}
+                {line.map((w, i) => {
+                  // Box: rutan (kampanjens guld som standard) bakom ordet som sägs. Outline: röd innan ordet sägs, vit efter.
+                  const said = w.start <= now && now < (line[i + 1]?.start ?? Infinity);
+                  return (
+                    <span key={`${w.start}-${i}`}>
+                      <span
+                        data-said={style === "box" && said ? "true" : undefined}
+                        className={
+                          style === "box"
+                            ? cn("rounded-[3px] px-0.5 text-white", said && "bg-[#ffd700]")
+                            : w.start <= now
+                              ? "text-white"
+                              : "text-[#ff3b3b]"
+                        }
+                      >
+                        {w.word}
+                      </span>{" "}
+                    </span>
+                  );
+                })}
               </p>
             )}
           </div>

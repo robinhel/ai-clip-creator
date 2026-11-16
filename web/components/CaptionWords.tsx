@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { nudge } from "@/lib/words";
+import { inRange, nudge } from "@/lib/words";
 import type { CaptionWord } from "@/lib/types";
 
 const STEP = 0.1;
@@ -26,7 +26,8 @@ interface Props {
 /** Orden i undertexten mellan in och ut. Klick spolar dit; ordet kan skrivas om, flyttas 0,1 s eller tas bort. */
 export function CaptionWords({ words, original, onChange, now, inS, outS, duration, onSeek }: Props) {
   const [picked, setPicked] = useState<number | null>(null);
-  const shown = words.map((w, i) => ({ w, i })).filter(({ w }) => w.end > inS && w.start < outS);
+  // Bara orden som bränns in, samma urval som servern.
+  const shown = words.map((w, i) => ({ w, i })).filter(({ w }) => inRange(w, inS, outS));
   const sel = picked != null ? words[picked] : undefined;
   const changed = (w: CaptionWord) => !original.some((o) => o.start === w.start && o.end === w.end && o.word === w.word);
 

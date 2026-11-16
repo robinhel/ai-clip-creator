@@ -579,7 +579,8 @@ export interface ClipEditInfo {
   editable: boolean;
   reason: string | null;
   /** Orden i undertexten, tider i sekunder från råklippets start. Saknas hos äldre servrar. */
-  subtitles?: { editable: boolean; reason: string | null; words: CaptionWord[] };
+  /** style: hur undertexten bränns in. Saknas: box. */
+  subtitles?: { editable: boolean; reason: string | null; words: CaptionWord[]; style?: "box" | "outline" };
 }
 
 /** Ett ord i undertexten. */
