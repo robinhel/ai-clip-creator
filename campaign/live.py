@@ -7,7 +7,9 @@ Här finns kärnan utan nätverk: toppar i chatten, var toppen ligger i VOD:en, 
 from __future__ import annotations
 
 import datetime as dt
+import socket
 from collections import deque
+from collections.abc import Iterator
 
 from clipsmith.models.chat import HYPE_EMOTES, ChatLog, ChatMessage
 
@@ -92,3 +94,43 @@ def chat_for_part(messages: list[ChatMessage], start_s: float, end_s: float, vid
         ChatMessage(time_in_seconds=m.time_in_seconds - start_s, message=m.message, author=m.author,
                     is_clip_command=m.is_clip_command, hype_emote_count=m.hype_emote_count)
         for m in messages if start_s <= m.time_in_seconds < end_s])
+
+
+IRC_HOST, IRC_PORT = "irc.chat.twitch.tv", 6667
+
+
+def parse_irc(line: str) -> tuple[str, str, int] | None:
+    """(avsändare, text, tid i ms) för ett chattmeddelande från Twitchs IRC, annars None."""
+    tags: dict[str, str] = {}
+    if line.startswith("@"):
+        raw, _, line = line.partition(" ")
+        tags = dict(part.partition("=")[::2] for part in raw[1:].split(";"))
+    prefix, _, rest = line.partition(" ")
+    command, _, rest = rest.partition(" ")
+    if command != "PRIVMSG" or not prefix.startswith(":"):
+        return None
+    _, _, text = rest.partition(" :")
+    author = prefix[1:].partition("!")[0]
+    sent = tags.get("tmi-sent-ts", "")
+    return author, text, int(sent) if sent.isdigit() else int(dt.datetime.now(dt.UTC).timestamp() * 1000)
+
+
+def read_chat(channel: str, timeout_s: float = 300.0) -> Iterator[tuple[str, str, int]]:
+    """Läser kanalens chatt live, utan inloggning (justinfan är Twitchs anonyma läsare).
+    Ger (avsändare, text, tid i ms) tills anslutningen stängs."""
+    with socket.create_connection((IRC_HOST, IRC_PORT), timeout=timeout_s) as conn:
+        conn.sendall(b"CAP REQ :twitch.tv/tags\r\nNICK justinfan31415\r\n"
+                     + f"JOIN #{channel.lower()}\r\n".encode())
+        buffer = b""
+        while True:
+            data = conn.recv(4096)
+            if not data:
+                return
+            buffer += data
+            *lines, buffer = buffer.split(b"\r\n")
+            for raw in lines:
+                line = raw.decode("utf-8", "replace")
+                if line.startswith("PING"):
+                    conn.sendall(b"PONG :tmi.twitch.tv\r\n")
+                elif (msg := parse_irc(line)) is not None:
+                    yield msg
