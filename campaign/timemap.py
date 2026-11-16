@@ -22,6 +22,7 @@ PAD_S = 0.15  # så mycket tystnad som blir kvar på varje sida
 FILLERS = {"um", "uh", "uhm", "umm", "uhh", "erm", "er", "ehm", "eh", "hmm", "hm", "mm", "mhm"}
 FILLER_MAX_S = 1.2
 MIN_PIECE_S = MIN_GAP_S = 0.1  # kortare bitar tas bort, kortare luckor slås ihop
+EPS = 1e-6  # 11,0 - 10,9 är 0,0999… i flyttal
 HOOK_MAX_S, HOOK_MIN_S = 3.0, 1.0
 HOOK_EARLIEST_S = 3.0  # en payoff i början är redan en hook
 
@@ -80,11 +81,11 @@ def plan(duration: float, fps: float, words: list[dict], silences: list[tuple[fl
         pieces.append((at, duration))
     joined: list[tuple[float, float]] = []
     for start, end in ((_frame(s, fps), _frame(e, fps)) for s, e in pieces):  # hela bildrutor: ljud och bild i takt
-        if joined and start - joined[-1][1] < MIN_GAP_S:
+        if joined and start - joined[-1][1] < MIN_GAP_S - EPS:
             joined[-1] = (joined[-1][0], end)
         else:
             joined.append((start, end))
-    main = [(start, end) for start, end in joined if end - start >= MIN_PIECE_S]
+    main = [(start, end) for start, end in joined if end - start >= MIN_PIECE_S - EPS]
     length = sum(end - start for start, end in main)
     whole = [(0.0, _frame(duration, fps))]
     cut = main != whole and length >= min_s  # annars blir klippet kortare än kampanjen tillåter: ta inget
