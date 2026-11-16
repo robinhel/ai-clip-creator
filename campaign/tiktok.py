@@ -509,7 +509,7 @@ class TikTok:
         post_url = f"https://www.tiktok.com/@{username}/video/{upload['post_id']}" \
             if upload["post_id"] and username else None
         if fetched and upload["status"] == "published" and post_url:  # just blev publicerat: en gång
-            add_post(self.settings, clip_id, "tiktok", post_url, created=seen)  # tiden blir hellre för kort
+            add_post(self.settings, clip_id, "tiktok", post_url, created=seen, account=upload["open_id"])  # tiden blir hellre för kort
         return {**{key: upload[key] for key in ("clip_id", "publish_id", "status", "error", "created", "open_id",
                                                 "mode", "privacy_level", "post_id")},
                 "display_name": account.get("display_name"),

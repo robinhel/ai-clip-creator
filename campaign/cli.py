@@ -212,11 +212,14 @@ def cmd_posted(args, settings: Settings) -> int:
     if status not in ("godkand", *POST_STATUSES):  # samma regel som webben: bara godkända klipp postas
         print(f"#{args.clip_id} är {status}. Godkänn klippet innan det markeras som postat.")
         return 1
-    same = [p for p in log.posts(args.clip_id) if p["platform"] == (args.platform or "tiktok")]
+    platform = args.platform or "tiktok"
+    same = [p for p in log.posts(args.clip_id) if p["platform"] == platform]
+    if load_profile(log.get(args.clip_id)["profile"], settings.profiles_dir).multi(platform):
+        same = [p for p in same if p["account"] is None]  # kontonas inlägg står kvar; för hand ett utan konto
     if same:  # samma plattform igen: byt länken
         log.update_post(same[0]["id"], url=args.url)
-    else:  # ett inlägg per plattform
-        log.add_post(args.clip_id, args.platform or "tiktok", args.url)
+    else:  # ett inlägg per plattform (eller per konto)
+        log.add_post(args.clip_id, platform, args.url)
     print("Sparat. Skicka nu in länken i Content Rewards, och kör sedan:")
     print(f"  python -m campaign mark {args.clip_id} inskickad")
     return 0

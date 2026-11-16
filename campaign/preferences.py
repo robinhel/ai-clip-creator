@@ -35,14 +35,15 @@ def save_submit_helper(settings: Settings, on: bool) -> None:
     write_atomic(_path(settings), json.dumps({"submit_helper": on}).encode("utf-8"))
 
 
-def add_post(settings: Settings, clip_id: int, platform: str, url: str, created: str | None = None) -> None:
-    """Hjälpen: inlägget skapas när appen får adressen, och created blir publiceringstiden. En gång per plattform;
+def add_post(settings: Settings, clip_id: int, platform: str, url: str, created: str | None = None,
+             account: str | None = None) -> None:
+    """Hjälpen: inlägget skapas när appen får adressen, och created blir publiceringstiden. En gång per konto;
     ett fel här får aldrig göra en lyckad uppladdning till ett fel."""
     if not submit_helper(settings):
         return
     try:
-        ClipLog(settings.data_dir / "klipp.db").add_post(clip_id, platform, url, created)
-    except (sqlite3.IntegrityError, SystemExit):  # finns redan ett inlägg på plattformen, eller klippet finns inte
+        ClipLog(settings.data_dir / "klipp.db").add_post(clip_id, platform, url, created, account)
+    except (sqlite3.IntegrityError, SystemExit):  # finns redan ett inlägg på kontot, eller klippet finns inte
         pass
     except sqlite3.Error:
         log.warning("Inlägget för klipp %s kunde inte sparas; uppladdningen lyckades ändå", clip_id, exc_info=True)
