@@ -511,6 +511,9 @@ class _NoColumns:
     def __exit__(self, *exc):
         return self.db.__exit__(*exc)
 
+    def __getattr__(self, name):  # close, in_transaction m.m. som den riktiga anslutningen
+        return getattr(self.db, name)
+
 
 def test_broken_transcript_gives_an_empty_answer(client, settings) -> None:  # noqa: F811
     log = ClipLog(settings.data_dir / "klipp.db")
