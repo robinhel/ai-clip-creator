@@ -254,3 +254,16 @@ def test_a_too_big_overlay_is_refused_before_it_is_read(app, tmp_path):
         file.truncate(10 * 1024 * 1024 + 1)
     result = _call("upload_overlay", {"profile_id": "x", "png_path": str(big)})
     assert result.is_error and "10 MB" in result.content[0].text and app.requests == []
+
+
+def test_the_accounts_of_a_clip_and_a_new_text_for_another_account(app):
+    tools = _tools()
+    assert tools["clip_accounts"].annotations.readOnlyHint
+    assert tools["suggest_variant"].description.startswith("Kostar pengar (Claude). Fråga Robin först.")
+    _call("clip_accounts", {"clip_id": 5, "platform": "tiktok"})
+    assert (app.requests[-1].method, app.requests[-1].url.raw_path.decode()) == (
+        "GET", "/campaign/clips/5/accounts?platform=tiktok")
+    _call("suggest_variant", {"clip_id": 5, "platform": "tiktok", "account": "openB"})
+    request = app.requests[-1]
+    assert (request.method, request.url.path, json.loads(request.content)) == (
+        "POST", "/campaign/clips/5/variant", {"platform": "tiktok", "account": "openB"})
