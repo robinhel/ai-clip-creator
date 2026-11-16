@@ -37,6 +37,10 @@ MISSED_S = 6 * 3600
 YOUTUBE_DAILY = 100
 MISSED = "Missad: Macen var avstängd vid tiden."
 ALREADY = "Klippet finns redan på kanalen."
+ONE_PER_ACCOUNT = "Klippet har redan ett inlägg på det här kontot."
+MAX_ACCOUNTS = 5  # Content Rewards villkor 14.2
+SAME_TEXT = ("Samma text finns redan på ett annat konto för det här klippet. Skriv en ny text eller tryck Föreslå "
+             "ny text.")
 TIKTOK_LIVE = ("uploading", "uploaded", "processing", "published")
 FINISHED = ("done", "reminded", "failed", "cancelled")
 _thread: list[threading.Thread] = []
@@ -70,13 +74,12 @@ def clip_file(settings: Settings, clip: dict, platform: str,
     if clip["problems"]:
         raise ScheduleError("Klippet har problem. Rätta dem innan du laddar upp.")
     key, name = NAMES[platform]
-    try:
-        platforms = load_profile(clip["profile"], settings.profiles_dir).platforms
-    except SystemExit:  # kampanjen finns inte längre: som före plattformslistan
-        platforms = list(PLATFORMS)
-    if key not in platforms:
+    profile = _profile(settings, clip["profile"])
+    if key not in (profile.platforms if profile else PLATFORMS):  # kampanjen finns inte: som före listan
         raise ScheduleError(f"Kampanjen postar inte på {name}.")
-    if any(post["platform"] == key for post in ClipLog(settings.data_dir / "klipp.db").posts(clip["id"])):
+    multi = profile is not None and profile.multi(key)  # flera konton: reglerna per konto i check_variant
+    if not multi and any(post["platform"] == key
+                         for post in ClipLog(settings.data_dir / "klipp.db").posts(clip["id"])):
         raise ScheduleError(f"Klippet har redan ett inlägg på {name}.")
     path = Path(clip["file"] or "").resolve()
     if not path.is_relative_to(settings.out_dir.resolve()) or path.suffix != ".mp4" or not path.exists():
@@ -97,6 +100,26 @@ def _day(moment: datetime) -> tuple[str, str]:
     return _iso(start), _iso(start + timedelta(days=1))
 
 
+def _norm(text: str | None) -> str:
+    """Texten utan skillnad i versaler, blanksteg och hashtaggar i början och slutet."""
+    words = (text or "").lower().split()
+    while words and words[0].startswith("#"):
+        words.pop(0)
+    while words and words[-1].startswith("#"):
+        words.pop()
+    return "".join(words)
+
+
+def _texts(fields: dict) -> list[str]:
+    """Rubriken och beskrivningen (YouTube), eller TikToks beskrivning (title)."""
+    return [str(fields[key]) for key in ("title", "description") if fields.get(key)]
+
+
+def _when(text: str) -> datetime:
+    moment = datetime.fromisoformat(text)
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
 def clip_seconds(clip: dict, path: Path) -> float:
     has_times = clip["start_s"] is not None and clip["end_s"] is not None
     return clip["end_s"] - clip["start_s"] if has_times else probe(path)["duration"]
@@ -111,9 +134,10 @@ class Schedule:
             db.execute("""CREATE TABLE IF NOT EXISTS scheduled_posts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER, platform TEXT, account TEXT, at TEXT,
                 fields TEXT, status TEXT, error TEXT, result TEXT, created TEXT, updated TEXT)""")
-            # Högst en väntande post per klipp och plattform, också om två anrop kommer samtidigt.
-            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS scheduled_waiting ON scheduled_posts (clip_id, platform) "
-                       "WHERE status = 'waiting'")
+            # Högst en väntande post per klipp, plattform och konto, också om två anrop kommer samtidigt.
+            db.execute("DROP INDEX IF EXISTS scheduled_waiting")  # före flera konton: per klipp och plattform
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS scheduled_waiting_account ON scheduled_posts "
+                       "(clip_id, platform, COALESCE(account, '')) WHERE status = 'waiting'")
 
     @contextlib.contextmanager
     def _db(self):
@@ -171,6 +195,14 @@ class Schedule:
         fields = self._check(platform, account, fields, clip_seconds(clip, clip_file(self.settings, clip, platform)))
         self.check_account(clip, platform, account, at)
         self._not_there_yet(clip_id, platform, account)
+        self.check_variant(clip, platform, account, fields)
+        name = "YouTube" if platform == "youtube" else "TikTok"
+        busy = f"Klippet är redan schemalagt för {name}. Avbryt den posten först."
+        if not self._multi(clip, platform):  # ett konto: en väntande post per plattform, som förut
+            with self._db() as db:
+                if db.execute("SELECT 1 FROM scheduled_posts WHERE clip_id = ? AND platform = ? AND status = 'waiting'",
+                              (clip_id, platform)).fetchone():
+                    raise ScheduleError(busy, 409)
         now = _iso(_now())
         try:
             with self._db() as db:
@@ -179,8 +211,7 @@ class Schedule:
                     "VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?)",
                     (clip_id, platform, account, _iso(at), json.dumps(fields, ensure_ascii=False), now, now)).lastrowid
         except sqlite3.IntegrityError as error:
-            name = "YouTube" if platform == "youtube" else "TikTok"
-            raise ScheduleError(f"Klippet är redan schemalagt för {name}. Avbryt den posten först.", 409) from error
+            raise ScheduleError(busy, 409) from error
         return self.get(int(post_id))
 
     def _check(self, platform: str, account: str | None, fields: dict, duration_s: float) -> dict:
@@ -219,6 +250,71 @@ class Schedule:
             day = at.astimezone(STOCKHOLM)
             raise ScheduleError(f"Kontot har redan {limit} inlägg på {name} den {day.day}/{day.month}. Kampanjen "
                                 f"tillåter högst {limit} per konto och dag. Välj en annan dag eller ett annat konto.")
+
+    def _multi(self, clip: dict, platform: str) -> bool:
+        profile = _profile(self.settings, clip["profile"])
+        return profile is not None and profile.multi(NAMES[platform][0])
+
+    def _uses(self, clip_id: int, platform: str, skip: int | None = None) -> dict[str | None, dict]:
+        """Kontona där klippet ligger eller är schemalagt på plattformen: konto -> state (posted eller
+        scheduled), tid och texter. None är ett inlägg loggat för hand, eller en påminnelse."""
+        uses: dict[str | None, dict] = {}
+
+        def use(account: str | None, state: str, at: str | None, texts: list) -> None:
+            found = uses.setdefault(account, {"state": state, "at": at, "texts": []})
+            if state == "posted" and found["state"] != "posted":
+                found.update(state=state, at=at)
+            found["texts"] += [t for t in texts if t]
+
+        with self._db() as db:
+            rows = db.execute("SELECT account, at, fields FROM scheduled_posts WHERE clip_id = ? AND platform = ? "
+                              "AND id IS NOT ? AND status IN ('waiting', 'running')", (clip_id, platform, skip)).fetchall()
+        for row in rows:
+            use(row["account"], "scheduled", row["at"], _texts(json.loads(row["fields"] or "{}")))
+        for post in self.clips.posts(clip_id):
+            if post["platform"] == NAMES[platform][0]:
+                use(post["account"], "posted", post["created"], [])
+        if platform == "youtube":
+            with YouTube(self.settings)._db() as db:
+                rows = db.execute("SELECT channel_id, created, title, description FROM youtube_uploads "
+                                  "WHERE clip_id = ? AND status != 'failed'", (clip_id,)).fetchall()
+        else:
+            with TikTok(self.settings)._db() as db:
+                rows = db.execute(f"SELECT open_id, created, title FROM tiktok_uploads WHERE clip_id = ? AND "
+                                  f"mode = 'direct' AND status IN ({', '.join('?' * len(TIKTOK_LIVE))})",
+                                  (clip_id, *TIKTOK_LIVE)).fetchall()
+        for row in rows:
+            use(row[0], "posted", row[1], list(row[2:]))
+        return uses
+
+    def check_variant(self, clip: dict, platform: str, account: str | None, fields: dict,
+                      skip: int | None = None) -> None:
+        """Reglerna när kampanjen har flera konton på plattformen: ett inlägg per konto, högst fem konton per
+        klipp, och en egen text på varje konto. Med ett eller inget konto gäller clip_file som förut."""
+        if not self._multi(clip, platform):
+            return
+        name = NAMES[platform][1]
+        uses = self._uses(clip["id"], platform, skip)
+        mine = uses.pop(account, None)
+        if mine:
+            raise ScheduleError(ONE_PER_ACCOUNT if mine["state"] == "posted" else
+                                f"Klippet är redan schemalagt för {name} på det kontot. Avbryt den posten först.", 409)
+        if len(uses) >= MAX_ACCOUNTS:
+            raise ScheduleError(f"Klippet ligger redan på {MAX_ACCOUNTS} konton på {name}. Content Rewards tillåter "
+                                f"högst {MAX_ACCOUNTS}.")
+        taken = {_norm(text) for other in uses.values() for text in other["texts"]} - {""}
+        if any(_norm(text) in taken for text in _texts(fields)):
+            raise ScheduleError(SAME_TEXT)
+
+    def label(self, platform: str, account: str | None) -> str:
+        """Kontots namn för Robin: användarnamn eller kanalnamn, annars id."""
+        if account is None:
+            return "ett konto utan namn"
+        if platform == "youtube":
+            info = YouTube(self.settings).accounts().get(account) or {}
+            return info.get("title") or info.get("handle") or account
+        info = TikTok(self.settings).accounts().get(account) or {}
+        return info.get("username") or info.get("display_name") or account
 
     def _names(self, platform: str, account: str) -> set[str]:
         """Kontots id och namn, så att profilen kan nämna det med användarnamn eller handle."""
@@ -260,11 +356,20 @@ class Schedule:
         at = datetime.fromisoformat(post["at"])
         near = self._post_times(post["platform"], post["account"], _iso(at - timedelta(minutes=gap, seconds=-1)),
                                 _iso(at + timedelta(minutes=gap)), skip=post["id"])  # precis gap ifrån är okej
-        if not near:
+        if near:
+            other = datetime.fromisoformat(min(near, key=lambda t: abs(datetime.fromisoformat(t) - at)))
+            return (f"Kontot har ett annat inlägg kl. {other.astimezone(STOCKHOLM):%H:%M}. Kampanjen vill ha minst "
+                    f"{gap} minuter mellan inläggen på samma konto.")
+        # Samma klipp på ett annat konto på samma plattform.
+        same = [(abs(_when(use["at"]) - at), account, _when(use["at"]))
+                for account, use in self._uses(post["clip_id"], post["platform"], skip=post["id"]).items()
+                if account != post["account"] and use["at"] and abs(_when(use["at"]) - at) < timedelta(minutes=gap)]
+        if not same:
             return None
-        other = datetime.fromisoformat(min(near, key=lambda t: abs(datetime.fromisoformat(t) - at)))
-        return (f"Kontot har ett annat inlägg kl. {other.astimezone(STOCKHOLM):%H:%M}. Kampanjen vill ha minst "
-                f"{gap} minuter mellan inläggen på samma konto.")
+        _, account, when = min(same, key=lambda item: item[0])
+        return (f"Samma klipp ligger på {self.label(post['platform'], account)} kl. "
+                f"{when.astimezone(STOCKHOLM):%H:%M}. Kampanjen vill ha minst {gap} minuter mellan samma klipp på "
+                f"olika konton.")
 
     def _not_there_yet(self, clip_id: int, platform: str, account: str | None) -> None:
         """Knapparnas spärr gäller bara 10 minuter. Ett klipp som redan finns på kanalen laddas inte upp igen."""
@@ -368,6 +473,7 @@ class Schedule:
         path = clip_file(self.settings, clip, post["platform"], "Klippet är inte längre godkänt.")
         duration_s = clip_seconds(clip, path)
         self._not_there_yet(post["clip_id"], post["platform"], post["account"])
+        self.check_variant(clip, post["platform"], post["account"], post["fields"], skip=post["id"])
         if post["platform"] == "youtube":
             youtube = YouTube(self.settings)
             if youtube.uploads_today() >= YOUTUBE_DAILY:

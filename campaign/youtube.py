@@ -254,6 +254,14 @@ class YouTube:
         db.execute("""CREATE TABLE IF NOT EXISTS youtube_uploads (
             id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER, channel_id TEXT, video_id TEXT,
             status TEXT, error TEXT, privacy TEXT, created TEXT, checked TEXT)""")
+        have = {row[1] for row in db.execute("PRAGMA table_info(youtube_uploads)")}
+        for column in ("title", "description"):  # regeln om olika text per kanal; gamla rader får NULL
+            if column not in have:
+                try:
+                    db.execute(f"ALTER TABLE youtube_uploads ADD COLUMN {column} TEXT")
+                except sqlite3.OperationalError as error:
+                    if "duplicate column" not in str(error):  # en annan tråd hann före
+                        raise
         return db
 
     def _set(self, upload_id: int, **fields) -> None:
@@ -380,8 +388,10 @@ class YouTube:
             created = _iso(_now())
             with self._db() as db:
                 upload_id = db.execute(
-                    "INSERT INTO youtube_uploads (clip_id, channel_id, status, privacy, created) VALUES (?,?,?,?,?)",
-                    (clip_id, channel_id, "uploading", video["privacy"], created)).lastrowid
+                    "INSERT INTO youtube_uploads (clip_id, channel_id, status, privacy, created, title, description) "
+                    "VALUES (?,?,?,?,?,?,?)", (clip_id, channel_id, "uploading", video["privacy"], created,
+                                               metadata["snippet"]["title"], metadata["snippet"]["description"])
+                ).lastrowid
             try:  # en Short är högst 3 minuter, så filen ryms i minnet
                 put = self._put_file(http, session, path, size)
                 if put.status_code not in (200, 201):

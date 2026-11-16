@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import ipaddress
 import secrets
@@ -139,6 +140,11 @@ def upload_clip(clip_id: int, body: UploadBody | None = None, settings: Settings
         path = clip_file(settings, clip, "tiktok", "Bara godkända klipp kan laddas upp till TikTok.")
         body = body or UploadBody()
         Schedule(settings).check_account(clip, "tiktok", body.open_id, datetime.now(UTC), counts=body.mode == "direct")
+        account = body.open_id
+        if account is None:  # det enda kopplade kontot; inte kopplat: upload ger felet
+            with contextlib.suppress(TikTokError):
+                account = TikTok(settings).choose(None)
+        Schedule(settings).check_variant(clip, "tiktok", account, body.model_dump() if body.mode == "direct" else {})
     except ScheduleError as error:
         raise HTTPException(error.status, str(error)) from error
     post, duration_s = None, 0.0
