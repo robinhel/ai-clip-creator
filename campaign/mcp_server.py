@@ -385,7 +385,7 @@ def send_tiktok(clip_id: int, mode: Literal["draft", "direct"] = "draft", open_i
 
 @server.tool(annotations=WRITE)
 def add_post(clip_id: int, platform: Literal["tiktok", "youtube_shorts", "instagram_reels"], url: str) -> str:
-    """Markera ett klipp som postat med länken till inlägget (ett inlägg per plattform)."""
+    """Markera ett klipp som postat med länken till inlägget (för hand, utan konto: ett per plattform)."""
     return _send("POST", f"/campaign/clips/{clip_id}/posts", {"platform": platform, "url": url})
 
 

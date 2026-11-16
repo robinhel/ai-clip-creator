@@ -68,6 +68,11 @@ class Profile:
         value = self.raw.get("platforms")
         return [str(p) for p in value] if isinstance(value, list) and value else list(PLATFORMS)
 
+    def multi(self, platform: str) -> bool:
+        """Kampanjen postar från flera konton på plattformen (tiktok, youtube_shorts). Annars gäller ett inlägg
+        per klipp och plattform."""
+        return len(self.accounts.get(platform) or []) >= 2
+
     @property
     def content_rewards_url(self) -> str | None:
         """Kampanjen i Content Rewards, bara en https-adress."""

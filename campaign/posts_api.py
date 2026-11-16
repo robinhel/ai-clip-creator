@@ -63,16 +63,21 @@ def add_post(clip_id: int, body: NewPost, response: Response, settings: Settings
         raise HTTPException(400, "Klippet måste vara godkänt innan det postas.")
     if clip["problems"]:
         raise HTTPException(400, "Klippet har problem. Det får inte postas.")
-    problem = _link_problem(body.url.strip(), body.platform)
+    url = body.url.strip()
+    problem = _link_problem(url, body.platform)
     if problem:
         raise HTTPException(400, problem)
+    posts = [p for p in log.posts(clip_id) if p["platform"] == body.platform]
+    if any(p["url"] == url for p in posts):
+        response.status_code = 200  # samma inlägg igen, till exempel lagt in av hjälpen efter uppladdningen
+        return _public(log.get(clip_id), settings)
+    taken = "Klippet har redan ett inlägg på den plattformen. Ändra länken i stället."
+    if posts and not _profile(clip["profile"], settings).multi(body.platform):  # ett konto: ett inlägg
+        raise HTTPException(409, taken)
     try:
-        log.add_post(clip_id, body.platform, body.url.strip())
+        log.add_post(clip_id, body.platform, url)  # för hand: inget konto
     except sqlite3.IntegrityError as error:
-        if any(p["platform"] == body.platform and p["url"] == body.url.strip() for p in log.posts(clip_id)):
-            response.status_code = 200  # samma inlägg igen, till exempel lagt in av hjälpen efter uppladdningen
-            return _public(log.get(clip_id), settings)
-        raise HTTPException(409, "Klippet har redan ett inlägg på den plattformen. Ändra länken i stället.") from error
+        raise HTTPException(409, taken) from error
     return _public(log.get(clip_id), settings)
 
 

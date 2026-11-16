@@ -20,7 +20,15 @@ STATUSES = [
 
 # Ett inlägg är klippet på en plattform. Varje inlägg skickas in, följs och betalas för sig.
 POST_STATUSES = ["postad", "inskickad", "analytics_inskickad", "betald"]
-POST_COLUMNS = "id, clip_id, platform, url, status, views, likes, comments, shares, paid_usd, created, updated"
+POST_COLUMNS = ("id, clip_id, platform, account, url, status, views, likes, comments, shares, paid_usd, created, "
+                "updated")
+# Ett inlägg per klipp, plattform och konto. Ett inlägg loggat för hand har inget konto (NULL), och räknas som
+# ett eget konto: två utan konto på samma plattform går inte.
+POSTS_TABLE = """CREATE TABLE IF NOT EXISTS {name} (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER, platform TEXT, account TEXT, url TEXT,
+    status TEXT, views INTEGER, likes INTEGER, comments INTEGER, shares INTEGER,
+    paid_usd REAL, created TEXT, updated TEXT)"""
+POSTS_UNIQUE = ("CREATE UNIQUE INDEX IF NOT EXISTS posts_account ON posts (clip_id, platform, COALESCE(account, ''))")
 PLATFORM_NAMES = {"tiktok": "TikTok", "instagram_reels": "Reels", "youtube_shorts": "Shorts"}
 STAT_KEYS = ("views", "likes", "comments", "shares")
 
@@ -62,17 +70,16 @@ class ClipLog:
                 """CREATE TABLE IF NOT EXISTS runs (
                     run_id INTEGER PRIMARY KEY, vod_id TEXT, profile TEXT, game TEXT)"""
             )
-            db.execute(
-                """CREATE TABLE IF NOT EXISTS posts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER, platform TEXT, url TEXT,
-                    status TEXT, views INTEGER, likes INTEGER, comments INTEGER, shares INTEGER,
-                    paid_usd REAL, created TEXT, updated TEXT, UNIQUE (clip_id, platform))"""
-            )
+            db.execute(POSTS_TABLE.format(name="posts"))
+            if "account" in {row["name"] for row in db.execute("PRAGMA table_info(posts)")}:
+                db.execute(POSTS_UNIQUE)
             # Klipp från före inläggen: klippets länk blir ett inlägg. Bara en gång (user_version 0 -> 1),
             # så att ett klipp vars inlägg är borttagna inte får tillbaka dem.
             if db.execute("PRAGMA user_version").fetchone()[0] < 1:
                 self._move_links_to_posts(db)
                 db.execute("PRAGMA user_version = 1")
+        self._add_accounts()
+        with self._db() as db:
             for table, columns in NEW_COLUMNS.items():
                 have = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
                 for name, kind in columns.items():
@@ -95,6 +102,47 @@ class ClipLog:
                  AND id NOT IN (SELECT clip_id FROM posts)""",
             POST_STATUSES,
         )
+
+    def _add_accounts(self) -> None:
+        """user_version 1 -> 2: posts får kolumnen account och unikhet per konto. SQLite kan inte ta bort
+        UNIQUE (clip_id, platform), så tabellen byggs om, i en transaktion. Gamla inlägg får kontot från
+        uppladdningen när adressen pekar på just den videon, annars NULL."""
+        db = sqlite3.connect(self.db_path, isolation_level=None)
+        try:
+            db.execute("BEGIN IMMEDIATE")  # en process i taget; den andra ser user_version 2 och gör inget
+            if db.execute("PRAGMA user_version").fetchone()[0] >= 2:
+                db.execute("COMMIT")
+                return
+            if "account" not in {row[1] for row in db.execute("PRAGMA table_info(posts)")}:
+                tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+                guesses = []
+                if "tiktok_uploads" in tables:
+                    guesses.append("""SELECT open_id AS a FROM tiktok_uploads u WHERE u.clip_id = p.clip_id
+                        AND p.platform = 'tiktok' AND u.mode = 'direct' AND u.open_id IS NOT NULL
+                        AND u.post_id != '' AND substr(p.url, -length(u.post_id) - 7) = '/video/' || u.post_id""")
+                if "youtube_uploads" in tables:
+                    guesses.append("""SELECT channel_id AS a FROM youtube_uploads u WHERE u.clip_id = p.clip_id
+                        AND p.platform = 'youtube_shorts' AND u.channel_id IS NOT NULL AND u.video_id != ''
+                        AND substr(p.url, -length(u.video_id) - 1) = '/' || u.video_id""")
+                # Bara ett enda konto som passar räknas som säkert.
+                account = (f"(SELECT CASE WHEN COUNT(DISTINCT a) = 1 THEN MAX(a) END FROM "
+                           f"({' UNION ALL '.join(guesses)}))") if guesses else "NULL"
+                db.execute(POSTS_TABLE.format(name="posts_new"))
+                db.execute(f"""INSERT INTO posts_new (id, clip_id, platform, account, url, status, views, likes,
+                                   comments, shares, paid_usd, created, updated)
+                               SELECT id, clip_id, platform, {account}, url, status, views, likes, comments,
+                                   shares, paid_usd, created, updated FROM posts p""")
+                db.execute("DROP TABLE posts")
+                db.execute("ALTER TABLE posts_new RENAME TO posts")
+            db.execute(POSTS_UNIQUE)
+            db.execute("PRAGMA user_version = 2")
+            db.execute("COMMIT")
+        except BaseException:
+            if db.in_transaction:
+                db.execute("ROLLBACK")
+            raise
+        finally:
+            db.close()
 
     def _db(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.db_path)
@@ -185,15 +233,18 @@ class ClipLog:
             raise SystemExit(f"Hittar inget inlägg med id {post_id}.")
         return dict(row)
 
-    def add_post(self, clip_id: int, platform: str, url: str, created: str | None = None) -> int:
-        """Ett nytt inlägg med status postad. Samma plattform två gånger ger sqlite3.IntegrityError.
-        created: när inlägget publicerades, om det var före nu."""
+    def add_post(self, clip_id: int, platform: str, url: str, created: str | None = None,
+                 account: str | None = None) -> int:
+        """Ett nytt inlägg med status postad. Samma plattform och konto två gånger ger sqlite3.IntegrityError.
+        created: när inlägget publicerades, om det var före nu. account: open_id eller channel_id, None för
+        ett inlägg loggat för hand."""
         self.get(clip_id)
         now = _now()
         with self._db() as db:
             cursor = db.execute(
-                "INSERT INTO posts (clip_id, platform, url, status, created, updated) VALUES (?,?,?,?,?,?)",
-                (clip_id, platform, url, "postad", created or now, now),
+                "INSERT INTO posts (clip_id, platform, account, url, status, created, updated) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (clip_id, platform, account, url, "postad", created or now, now),
             )
             post_id = int(cursor.lastrowid)
         self._sync(clip_id)
