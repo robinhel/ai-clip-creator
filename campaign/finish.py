@@ -62,15 +62,18 @@ def _hook(
     return parts
 
 
-def _pieces(pieces: list[tuple[float, float]], has_audio: bool) -> list[str]:
-    """Bitarna ur klippet efter varandra (tidskartan). Ut: [cv] och, med ljud, [ca]."""
+def _pieces(pieces: list[tuple[float, float]], has_audio: bool, cold_open: bool) -> list[str]:
+    """Bitarna ur klippet efter varandra (tidskartan). Ut: [cv] och, med ljud, [ca]. Hooken (cold_open, första
+    biten) läses från ingång 1, samma fil från hookens start: ur ingång 0 skulle bildrutorna före den vänta i
+    minnet tills hooken är klar."""
     parts, inputs = [], ""
     for i, (start, end) in enumerate(pieces):
-        span = f"start={start:.6f}:end={end:.6f}"
-        parts.append(f"[0:v]trim={span},setpts=PTS-STARTPTS[v{i}]")
+        src, span = ("1", f"duration={end - start:.6f}") if cold_open and i == 0 else \
+            ("0", f"start={start:.6f}:end={end:.6f}")
+        parts.append(f"[{src}:v]trim={span},setpts=PTS-STARTPTS[v{i}]")
         inputs += f"[v{i}]"
         if has_audio:
-            parts.append(f"[0:a]atrim={span},asetpts=PTS-STARTPTS[a{i}]")
+            parts.append(f"[{src}:a]atrim={span},asetpts=PTS-STARTPTS[a{i}]")
             inputs += f"[a{i}]"
     outputs = "[cv][ca]" if has_audio else "[cv]"
     parts.append(f"{inputs}concat=n={len(pieces)}:v=1:a={int(has_audio)}{outputs}")
@@ -79,21 +82,22 @@ def _pieces(pieces: list[tuple[float, float]], has_audio: bool) -> list[str]:
 
 def build_filter(
     profile: Profile, has_overlay: bool, has_audio: bool, font: str | None, title: str = "",
-    subtitles: Path | None = None, pieces: list[tuple[float, float]] | None = None,
+    subtitles: Path | None = None, pieces: list[tuple[float, float]] | None = None, cold_open: bool = False,
 ) -> str:
-    """Filtergrafen. Ingång 0 är klippet, ingång 1 är overlay-bilden om den finns. Med bitar (tidskartan)
-    sätts de ihop först. Undertexten bränns in sedan, så att overlayen ligger ovanpå den."""
+    """Filtergrafen. Ingång 0 är klippet, sedan hooken (cold_open) och overlay-bilden om de finns. Med bitar
+    (tidskartan) sätts de ihop först. Undertexten bränns in sedan, så att overlayen ligger ovanpå den."""
     burn = f",subtitles=filename='{_esc(str(subtitles))}'" if subtitles else ""
-    parts = _pieces(pieces, has_audio) if pieces else []
+    parts = _pieces(pieces, has_audio, cold_open) if pieces else []
+    ov = 2 if pieces and cold_open else 1
     video, audio = ("cv", "ca") if pieces else ("0:v", "0:a")
     parts.append(f"[{video}]setsar=1{burn}[base]")
     last = "base"
     if has_overlay:
         if profile.overlay_mode == "full":
-            parts.append(f"[1:v]scale={WIDTH}:{HEIGHT}[ov]")
+            parts.append(f"[{ov}:v]scale={WIDTH}:{HEIGHT}[ov]")
             position = "0:0"
         else:
-            parts.append(f"[1:v]scale={WIDTH}:-1[ov]")
+            parts.append(f"[{ov}:v]scale={WIDTH}:-1[ov]")
             position = "0:0" if profile.overlay_mode == "top" else "0:H-h"
         parts.append(f"[{last}][ov]overlay={position}[withov]")
         last = "withov"
@@ -134,11 +138,16 @@ def finish_clip(
     out.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = [need("ffmpeg"), "-y", "-v", "error", "-i", str(src)]
+    cold_open = bool(plan and plan["cold_open"])
+    if plan and cold_open:
+        start, end = plan["pieces"][0]
+        cmd += ["-ss", f"{start:.6f}", "-t", f"{end - start:.6f}", "-i", str(src)]
     if has_overlay:
         cmd += ["-i", str(overlay)]
     cmd += [
         "-filter_complex",
-        build_filter(profile, has_overlay, info["has_audio"], font, title, subtitles, plan["pieces"] if plan else None),
+        build_filter(profile, has_overlay, info["has_audio"], font, title, subtitles,
+                     plan["pieces"] if plan else None, cold_open),
         "-map",
         "[vout]",
     ]

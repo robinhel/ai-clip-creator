@@ -1,7 +1,7 @@
 """Tidskartan i finish: vilka bitar av källan som blir det färdiga klippet, och var orden hamnar.
 
 Allt som Robin redigerar ligger kvar på originalets tidslinje (trimningen och ordfilen). Bara renderingen gör
-klippet kortare: tystnad och utfyllnadsord tas bort. En plan är bitar (start, slut) i källans tid, alltså
+klippet kortare (tystnad och utfyllnadsord tas bort) eller lägger hooken först. En plan är bitar (start, slut) i källans tid, alltså
 filen som finish_clip får (0 = originalets in_s). Det färdiga klippet är bitarna efter varandra.
 """
 
@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
+
+from clipsmith.llm.base import ClipPick
 
 from .media import need, probe
 from .profile import Profile
@@ -20,6 +22,17 @@ PAD_S = 0.15  # så mycket tystnad som blir kvar på varje sida
 FILLERS = {"um", "uh", "uhm", "umm", "uhh", "erm", "er", "ehm", "eh", "hmm", "hm", "mm", "mhm"}
 FILLER_MAX_S = 1.2
 MIN_PIECE_S = MIN_GAP_S = 0.1  # kortare bitar tas bort, kortare luckor slås ihop
+HOOK_MAX_S, HOOK_MIN_S = 3.0, 1.0
+HOOK_EARLIEST_S = 3.0  # en payoff i början är redan en hook
+
+
+def hook_span(pick: ClipPick) -> list[float] | None:
+    """Hooken ur Claudes payoff (ClipPick), i sekunder från råklippets start. None: ingen hook."""
+    if pick.payoff_start_s is None or pick.payoff_end_s is None:
+        return None
+    a = pick.payoff_start_s - pick.start_offset_s
+    b = min(pick.payoff_end_s, pick.payoff_start_s + HOOK_MAX_S) - pick.start_offset_s
+    return [round(a, 3), round(b, 3)] if b - a >= HOOK_MIN_S and a >= HOOK_EARLIEST_S else None
 
 
 def silences(src: Path) -> list[tuple[float, float]]:
@@ -50,7 +63,8 @@ def _frame(t: float, fps: float) -> float:
 
 def plan(duration: float, fps: float, words: list[dict], silences: list[tuple[float, float]],
          hook: list[float] | None, min_s: float, max_s: float, cut_fillers: bool = True) -> dict | None:
-    """Bitarna för källan. Ord och tystnader har källans tider. None: inget att ändra, rendera som förut."""
+    """Bitarna för källan. Ord, tystnader och hook har källans tider. Hooken blir första biten, utan att något
+    tas bort i den, om den ligger helt i källan och hook plus klipp ryms i max_s. None: inget att ändra."""
     removed = [(start + PAD_S, end - PAD_S) for start, end in silences if end - start > 2 * PAD_S]
     silence_cut = sum(min(end, duration) - start for start, end in removed if start < duration)
     fillers = [w for w in words if cut_fillers and is_filler(w)]
@@ -72,10 +86,21 @@ def plan(duration: float, fps: float, words: list[dict], silences: list[tuple[fl
             joined.append((start, end))
     main = [(start, end) for start, end in joined if end - start >= MIN_PIECE_S]
     length = sum(end - start for start, end in main)
-    if main == [(0.0, _frame(duration, fps))] or length < min_s:
-        return None  # inget togs bort, eller klippet blir kortare än kampanjen tillåter
-    return {"pieces": main, "cold_open": False, "silence_cut_s": round(silence_cut, 2),
-            "fillers_cut": sum(1 for w in fillers if not _kept(w, main)), "cold_open_s": 0.0}
+    whole = [(0.0, _frame(duration, fps))]
+    cut = main != whole and length >= min_s  # annars blir klippet kortare än kampanjen tillåter: ta inget
+    if not cut:
+        main, length = whole, whole[0][1]
+    first = None
+    if hook and 0 <= hook[0] and hook[1] <= duration:
+        first = (_frame(hook[0], fps), _frame(hook[1], fps))
+        if length + first[1] - first[0] > max_s:
+            first = None
+    if not cut and first is None:
+        return None
+    return {"pieces": [first, *main] if first else main, "cold_open": first is not None,
+            "silence_cut_s": round(silence_cut, 2) if cut else 0.0,
+            "fillers_cut": sum(1 for w in fillers if not _kept(w, main)) if cut else 0,
+            "cold_open_s": round(first[1] - first[0], 3) if first else 0.0}
 
 
 def _kept(word: dict, pieces: list[tuple[float, float]]) -> bool:
@@ -113,8 +138,9 @@ def prepare(src: Path, data: dict, in_s: float, out_s: float, profile: Profile, 
     info = probe(src)
     words = [{**w, "start": w["start"] - in_s, "end": w["end"] - in_s} for w in data["words"]]
     found = silences(src) if profile.cut_silence and info["has_audio"] else []
-    result = plan(info["duration"], info["fps"], words, found, None, profile.min_seconds, profile.max_seconds,
-                  cut_fillers=profile.cut_fillers)
+    hook = data.get("hook") if profile.cold_open else None
+    result = plan(info["duration"], info["fps"], words, found, hook and [hook[0] - in_s, hook[1] - in_s],
+                  profile.min_seconds, profile.max_seconds, cut_fillers=profile.cut_fillers)
     if result is None:
         write_ass(data, in_s, out_s, ass)
         return None

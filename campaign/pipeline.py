@@ -33,6 +33,7 @@ from .download import download_vod
 from .memory import selection_memory
 from .profile import Profile, load_profile
 from .subtitles import pick_words, save_words
+from .timemap import hook_span
 from .transcribe import berget_post, transcribe_vod
 from .vodinfo import vod_facts
 from .workflow import finish_vod
@@ -205,7 +206,7 @@ def make_clips(
             if words_file:
                 for path, result in zip(paths, picks, strict=True):
                     words = pick_words(transcript, result.pick.start_offset_s, result.pick.end_offset_s)
-                    save_words(path, words, cfg.caption, cfg.reframe, path)
+                    save_words(path, words, cfg.caption, cfg.reframe, path, hook=hook_span(result.pick))
     legacy = settings.out_dir / vod_id / "picks.json"
     if not legacy.exists() and (mp4.parent / "picks.json").exists() and any(legacy.parent.glob("clip_*.mp4")):
         shutil.copy(mp4.parent / "picks.json", legacy)  # gamla klipp i out/<vod>/ behåller sina val
