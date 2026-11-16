@@ -102,3 +102,34 @@ def test_irc_line_becomes_a_message_with_its_time() -> None:
     assert parse_irc("PING :tmi.twitch.tv") is None
     assert parse_irc(":justinfan123!justinfan123@justinfan123.tmi.twitch.tv JOIN #skiimasktimmy") is None
     assert parse_irc(":tmi.twitch.tv 001 justinfan123 :Welcome, GLHF!") is None
+
+
+def test_one_spammer_is_not_a_peak() -> None:
+    """En person som skriver 30 meddelanden på fem sekunder är inte hela chatten som exploderar."""
+    finder = PeakFinder(multiplier=3.0)
+    _calm(finder, 0, 600)
+    peaks = [p for i in range(30) if (p := finder.add(message(600 + i / 6, "KEKW KEKW", "spammer"))) is not None]
+    assert peaks == []
+
+
+def _steps(finder: PeakFinder, start: float, end: float, every: float, prefix: str) -> list[float]:
+    """Jämn chatt med nya avsändare varje gång. Returnerar topparna."""
+    peaks = []
+    for n in range(round((end - start) / every)):  # heltal: summerade flyttal kan ge två meddelanden på samma sekund
+        if (peak := finder.add(message(start + n * every, "nice", f"{prefix}{n}"))) is not None:
+            peaks.append(peak)
+    return peaks
+
+
+def test_a_sudden_jump_is_a_peak_but_the_same_level_reached_slowly_is_not() -> None:
+    # Plötsligt: från lugn chatt till 8 meddelanden per 15 sekunder på en gång.
+    sudden = PeakFinder(multiplier=3.0)
+    _calm(sudden, 0, 600)
+    assert _steps(sudden, 600, 615, 15 / 8, "s") != []
+    # Långsamt: chatten ökar steg för steg till samma nivå. Då är det ingen topp.
+    slow = PeakFinder(multiplier=3.0)
+    _calm(slow, 0, 600)
+    peaks = []
+    for i, every in enumerate((15 / 4, 15 / 5, 15 / 6, 15 / 7, 15 / 8)):
+        peaks += _steps(slow, 600 + 15 * i, 615 + 15 * i, every, f"r{i}_")
+    assert peaks == []
