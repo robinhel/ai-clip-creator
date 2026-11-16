@@ -443,6 +443,8 @@ export interface ScheduledPost {
   result: Record<string, unknown> | null;
   /** Körd efter tiden, till exempel för att Macen sov. */
   late: boolean;
+  /** Väntande post för nära ett annat inlägg på samma konto. Bara en varning: posten är sparad. */
+  warning: string | null;
 }
 
 /** POST /campaign/clips/{id}/schedule. at har tidszon. fields är tom för en påminnelse om TikTok. */
