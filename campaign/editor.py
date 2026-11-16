@@ -28,7 +28,8 @@ from .finish import ENCODER_ARGS, finish_clip
 from .media import need, probe, run
 from .profile import Profile
 from .rules import check_clip
-from .subtitles import WORD_CHARS, load_words, save_words, words_path, write_ass
+from .subtitles import WORD_CHARS, load_words, save_words, words_path
+from .timemap import prepare
 
 lock = threading.Lock()  # en redigering åt gången
 editing: int | None = None  # klippet som redigeras just nu; andra klipp går att ändra under tiden
@@ -245,11 +246,13 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
         if trimmed or new_hook or words_changed or not done.exists():
             if trimmed:
                 _trim(source_path(raw), tmp_raw, new_in, new_out, settings.encoder)
-            if data:  # orden har originalets tider: undertexten för in_s–out_s
+            src = tmp_raw if trimmed else raw
+            plan = None
+            if data:  # orden har originalets tider: undertexten för in_s–out_s, samma plan som körningen
                 ass = raw.with_name(f".{raw.stem}.edit.ass")  # punkt först, som _tmp
-                write_ass({**data, "words": new_words}, new_in, new_out, ass)
-            rendered = finish_clip(tmp_raw if trimmed else raw, tmp_done, profile, settings.root,
-                                   settings.encoder, title=new_title, subtitles=ass)
+                plan = prepare(src, {**data, "words": new_words}, new_in, new_out, profile, ass)
+            rendered = finish_clip(src, tmp_done, profile, settings.root, settings.encoder, title=new_title,
+                                   subtitles=ass, plan=plan)
 
         # Precis före bytet: klippet kan ha postats under tiden. Sedan tas ett gammalt ja bort, så att
         # inget godkännande gäller den nya filen om något går fel efteråt.

@@ -30,7 +30,7 @@ def run(cmd: list[str]) -> None:
 
 
 def probe(path: Path) -> dict:
-    """Bredd, höjd, längd och om filen har ljud."""
+    """Bredd, höjd, längd, bildrutor per sekund och om filen har ljud."""
     out = subprocess.run(
         [need("ffprobe"), "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)],
         capture_output=True,
@@ -46,8 +46,18 @@ def probe(path: Path) -> dict:
         "width": int(video["width"]),
         "height": int(video["height"]),
         "duration": float(data["format"].get("duration", 0.0)),
+        "fps": _rate(video.get("avg_frame_rate")) or _rate(video.get("r_frame_rate")) or 30.0,
         "has_audio": any(s["codec_type"] == "audio" for s in data["streams"]),
     }
+
+
+def _rate(value: str | None) -> float:
+    """"30000/1001" blir 29,97. "0/0" eller inget blir 0."""
+    num, _, den = (value or "0/0").partition("/")
+    try:
+        return float(num) / float(den or 1)
+    except (ValueError, ZeroDivisionError):
+        return 0.0
 
 
 def grab_frames(path: Path, out_dir: Path, count: int = 4, width: int = 540) -> list[Path]:
