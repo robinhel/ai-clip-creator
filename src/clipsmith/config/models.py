@@ -36,6 +36,10 @@ class CandidatesConfig(BaseModel):
     # Chat messages with one of these words (whole word, any case) add reaction_weight to a chat peak.
     reaction_words: list[str] = []
     reaction_weight: float = 0.0
+    # One sender adds at most this much to a chat window (None: no cap). A spammer is not a hot chat.
+    density_author_cap: float | None = None
+    # The rise over the previous chat window counts this much extra: a sudden jump beats a slow rise.
+    density_surge_gain: float = 0.0
     scene_enabled: bool = False  # picture cuts as candidates, for video without speech (trailers)
     scene_threshold: float = 0.3  # ffmpeg scene score 0-1
     scene_boost: float = 30.0
