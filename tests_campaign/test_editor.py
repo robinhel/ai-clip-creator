@@ -595,3 +595,41 @@ def test_words_are_saved_only_after_the_new_clip_is_in_place(setup, settings, mo
         editor.edit_clip(log.get(clip_id), load_profile("skiimasktimmy", settings.profiles_dir), settings, log,
                          words=fixed)
     assert subtitles.words_path(raw).read_bytes() == before
+
+
+# ---------- tidskartan: tystnad och utfyllnadsord ----------
+
+
+def _plans(module, monkeypatch) -> list:
+    seen: list = []
+    real = module.finish_clip
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs.get("plan"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(module, "finish_clip", spy)
+    return seen
+
+
+def test_an_old_clip_without_a_word_file_is_finished_without_pieces(setup, settings, monkeypatch) -> None:
+    _, log, clip_id = setup
+    seen = _plans(workflow, monkeypatch)
+    log.update(clip_id, status="underkand")
+    finish_vod("123", load_profile("skiimasktimmy", settings.profiles_dir), settings, log, review=False)
+    assert seen == [None]
+
+
+def test_the_edit_and_the_run_cut_the_same_filler_word(setup, settings, monkeypatch) -> None:
+    client, log, clip_id = setup
+    raw = _paths(settings)[0]
+    words = [*WORDS[:3], {"start": 3.0, "end": 3.4, "word": "uh"}, WORDS[3]]
+    subtitles.save_words(raw, words, CaptionConfig(enabled=True, style="box"), ReframeConfig(mode="center"), raw)
+    edits = _plans(editor, monkeypatch)
+    assert client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0}).status_code == 200
+    assert edits[-1]["pieces"][:2] == [(0.0, 2.0), (2.4, edits[-1]["pieces"][1][1])]  # 3,0–3,4 i originalet
+    assert edits[-1]["fillers_cut"] == 1
+    runs = _plans(workflow, monkeypatch)
+    log.update(clip_id, status="underkand")
+    finish_vod("123", load_profile("skiimasktimmy", settings.profiles_dir), settings, log, review=False)
+    assert runs == [edits[-1]]
