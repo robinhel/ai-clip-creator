@@ -318,3 +318,38 @@ def test_a_direct_tiktok_upload_counts_as_a_post_on_its_account(sched, settings)
                    "VALUES (?, 'p1', 'processing', ?, 'openA', 'direct', 'Huge clutch')",
                    (clip_id, datetime.now().isoformat()))
     assert _schedule(sched, clip_id, "openB", title="huge clutch").json()["detail"] == SAME
+
+
+# ---------- 3. GET /clips/{id}/accounts ----------
+
+
+def _token(settings, open_id, **names) -> None:
+    TikTok(settings).save_token({"access_token": "a", "refresh_token": "r", "open_id": open_id,
+                                 "refresh_expires_at": "2099-01-01T00:00:00+00:00", **names})
+
+
+def test_the_accounts_of_a_clip_show_where_it_is_posted_scheduled_or_free(sched, settings) -> None:
+    set_profile(settings, accounts={"tiktok": ["openA", "@ClipVault", "openC"]})
+    _token(settings, "openA", display_name="Alpha")
+    _token(settings, "o2", username="clipvault", display_name="Clip Vault")
+    clip_id = _clip(settings)
+    ClipLog(settings.data_dir / "klipp.db").add_post(clip_id, "tiktok", TT_A, account="openA")
+    planned = _schedule(sched, clip_id, "o2", title="Fresh take").json()
+    answer = sched.get(f"/campaign/clips/{clip_id}/accounts", params={"platform": "tiktok"})
+    assert answer.status_code == 200, answer.text
+    body = answer.json()
+    assert (body["multi"], body["max_accounts"]) == (True, 5)
+    posted, scheduled, free = body["accounts"]
+    assert posted["at"] and {**posted, "at": None} == {"account": "openA", "name": "Alpha", "state": "posted",
+                                                       "at": None, "text": None}
+    assert scheduled == {"account": "o2", "name": "clipvault", "state": "scheduled", "at": planned["at"],
+                         "text": "Fresh take"}
+    assert free == {"account": "openC", "name": None, "state": "free", "at": None, "text": None}
+
+
+def test_a_campaign_without_accounts_is_not_multi(sched, settings) -> None:
+    clip_id = _clip(settings)
+    assert sched.get(f"/campaign/clips/{clip_id}/accounts", params={"platform": "youtube"}).json() == {
+        "multi": False, "max_accounts": 5, "accounts": []}
+    assert sched.get("/campaign/clips/999/accounts", params={"platform": "youtube"}).status_code == 404
+    assert sched.get(f"/campaign/clips/{clip_id}/accounts", params={"platform": "myspace"}).status_code == 422
