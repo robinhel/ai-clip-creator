@@ -90,6 +90,8 @@ Respond ONLY with a valid JSON object matching this schema (no markdown, no extr
   "end_offset_s": <number>,    // VOD seconds where the clip ends
   "payoff_start_s": <number>,  // VOD seconds where the payoff starts: the play, the punchline, the reaction
   "payoff_end_s": <number>,    // VOD seconds where the payoff ends
+  "start_quote": <string>,     // the clip's first 3-6 words, copied exactly from the transcript
+  "end_quote": <string>,       // the clip's last 3-6 words, copied exactly from the transcript
   "title": <string>,           // 3-7 word title, no hashtags, no spoilers
   "reason": <string>,          // 1-2 sentences: why, and the first sentence of the clip
   "hook": <integer>,           // 0-25
@@ -111,6 +113,7 @@ Be strict. Most moments total 40-60. A total of 80 or more is rare.
 Rules:
 - Times are absolute VOD seconds. The transcript lines show offsets relative to the candidate center.
 - Start on the first word of a sentence and end after the last word of a sentence.
+- The quotes decide where the clip is cut, so copy the words exactly as the transcript has them.
 - If include is false, still fill the times and title with a best estimate.
 """
 
