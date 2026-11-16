@@ -16,6 +16,9 @@ from campaign.config import Settings
 PAKET = Path(__file__).resolve().parent.parent
 HAS_FFMPEG = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 needs_ffmpeg = pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg saknas")
+HAS_SUBTITLES = HAS_FFMPEG and " subtitles " in subprocess.run(
+    ["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True).stdout
+needs_subtitles = pytest.mark.skipif(not HAS_SUBTITLES, reason="ffmpeg saknas eller har inte libass (subtitles)")
 
 
 class FakeMessages:
