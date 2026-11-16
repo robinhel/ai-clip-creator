@@ -463,3 +463,99 @@ def test_the_tiktok_notice_uses_the_upload_time(client, settings, clip_id, notes
     _post(client, clip_id, "tiktok", at=at, fields=fields, account="open1")
     _run(settings, at, timedelta(seconds=1))
     assert notes[0][0] == "Timmy lands it skickades till TikTok. Skicka in länken i Content Rewards före kl. 18:10."
+
+
+# ---------- spärrarna för konton ----------
+
+
+def _another_clip(settings, name: str) -> int:
+    path = settings.out_dir / name / "klipp.mp4"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"mp4")
+    return ClipLog(settings.data_dir / "klipp.db").add(
+        vod_id="v", profile="skiimasktimmy", file=str(path), title=name, caption="c",
+        status="godkand", start_s=10.0, end_s=40.0)
+
+
+def _stockholm(days: int, hour: int, minute: int = 0) -> str:
+    """En tid i svensk tid, days dagar fram, som ISO med zon."""
+    day = (datetime.now(scout.STOCKHOLM) + timedelta(days=days)).date()
+    return datetime(day.year, day.month, day.day, hour, minute, tzinfo=scout.STOCKHOLM).isoformat()
+
+
+def test_an_account_the_campaign_does_not_list_is_refused(client, settings, clip_id):
+    set_profile(settings, accounts={"youtube_shorts": ["UC2"]})
+    answer = _post(client, clip_id, account="UC1")
+    assert answer.status_code == 400
+    assert "UC2" in answer.json()["detail"]
+    assert _post(client, clip_id, account="UC2").status_code == 201
+
+
+def test_the_campaign_account_can_be_named_by_its_handle(client, settings, clip_id, monkeypatch):
+    monkeypatch.setattr(FakeYouTube, "accounts",
+                        lambda self: {"UC1": {"handle": "@vicecitywatchers", "title": "ViceCityWatchers"}})
+    set_profile(settings, accounts={"youtube_shorts": ["@ViceCityWatchers"]})
+    assert _post(client, clip_id, account="UC1").status_code == 201
+
+
+def test_a_tiktok_reminder_without_account_is_allowed_with_campaign_accounts(client, settings, clip_id):
+    set_profile(settings, accounts={"tiktok": ["open9"]})
+    assert _post(client, clip_id, "tiktok", fields={}, account=None).status_code == 201
+
+
+def test_the_day_limit_counts_posts_on_the_same_account_and_swedish_day(client, settings, clip_id):
+    set_profile(settings, posting={"max_per_day": 2})
+    second, third, fourth, fifth = (_another_clip(settings, n) for n in ("b", "c", "d", "e"))
+    cancelled = _post(client, fifth, at=_stockholm(1, 8)).json()["id"]
+    client.delete(f"/campaign/schedule/{cancelled}")  # en avbruten post räknas inte
+    assert _post(client, clip_id, at=_stockholm(1, 10)).status_code == 201
+    assert _post(client, second, at=_stockholm(1, 14)).status_code == 201
+    full = _post(client, third, at=_stockholm(1, 23, 30))
+    assert full.status_code == 400
+    assert "högst 2" in full.json()["detail"]
+    # 00:30 svensk tid är nästa dag, fast UTC-datumet är detsamma som 23:30 dagen före på vintern.
+    assert _post(client, third, at=_stockholm(2, 0, 30)).status_code == 201
+    assert _post(client, fourth, at=_stockholm(1, 18), account="UC2").status_code == 201  # ett annat konto
+
+
+def test_uploads_with_the_buttons_count_but_tiktok_drafts_do_not(client, settings, clip_id):
+    set_profile(settings, posting={"max_per_day": 1})
+    other = _another_clip(settings, "b")
+    created = datetime.fromisoformat(_stockholm(1, 9)).astimezone(UTC).isoformat(timespec="seconds")
+    with TikTok(settings)._db() as db:
+        db.execute("INSERT INTO tiktok_uploads (clip_id, publish_id, status, created, open_id, mode) "
+                   "VALUES (?, 'p0', 'uploaded', ?, 'open1', 'draft')", (other, created))
+    with YouTube(settings)._db() as db:
+        db.execute("INSERT INTO youtube_uploads (clip_id, channel_id, status, created) VALUES (?, 'UC1', 'failed', ?)",
+                   (other, created))
+    assert _post(client, clip_id, "tiktok", at=_stockholm(1, 12), fields={}, account="open1").status_code == 201
+    assert _post(client, clip_id, at=_stockholm(1, 12)).status_code == 201  # den misslyckade räknas inte
+    with YouTube(settings)._db() as db:
+        db.execute("INSERT INTO youtube_uploads (clip_id, channel_id, status, created) VALUES (?, 'UC2', 'done', ?)",
+                   (other, created))
+    third = _another_clip(settings, "c")
+    assert _post(client, third, at=_stockholm(1, 15), account="UC2").status_code == 400
+
+
+def test_the_youtube_button_refuses_an_account_the_campaign_does_not_list(settings, clip_id, notes, monkeypatch):
+    from campaign import youtube_api
+
+    monkeypatch.setattr(youtube_api, "YouTube", FakeYouTube)
+    set_profile(settings, accounts={"youtube_shorts": ["UC2"]})
+    app = FastAPI()
+    app.include_router(youtube_api.router)
+    app.dependency_overrides[api.get_settings] = lambda: settings
+    answer = TestClient(app).post(f"/campaign/clips/{clip_id}/youtube", json={**YT_FIELDS, "channel_id": "UC1"})
+    assert answer.status_code == 400
+    assert FakeYouTube.calls == []
+
+
+def test_a_post_close_to_another_on_the_same_account_gets_a_warning(client, settings, clip_id):
+    other, far = _another_clip(settings, "b"), _another_clip(settings, "c")
+    first = _post(client, clip_id, at=_stockholm(1, 12)).json()
+    assert first["warning"] is None
+    close = _post(client, other, at=_stockholm(1, 13)).json()
+    assert "120 minuter" in close["warning"]
+    assert _post(client, far, at=_stockholm(1, 16)).json()["warning"] is None
+    listed = {post["id"]: post["warning"] for post in client.get("/campaign/schedule").json()}
+    assert listed[first["id"]] is not None  # den första ligger nu också för nära
