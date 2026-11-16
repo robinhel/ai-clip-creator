@@ -10,14 +10,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from campaign import api, editor, editor_api, finish
+from campaign import api, editor, editor_api, finish, subtitles, workflow
 from campaign.caption import build_caption
 from campaign.cliplog import ClipLog
 from campaign.media import probe
 from campaign.profile import load_profile
 from campaign.workflow import finish_vod
 
-from .conftest import PAKET, make_clip, make_overlay, needs_ffmpeg
+from clipsmith.settings import CaptionConfig, ReframeConfig
+
+from .conftest import PAKET, make_clip, make_overlay, needs_ffmpeg, needs_subtitles
 
 pytestmark = needs_ffmpeg
 
@@ -429,3 +431,131 @@ def test_an_old_original_is_not_used_for_a_new_raw_clip(setup, settings) -> None
     new_raw = raw.read_bytes()
     assert client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 0.5, "out_s": 4.5}).status_code == 200
     assert original.read_bytes() == new_raw != old_original
+
+
+# ---------- undertexten som ord (väg B) ----------
+
+WORDS = [{"start": 0.5, "end": 0.9, "word": "Bro,"}, {"start": 1.0, "end": 1.5, "word": "no"},
+         {"start": 2.0, "end": 2.6, "word": "wei"}, {"start": 6.0, "end": 6.5, "word": "wow"}]
+BURNED = ("Undertexten är inbränd i det här klippet, så ord går inte att rätta. Det fungerar för klipp som skärs "
+          "från och med nu.")
+
+
+def _words(settings) -> None:
+    raw = _paths(settings)[0]
+    subtitles.save_words(raw, WORDS, CaptionConfig(enabled=True, style="box"), ReframeConfig(mode="center"), raw)
+
+
+def test_an_old_clip_has_no_editable_subtitles(setup) -> None:
+    client, _, clip_id = setup
+    info = client.get(f"/campaign/clips/{clip_id}/edit").json()
+    assert info["subtitles"] == {"editable": False, "reason": BURNED, "words": []}
+    answer = client.post(f"/campaign/clips/{clip_id}/edit", json={"words": WORDS})
+    assert answer.status_code == 400 and answer.json()["detail"] == BURNED
+
+
+def test_a_campaign_without_subtitles_says_so(setup, settings) -> None:
+    client, _, clip_id = setup
+    config = settings.root / "config.timmy.yaml"
+    config.write_text(config.read_text(encoding="utf-8").replace("caption:\n  enabled: true",
+                                                                 "caption:\n  enabled: false"), encoding="utf-8")
+    info = client.get(f"/campaign/clips/{clip_id}/edit").json()
+    assert info["subtitles"] == {"editable": False, "reason": "Kampanjen har inga undertexter.", "words": []}
+
+
+def test_a_clip_with_a_word_file_shows_its_words(setup, settings) -> None:
+    client, _, clip_id = setup
+    _words(settings)
+    assert client.get(f"/campaign/clips/{clip_id}/edit").json()["subtitles"] == {
+        "editable": True, "reason": None, "words": WORDS}
+
+
+def test_finish_burns_the_words_only_when_the_word_file_belongs_to_the_raw_clip(setup, settings,
+                                                                                 monkeypatch) -> None:
+    _, log, clip_id = setup
+    raw = _paths(settings)[0]
+    seen: list = []
+    real = workflow.finish_clip
+
+    def spy(*args, **kwargs):
+        ass = kwargs.get("subtitles")
+        seen.append(ass and ass.read_text(encoding="utf-8-sig"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(workflow, "finish_clip", spy)
+    log.update(clip_id, status="underkand")
+    finish_vod("123", load_profile("skiimasktimmy", settings.profiles_dir), settings, log, review=False)
+    assert seen == [None]  # ingen ordfil: ingen undertext, den kan redan vara inbränd
+
+    _words(settings)
+    log.update(clip_id, status="underkand")
+    finish_vod("123", load_profile("skiimasktimmy", settings.profiles_dir), settings, log, review=False)
+    assert seen[1] and "WEI" in seen[1]
+    assert not list(raw.parent.glob(".*.ass"))  # den tillfälliga filen är borta
+
+
+def test_a_corrected_word_is_burned_and_survives_a_new_trim(setup, settings, monkeypatch) -> None:
+    client, log, clip_id = setup
+    raw, done, _ = _paths(settings)
+    _words(settings)
+    burned: list = []
+    real = editor.finish_clip
+
+    def spy(*args, **kwargs):
+        ass = kwargs.get("subtitles")
+        burned.append(ass and ass.read_text(encoding="utf-8-sig"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(editor, "finish_clip", spy)
+    fixed = [*WORDS[:2], {"start": 2.0, "end": 2.6, "word": "way!"}]  # wei rättat, wow borttaget
+    answer = client.post(f"/campaign/clips/{clip_id}/edit", json={"words": fixed})
+    assert answer.status_code == 200, answer.text
+    assert "WAY!" in burned[-1] and "WEI" not in burned[-1] and "WOW" not in burned[-1]
+    assert client.get(f"/campaign/clips/{clip_id}/edit").json()["subtitles"]["words"] == fixed
+
+    assert client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0}).status_code == 200
+    assert "WAY!" in burned[-1] and "BRO" not in burned[-1]  # undertexten för 1–7 s
+    assert client.get(f"/campaign/clips/{clip_id}/edit").json()["subtitles"]["words"] == fixed
+    assert subtitles.load_words(raw, editor.source_path(raw))["words"] == fixed
+    assert client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 0.5, "out_s": 6.0}).status_code == 200
+    assert client.get(f"/campaign/clips/{clip_id}/edit").json()["subtitles"]["words"] == fixed
+    assert not [p for p in done.parent.parent.rglob(".*")]  # inga tmp-filer kvar
+
+
+def test_same_words_again_do_not_re_encode(setup, settings, monkeypatch) -> None:
+    client, _, clip_id = setup
+    _words(settings)
+    calls: list = []
+    monkeypatch.setattr(editor, "finish_clip", lambda *a, **k: calls.append(k))
+    assert client.post(f"/campaign/clips/{clip_id}/edit", json={"words": WORDS}).status_code == 200
+    assert calls == []
+
+
+@pytest.mark.parametrize("words", [
+    [{"start": 0.5, "end": 0.9, "word": "   "}],
+    [{"start": 0.5, "end": 0.9, "word": "x" * 41}],
+    [{"start": 0.9, "end": 0.9, "word": "a"}],
+    [{"start": -0.1, "end": 0.9, "word": "a"}],
+    [{"start": 9.0, "end": 10.6, "word": "a"}],
+    [{"start": 2.0, "end": 2.5, "word": "a"}, {"start": 1.0, "end": 1.5, "word": "b"}],
+    [{"start": 0.001 * i, "end": 0.001 * i + 0.0005, "word": "a"} for i in range(1001)],
+])
+def test_bad_words_are_refused_and_change_nothing(setup, settings, words) -> None:
+    client, log, clip_id = setup
+    raw, done, _ = _paths(settings)
+    _words(settings)
+    word_file = subtitles.words_path(raw)
+    before = (log.get(clip_id), done.read_bytes(), raw.read_bytes(), word_file.read_bytes())
+    answer = client.post(f"/campaign/clips/{clip_id}/edit", json={"words": words})
+    assert answer.status_code == 400 and isinstance(answer.json()["detail"], str)
+    assert (log.get(clip_id), done.read_bytes(), raw.read_bytes(), word_file.read_bytes()) == before
+
+
+@needs_subtitles
+def test_identity_survives_the_copy_of_the_first_trim(setup, settings) -> None:
+    client, _, clip_id = setup
+    raw, _, original = _paths(settings)
+    _words(settings)
+    assert client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0}).status_code == 200
+    assert (original.stat().st_size, original.stat().st_mtime_ns) == tuple(
+        json.loads(subtitles.words_path(raw).read_text())[k] for k in ("raw_size", "raw_mtime_ns"))

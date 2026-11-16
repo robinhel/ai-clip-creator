@@ -178,7 +178,7 @@ def vod(settings, monkeypatch):
         save_candidates(state.candidates, mp4.parent / "candidates.json")
 
     def cut_all_clips(mp4_path, transcript, picks, out_dir, cfg):
-        state.cut = out_dir
+        state.cut, state.cut_cfg = out_dir, cfg
         return [make_file(out_dir / f"clip_{i:02d}_x.mp4") for i, _ in enumerate(picks, 1)]
 
     def make_file(path):
@@ -589,3 +589,19 @@ def test_the_placeholder_problem_goes_away_when_the_caption_or_title_is_changed(
     body = {"caption": caption.replace("Moment 0:36:35", "Huge clutch")}
     answer = client.patch(f"/campaign/clips/{clip_id}", json=body).json()
     assert (answer["status"], answer["problems"]) == ("renderad", [])
+
+
+# ---------- undertexten som ord (väg B) ----------
+
+
+def test_clips_are_cut_without_subtitles_and_each_gets_a_word_file(settings, vod) -> None:
+    from campaign import subtitles
+
+    vod.picker = FakePicker([_yes("clutch"), _yes("funny", start=400)])
+    _make(settings, vod, run_id=7)
+    assert vod.cut_cfg.caption.enabled is False  # undertexten bränns in i finish i stället
+    assert vod.cut_cfg.reframe == pipeline.clipsmith_config(load_profile("skiimasktimmy", settings.profiles_dir),
+                                                            settings).reframe
+    for raw in (vod.cut / "clip_01_x.mp4", vod.cut / "clip_02_x.mp4"):
+        data = subtitles.load_words(raw, raw)
+        assert data is not None and data["words"] == [] and data["caption"]["enabled"] is True
