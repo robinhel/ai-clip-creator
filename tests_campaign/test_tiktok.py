@@ -1183,3 +1183,10 @@ def test_the_first_check_uses_the_upload_time(client, settings, fake, monkeypatc
     client.get(f"/campaign/clips/{clip_id}/tiktok")
     (post,) = ClipLog(settings.data_dir / "klipp.db").posts(clip_id)
     assert post["created"] == created
+
+
+def test_a_direct_post_keeps_its_title_for_the_text_rule(client, settings, fake) -> None:
+    _connect(settings, publish=True)
+    assert _direct(client, _clip(settings), title="No way #fps").status_code == 202
+    with tiktok.TikTok(settings)._db() as db:
+        assert db.execute("SELECT title FROM tiktok_uploads").fetchone()[0] == "No way #fps"
