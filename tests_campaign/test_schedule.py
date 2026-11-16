@@ -348,7 +348,7 @@ def test_list_waiting_first_then_finished(client, settings, clip_id, notes):
     listed = client.get("/campaign/schedule").json()
     assert [p["id"] for p in listed] == [waiting, done]
     assert set(listed[0]) == {"id", "clip_id", "clip_title", "profile", "platform", "account", "at", "fields",
-                              "status", "error", "result", "late"}
+                              "status", "error", "result", "late", "warning"}
     assert listed[0]["fields"]["privacy"] == "public" and listed[1]["result"]["video_id"] == "v1"
 
 

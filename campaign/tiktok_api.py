@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import secrets
+from datetime import UTC, datetime
 from time import monotonic
 from typing import Literal
 from urllib.parse import urlencode
@@ -18,7 +19,7 @@ from clipsmith.api.deps import verify_api_key
 from . import editor
 from .api import _get, _log, get_settings
 from .config import Settings
-from .schedule import ScheduleError, clip_file, clip_seconds
+from .schedule import Schedule, ScheduleError, clip_file, clip_seconds
 from .tiktok import AUTH_URL, SCOPES, TikTok, TikTokError
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
@@ -136,9 +137,10 @@ def upload_clip(clip_id: int, body: UploadBody | None = None, settings: Settings
     clip = _get(_log(settings), clip_id)
     try:
         path = clip_file(settings, clip, "tiktok", "Bara godkända klipp kan laddas upp till TikTok.")
+        body = body or UploadBody()
+        Schedule(settings).check_account(clip, "tiktok", body.open_id, datetime.now(UTC), counts=body.mode == "direct")
     except ScheduleError as error:
         raise HTTPException(error.status, str(error)) from error
-    body = body or UploadBody()
     post, duration_s = None, 0.0
     if body.mode == "direct":
         post = body.model_dump(exclude={"open_id", "mode"})

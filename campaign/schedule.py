@@ -23,7 +23,7 @@ from .cliplog import POST_STATUSES, ClipLog
 from .config import Settings, load_settings
 from .media import probe
 from .preferences import submit_helper
-from .profile import PLATFORMS, load_profile
+from .profile import PLATFORMS, Profile, load_profile
 from .scout import STOCKHOLM, notify_mac
 from .tiktok import TITLE_MAX as TIKTOK_TITLE_MAX
 from .tiktok import TikTok, TikTokError
@@ -84,6 +84,19 @@ def clip_file(settings: Settings, clip: dict, platform: str,
     return path
 
 
+def _profile(settings: Settings, name: str | None) -> Profile | None:
+    try:
+        return load_profile(name or "", settings.profiles_dir)
+    except SystemExit:  # kampanjen finns inte längre: standardgränserna gäller
+        return None
+
+
+def _day(moment: datetime) -> tuple[str, str]:
+    """Det svenska dygnet som tiden ligger i, som UTC-tider: början och början på nästa dygn."""
+    start = moment.astimezone(STOCKHOLM).replace(hour=0, minute=0, second=0, microsecond=0)
+    return _iso(start), _iso(start + timedelta(days=1))
+
+
 def clip_seconds(clip: dict, path: Path) -> float:
     has_times = clip["start_s"] is not None and clip["end_s"] is not None
     return clip["end_s"] - clip["start_s"] if has_times else probe(path)["duration"]
@@ -121,6 +134,7 @@ class Schedule:
         post["result"] = json.loads(post["result"]) if post["result"] else None
         post["late"] = bool((post["result"] or {}).get("late")) or (
             post["status"] == "waiting" and (now - datetime.fromisoformat(post["at"])).total_seconds() > LATE_S)
+        post["warning"] = self._too_close(post) if post["status"] == "waiting" else None
         for key in ("created", "updated"):
             post.pop(key)
         return post
@@ -155,6 +169,7 @@ class Schedule:
         except SystemExit as error:
             raise ScheduleError("Klippet finns inte.", 404) from error
         fields = self._check(platform, account, fields, clip_seconds(clip, clip_file(self.settings, clip, platform)))
+        self.check_account(clip, platform, account, at)
         self._not_there_yet(clip_id, platform, account)
         now = _iso(_now())
         try:
@@ -188,6 +203,68 @@ class Schedule:
         if account and TikTok(self.settings).can_publish(account) and not post.get("privacy_level"):
             raise ScheduleError("Välj vem som får se klippet.")
         return post
+
+    # ---------- spärrarna för konton ----------
+
+    def check_account(self, clip: dict, platform: str, account: str | None, at: datetime, counts: bool = True) -> None:
+        """Kampanjens konton och högst antal inlägg per konto och svensk dag. counts=False: ett TikTok-utkast,
+        som inte är ett inlägg än. Ett inlägg utan konto (en påminnelse) räknas mot andra utan konto."""
+        profile = _profile(self.settings, clip["profile"])
+        key, name = NAMES[platform]
+        allowed = profile.accounts.get(key) if profile else None
+        if account and allowed and not self._names(platform, account) & {a.lower() for a in allowed}:
+            raise ScheduleError(f"Kampanjen postar bara från {', '.join(allowed)} på {name}. Välj det kontot.")
+        limit = profile.max_posts_per_day if profile else 3
+        if counts and len(self._post_times(platform, account, *_day(at))) >= limit:
+            day = at.astimezone(STOCKHOLM)
+            raise ScheduleError(f"Kontot har redan {limit} inlägg på {name} den {day.day}/{day.month}. Kampanjen "
+                                f"tillåter högst {limit} per konto och dag. Välj en annan dag eller ett annat konto.")
+
+    def _names(self, platform: str, account: str) -> set[str]:
+        """Kontots id och namn, så att profilen kan nämna det med användarnamn eller handle."""
+        if platform == "youtube":
+            info = YouTube(self.settings).accounts().get(account) or {}
+            names = (account, info.get("handle"), info.get("title"))
+        else:
+            info = TikTok(self.settings).accounts().get(account) or {}
+            names = (account, info.get("username"), info.get("display_name"))
+        return {str(n).lstrip("@").lower() for n in names if n}
+
+    def _post_times(self, platform: str, account: str | None, start: str, end: str,
+                    skip: int | None = None) -> list[str]:
+        """Inläggen på kontot mellan start och end: väntande och påminda poster i schemat, och uppladdningar
+        med knapparna eller av schemat. Misslyckade och avbrutna räknas inte, och inte heller TikTok-utkast."""
+        with self._db() as db:
+            times = [row[0] for row in db.execute(
+                "SELECT at FROM scheduled_posts WHERE platform = ? AND account IS ? AND id IS NOT ? "
+                "AND status IN ('waiting', 'running', 'reminded') AND at >= ? AND at < ?",
+                (platform, account, skip, start, end))]
+        if not account:
+            return times
+        if platform == "youtube":
+            with YouTube(self.settings)._db() as db:
+                rows = db.execute("SELECT created FROM youtube_uploads WHERE channel_id = ? AND status != 'failed' "
+                                  "AND created >= ? AND created < ?", (account, start, end)).fetchall()
+        else:
+            with TikTok(self.settings)._db() as db:
+                rows = db.execute(f"SELECT created FROM tiktok_uploads WHERE open_id = ? AND mode = 'direct' AND "
+                                  f"status IN ({', '.join('?' * len(TIKTOK_LIVE))}) AND created >= ? AND created < ?",
+                                  (account, *TIKTOK_LIVE, start, end)).fetchall()
+        return times + [row[0] for row in rows]
+
+    def _too_close(self, post: dict) -> str | None:
+        profile = _profile(self.settings, post.get("profile"))
+        gap = profile.min_gap_minutes if profile else 120
+        if not gap:
+            return None
+        at = datetime.fromisoformat(post["at"])
+        near = self._post_times(post["platform"], post["account"], _iso(at - timedelta(minutes=gap, seconds=-1)),
+                                _iso(at + timedelta(minutes=gap)), skip=post["id"])  # precis gap ifrån är okej
+        if not near:
+            return None
+        other = datetime.fromisoformat(min(near, key=lambda t: abs(datetime.fromisoformat(t) - at)))
+        return (f"Kontot har ett annat inlägg kl. {other.astimezone(STOCKHOLM):%H:%M}. Kampanjen vill ha minst "
+                f"{gap} minuter mellan inläggen på samma konto.")
 
     def _not_there_yet(self, clip_id: int, platform: str, account: str | None) -> None:
         """Knapparnas spärr gäller bara 10 minuter. Ett klipp som redan finns på kanalen laddas inte upp igen."""
