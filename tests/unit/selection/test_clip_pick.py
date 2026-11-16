@@ -198,3 +198,11 @@ def test_snap_keeps_the_payoff_when_the_start_snaps_earlier() -> None:
         pick, ([105.0, 110.0], [136.0, 141.0]), ClipConfig(min_seconds=10, max_seconds=30)
     )
     assert out.end_offset_s >= 139 and out.duration_s <= 30
+
+
+def test_clip_pick_reads_the_quotes_and_keeps_them_in_picks_json() -> None:
+    pick = ClipPick.from_dict({"include": True, "start_offset_s": 1, "end_offset_s": 20,
+                               "start_quote": "So the boss", "end_quote": "No way."})
+    assert (pick.start_quote, pick.end_quote) == ("So the boss", "No way.")
+    assert ClipPick.from_dict(pick.to_dict()).end_quote == "No way."
+    assert ClipPick.from_dict({"include": False, "start_offset_s": 1, "end_offset_s": 2}).start_quote == ""
