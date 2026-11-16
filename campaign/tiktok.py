@@ -323,7 +323,7 @@ class TikTok:
         have = {row[1] for row in db.execute("PRAGMA table_info(tiktok_uploads)")}
         # Tabellen från före flera konton och direktpostning. Gamla rader får NULL, och mode blir draft.
         for column, kind in (("open_id", "TEXT"), ("mode", "TEXT DEFAULT 'draft'"), ("privacy_level", "TEXT"),
-                             ("post_id", "TEXT")):
+                             ("post_id", "TEXT"), ("title", "TEXT")):  # title: regeln om olika text per konto
             if column not in have:
                 try:
                     db.execute(f"ALTER TABLE tiktok_uploads ADD COLUMN {column} {kind}")
@@ -453,9 +453,10 @@ class TikTok:
             created = _iso(_now())
             with self._db() as db:
                 upload_id = db.execute(
-                    "INSERT INTO tiktok_uploads (clip_id, publish_id, status, created, open_id, mode, privacy_level) "
-                    "VALUES (?,?,?,?,?,?,?)", (clip_id, data["publish_id"], "uploading", created, open_id, mode,
-                                               post and post.get("privacy_level"))).lastrowid
+                    "INSERT INTO tiktok_uploads (clip_id, publish_id, status, created, open_id, mode, privacy_level, "
+                    "title) VALUES (?,?,?,?,?,?,?,?)", (clip_id, data["publish_id"], "uploading", created, open_id,
+                                                        mode, post and post.get("privacy_level"),
+                                                        post and post.get("title"))).lastrowid
             try:
                 with path.open("rb") as file:
                     for first, last_byte in parts:

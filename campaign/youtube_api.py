@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import secrets
 from datetime import UTC, datetime
@@ -111,6 +112,11 @@ def youtube_upload_clip(clip_id: int, body: YouTubeBody, settings: Settings = De
     try:
         path = clip_file(settings, clip, "youtube", "Bara godkända klipp kan laddas upp till YouTube.")
         Schedule(settings).check_account(clip, "youtube", body.channel_id, datetime.now(UTC))
+        channel = body.channel_id
+        if channel is None:  # den enda kopplade kanalen; inte kopplad: upload ger felet
+            with contextlib.suppress(YouTubeError):
+                channel = YouTube(settings).choose(None)
+        Schedule(settings).check_variant(clip, "youtube", channel, body.model_dump())
     except ScheduleError as error:
         raise HTTPException(error.status, str(error)) from error
     duration_s = clip_seconds(clip, path)
