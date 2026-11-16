@@ -4,6 +4,7 @@ inga riktiga anrop."""
 from __future__ import annotations
 
 import sqlite3
+import subprocess
 
 import pytest
 from fastapi import FastAPI
@@ -13,7 +14,7 @@ from campaign import api, preferences
 from campaign.cli import main
 from campaign.cliplog import ClipLog
 
-from .conftest import set_helper, set_profile
+from .conftest import needs_ffmpeg, set_helper, set_profile
 
 TT_A = "https://www.tiktok.com/@a/video/111"
 TT_B = "https://www.tiktok.com/@b/video/222"
@@ -369,6 +370,19 @@ def test_a_scheduled_tiktok_post_keeps_its_cover_and_a_cover_outside_the_clip_is
     refused = plan(31.0)
     assert refused.status_code == 400 and "Omslaget" in refused.json()["detail"]
     assert plan(4.0).json()["fields"]["cover_s"] == 4.0
+
+
+@needs_ffmpeg
+def test_the_cover_is_checked_against_the_finished_file_not_the_logged_times(sched, settings) -> None:
+    # Loggen säger 30 s (10-40), men tidskartan gjorde den färdiga filen 5 s lång.
+    clip_id = _clip(settings)
+    path = settings.out_dir / "v" / "klipp.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=black:s=64x112:d=5",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path)], check=True)
+    answer = sched.post(f"/campaign/clips/{clip_id}/schedule", json={
+        "platform": "tiktok", "account": "openA", "at": _stockholm(1, 12),
+        "fields": {"title": "x", "privacy_level": "SELF_ONLY", "cover_s": 20.0}})
+    assert answer.status_code == 400 and "Omslaget" in answer.json()["detail"]
 
 
 # ---------- 5. POST /clips/{id}/variant ----------
