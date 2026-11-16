@@ -17,6 +17,8 @@ from clipsmith.models.transcript import Segment, Transcript, Word
 from clipsmith.rendering.captions import _hallucinated, _write_ass
 from clipsmith.settings import CaptionConfig, ReframeConfig
 
+WORD_CHARS = 40  # samma gräns som redigeraren (editor._check_words)
+
 
 def words_path(raw: Path) -> Path:
     return raw.with_suffix(".words.json")
@@ -29,8 +31,9 @@ def pick_words(transcript: Transcript, start: float, end: float) -> list[dict]:
         if seg.end < start or seg.start > end or _hallucinated(seg):
             continue
         for w in seg.words:
-            if start <= w.start and w.end <= end + 0.5:
-                words.append({"start": round(w.start - start, 3), "end": round(w.end - start, 3), "word": w.word})
+            text = w.word.strip()[:WORD_CHARS]  # Whisper kan ge skräpord på 180 tecken; servern tar högst 40
+            if text and start <= w.start and w.end <= end + 0.5:
+                words.append({"start": round(w.start - start, 3), "end": round(w.end - start, 3), "word": text})
     return words
 
 

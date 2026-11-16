@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import threading
 from pathlib import Path
@@ -27,16 +28,18 @@ from .finish import ENCODER_ARGS, finish_clip
 from .media import need, probe, run
 from .profile import Profile
 from .rules import check_clip
-from .subtitles import load_words, save_words, write_ass
+from .subtitles import WORD_CHARS, load_words, save_words, words_path, write_ass
 
 lock = threading.Lock()  # en redigering åt gången
 editing: int | None = None  # klippet som redigeras just nu; andra klipp går att ändra under tiden
 LOCKED = ("postad", "inskickad", "analytics_inskickad", "betald")
 ROUNDING_S = 0.05  # webben avrundar till tiondelar
-WORDS_MAX, WORD_CHARS = 1000, 40
+WORDS_MAX = 1000
+CONTROL = re.compile(r"[\x00-\x1f\x7f]")  # radbrytning, tabb m.m. skulle bryta raden i undertextfilen
 BURNED = ("Undertexten är inbränd i det här klippet, så ord går inte att rätta. Det fungerar för klipp som skärs "
           "från och med nu.")
 NO_SUBTITLES = "Kampanjen har inga undertexter."
+STALE = "Ordlistan hör inte till klippet längre, så ord går inte att rätta."
 
 
 class EditConflict(Exception):
@@ -104,6 +107,8 @@ def _words(raw: Path | None, profile: Profile, settings: Settings) -> tuple[dict
     data = load_words(raw, source_path(raw)) if raw is not None and raw.is_file() else None
     if data is not None:
         return data, None
+    if raw is not None and words_path(raw).exists():  # till exempel ett nytt råklipp från en ny körning
+        return None, STALE
     try:
         enabled = load_config(settings.root / (profile.clipsmith_config or "")).caption.enabled
     except Exception:  # ingen eller trasig config: kampanjen skär inga undertexter
@@ -120,6 +125,8 @@ def _check_words(words: list[dict], duration: float) -> list[dict]:
         text, start, end = str(w["word"]).strip(), float(w["start"]), float(w["end"])
         if not text or len(text) > WORD_CHARS:
             raise ValueError(f"Ett ord får vara 1–{WORD_CHARS} tecken.")
+        if CONTROL.search(text):
+            raise ValueError(f"Ordet {text!r} får inte ha radbrytningar, tabbar eller andra styrtecken.")
         if not 0 <= start < end <= duration + 0.5:
             raise ValueError(f"Ordet {text!r} måste ligga inom klippet, och börja före sitt slut.")
         if start < last:
@@ -144,7 +151,8 @@ def edit_info(clip: dict, profile: Profile, settings: Settings) -> dict:
     data, why = _words(raw, profile, settings)
     return {"clip_id": clip["id"], "title": clip["title"], "original": original, "trim": trim,
             "min_s": min_s, "max_s": max_s, "editable": reason is None, "reason": reason,
-            "subtitles": {"editable": data is not None, "reason": why, "words": data["words"] if data else []}}
+            "subtitles": {"editable": data is not None, "reason": why, "words": data["words"] if data else [],
+                          "style": data["caption"].get("style") if data else None}}
 
 
 def _game(log: ClipLog, clip: dict) -> str | None:
@@ -231,13 +239,14 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
     original, meta_path = _original(raw)
     tmp_raw, tmp_done = _tmp(raw, "trim"), _tmp(done, "edit")
     tmp_original = original.with_name(f".{original.name}.tmp")
-    ass = raw.with_name(f".{raw.stem}.edit.ass") if data else None  # punkt först, som _tmp
+    ass: Path | None = None
     try:
         new_hook = profile.hook_text and new_title != clip["title"]  # rubriken står i bilden
         if trimmed or new_hook or words_changed or not done.exists():
             if trimmed:
                 _trim(source_path(raw), tmp_raw, new_in, new_out, settings.encoder)
-            if data and ass:  # orden har originalets tider: undertexten för in_s–out_s
+            if data:  # orden har originalets tider: undertexten för in_s–out_s
+                ass = raw.with_name(f".{raw.stem}.edit.ass")  # punkt först, som _tmp
                 write_ass({**data, "words": new_words}, new_in, new_out, ass)
             rendered = finish_clip(tmp_raw if trimmed else raw, tmp_done, profile, settings.root,
                                    settings.encoder, title=new_title, subtitles=ass)
@@ -260,12 +269,13 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
             _write_atomic(meta_path, json.dumps({
                 "start_s": state["start_s"], "in_s": new_in, "out_s": new_out,
                 "raw_size": stat.st_size, "raw_mtime_ns": stat.st_mtime_ns}).encode("utf-8"))
-        if data and (trimmed or words_changed):
-            # Efter metafilen: source_path(raw) är nu originalet, så ordfilen hör till det.
-            save_words(raw, new_words or [], CaptionConfig(**data["caption"]), ReframeConfig(**data["reframe"]),
-                       source_path(raw))
         if rendered:
             os.replace(tmp_done, done)
+        if data and (trimmed or words_changed):
+            # Efter metafilen: source_path(raw) är nu originalet, så ordfilen hör till det. Efter klippet: går
+            # bytet fel gäller de gamla orden fortfarande det klipp som ligger där.
+            save_words(raw, new_words or [], CaptionConfig(**data["caption"]), ReframeConfig(**data["reframe"]),
+                       source_path(raw))
     finally:
         if ass:
             ass.unlink(missing_ok=True)

@@ -139,9 +139,10 @@ def finish_vod(
         # Ordfilen finns bara när appen skar klippet utan undertext. Saknas den, eller hör den till ett annat
         # råklipp, bränns ingen undertext: den kan redan vara inbränd.
         words = load_words(src, source_path(src))
-        ass = src.with_name(f".{src.stem}.ass") if words else None
+        ass: Path | None = None
         try:
-            if words and ass:
+            if words:
+                ass = src.with_name(f".{src.stem}.ass")
                 meta = edit_meta(src)
                 in_s, out_s = (meta["in_s"], meta["out_s"]) if meta else (0.0, probe(src)["duration"])
                 write_ass(words, in_s, out_s, ass)

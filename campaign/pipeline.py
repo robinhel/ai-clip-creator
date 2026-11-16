@@ -189,11 +189,14 @@ def make_clips(
         if picks:
             emit("clip", 85.0, "")
             # Undertexten bränns in i finish, så att Robin kan rätta orden i redigeraren (ordfilen per klipp).
+            # Utan omformatering (mode none) skär clipsmith utan undertext med -c copy, och då glider orden:
+            # där bränner clipsmith in undertexten som förut.
+            words_file = cfg.caption.enabled and cfg.reframe.mode != "none"
             cut_cfg = cfg.model_copy(update={"caption": cfg.caption.model_copy(update={"enabled": False})}) \
-                if cfg.caption.enabled else cfg
+                if words_file else cfg
             paths = cut_all_clips(mp4, transcript, picks, run_dir, cut_cfg)  # väljer webbkamera per klipp
-            if cfg.caption.enabled:
-                for path, result in zip(paths, picks, strict=False):
+            if words_file:
+                for path, result in zip(paths, picks, strict=True):
                     words = pick_words(transcript, result.pick.start_offset_s, result.pick.end_offset_s)
                     save_words(path, words, cfg.caption, cfg.reframe, path)
     legacy = settings.out_dir / vod_id / "picks.json"
