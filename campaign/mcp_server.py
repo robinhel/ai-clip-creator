@@ -336,6 +336,21 @@ def list_schedule() -> str:
     return _send("GET", "/campaign/schedule")
 
 
+@server.tool(annotations=READ)
+def clip_accounts(clip_id: int, platform: Literal["tiktok", "youtube"]) -> str:
+    """Kampanjens konton för ett klipp på plattformen: där klippet är postat, schemalagt eller ledigt (state).
+    multi är sant när kampanjen postar samma klipp på flera konton: högst 5, med en egen text på varje."""
+    return _send("GET", f"/campaign/clips/{clip_id}/accounts", params={"platform": platform})
+
+
+@server.tool(annotations=PAID)
+def suggest_variant(clip_id: int, platform: Literal["tiktok", "youtube"], account: str) -> str:
+    """Kostar pengar (Claude). Fråga Robin först.
+    Föreslå en ny rubrik och caption för klippet på ett annat konto (open_id eller channel_id), olik texterna som
+    klippet redan har på plattformen. Inget postas."""
+    return _send("POST", f"/campaign/clips/{clip_id}/variant", {"platform": platform, "account": account})
+
+
 @server.tool(annotations=OUT)
 def schedule_upload(clip_id: int, platform: Literal["youtube", "tiktok"], at: str, fields: dict,
                     account: str | None = None) -> str:
