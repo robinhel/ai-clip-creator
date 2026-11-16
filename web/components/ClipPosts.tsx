@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { CampaignStatusBadge, PLATFORM_LABEL } from "@/components/CampaignStatusBadge";
+import { useClipAccounts } from "@/components/ClipAccounts";
 import { api } from "@/lib/api";
 import { SUMMARY_CHANGED } from "@/lib/utils";
 import type { CampaignClip, ClipPost, Platform, PostStatus } from "@/lib/types";
@@ -38,6 +39,13 @@ export function ClipPosts({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (c
   const [asked, setAsked] = useState<number | null>(null);
   const [helpNote, setHelpNote] = useState<string | null>(null);
   const waiting = posts.some((p) => p.status === "postad");
+  // Kontonas namn, bara när något inlägg har ett konto.
+  const withAccount = (p: Platform) => posts.some((post) => post.platform === p && post.account);
+  const { info: ttNames } = useClipAccounts(clip.id, "tiktok", withAccount("tiktok"));
+  const { info: ytNames } = useClipAccounts(clip.id, "youtube", withAccount("youtube_shorts"));
+  const accountLabel = (post: ClipPost) =>
+    (post.platform === "tiktok" ? ttNames : post.platform === "youtube_shorts" ? ytNames : null)?.accounts.find((a) => a.account === post.account)?.name ??
+    post.account;
 
   useEffect(() => {
     api.campaign.preferences
@@ -100,6 +108,11 @@ export function ClipPosts({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (c
           <li key={post.id} data-post={post.platform} className="space-y-2 rounded-[10px] border border-line bg-panel px-3 py-2.5 text-sm">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="font-medium">{PLATFORM_LABEL[post.platform]}</span>
+              {post.account && (
+                <span data-post-account className="text-xs text-muted-foreground">
+                  {accountLabel(post)}
+                </span>
+              )}
               <CampaignStatusBadge status={post.status} />
               {post.views != null && (
                 <span className="text-xs text-muted-foreground tabular-nums">{post.views.toLocaleString("sv-SE")} visningar</span>

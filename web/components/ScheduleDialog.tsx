@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AlertTriangle, BellRing, CalendarClock, CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { AccountList, pickAccount, SuggestText, useClipAccounts } from "@/components/ClipAccounts";
 import { accountName, tiktokAccounts } from "@/components/TikTokCard";
 import { NEED_DISCLOSURE, TikTokFields, useCreatorInfo, useTikTokForm } from "@/components/TikTokDirectPost";
 import { useYouTubeForm, YouTubeFields } from "@/components/YouTubeSend";
@@ -52,7 +53,10 @@ interface DialogProps {
 function ScheduleDialog({ clip, pending, youtube, tiktok, onClose }: DialogProps) {
   const channels = youtube?.accounts.filter((c) => c.connected && !c.needs_login) ?? [];
   const accounts = tiktok ? tiktokAccounts(tiktok).filter((a) => a.connected) : [];
-  const taken = (p: SchedulePlatform) => pending.some((x) => x.platform === p);
+  const { info: ytInfo } = useClipAccounts(clip.id, "youtube", allows(clip, "youtube_shorts"));
+  const { info: ttInfo } = useClipAccounts(clip.id, "tiktok", allows(clip, "tiktok"));
+  // Med flera konton får klippet fler poster på samma plattform; servern stoppar samma konto två gånger.
+  const taken = (p: SchedulePlatform) => pending.some((x) => x.platform === p) && !(p === "youtube" ? ytInfo : ttInfo)?.multi;
   const ytBlock = !allows(clip, "youtube_shorts")
     ? "Kampanjen postar inte på YouTube."
     : taken("youtube")
@@ -61,20 +65,32 @@ function ScheduleDialog({ clip, pending, youtube, tiktok, onClose }: DialogProps
         ? "Ingen YouTube-kanal är kopplad."
         : null;
   const ttBlock = !allows(clip, "tiktok") ? "Kampanjen postar inte på TikTok." : taken("tiktok") ? "Redan schemalagt." : null;
-  const [platform, setPlatform] = useState<SchedulePlatform>(ytBlock ? "tiktok" : "youtube");
+  // Förvalet följer med tills Robin väljer, så att det rättar sig när kontona har lästs.
+  const [chosen, setPlatform] = useState<SchedulePlatform | null>(null);
+  const platform = chosen ?? (ytBlock ? "tiktok" : "youtube");
   const [local, setLocal] = useState("");
-  const [openId, setOpenId] = useState(accounts[0]?.open_id ?? "");
+  const [pickedId, setOpenId] = useState(accounts[0]?.open_id ?? "");
+  const openId = pickAccount(ttInfo, accounts.map((a) => a.open_id), pickedId);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Sparad post med en varning: dialogen står kvar så att Robin ser den.
   const [warned, setWarned] = useState<ScheduledPost | null>(null);
 
-  const yt = useYouTubeForm(clip, channels);
+  const yt = useYouTubeForm(clip, channels, ytInfo);
   const account = accounts.find((a) => a.open_id === openId);
   // Samma villkor som Publicera direkt: kontot har scopet video.publish. Annars blir det en påminnelse.
   const direct = platform === "tiktok" && !!account?.can_publish && !!account.open_id;
   const { creator, creatorError } = useCreatorInfo(direct ? account?.open_id : undefined);
   const tt = useTikTokForm(clip, creator);
+
+  function chooseTikTok(id: string) {
+    setOpenId(id);
+    // Valen beror på kontots creator_info. Robin väljer om, annars kan posten misslyckas vid tiden.
+    tt.setPrivacy("");
+    tt.setAllowComment(false);
+    tt.setAllowDuet(false);
+    tt.setAllowStitch(false);
+  }
 
   const at = stockholmIso(local);
   const timeReason = !at ? "Välj datum och tid." : Date.parse(at) <= Date.now() ? "Tiden har redan passerat. Välj en senare tid." : null;
@@ -177,32 +193,42 @@ function ScheduleDialog({ clip, pending, youtube, tiktok, onClose }: DialogProps
             </label>
 
             {platform === "youtube" ? (
-              !ytBlock && <YouTubeFields clip={clip} channels={channels} form={yt} />
+              !ytBlock && (
+                <YouTubeFields clip={clip} channels={channels} form={yt} accounts={ytInfo}>
+                  <SuggestText
+                    clipId={clip.id}
+                    platform="youtube"
+                    account={yt.channelId}
+                    info={ytInfo}
+                    onText={(v) => {
+                      yt.setTitle(v.title);
+                      yt.setDescription(v.description ?? v.caption);
+                    }}
+                  />
+                </YouTubeFields>
+              )
             ) : (
               <>
-                {accounts.length > 1 && (
-                  <label className="block">
-                    <span className="text-[13px] text-muted-foreground">Konto</span>
-                    <select
-                      aria-label="TikTok-konto"
-                      value={openId}
-                      onChange={(e) => {
-                        setOpenId(e.target.value);
-                        // Valen beror på kontots creator_info. Robin väljer om, annars kan posten misslyckas vid tiden.
-                        tt.setPrivacy("");
-                        tt.setAllowComment(false);
-                        tt.setAllowDuet(false);
-                        tt.setAllowStitch(false);
-                      }}
-                      className="mt-1 h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand [&>option]:bg-panel"
-                    >
-                      {accounts.map((a) => (
-                        <option key={a.open_id} value={a.open_id}>
-                          {accountName(a)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                {ttInfo?.multi ? (
+                  <AccountList label="TikTok-konto" info={ttInfo} connected={accounts.map((a) => a.open_id)} value={openId} onChange={chooseTikTok} />
+                ) : (
+                  accounts.length > 1 && (
+                    <label className="block">
+                      <span className="text-[13px] text-muted-foreground">Konto</span>
+                      <select
+                        aria-label="TikTok-konto"
+                        value={openId}
+                        onChange={(e) => chooseTikTok(e.target.value)}
+                        className="mt-1 h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand [&>option]:bg-panel"
+                      >
+                        {accounts.map((a) => (
+                          <option key={a.open_id} value={a.open_id}>
+                            {accountName(a)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )
                 )}
                 {direct ? (
                   <>
@@ -214,7 +240,8 @@ function ScheduleDialog({ clip, pending, youtube, tiktok, onClose }: DialogProps
                         </span>
                       )}
                     </p>
-                    <TikTokFields creator={creator} form={tt} />
+                    <SuggestText clipId={clip.id} platform="tiktok" account={openId} info={ttInfo} onText={(v) => tt.setTitle(v.caption)} />
+                    <TikTokFields clip={clip} creator={creator} form={tt} />
                   </>
                 ) : (
                   <p className="flex gap-2.5 rounded-lg border border-line bg-background px-3 py-2.5 text-sm">
@@ -276,10 +303,14 @@ interface BarProps {
 /** Raden ovanför ett godkänt klipp: när det är schemalagt, och knappen Schemalägg för plattformar som är lediga. */
 export function ScheduleBar({ clip, pending, youtube, tiktok, onScheduled }: BarProps) {
   const [open, setOpen] = useState(false);
-  // Någon plattform som kampanjen postar på och som inte redan är schemalagd.
-  const free = ([["youtube", "youtube_shorts"], ["tiktok", "tiktok"]] as const).some(
-    ([p, name]) => allows(clip, name) && !pending.some((x) => x.platform === p)
-  );
+  const ytTaken = allows(clip, "youtube_shorts") && pending.some((x) => x.platform === "youtube");
+  const ttTaken = allows(clip, "tiktok") && pending.some((x) => x.platform === "tiktok");
+  // Bara för plattformar som redan har en post: med flera konton går det att schemalägga fler.
+  const { info: ytInfo } = useClipAccounts(clip.id, "youtube", ytTaken);
+  const { info: ttInfo } = useClipAccounts(clip.id, "tiktok", ttTaken);
+  // Någon plattform som kampanjen postar på och som är ledig, eller har flera konton.
+  const free =
+    (allows(clip, "youtube_shorts") && (!ytTaken || !!ytInfo?.multi)) || (allows(clip, "tiktok") && (!ttTaken || !!ttInfo?.multi));
   const block = clip.problems.length > 0 ? "Rätta problemen först." : null;
 
   return (

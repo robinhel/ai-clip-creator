@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, ExternalLink, Loader2, Send, XCircle } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { SuggestText } from "@/components/ClipAccounts";
 import { accountName } from "@/components/TikTokCard";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { CampaignClip, TikTokAccount, TikTokCreatorInfo, TikTokPrivacy, TikTokUpload } from "@/lib/types";
+import type { CampaignClip, ClipAccounts, TikTokAccount, TikTokCreatorInfo, TikTokPrivacy, TikTokUpload } from "@/lib/types";
 
 // TikTok granskar texterna på engelska i den här dialogen. De står ordagrant som i TikToks riktlinjer.
 const MUSIC_URL = "https://www.tiktok.com/legal/page/global/music-usage-confirmation/en";
@@ -50,6 +51,8 @@ function Check({ label, checked, disabled, onChange, title }: {
 interface Props {
   clip: CampaignClip;
   account: TikTokAccount;
+  /** Kampanjens konton med läge, när klippet kan ligga på flera konton. */
+  accounts?: ClipAccounts | null;
   /** Senaste uppladdningen, läst om av raden var 10:e sekund medan TikTok publicerar. */
   upload: TikTokUpload | null;
   onSent: (upload: TikTokUpload) => void;
@@ -83,6 +86,8 @@ export function useTikTokForm(clip: CampaignClip, creator: TikTokCreatorInfo | n
   const [disclose, setDisclose] = useState(false);
   const [yourBrand, setYourBrand] = useState(false);
   const [branded, setBranded] = useState(false);
+  // Omslaget i sekunder in i klippet. null: inget valt, TikTok tar första bilden.
+  const [cover, setCover] = useState<number | null>(null);
 
   // Uppåt, som servern: 60,4 s är över en gräns på 60 s.
   const length = clip.start_s != null && clip.end_s != null ? Math.ceil(clip.end_s - clip.start_s) : null;
@@ -110,16 +115,77 @@ export function useTikTokForm(clip: CampaignClip, creator: TikTokCreatorInfo | n
           allow_stitch: allowStitch,
           brand_organic: disclose && yourBrand,
           brand_content: brandedOn,
+          cover_s: cover,
         };
 
   return {
     title, setTitle, privacy, setPrivacy, allowComment, setAllowComment, allowDuet, setAllowDuet, allowStitch, setAllowStitch,
-    disclose, setDisclose, yourBrand, setYourBrand, branded, setBranded, brandedOn, reason, needDisclosure, fields,
+    disclose, setDisclose, yourBrand, setYourBrand, branded, setBranded, brandedOn, cover, setCover, reason, needDisclosure, fields,
   };
 }
 
+const coverSec = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+/** Omslaget: ett reglage för tiden och bilden ur videon vid den tiden. */
+function CoverPicker({ clip, value, onChange }: { clip: CampaignClip; value: number | null; onChange: (s: number | null) => void }) {
+  const video = useRef<HTMLVideoElement>(null);
+  const [duration, setDuration] = useState(clip.start_s != null && clip.end_s != null ? clip.end_s - clip.start_s : 0);
+  // Nedåt till 0,1 s, så att värdet alltid ligger inom klippet som servern kräver.
+  const max = Math.max(0, Math.floor(duration * 10) / 10);
+
+  useEffect(() => {
+    if (video.current) video.current.currentTime = value ?? 0;
+  }, [value]);
+
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-line p-2.5">
+      <video
+        ref={video}
+        data-cover
+        src={api.campaign.videoUrl(clip)}
+        poster={value == null ? api.campaign.posterUrl(clip) : undefined}
+        muted
+        playsInline
+        preload="auto"
+        aria-hidden
+        onLoadedMetadata={(e) => {
+          if (!duration) setDuration(e.currentTarget.duration);
+          e.currentTarget.currentTime = value ?? 0;
+        }}
+        className={cn("aspect-[9/16] w-14 shrink-0 rounded-md bg-black object-cover", value == null && "opacity-60")}
+      />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <p className="flex items-baseline justify-between gap-2 text-[13px] text-muted-foreground">
+          <label htmlFor={`omslag-${clip.id}`}>Omslag</label>
+          {value == null ? (
+            <span className="text-xs">Inget valt. TikTok tar första bilden.</span>
+          ) : (
+            <span className="flex items-baseline gap-2">
+              <span className="text-sm font-medium text-foreground tabular-nums">{coverSec.format(value)} s</span>
+              <button type="button" onClick={() => onChange(null)} className="text-xs underline-offset-4 hover:text-foreground hover:underline">
+                Ta bort valet
+              </button>
+            </span>
+          )}
+        </p>
+        <input
+          id={`omslag-${clip.id}`}
+          type="range"
+          min={0}
+          max={max}
+          step={0.1}
+          value={value ?? 0}
+          disabled={max === 0}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="w-full accent-[var(--brand,#7c5cff)]"
+        />
+      </div>
+    </div>
+  );
+}
+
 /** Beskrivning, vem som får se, kommentarer, duett, stitch, märkning och avtalstexten, ordagrant som TikTok kräver. */
-export function TikTokFields({ creator, form }: { creator: TikTokCreatorInfo | null; form: ReturnType<typeof useTikTokForm> }) {
+export function TikTokFields({ clip, creator, form }: { clip: CampaignClip; creator: TikTokCreatorInfo | null; form: ReturnType<typeof useTikTokForm> }) {
   const {
     title, setTitle, privacy, setPrivacy, allowComment, setAllowComment, allowDuet, setAllowDuet, allowStitch, setAllowStitch,
     disclose, setDisclose, yourBrand, setYourBrand, branded, setBranded, brandedOn,
@@ -140,6 +206,8 @@ export function TikTokFields({ creator, form }: { creator: TikTokCreatorInfo | n
           className="mt-1 w-full resize-y rounded-xl border border-line bg-background px-3 py-2 text-sm outline-none focus:border-brand"
         />
       </label>
+
+      <CoverPicker clip={clip} value={form.cover} onChange={form.setCover} />
 
       <label className="block">
         <span className="text-[13px] text-muted-foreground">Vem får se</span>
@@ -239,7 +307,7 @@ export function TikTokFields({ creator, form }: { creator: TikTokCreatorInfo | n
 }
 
 /** Publicera ett godkänt klipp direkt på TikTok. Monteras när den öppnas, så creator_info läses färskt varje gång. */
-export function TikTokDirectPost({ clip, account, upload, onSent, onClose }: Props) {
+export function TikTokDirectPost({ clip, account, accounts = null, upload, onSent, onClose }: Props) {
   const { creator, creatorError } = useCreatorInfo(account.open_id);
   const form = useTikTokForm(clip, creator);
   const { reason, needDisclosure } = form;
@@ -376,7 +444,8 @@ export function TikTokDirectPost({ clip, account, upload, onSent, onClose }: Pro
               </div>
             ) : (
               <>
-                <TikTokFields creator={creator} form={form} />
+                <SuggestText clipId={clip.id} platform="tiktok" account={account.open_id} info={accounts} onText={(v) => form.setTitle(v.caption)} />
+                <TikTokFields clip={clip} creator={creator} form={form} />
 
                 <div className="space-y-1.5">
                   <Button className="h-10 w-full" disabled={!canPublish} title={needDisclosure ? NEED_DISCLOSURE : undefined} onClick={publish}>

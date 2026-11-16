@@ -263,6 +263,33 @@ export interface ClipPost {
   updated: string;
   engagement: number | null;
   estimate_usd: number | null;
+  /** open_id eller channel_id. null: loggat för hand utan konto. Saknas hos äldre servrar. */
+  account?: string | null;
+}
+
+export type ClipAccountState = "free" | "scheduled" | "posted";
+
+/** Ett av kampanjens konton för klippet. Okopplat konto: account är profilens text och name null. */
+export interface ClipAccount {
+  account: string;
+  name: string | null;
+  state: ClipAccountState;
+  at: string | null;
+  text: string | null;
+}
+
+/** GET /campaign/clips/{id}/accounts. multi: kampanjen listar minst 2 konton på plattformen. */
+export interface ClipAccounts {
+  multi: boolean;
+  max_accounts: number;
+  accounts: ClipAccount[];
+}
+
+/** POST /campaign/clips/{id}/variant: en ny text som skiljer sig från klippets andra konton. */
+export interface ClipVariant {
+  title: string;
+  caption: string;
+  description: string | null;
 }
 
 export type ClipPostPatch = Partial<Pick<ClipPost, "status" | "url" | "views" | "likes" | "comments" | "shares" | "paid_usd">>;
@@ -344,6 +371,8 @@ export interface TikTokSendBody {
   allow_stitch?: boolean;
   brand_organic?: boolean;
   brand_content?: boolean;
+  /** Omslaget, sekunder in i det färdiga klippet. Bara i direktläge; null: TikTok väljer. */
+  cover_s?: number | null;
 }
 
 /** GET /campaign/tiktok/status. Aldrig någon token. Fälten på toppnivå gäller det första kontot. */
