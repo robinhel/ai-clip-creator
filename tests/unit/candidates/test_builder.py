@@ -85,6 +85,45 @@ def test_density_hype_emotes_boost_score():
     assert hyped_max > plain_max
 
 
+def _spam_chat(distinct: bool) -> list[ChatMessage]:
+    """Quiet chat from many viewers, then 40 messages in 12 s: one spammer, or 40 different viewers."""
+    quiet = [_msg(float(i * 10), author=f"u{i}") for i in range(50)]
+    burst = [_msg(300.0 + i * 0.3, author=f"b{i}" if distinct else "spammer") for i in range(40)]
+    return quiet + burst
+
+
+def test_density_author_cap_ignores_one_spammer():
+    near = lambda scores: [t for t, _ in scores if 290 <= t <= 320]  # noqa: E731
+    assert near(compute_density_scores(_spam_chat(False), window_s=15, peak_multiplier=4.0))  # no cap: as before
+    assert not near(compute_density_scores(_spam_chat(False), window_s=15, peak_multiplier=4.0, author_cap=3.0))
+    assert near(compute_density_scores(_spam_chat(True), window_s=15, peak_multiplier=4.0, author_cap=3.0))
+
+
+def _ramp(levels: list[int], start: float) -> list[ChatMessage]:
+    """levels[k] messages from new viewers in the k-th 15 s window after start."""
+    return [
+        _msg(start + 15 * k + n * 15 / level, author=f"r{k}_{n}")
+        for k, level in enumerate(levels)
+        for n in range(level)
+    ]
+
+
+def test_density_surge_gain_favours_a_sudden_jump():
+    quiet = [_msg(float(i * 5), author="a") for i in range(120)]  # 3 messages per 15 s for 10 minutes
+    sudden = quiet + _ramp([8], 600.0)
+    slow = quiet + _ramp([4, 5, 6, 7, 8], 600.0)  # the same level, reached step by step
+    assert compute_density_scores(sudden, window_s=15, peak_multiplier=3.0) == []
+    assert compute_density_scores(sudden, window_s=15, peak_multiplier=3.0, surge_gain=0.5)
+    assert compute_density_scores(slow, window_s=15, peak_multiplier=3.0, surge_gain=0.5) == []
+
+
+def test_builder_uses_the_author_cap_from_config():
+    chat = _chat(_spam_chat(False))
+    sources = lambda cfg: {s for c in build_candidates(chat, [], cfg) for s in c.sources}  # noqa: E731
+    assert "chat_density" in sources(_cfg())
+    assert "chat_density" not in sources(_cfg(density_author_cap=3.0))
+
+
 # ── deduplication ────────────────────────────────────────────────────────────
 
 
