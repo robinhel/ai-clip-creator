@@ -6,7 +6,6 @@ import json
 import subprocess
 from pathlib import Path
 
-import pytest
 
 from campaign import finish, subtitles
 from campaign.profile import Profile
