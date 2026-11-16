@@ -121,8 +121,14 @@ def _when(text: str) -> datetime:
 
 
 def clip_seconds(clip: dict, path: Path) -> float:
-    has_times = clip["start_s"] is not None and clip["end_s"] is not None
-    return clip["end_s"] - clip["start_s"] if has_times else probe(path)["duration"]
+    """Den färdiga filens längd: tidskartan kan ha tagit bort tystnad eller lagt hooken först, så loggens
+    tider stämmer inte alltid. Loggens tider bara när filen inte går att läsa."""
+    try:
+        return probe(path)["duration"]
+    except RuntimeError:
+        if clip["start_s"] is None or clip["end_s"] is None:
+            raise
+        return clip["end_s"] - clip["start_s"]
 
 
 class Schedule:
