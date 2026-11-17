@@ -49,11 +49,17 @@ def test_a_landscape_video_becomes_a_vertical_clip_to_review(client, settings, t
 
 
 @needs_ffmpeg
-def test_two_uploads_with_the_same_name_get_their_own_files(client, tmp_path) -> None:
+def test_two_uploads_with_the_same_name_get_their_own_files(client, tmp_path, monkeypatch) -> None:
+    from campaign import uploads_api
+
+    hooks: list = []
+    real = uploads_api.finish_clip
+    monkeypatch.setattr(uploads_api, "finish_clip", lambda *a, **k: hooks.append(k["title"]) or real(*a, **k))
     source = make_clip(tmp_path / "a.mp4", seconds=4)
-    first, second = _upload(client, source).json(), _upload(client, source).json()
+    first, second = _upload(client, source).json(), _upload(client, source, title="Wow").json()
     assert first["filename"] != second["filename"]
-    assert first["title"] == "a"  # utan rubrik: filens namn
+    assert first["title"] == "a"  # utan rubrik: filens namn i loggen
+    assert hooks == ["", "Wow"]  # men bara en skriven rubrik bränns in
 
 
 @needs_ffmpeg

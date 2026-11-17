@@ -52,7 +52,7 @@ def upload(file: UploadFile = File(...), profile: str = Form(...), title: str = 
     folder = settings.out_dir / UPLOAD
     source, raw, done = folder / f".{stem}.src{name.suffix.lower()}", folder / f"{stem}.mp4", folder / "klara" / f"{stem}.mp4"
     done.parent.mkdir(parents=True, exist_ok=True)
-    title = title.strip() or name.stem
+    hook = title.strip()  # bara en rubrik Robin skriver bränns in, aldrig filens namn
     try:
         with source.open("wb") as out:
             shutil.copyfileobj(file.file, out)
@@ -63,17 +63,18 @@ def upload(file: UploadFile = File(...), profile: str = Form(...), title: str = 
         run([need("ffmpeg"), "-y", "-v", "error", "-i", str(source), "-vf", FILL, "-map", "0:v:0", "-map", "0:a:0?",
              *ENCODER_ARGS.get(settings.encoder, ENCODER_ARGS["libx264"]), "-c:a", "aac", "-b:a", "192k",
              "-movflags", "+faststart", str(raw)])
-        manifest = finish_clip(raw, done, campaign, settings.root, settings.encoder, title=title, look=look,
+        manifest = finish_clip(raw, done, campaign, settings.root, settings.encoder, title=hook, look=look,
                                speed=speed)
-    except RuntimeError as error:  # ffmpeg misslyckades
-        raise HTTPException(500, f"Videon gick inte att göra om: {error}") from error
-    except BaseException:
+    except BaseException as error:
         raw.unlink(missing_ok=True)
         done.unlink(missing_ok=True)
+        if isinstance(error, RuntimeError):  # ffmpeg misslyckades
+            raise HTTPException(500, f"Videon gick inte att göra om: {error}") from error
         raise
     finally:
         source.unlink(missing_ok=True)
 
+    title = hook or name.stem
     caption = build_caption(title, campaign)
     problems, warnings = check_clip(probe(done), manifest, campaign, caption)
     log = _log(settings)
