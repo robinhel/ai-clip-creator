@@ -166,9 +166,17 @@ class Schedule:
         post["late"] = bool((post["result"] or {}).get("late")) or (
             post["status"] == "waiting" and (now - datetime.fromisoformat(post["at"])).total_seconds() > LATE_S)
         post["warning"] = self._too_close(post) if post["status"] == "waiting" else None
+        post["reminder"] = post["status"] == "reminded" or (
+            post["status"] != "done" and post["platform"] == "tiktok" and self._reminds(post))
         for key in ("created", "updated"):
             post.pop(key)
         return post
+
+    def _reminds(self, post: dict) -> bool:
+        """TikTok blir en påminnelse om inte Robin valde konto och vem som får se det, och kontot får publicera.
+        Samma villkor som vid tiden (_upload)."""
+        account = post["account"]
+        return not (account and post["fields"].get("privacy_level") and TikTok(self.settings).can_publish(account))
 
     def get(self, post_id: int) -> dict:
         with self._db() as db:
@@ -179,14 +187,15 @@ class Schedule:
         return self._view(row, _now())
 
     def list(self) -> list[dict]:
-        """Väntande (och pågående) först, närmast tid först, sedan högst 20 avslutade från de senaste 24 timmarna.
-        Äldre avslutade poster ligger kvar i databasen men visas inte."""
+        """Väntande (och pågående) först, närmast tid först, sedan högst 20 avslutade från de senaste 24 timmarna,
+        senaste tid först: webben visar den planerade tiden. Äldre avslutade poster ligger kvar i databasen men
+        visas inte."""
         select = "SELECT s.*, c.title AS clip_title, c.profile FROM scheduled_posts s LEFT JOIN clips c ON c.id = s.clip_id"
         now = _now()
         with self._db() as db:
             coming = db.execute(f"{select} WHERE s.status IN ('waiting', 'running') ORDER BY s.at").fetchall()
             finished = db.execute(f"{select} WHERE s.status IN ({', '.join('?' * len(FINISHED))}) AND s.updated >= ? "
-                                  "ORDER BY s.updated DESC, s.id DESC LIMIT 20",
+                                  "ORDER BY s.at DESC, s.updated DESC, s.id DESC LIMIT 20",
                                   (*FINISHED, _iso(now - timedelta(hours=FINISHED_SHOWN_H)))).fetchall()
         return [self._view(row, now) for row in (*coming, *finished)]
 
@@ -464,7 +473,8 @@ class Schedule:
     def _run(self, post: dict, now: datetime) -> None:
         late_s = (now - datetime.fromisoformat(post["at"])).total_seconds()
         title = post["clip_title"] or f"Klipp {post['clip_id']}"
-        queue = f"{self.settings.web_url}/queue"
+        # Notisen öppnar rätt flik i Klippen: klippet ligger kvar i Att posta tills det har ett inlägg.
+        queue = f"{self.settings.web_url}/queue?tab=posta"
         late = late_s > LATE_S
         try:
             if late_s > MISSED_S:
@@ -488,11 +498,12 @@ class Schedule:
             message, url = f"Dags att posta {title} på TikTok", None
         else:
             done = "är uppe på YouTube" if post["platform"] == "youtube" else "skickades till TikTok"
-            if submit_helper(self.settings):  # webben har länken och tiden; notisen öppnar kön
+            if submit_helper(self.settings):  # webben har länken och tiden; notisen öppnar fliken Skicka in
                 # Samma start som inlägget: TikTok-inlägget räknas från uppladdningen (TikTok.latest).
                 start = datetime.fromisoformat(result["created"]) if result.get("created") else _now()
                 before = (start + timedelta(minutes=30)).astimezone(STOCKHOLM)
-                message, url = f"{title} {done}. Skicka in länken i Content Rewards före kl. {before:%H:%M}.", None
+                message = f"{title} {done}. Skicka in länken i Content Rewards före kl. {before:%H:%M}."
+                url = f"{self.settings.web_url}/queue?tab=skicka-in"
             else:
                 message = f"{title} {done}. Skicka in länken i Content Rewards inom 30 minuter."
                 url = self._content_rewards(post["profile"])
@@ -512,11 +523,9 @@ class Schedule:
             if youtube.uploads_today() >= YOUTUBE_DAILY:
                 raise ScheduleError(f"Dagens gräns på {YOUTUBE_DAILY} uppladdningar till YouTube är nådd.")
             return "done", youtube.upload(post["clip_id"], path, post["account"], post["fields"], duration_s)
-        tiktok = TikTok(self.settings)
-        # Påminnelse om inte Robin valde konto och vem som får se det, och kontot får publicera.
-        if not (post["account"] and post["fields"].get("privacy_level") and tiktok.can_publish(post["account"])):
+        if self._reminds(post):
             return "reminded", {}
-        return "done", tiktok.upload(post["clip_id"], path, post["account"], post["fields"], duration_s)
+        return "done", TikTok(self.settings).upload(post["clip_id"], path, post["account"], post["fields"], duration_s)
 
     def _content_rewards(self, profile: str | None) -> str | None:
         try:
