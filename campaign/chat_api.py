@@ -94,7 +94,7 @@ def _send(request: Request, settings: Settings, profile: str, **kwargs) -> int:
     try:
         return chat.send(settings, profile, **kwargs)
     except BudgetExceeded as error:
-        raise HTTPException(402, f"{error} Inget skickades till Claude.") from error
+        raise HTTPException(402, f"{error} Inget sparades.") from error
     except anthropic.APIError as error:  # nere, överbelastad eller fel i anropet: inget sparas
         raise HTTPException(502, f"Claude svarar inte just nu ({type(error).__name__}). Inget sparades. "
                                  "Försök igen om en stund.") from error
