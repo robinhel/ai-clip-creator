@@ -343,6 +343,24 @@ def clip_accounts(clip_id: int, platform: Literal["tiktok", "youtube"]) -> str:
     return _send("GET", f"/campaign/clips/{clip_id}/accounts", params={"platform": platform})
 
 
+@server.tool(annotations=READ)
+def version_options(clip_id: int, platform: Literal["tiktok", "youtube"], account: str) -> str:
+    """Valen för en ny version av klippet till ett annat konto: om det går (allowed, reason), fonter,
+    klistermärken, overlays, hur mycket som får klippas i början och kontots fasta stil (defaults)."""
+    return _send("GET", f"/campaign/clips/{clip_id}/versions/options", params={"platform": platform, "account": account})
+
+
+@server.tool(annotations=WRITE)
+def make_version(clip_id: int, platform: Literal["tiktok", "youtube"], account: str, font: str | None = None,
+                 start_cut_s: float | None = None, overlay: str | None = None, sticker: dict | None = None) -> str:
+    """Gör en ny version av ett godkänt klipp för ett annat konto i kampanjen: annan font, klipp i början
+    (start_cut_s, 0–5 s), egen overlay och klistermärke ({file, position, start_s, duration_s}). Versionen blir
+    ett eget klipp som Robin godkänner. Inget publiceras. Läs version_options först."""
+    return _send("POST", f"/campaign/clips/{clip_id}/versions",
+                 {"platform": platform, "account": account, "font": font, "start_cut_s": start_cut_s,
+                  "overlay": overlay, "sticker": sticker})
+
+
 @server.tool(annotations=PAID)
 def suggest_variant(clip_id: int, platform: Literal["tiktok", "youtube"], account: str) -> str:
     """Kostar pengar (Claude). Fråga Robin först.
