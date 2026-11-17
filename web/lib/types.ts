@@ -254,6 +254,8 @@ export interface VersionOptions {
   /** Kampanjen kräver sin egen overlay; den går inte att byta. */
   overlay_locked: boolean;
   max_start_cut_s: number;
+  speeds: number[];
+  filters: string[];
   /** font null: originalets. overlay null: kampanjens overlay (eller ingen, om kampanjen inte har någon). */
   defaults: { font: string | null; overlay: string | null; sticker: VersionSticker | null; start_cut_s: number };
 }
@@ -268,6 +270,13 @@ export interface VersionCreate {
   /** null: kampanjens overlay. */
   overlay: string | null;
   sticker: VersionSticker | null;
+  mirror: boolean;
+  speed: number;
+  filter: string;
+  /** -0,3–0,3, ovanpå filtret. */
+  brightness: number;
+  /** -0,5–0,5, ovanpå filtret. */
+  saturation: number;
 }
 
 /** GET och PUT /campaign/preferences. */

@@ -31,7 +31,10 @@ const POSITION_CLASS: Record<StickerPosition, string> = {
   bottom_right: "right-[6%] bottom-[24%]",
 };
 
+const FILTER_LABEL: Record<string, string> = { none: "Inget", fresh: "Fräsch", warm: "Varm", cool: "Kall", punch: "Kraftig" };
+
 const sec = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
+const num = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const field = "mt-1 h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand disabled:opacity-60 [&>option]:bg-panel";
 
 function VersionDialog({ clip, start, onClose }: {
@@ -56,6 +59,11 @@ function VersionDialog({ clip, start, onClose }: {
   const [position, setPosition] = useState<StickerPosition>("top_right");
   const [stickerStart, setStickerStart] = useState("0");
   const [stickerLength, setStickerLength] = useState("3");
+  const [mirror, setMirror] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [filter, setFilter] = useState("none");
+  const [brightness, setBrightness] = useState(0);
+  const [saturation, setSaturation] = useState(0);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +125,11 @@ function VersionDialog({ clip, start, onClose }: {
       start_cut_s: cut,
       overlay: overlay || null,
       sticker: sticker ? { file: sticker, position, start_s: startS, duration_s: lengthS } : null,
+      mirror,
+      speed,
+      filter,
+      brightness,
+      saturation,
     };
     setBusy(true);
     setError(null);
@@ -144,7 +157,7 @@ function VersionDialog({ clip, start, onClose }: {
         <div>
           <DialogTitle className="text-lg font-semibold">Ny version för ett annat konto</DialogTitle>
           <DialogDescription className="mt-1">
-            Samma klipp med egen font, eget klipp i början, overlay och klistermärke. Versionen blir ett eget klipp som du granskar.
+            Samma klipp med egen font, eget klipp i början, overlay, klistermärke, spegling, filter och hastighet. Versionen blir ett eget klipp som du granskar.
           </DialogDescription>
         </div>
 
@@ -319,6 +332,69 @@ function VersionDialog({ clip, start, onClose }: {
                         Versionen börjar så här många sekunder in. Högst {sec.format(opts.max_start_cut_s)} s, så att klippet inte blir för kort.
                       </p>
                     </div>
+
+                    <fieldset className="space-y-3 rounded-xl border border-line p-3">
+                      <legend className="px-1 text-[13px] text-muted-foreground">Bild och hastighet</legend>
+                      <label className="flex items-center gap-2.5 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={mirror}
+                          onChange={(e) => setMirror(e.target.checked)}
+                          disabled={busy}
+                          className="size-4 accent-[var(--brand,#7c5cff)]"
+                        />
+                        Spegla bilden (undertexten speglas inte)
+                      </label>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          {label("Hastighet", "version-speed")}
+                          <select id="version-speed" value={speed} onChange={(e) => setSpeed(Number(e.target.value))} disabled={busy} className={field}>
+                            {opts.speeds.map((s) => (
+                              <option key={s} value={s}>
+                                {num.format(s)}x
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          {label("Filter", "version-filter")}
+                          <select id="version-filter" value={filter} onChange={(e) => setFilter(e.target.value)} disabled={busy} className={field}>
+                            {opts.filters.map((f) => (
+                              <option key={f} value={f}>
+                                {FILTER_LABEL[f] ?? f}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      {(
+                        [
+                          ["Ljusstyrka", "version-brightness", brightness, setBrightness, 0.3],
+                          ["Mättnad", "version-saturation", saturation, setSaturation, 0.5],
+                        ] as const
+                      ).map(([text, id, value, set, max]) => (
+                        <div key={id}>
+                          <p className="flex justify-between gap-3">
+                            {label(text, id)}
+                            <span className="text-sm font-medium tabular-nums">{num.format(value)}</span>
+                          </p>
+                          <input
+                            id={id}
+                            type="range"
+                            min={-max}
+                            max={max}
+                            step={0.01}
+                            value={value}
+                            disabled={busy}
+                            onChange={(e) => set(Number(e.target.value))}
+                            className="w-full accent-[var(--brand,#7c5cff)]"
+                          />
+                        </div>
+                      ))}
+                      <p className="text-xs text-muted-foreground">
+                        Förhandsvisningen visar inte spegling, filter eller hastighet. Granska den färdiga versionen.
+                      </p>
+                    </fieldset>
 
                     <fieldset className="space-y-3 rounded-xl border border-line p-3">
                       <legend className="px-1 text-[13px] text-muted-foreground">Klistermärke</legend>
