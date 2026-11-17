@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Check, CheckCircle2, Download, ExternalLink, Loader2, Pencil, Scissors, Send, ThumbsDown, ThumbsUp, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -170,10 +170,12 @@ interface Props {
   onUpdate: (clip: CampaignClip) => void;
   /** Läs om listan, till exempel när en ny version har blivit ett eget klipp. */
   onReload?: () => void;
+  /** Extra knapp under Ångra godkännande för ett godkänt klipp, till exempel Ta bort på Att posta. */
+  approvedAction?: ReactNode;
 }
 
 /** Ett klipp per rad: betyg, video, Claudes motivering, caption, regelkontroll och knappar. */
-export function ClipResultRow({ clip, number, formats, runId, active = false, onUpdate, onReload }: Props) {
+export function ClipResultRow({ clip, number, formats, runId, active = false, onUpdate, onReload, approvedAction }: Props) {
   const [caption, setCaption] = useState(clip.caption ?? "");
   const [editing, setEditing] = useState(false);
   const [platform, setPlatform] = useState<Platform | "">(clip.platform ?? "");
@@ -648,6 +650,7 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
             <Button className="w-full" size="sm" variant="ghost" disabled={busy} onClick={() => patch({ status: "renderad" })}>
               Ångra godkännande
             </Button>
+            {approvedAction}
           </div>
         )}
         {clip.status === "postad" && !hasPosts && (

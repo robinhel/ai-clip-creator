@@ -421,6 +421,27 @@ class Schedule:
             raise ScheduleError(f"Bara väntande poster kan avbrytas. Den här är {post['status']}.", 409)
         return self.get(post_id)
 
+    def cancel_for_clip(self, clip_id: int) -> int:
+        """Klippet tas bort från Att posta: avbryt dess väntande poster. Laddas klippet upp just nu, ändras inget.
+        En transaktion med skrivlås, så att run_due inte hinner starta en post mellan kollen och avbrottet."""
+        db = sqlite3.connect(self.db_path, isolation_level=None)
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            running = db.execute("SELECT platform FROM scheduled_posts WHERE clip_id = ? AND status = 'running'",
+                                 (clip_id,)).fetchone()
+            if running:
+                db.execute("ROLLBACK")
+                name = "YouTube" if running[0] == "youtube" else "TikTok"
+                raise ScheduleError(f"Klippet laddas upp nu på {name}. Vänta tills uppladdningen är klar.", 409)
+            changed = db.execute("UPDATE scheduled_posts SET status = 'cancelled', updated = ? "
+                                 "WHERE clip_id = ? AND status = 'waiting'", (_iso(_now()), clip_id)).rowcount
+            db.execute("COMMIT")
+            return changed
+        finally:
+            if db.in_transaction:
+                db.execute("ROLLBACK")
+            db.close()
+
     def fail_interrupted(self) -> None:
         """Servern dog mitt i en uppladdning. Posten körs inte igen, så att inget laddas upp två gånger."""
         with self._db() as db:

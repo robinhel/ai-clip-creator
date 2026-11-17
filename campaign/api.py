@@ -42,7 +42,7 @@ NEXT_STATUS: dict[str, set[str]] = {
     "renderad": {"godkand", "nekad"},
     "underkand": {"nekad"},
     "godkand": {"postad", "nekad", "renderad"},
-    "nekad": {"renderad"},
+    "nekad": {"renderad", "godkand"},  # godkand: Ångra på Att posta; samma kontroller som ett nytt ja
     "postad": {"inskickad", "godkand"},
     "inskickad": {"analytics_inskickad", "betald", "postad"},
     "analytics_inskickad": {"betald", "inskickad"},
@@ -662,6 +662,13 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
                 raise HTTPException(400, "Klippet har problem. Rätta dem innan du godkänner.")
             if profile.formats and not (fields.get("format") or clip["format"]):
                 raise HTTPException(400, "Välj ett format innan du godkänner.")
+        if status == "godkand" and new in ("nekad", "renderad"):  # Ta bort eller Ångra godkännande: inget laddas upp efteråt
+            from .schedule import Schedule, ScheduleError  # schedule läser klipploggen; importen hålls här
+
+            try:
+                Schedule(settings).cancel_for_clip(clip_id)
+            except ScheduleError as error:
+                raise HTTPException(error.status, str(error)) from error
         if new == "renderad" and problems:
             fields["status"] = "underkand"
         if new == "postad":
