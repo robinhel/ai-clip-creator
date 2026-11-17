@@ -52,6 +52,7 @@ dev = [
     "mkdocs-material>=9.5",
     "alembic>=1.13",
     "psycopg2-binary>=2.9",
+    "python-multipart>=0.0.9",  # uppladdning av egna videor
 ]
 server = [
     "fastapi>=0.111",
@@ -59,6 +60,7 @@ server = [
     "sqlalchemy>=2.0",
     "alembic>=1.13",
     "psycopg2-binary>=2.9",
+    "python-multipart>=0.0.9",  # uppladdning av egna videor
 ]
 vision = [
     "opencv-python-headless>=4.9,<5",
