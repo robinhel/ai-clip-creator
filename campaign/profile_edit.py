@@ -218,7 +218,7 @@ def check_profile_text(text: str, profile_id: str, root: Path) -> Profile:
     """Samma kontroller som load_profile, plus det som annars kraschar senare i kedjan."""
     data = parse_yaml(text)
     if not isinstance(data, dict):
-        raise ValueError("Profilen måste vara en YAML-karta med fält som name och streamer.")
+        raise ValueError("Kampanjens fil måste vara en YAML-karta med fält som name och streamer.")
     _check_types(data, root)
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / f"{profile_id}.yaml"
@@ -228,7 +228,7 @@ def check_profile_text(text: str, profile_id: str, root: Path) -> Profile:
         except SystemExit as error:
             raise ValueError(str(error)) from error
         except (TypeError, ValueError, AttributeError) as error:
-            raise ValueError(f"Profilen går inte att läsa: {error}") from error
+            raise ValueError(f"Kampanjens fil går inte att läsa: {error}") from error
     try:
         profile.caption_template.format(title="x")
     except (KeyError, IndexError, ValueError) as error:
@@ -396,7 +396,7 @@ def update_profile(text: str, changes: dict[str, object]) -> str:
     resultatet inte blir exakt profilen med ändringarna."""
     before = parse_yaml(text)
     if not isinstance(before, dict):
-        raise ValueError("Profilen måste vara en YAML-karta med fält som name och streamer.")
+        raise ValueError("Kampanjens fil måste vara en YAML-karta med fält som name och streamer.")
     expected = copy.deepcopy(before)
     for path, value in changes.items():
         top, _, sub = path.partition(".")

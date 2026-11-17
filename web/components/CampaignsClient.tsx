@@ -37,6 +37,8 @@ export const ownProblems = (p: CampaignProfile) => {
 const FIX = [
   { start: "Overlay-bilden saknas", href: (id: string) => `/campaigns/${id}?tab=installningar&del=overlay`, label: "Ladda upp overlay-bilden" },
   { start: "Facecam- och spelrutan är inte inställd", href: (id: string) => `/campaigns/${id}?tab=installningar&del=facecam`, label: "Ställ in rutorna" },
+  { start: "on_screen_text.text är tom", href: (id: string) => `/campaigns/${id}?tab=installningar&del=oversikt#caption`, label: "Skriv texten under Ställ in" },
+  { start: "Kampanjen saknar clipsmith_config", href: (id: string) => `/campaigns/${id}?tab=installningar&del=profil`, label: "Öppna Avancerat (YAML)" },
   { start: "Claude-nyckeln", href: () => "/settings#anthropic", label: "Lägg in nyckeln i Inställningar" },
   { start: "Berget-nyckeln", href: () => "/settings#berget", label: "Lägg in nyckeln i Inställningar" },
   { start: "ANTHROPIC_API_KEY saknas", href: () => "/settings#anthropic", label: "Lägg in nyckeln i Inställningar" },

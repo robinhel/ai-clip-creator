@@ -180,11 +180,11 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
     if not path.suffix:
         path = Path(profiles_dir) / f"{name_or_path}.yaml"
     if not path.exists():
-        raise SystemExit(f"Hittar ingen profil: {path}")
+        raise SystemExit(f"Hittar ingen kampanj: {path}")
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     for key in ("name", "streamer"):
         if not data.get(key):
-            raise SystemExit(f"Profilen {path.name} saknar fältet {key!r}.")
+            raise SystemExit(f"Kampanjens fil {path.name} saknar fältet {key!r}.")
     clip = data.get("clip") or {}
     text = data.get("on_screen_text") or {}
     overlay = data.get("overlay") or {}

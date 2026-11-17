@@ -195,7 +195,7 @@ def _campaigns(settings: Settings) -> list[dict]:
         try:
             profile = _describe_profile(name, settings)
         except (SystemExit, Exception):  # felets text kan citera filen, så den visas inte
-            rows.append(_row(f"profile:{name}", f"Kampanjen {name}", False, "Profilen går inte att läsa.", href))
+            rows.append(_row(f"profile:{name}", f"Kampanjen {name}", False, "Kampanjens fil går inte att läsa.", href))
             continue
         if profile["active"]:
             problems = [p for p in profile["problems"] if p not in profile["key_problems"]]

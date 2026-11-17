@@ -137,7 +137,7 @@ def _describe_profile(name: str, settings: Settings, path: Path | None = None) -
     clip_min_s = clip_max_s = None
     mode, rects_set = None, False
     if not profile.clipsmith_config:
-        blocking.append("Profilen saknar clipsmith_config.")
+        blocking.append("Kampanjen saknar clipsmith_config, inställningsfilen. Lägg till den under Avancerat (YAML).")
     else:
         try:  # bara en .yaml-fil i projektmappen, och felets text citerar aldrig filen
             cfg = read_config(config_file(settings.root, profile.clipsmith_config))
@@ -187,7 +187,7 @@ def list_profiles(settings: Settings = Depends(get_settings)) -> list[dict]:
             result.append({"name": name, "streamer": "", "campaign": name, "language": "",
                            "channel": "", "clip_min_s": None, "clip_max_s": None,
                            "formats": [], "ready": False, "active": True, "source": "twitch",
-                           "problems": [f"Profilen går inte att läsa: {error}"], "key_problems": [],
+                           "problems": [f"Kampanjens fil går inte att läsa: {error}"], "key_problems": [],
                            "state": "Inte redo"})
     return result
 

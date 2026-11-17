@@ -50,8 +50,8 @@ def tiktok_status(settings: Settings = Depends(get_settings)) -> dict:
             dependencies=[Depends(_only_local)])
 def tiktok_connect(settings: Settings = Depends(get_settings)) -> RedirectResponse:
     if not TikTok(settings).configured:
-        raise HTTPException(400, "TikTok är inte inställt. Lägg in TIKTOK_CLIENT_KEY och "
-                                 "TIKTOK_CLIENT_SECRET i .env och starta om servern.")
+        raise HTTPException(400, "TikTok är inte inställt. Lägg in Client key och Client secret "
+                                 "under Inställningar.")
     now = monotonic()
     for state in [s for s, (at, _) in _pending.items() if now - at > STATE_S]:
         del _pending[state]

@@ -29,8 +29,9 @@ function AddAccount() {
   );
 }
 
-/** Adresserna som är inlagda i TikTok-appen. Visas alltid, så att de går att hitta när något ska ändras där. */
-function AppLinks() {
+/** Adresserna som är inlagda i TikTok-appen. Visas alltid, så att de går att hitta när något ska ändras där.
+ *  redirect: adressen som servern använder (TIKTOK_REDIRECT_URI), så att samma adress står i portalen. */
+function AppLinks({ redirect }: { redirect: string }) {
   return (
     <details className="mt-3" data-app-links>
       <summary className="cursor-pointer text-muted-foreground select-none hover:text-foreground">
@@ -45,7 +46,7 @@ function AppLinks() {
         <code className="text-[13px]">{TIKTOK_VERIFIED_PREFIX}</code>.
       </p>
       <dl className="mt-3 space-y-3">
-        {TIKTOK_APP.map((link) => (
+        {TIKTOK_APP.map((l) => (l.id === "redirect" ? { ...l, url: redirect } : l)).map((link) => (
           <div key={link.id}>
             <dt className="text-[13px] text-muted-foreground">{link.label}</dt>
             <dd className="mt-1 flex flex-wrap items-center gap-2">
@@ -184,6 +185,7 @@ export function TikTokCard({ result: fromUrl, reason: reasonFromUrl, refresh }: 
   useEffect(load, [load, refresh]);
 
   const accounts = status ? tiktokAccounts(status) : [];
+  const redirect = status?.redirect_uri || TIKTOK_REDIRECT_URI;
 
   return (
     <section ref={ref} aria-label="TikTok-konton" className="mt-5 border-t border-line pt-4 text-sm">
@@ -228,21 +230,19 @@ export function TikTokCard({ result: fromUrl, reason: reasonFromUrl, refresh }: 
               </li>
               <li>Lägg till produkterna Login Kit och Content Posting API.</li>
               <li>
-                Välj scopes <code className="text-[13px]">user.info.basic</code> och{" "}
-                <code className="text-[13px]">video.upload</code>.
+                Välj scopes <code className="text-[13px]">user.info.basic</code>,{" "}
+                <code className="text-[13px]">video.upload</code> och <code className="text-[13px]">video.publish</code>.
+                Publicera direkt behöver <code className="text-[13px]">video.publish</code>.
               </li>
               <li>
                 Lägg in redirect-adressen:
                 <span className="mt-1.5 flex flex-wrap items-center gap-2">
-                  <code className="rounded-md border border-line bg-background px-2 py-1 text-[13px]">{TIKTOK_REDIRECT_URI}</code>
-                  <CopyButton text={TIKTOK_REDIRECT_URI} label="Kopiera" />
+                  <code className="rounded-md border border-line bg-background px-2 py-1 text-[13px] break-all">{redirect}</code>
+                  <CopyButton text={redirect} label="Kopiera" />
                 </span>
               </li>
               <li>Lägg till dina TikTok-konton under Target users i Sandbox.</li>
-              <li>
-                Klistra in Client key och Client secret ovanför och tryck Spara. Står det fortfarande att TikTok inte är
-                inställt: starta om servern.
-              </li>
+              <li>Klistra in Client key och Client secret ovanför och tryck Spara. Servern använder dem direkt.</li>
             </ol>
           </details>
         </>
@@ -276,7 +276,7 @@ export function TikTokCard({ result: fromUrl, reason: reasonFromUrl, refresh }: 
         </>
       )}
 
-      {status && <AppLinks />}
+      {status && <AppLinks redirect={redirect} />}
     </section>
   );
 }
