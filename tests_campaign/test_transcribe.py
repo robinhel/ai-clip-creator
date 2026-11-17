@@ -5,10 +5,18 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from campaign.transcribe import berget_post, to_segments, transcribe_vod
+from campaign.transcribe import LEAD_S, berget_post, to_segments, transcribe_vod
 from clipsmith.models.transcript import Transcript
 
 from .conftest import make_clip, needs_ffmpeg
+
+
+def probe_audio(path) -> float:
+    import subprocess
+
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+                         capture_output=True, text=True, check=True)
+    return float(out.stdout)
 
 
 def _answer(offset_free_words: list[tuple[str, float, float]], segments: list[tuple[float, float, str]]) -> dict:
@@ -51,14 +59,20 @@ def test_transcribe_vod_sends_each_part_and_writes_clipsmiths_transcript(setting
     mp4 = make_clip(settings.work_dir / "123" / "123.mp4", size="320x180", seconds=5)
     out = mp4.parent / "transcript.json"
     sent: list[dict] = []
+    lengths: list[float] = []
 
     def fake_post(audio: bytes, fields: dict) -> dict:
         sent.append(fields)
-        assert len(audio) > 0
-        return _answer([("hi", 0.5, 0.9)], [(0.2, 1.0, f"part {len(sent)}")])
+        part = settings.root / "del.mp3"
+        part.write_bytes(audio)
+        lengths.append(probe_audio(part))
+        # Berget's times count from the start of the audio it got, which begins with LEAD_S of silence.
+        return _answer([("hi", LEAD_S + 0.5, LEAD_S + 0.9)], [(LEAD_S + 0.2, LEAD_S + 1.0, f"part {len(sent)}")])
 
     transcribe_vod(mp4, "123", out, post=fake_post, model="KBLab/kb-whisper-large", language="en", chunk_s=3)
 
+    # Whisper dropped the first 7 s of speech in a file that talks from 0.1 s; with silence first it did not.
+    assert lengths == [pytest.approx(3 + LEAD_S, abs=0.1), pytest.approx(2 + LEAD_S, abs=0.1)]
     assert len(sent) == 2
     assert sent[0]["model"] == "KBLab/kb-whisper-large"
     assert sent[0]["language"] == "en"
