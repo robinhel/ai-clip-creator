@@ -180,6 +180,8 @@ export interface CampaignRunDetail extends CampaignRunInfo {
   eta_s: number | null;
   cost_estimate_usd: number | null;
   cost_estimate?: CostParts | null;
+  /** Varför Kör igen inte går, till exempel att källfilen till en egen fil är borta. null när det går. */
+  retry_problem?: string | null;
 }
 
 export interface ClipTranscript {
