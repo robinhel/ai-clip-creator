@@ -149,7 +149,7 @@ function EarningsCards({ earnings }: { earnings: Earnings }) {
   const over = earnings.per_clip.filter((c) => c.usd > 0).length;
   const cards: [string, string, string][] = [
     ["Uppskattad intäkt", usd.format(earnings.estimated_usd), "Visningar gånger kampanjens pris, med taket per klipp."],
-    ["Utbetalt", usd.format(earnings.paid_usd), "Beloppen i Betalt. Ett betalt inlägg utan belopp räknas med uppskattningen."],
+    ["Utbetalt", usd.format(earnings.paid_usd), "Inlägg med status Betald: beloppet i Betalt, eller uppskattningen när beloppet saknas."],
     ["Klipp över minsta visningar", `${over} av ${earnings.per_clip.length}`, "Bara de här klippen ger pengar."],
   ];
   return (
