@@ -5,6 +5,9 @@ from __future__ import annotations
 from .caption import check_caption
 from .profile import Profile
 
+# Varningen gäller bara tills formatet är valt. Webben visar den inte för ett klipp som har ett format.
+NO_FORMAT = "Klippet har inget format ännu. Välj ett när du godkänner."
+
 
 def check_source(info: dict) -> list[str]:
     """Kontroll av klippet från clipsmith innan vi lägger tid på att göra det klart."""
@@ -48,7 +51,7 @@ def check_clip(
 
     if profile.formats:
         if clip_format is None:
-            warnings.append("Klippet har inget format ännu. Välj ett när du godkänner.")
+            warnings.append(NO_FORMAT)
         elif clip_format not in profile.format_ids:
             problems.append(f"Formatet {clip_format!r} finns inte i kampanjens lista.")
     if review is None:

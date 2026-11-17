@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, ExternalLink, Loader2, Send, XCircle } from "lucide-react";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { SuggestText } from "@/components/ClipAccounts";
-import { accountName } from "@/components/TikTokCard";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { CampaignClip, ClipAccounts, TikTokAccount, TikTokCreatorInfo, TikTokPrivacy, TikTokUpload } from "@/lib/types";
+import type { CampaignClip, TikTokCreatorInfo, TikTokPrivacy } from "@/lib/types";
+
+/** TikTok har granskat appen. Innan dess blir varje direkt inlägg privat (Bara jag). Slå på med
+ * NEXT_PUBLIC_TIKTOK_AUDITED=1 när TikTok har godkänt appen. */
+export const TIKTOK_AUDITED = process.env.NEXT_PUBLIC_TIKTOK_AUDITED === "1";
+export const PRIVATE_UNTIL_AUDITED =
+  "TikTok har inte granskat appen än. Ett direkt inlägg blir därför privat (Bara jag). Det får ingen länk och går inte att skicka in i Content Rewards förrän du gör det offentligt i TikTok-appen.";
 
 // TikTok granskar texterna på engelska i den här dialogen. De står ordagrant som i TikToks riktlinjer.
 const MUSIC_URL = "https://www.tiktok.com/legal/page/global/music-usage-confirmation/en";
@@ -46,18 +47,6 @@ function Check({ label, checked, disabled, onChange, title }: {
       {label}
     </label>
   );
-}
-
-interface Props {
-  clip: CampaignClip;
-  account: TikTokAccount;
-  /** Kampanjens konton med läge, när klippet kan ligga på flera konton. */
-  accounts?: ClipAccounts | null;
-  /** Senaste uppladdningen, läst om av raden var 10:e sekund medan TikTok publicerar. */
-  upload: TikTokUpload | null;
-  onSent: (upload: TikTokUpload) => void;
-  /** Stäng. Med klippet när det har fått en postlänk, så att raden uppdateras. */
-  onClose: (updated?: CampaignClip) => void;
 }
 
 /** Läser kontot färskt hos TikTok, som riktlinjerna kräver före varje post. */
@@ -184,8 +173,17 @@ function CoverPicker({ clip, value, onChange }: { clip: CampaignClip; value: num
   );
 }
 
+/** Kampanjens regler om kommentarer och gillningar, till exempel "Kommentarer och gilla-markeringar ska vara påslagna". */
+export const interactionRules = (rules: string[]) => rules.filter((r) => /kommentar|gilla|likes|comment/i.test(r));
+
 /** Beskrivning, vem som får se, kommentarer, duett, stitch, märkning och avtalstexten, ordagrant som TikTok kräver. */
-export function TikTokFields({ clip, creator, form }: { clip: CampaignClip; creator: TikTokCreatorInfo | null; form: ReturnType<typeof useTikTokForm> }) {
+export function TikTokFields({ clip, creator, form, rules = [] }: {
+  clip: CampaignClip;
+  creator: TikTokCreatorInfo | null;
+  form: ReturnType<typeof useTikTokForm>;
+  /** Kampanjens regler. De som gäller kommentarer och gillningar visas vid rutorna. */
+  rules?: string[];
+}) {
   const {
     title, setTitle, privacy, setPrivacy, allowComment, setAllowComment, allowDuet, setAllowDuet, allowStitch, setAllowStitch,
     disclose, setDisclose, yourBrand, setYourBrand, branded, setBranded, brandedOn,
@@ -237,15 +235,21 @@ export function TikTokFields({ clip, creator, form }: { clip: CampaignClip; crea
           <span className="mt-1 block text-xs text-muted-foreground">{BC_PRIVATE}</span>
         )}
         {/* Listan följer TikToks val utan förval, men en ogranskad app får bara posta privat. */}
-        <span className="mt-1 block text-xs text-muted-foreground">
-          TikTok har inte granskat appen än. Tills dess fungerar bara Bara jag.
-        </span>
+        {!TIKTOK_AUDITED && <span className="mt-1 block text-xs text-warn/90">Inlägget blir privat (Bara jag) tills TikTok har granskat appen.</span>}
       </label>
 
-      <div className="flex flex-wrap gap-x-5 gap-y-2">
-        <Check label="Allow comment" checked={allowComment} disabled={!creator || creator.comment_disabled} onChange={setAllowComment} />
-        <Check label="Allow duet" checked={allowDuet} disabled={!creator || creator.duet_disabled} onChange={setAllowDuet} />
-        <Check label="Allow stitch" checked={allowStitch} disabled={!creator || creator.stitch_disabled} onChange={setAllowStitch} />
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap gap-x-5 gap-y-2">
+          <Check label="Allow comment" checked={allowComment} disabled={!creator || creator.comment_disabled} onChange={setAllowComment} />
+          <Check label="Allow duet" checked={allowDuet} disabled={!creator || creator.duet_disabled} onChange={setAllowDuet} />
+          <Check label="Allow stitch" checked={allowStitch} disabled={!creator || creator.stitch_disabled} onChange={setAllowStitch} />
+        </div>
+        {/* TikTok kräver att rutorna är av från början. Kampanjens regel står här, så att Robin slår på dem själv. */}
+        {interactionRules(rules).map((rule) => (
+          <p key={rule} data-campaign-rule className="text-xs text-warn/90">
+            Kampanjens regel: {rule}
+          </p>
+        ))}
       </div>
 
       <div className="rounded-xl border border-line p-3">
@@ -303,170 +307,5 @@ export function TikTokFields({ clip, creator, form }: { clip: CampaignClip; crea
         )}
       </p>
     </>
-  );
-}
-
-/** Publicera ett godkänt klipp direkt på TikTok. Monteras när den öppnas, så creator_info läses färskt varje gång. */
-export function TikTokDirectPost({ clip, account, accounts = null, upload, onSent, onClose }: Props) {
-  const { creator, creatorError } = useCreatorInfo(account.open_id);
-  const form = useTikTokForm(clip, creator);
-  const { reason, needDisclosure } = form;
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState<CampaignClip | null>(null);
-  const canPublish = !!form.fields && !sending;
-
-  async function publish() {
-    if (!canPublish || !form.fields) return;
-    setSending(true);
-    setError(null);
-    try {
-      const result = await api.campaign.clips.sendToTikTok(clip.id, { open_id: account.open_id, mode: "direct", ...form.fields });
-      setMessage(result.message ?? "TikTok publicerar klippet.");
-      onSent(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunde inte publicera klippet på TikTok");
-    } finally {
-      setSending(false);
-    }
-  }
-
-  async function savePostUrl(url: string) {
-    setSaving(true);
-    setError(null);
-    try {
-      setSaved(await api.campaign.posts.add(clip.id, { platform: "tiktok", url }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunde inte spara postlänken");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  // Efter sändningen: bara den här sändningens läge, inte ett äldre utkast.
-  const result = message && upload?.mode === "direct" ? upload : null;
-  const name = creator?.nickname ?? accountName(account);
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && !sending && onClose(saved ?? undefined)}>
-      <DialogContent className="max-h-[calc(100vh-2rem)] gap-5 overflow-y-auto p-6 sm:max-w-[780px]">
-        <div>
-          <DialogTitle className="text-lg font-semibold">Publicera på TikTok</DialogTitle>
-          <DialogDescription className="mt-1">Klippet publiceras direkt på kontot, utan inkorgen i mobilen.</DialogDescription>
-        </div>
-
-        <div className="grid gap-6 sm:grid-cols-[220px_minmax(0,1fr)]">
-          <video
-            src={api.campaign.videoUrl(clip)}
-            poster={api.campaign.posterUrl(clip)}
-            controls
-            playsInline
-            preload="metadata"
-            aria-label="Förhandsvisning av klippet"
-            className="aspect-[9/16] w-full rounded-xl bg-black object-contain"
-          />
-
-          <div className="min-w-0 space-y-4">
-            <div className="flex items-center gap-2.5">
-              {creator?.avatar_url ? (
-                // eslint-disable-next-line @next/next/no-img-element -- TikToks profilbild.
-                <img src={creator.avatar_url} alt="" className="size-9 rounded-full object-cover" />
-              ) : (
-                <div className="size-9 rounded-full bg-line" />
-              )}
-              <p className="text-sm">
-                {creator ? (
-                  <>
-                    Postar till: <span className="font-semibold">{name}</span>
-                    {creator.username && <span className="text-muted-foreground"> (@{creator.username})</span>}
-                  </>
-                ) : creatorError ? null : (
-                  <span className="text-muted-foreground">Läser kontot hos TikTok…</span>
-                )}
-              </p>
-            </div>
-            {creatorError && (
-              <p role="alert" className="rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">
-                {creatorError}
-              </p>
-            )}
-
-            {result ? (
-              <div className="space-y-3">
-                <p role="status" className="rounded-lg border border-[#174a2a] bg-[#0d1a12] px-3 py-2 text-sm text-good">
-                  {message}
-                </p>
-                {result.status === "processing" && (
-                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="size-4 animate-spin" aria-hidden />
-                    Publiceras. Appen frågar TikTok var 10:e sekund.
-                  </p>
-                )}
-                {result.status === "failed" && (
-                  <p role="alert" className="flex items-start gap-2 text-sm text-[#fca5a5]">
-                    <XCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
-                    Misslyckades: {result.error ?? "TikTok sa inte varför."}
-                  </p>
-                )}
-                {result.status === "published" && !result.post_url && (
-                  <p className="flex items-center gap-2 text-sm text-good">
-                    <CheckCircle2 className="size-4 shrink-0" aria-hidden />
-                    Publicerat. Privata inlägg har ingen offentlig länk.
-                  </p>
-                )}
-                {result.status === "published" && result.post_url && (
-                  <p className="flex items-center gap-2 text-sm text-good">
-                    <CheckCircle2 className="size-4 shrink-0" aria-hidden />
-                    Publicerat på TikTok.
-                  </p>
-                )}
-                {result.status === "published" && result.post_url && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <a href={result.post_url} target="_blank" rel="noreferrer" className={buttonVariants({ variant: "outline", className: "h-9" })}>
-                      <ExternalLink aria-hidden />
-                      Öppna på TikTok
-                    </a>
-                    {saved ? (
-                      <span className="flex items-center gap-1.5 text-sm text-good">
-                        <CheckCircle2 className="size-4" aria-hidden />
-                        Sparad som postlänk.
-                      </span>
-                    ) : (
-                      <Button className="h-9" disabled={saving} onClick={() => savePostUrl(result.post_url!)}>
-                        {saving && <Loader2 className="animate-spin" aria-hidden />}
-                        Spara som postlänk
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <>
-                <SuggestText clipId={clip.id} platform="tiktok" account={account.open_id} info={accounts} onText={(v) => form.setTitle(v.caption)} />
-                <TikTokFields clip={clip} creator={creator} form={form} />
-
-                <div className="space-y-1.5">
-                  <Button className="h-10 w-full" disabled={!canPublish} title={needDisclosure ? NEED_DISCLOSURE : undefined} onClick={publish}>
-                    {sending ? <Loader2 className="animate-spin" aria-hidden /> : <Send aria-hidden />}
-                    {sending ? "Publicerar…" : "Publicera på TikTok"}
-                  </Button>
-                  {(reason ?? (needDisclosure && NEED_DISCLOSURE)) && (
-                    <p className="text-xs text-muted-foreground">{reason ?? NEED_DISCLOSURE}</p>
-                  )}
-                </div>
-              </>
-            )}
-
-            {error && (
-              <p role="alert" className="rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">
-                {error}
-              </p>
-            )}
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }

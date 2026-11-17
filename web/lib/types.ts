@@ -820,3 +820,10 @@ export interface UploadOptions {
   /** Kampanjens regel för material, till exempel att bara streamerns egna streams får användas. */
   source_allowed?: string | null;
 }
+
+// --- Klippen: menyn, flikarna och Publicera (flode-klippen) ---
+
+export interface ScheduledPost {
+  /** TikTok utan direktpostning: appen påminner på Macen och Robin postar själv. Saknas hos äldre servrar. */
+  reminder?: boolean;
+}
