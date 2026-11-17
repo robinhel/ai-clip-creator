@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Clapperboard, FolderOpen, Home, Megaphone, Radar, Send, Settings } from "lucide-react";
+import { BarChart3, Clapperboard, FolderOpen, Home, Megaphone, Radar, Send, Settings, Upload } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn, SUMMARY_CHANGED, usd } from "@/lib/utils";
 import type { CampaignSummary } from "@/lib/types";
@@ -11,6 +11,7 @@ import type { CampaignSummary } from "@/lib/types";
 const LINKS = [
   { href: "/", label: "Hem", icon: Home },
   { href: "/projects", label: "Projekt", icon: FolderOpen },
+  { href: "/uploads", label: "Egna videor", icon: Upload },
   { href: "/queue", label: "Att posta", icon: Send },
   { href: "/log", label: "Statistik", icon: BarChart3 },
   { href: "/campaigns", label: "Kampanjer", icon: Megaphone },

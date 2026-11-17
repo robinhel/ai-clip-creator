@@ -64,7 +64,8 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${PROXY}${path}`, {
     ...init,
     headers: {
-      "Content-Type": "application/json",
+      // FormData: webbläsaren sätter typen med gränsen mellan delarna själv.
+      ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
       ...init.headers,
     },
   });
@@ -150,6 +151,8 @@ export const api = {
         apiFetch<CampaignClip>(`/campaign/posts/${postId}`, { method: "PATCH", body: JSON.stringify(body) }),
       remove: (postId: number) => apiFetch<CampaignClip>(`/campaign/posts/${postId}`, { method: "DELETE" }),
     },
+    /** En egen video görs om och blir ett klipp att granska. 201 med klippet, 400 med svensk text. */
+    upload: (form: FormData) => apiFetch<CampaignClip>("/campaign/uploads", { method: "POST", body: form }),
     clips: {
       list: (filter: { status?: CampaignStatus; vod_id?: string; run_id?: number } = {}) => {
         const query = new URLSearchParams(
