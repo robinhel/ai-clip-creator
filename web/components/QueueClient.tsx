@@ -52,6 +52,50 @@ interface Notice {
   undo?: () => Promise<CampaignClip>;
 }
 
+const back = (clip: CampaignClip, status: CampaignClip["status"]) => () => api.campaign.clips.patch(clip.id, { status });
+
+// Beskedet per stegbyte, som "från>till". Att granska är både renderad och underkand.
+const NOTICES: Record<string, (clip: CampaignClip, name: string) => Notice> = {
+  "granska>godkand": (clip, name) => ({
+    text: `Godkänt. ${name} ligger i Att posta.`,
+    href: `/queue?tab=posta#klipp-${clip.id}`,
+    linkText: "Öppna Att posta",
+    undo: back(clip, "renderad"),
+  }),
+  "granska>nekad": (clip, name) => ({ text: `Nekat. ${name} finns under Nekade.`, undo: back(clip, "renderad") }),
+  "godkand>postad": (clip) => ({
+    text: "Postat. Skicka in länken i Content Rewards inom 30 minuter.",
+    href: `/queue?tab=skicka-in#klipp-${clip.id}`,
+    linkText: "Öppna Skicka in",
+  }),
+  "postad>inskickad": () => ({ text: "Inskickat. Fyll i visningarna på Statistik när de kommer.", href: "/log", linkText: "Öppna Statistik" }),
+  "nekad>renderad": (clip, name) => ({ text: `${name} ligger i Att granska igen.`, href: `/queue?tab=granska#klipp-${clip.id}`, linkText: "Visa" }),
+};
+
+function transition(prev: CampaignClip, next: CampaignClip): string {
+  const from = prev.status === "renderad" || prev.status === "underkand" ? "granska" : prev.status;
+  // Efter Postad räknas allt utom Godkänd som inskickat: Inskickad, Analytics inskickad eller Betald.
+  const sent = prev.status === "postad" && next.status !== "godkand";
+  return `${from}>${sent ? "inskickad" : next.status}`;
+}
+
+const noticeFor = (prev: CampaignClip, next: CampaignClip): Notice | null =>
+  NOTICES[transition(prev, next)]?.(next, next.title || "Klippet") ?? null;
+
+/** Reglerna för kampanjerna som har klipp att granska, posta eller skicka in. En kampanj som inte går att läsa hoppas över. */
+async function profileDetails(clips: CampaignClip[]): Promise<CampaignProfileDetail[]> {
+  const names = [...new Set(clips.filter((c) => c.status !== "nekad").map((c) => c.profile))];
+  const list = await Promise.all(names.map((name) => api.campaign.profile.get(name).catch(() => null)));
+  return list.filter((d): d is CampaignProfileDetail => d !== null);
+}
+
+/** J eller K när fokus inte står i ett fält, annars null. */
+function navKey(e: KeyboardEvent): "j" | "k" | null {
+  const key = e.key.toLowerCase();
+  if (ignoreKey(e)) return null;
+  return key === "j" || key === "k" ? key : null;
+}
+
 export function QueueClient({ tab: tabParam }: { tab?: string }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -95,11 +139,7 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
       setProfiles(profileData);
       setRuns(runData);
       setError(null);
-      // Reglerna för kampanjerna som har klipp att posta eller skicka in.
-      const names = [...new Set(clipData.filter((c) => c.status !== "nekad").map((c) => c.profile))];
-      Promise.all(names.map((name) => api.campaign.profile.get(name).catch(() => null)))
-        .then((list) => setDetails(list.filter((d): d is CampaignProfileDetail => d !== null)))
-        .catch(() => {});
+      profileDetails(clipData).then(setDetails).catch(() => {});
       loadSchedule();
       // Kontonas namn i schemat och valen i Publicera.
       api.campaign.youtube.status().then(setYoutube).catch(() => setYoutube(null));
@@ -150,26 +190,6 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
   function openTab(step: ClipStep, clipId?: number) {
     router.replace(`${pathname}?tab=${step}${clipId ? `#klipp-${clipId}` : ""}`, { scroll: !clipId });
     if (clipId) setTimeout(() => document.getElementById(`klipp-${clipId}`)?.scrollIntoView({ block: "start" }), 100);
-  }
-
-  function noticeFor(prev: CampaignClip, next: CampaignClip): Notice | null {
-    const name = next.title || `Klippet`;
-    const back = (status: CampaignClip["status"]) => () => api.campaign.clips.patch(next.id, { status });
-    if ((prev.status === "renderad" || prev.status === "underkand") && next.status === "godkand")
-      return { text: `Godkänt. ${name} ligger i Att posta.`, href: `/queue?tab=posta#klipp-${next.id}`, linkText: "Öppna Att posta", undo: back("renderad") };
-    if ((prev.status === "renderad" || prev.status === "underkand") && next.status === "nekad")
-      return { text: `Nekat. ${name} finns under Nekade.`, undo: back("renderad") };
-    if (prev.status === "godkand" && next.status === "postad")
-      return {
-        text: `Postat. Skicka in länken i Content Rewards inom 30 minuter.`,
-        href: `/queue?tab=skicka-in#klipp-${next.id}`,
-        linkText: "Öppna Skicka in",
-      };
-    if (prev.status === "postad" && !["postad", "godkand"].includes(next.status))
-      return { text: "Inskickat. Fyll i visningarna på Statistik när de kommer.", href: "/log", linkText: "Öppna Statistik" };
-    if (prev.status === "nekad" && next.status === "renderad")
-      return { text: `${name} ligger i Att granska igen.`, href: `/queue?tab=granska#klipp-${next.id}`, linkText: "Visa" };
-    return null;
   }
 
   function handleUpdate(updated: CampaignClip) {
@@ -265,8 +285,8 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
   ids.current = tab === "granska" ? visible.map((c) => c.id) : [];
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const key = e.key.toLowerCase();
-      if ((key !== "j" && key !== "k") || ignoreKey(e) || ids.current.length === 0) return;
+      const key = navKey(e);
+      if (!key || ids.current.length === 0) return;
       e.preventDefault();
       setActiveId((current) => {
         const i = current == null ? -1 : ids.current.indexOf(current);

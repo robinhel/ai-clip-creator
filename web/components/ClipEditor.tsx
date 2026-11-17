@@ -413,10 +413,7 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
             }}
           />
         ) : (
-          // En egen video har ingen undertext från appen; skälet gäller bara klipp ur en stream.
-          subs?.reason && clip.vod_id !== "upload" && (
-            <p className="rounded-xl border border-line bg-background px-3 py-2.5 text-sm text-muted-foreground">{subs.reason}</p>
-          )
+          <SubsReason clip={clip} reason={subs?.reason} />
         )}
 
         {clip.status === "godkand" && (
@@ -458,4 +455,10 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
       </DialogContent>
     </Dialog>
   );
+}
+
+/** Varför undertexten inte går att ändra. En egen video har ingen undertext från appen; skälet gäller bara klipp ur en stream. */
+function SubsReason({ clip, reason }: { clip: CampaignClip; reason?: string | null }) {
+  if (!reason || clip.vod_id === "upload") return null;
+  return <p className="rounded-xl border border-line bg-background px-3 py-2.5 text-sm text-muted-foreground">{reason}</p>;
 }

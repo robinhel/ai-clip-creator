@@ -501,15 +501,22 @@ def refinish_run(
 REVIEW_PREFIX = "Bildgranskning: "
 
 
+def _split_warnings(clip: dict) -> tuple[list[str], list[str]]:
+    """Varningarna som visas, och äldre klipps bildgranskning som låg bland varningarna."""
+    warnings = clip["warnings"] or []
+    # Äldre klipp har bildgranskningens beskrivningar som varningar. De visas med bildgranskningen i stället.
+    old_notes = [w.removeprefix(REVIEW_PREFIX) for w in warnings if w.startswith(REVIEW_PREFIX)]
+    # Varningen om format sparades när klippet gjordes. Den gäller inte längre när formatet är valt.
+    hidden = {NO_FORMAT} if clip["format"] else set()
+    shown = [w for w in warnings if not w.startswith(REVIEW_PREFIX) and w not in hidden]
+    return shown, old_notes
+
+
 def _public(clip: dict, settings: Settings) -> dict:
     out = {k: v for k, v in clip.items() if k != "file"}
     out["filename"] = Path(clip["file"] or "").name
     out["problems"] = clip["problems"] or []
-    # Äldre klipp har bildgranskningens beskrivningar som varningar. De visas med bildgranskningen i stället.
-    old_notes = [w.removeprefix(REVIEW_PREFIX) for w in clip["warnings"] or [] if w.startswith(REVIEW_PREFIX)]
-    # Varningen om format sparades när klippet gjordes. Den gäller inte längre när formatet är valt.
-    out["warnings"] = [w for w in clip["warnings"] or []
-                       if not w.startswith(REVIEW_PREFIX) and not (clip["format"] and w == NO_FORMAT)]
+    out["warnings"], old_notes = _split_warnings(clip)
     if old_notes:
         review = dict(clip["review"] or {})
         review["notes"] = [*(review.get("notes") or []), *old_notes]

@@ -35,6 +35,43 @@ interface Props {
   onReschedule?: (post: ScheduledPost) => void;
 }
 
+/** Texten och färgen på statusen. En påminnelse laddar inte upp något: Robin postar själv när notisen kommer. */
+function statusBadge(post: ScheduledPost): [string, string] {
+  const reminder = post.reminder && (post.status === "waiting" || post.status === "reminded");
+  if (reminder) return [post.status === "waiting" ? "Påminnelse" : "Påmind", "border-[#4a3a17] text-warn"];
+  return STATUS[post.status] ?? [post.status, "border-line text-muted-foreground"];
+}
+
+/** Påminnelsen, felet med länk till Inställningar, och serverns varning. */
+function PostNotes({ post }: { post: ScheduledPost }) {
+  return (
+    <>
+      {post.reminder && post.status === "waiting" && (
+        <p className="mt-0.5 text-xs text-muted-foreground">Appen postar inte själv. Du får en notis på Macen vid tiden.</p>
+      )}
+      {post.error && (
+        <p className="mt-0.5 text-xs text-[#fca5a5]">
+          {post.error}
+          {/Inställningar|koppla/i.test(post.error) && (
+            <>
+              {" "}
+              <Link href="/settings" className="text-foreground underline underline-offset-4">
+                Öppna Inställningar
+              </Link>
+            </>
+          )}
+        </p>
+      )}
+      {post.warning && (
+        <p data-schedule-warning className="mt-1 flex items-start gap-1.5 rounded-lg border border-[#3a3018] px-2.5 py-1.5 text-xs text-warn/80">
+          <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
+          {post.warning}
+        </p>
+      )}
+    </>
+  );
+}
+
 function Row({ post, account, onChange, onReschedule }: {
   post: ScheduledPost;
   account: string | null;
@@ -43,11 +80,7 @@ function Row({ post, account, onChange, onReschedule }: {
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // En påminnelse laddar inte upp något: Robin postar själv när notisen kommer.
-  const [label, tone] =
-    post.reminder && (post.status === "waiting" || post.status === "reminded")
-      ? [post.status === "waiting" ? "Påminnelse" : "Påmind", "border-[#4a3a17] text-warn"]
-      : (STATUS[post.status] ?? [post.status, "border-line text-muted-foreground"]);
+  const [label, tone] = statusBadge(post);
   const url = typeof post.result?.url === "string" ? post.result.url : null;
 
   async function cancel() {
@@ -79,28 +112,7 @@ function Row({ post, account, onChange, onReschedule }: {
           {account && <span>{account}</span>}
           {post.late && <span className="text-warn">försenad</span>}
         </p>
-        {post.reminder && post.status === "waiting" && (
-          <p className="mt-0.5 text-xs text-muted-foreground">Appen postar inte själv. Du får en notis på Macen vid tiden.</p>
-        )}
-        {post.error && (
-          <p className="mt-0.5 text-xs text-[#fca5a5]">
-            {post.error}
-            {/Inställningar|koppla/i.test(post.error) && (
-              <>
-                {" "}
-                <Link href="/settings" className="text-foreground underline underline-offset-4">
-                  Öppna Inställningar
-                </Link>
-              </>
-            )}
-          </p>
-        )}
-        {post.warning && (
-          <p data-schedule-warning className="mt-1 flex items-start gap-1.5 rounded-lg border border-[#3a3018] px-2.5 py-1.5 text-xs text-warn/80">
-            <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
-            {post.warning}
-          </p>
-        )}
+        <PostNotes post={post} />
         {error && (
           <p role="alert" className="mt-0.5 text-xs text-[#fca5a5]">
             {error}

@@ -179,13 +179,210 @@ interface Props {
 }
 
 /** Ett klipp per rad: betyg, video, Claudes motivering, caption, regelkontroll och knappar. */
+/** Claudes delpoäng under motiveringen. */
+function Subscores({ subscores }: { subscores: ClipSubscores }) {
+  return (
+    <dl
+      aria-label="Claudes delpoäng"
+      title="Betyget är summan av delpoängen, justerat mot de andra klippen i samma video."
+      className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4"
+    >
+      {SUBSCORES.map(([key, label]) => {
+        const points = subscores[key];
+        const hook = key === "hook";
+        return (
+          <div key={key} className="min-w-0">
+            <dt className={cn("text-[12px]", hook ? "font-medium text-foreground" : "text-muted-foreground")}>{label}</dt>
+            <dd className="text-[13px] font-semibold tabular-nums">
+              {points}
+              <span className="font-normal text-muted-foreground">/25</span>
+            </dd>
+            <div aria-hidden className="mt-1 h-1 overflow-hidden rounded-full bg-line">
+              <div className={cn("h-full rounded-full", hook ? "bg-brand" : "bg-muted-foreground/60")} style={{ width: `${(points / 25) * 100}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </dl>
+  );
+}
+
+const SOURCE_LINK = "text-[13px] text-muted-foreground underline underline-offset-4 hover:text-foreground";
+
+/** Utanför projektsidan, till exempel i Klippen, går det att öppna projektet eller videon klippet kommer från. */
+function SourceLink({ source, runId }: { source?: { label: string; href: string }; runId?: number }) {
+  if (source) {
+    return (
+      <Link href={source.href} className={SOURCE_LINK}>
+        Från: {source.label}
+      </Link>
+    );
+  }
+  if (!runId) return null;
+  return (
+    <Link href={`/runs/${runId}`} className={SOURCE_LINK}>
+      Öppna projektet
+    </Link>
+  );
+}
+
+/** Äldre servrar har en länk per klipp i stället för en lista med inlägg. canEdit: Ändra länk, bara i Klippen. */
+function LegacyLink({ clip, busy, canEdit, onSave }: {
+  clip: CampaignClip;
+  busy: boolean;
+  canEdit: boolean;
+  onSave: (body: CampaignClipPatch) => Promise<boolean>;
+}) {
+  const [platform, setPlatform] = useState<Platform | "">(clip.platform ?? "");
+  const [url, setUrl] = useState(clip.url ?? "");
+  const [editing, setEditing] = useState(false);
+
+  if (editing) {
+    return (
+      <div className="space-y-2 rounded-[10px] border border-line bg-panel p-3">
+        <NativeSelect aria-label="Plattform" value={platform} onChange={(e) => setPlatform(e.target.value as Platform | "")} disabled={busy}>
+          <option value="" disabled>
+            Plattform…
+          </option>
+          {Object.entries(PLATFORM_LABEL).map(([id, label]) => (
+            <option key={id} value={id}>
+              {label}
+            </option>
+          ))}
+        </NativeSelect>
+        <Input aria-label="Ny länk till det postade klippet" type="url" value={url} onChange={(e) => setUrl(e.target.value)} disabled={busy} />
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            disabled={busy || !platform || !url.trim()}
+            onClick={async () => {
+              if (await onSave({ platform: platform as Platform, url: url.trim() })) setEditing(false);
+            }}
+          >
+            Spara länken
+          </Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(false)}>
+            Avbryt
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  if (!POSTED.includes(clip.status) || !clip.url) return null;
+  return (
+    <p className="flex flex-wrap items-center gap-1.5 text-sm">
+      <span className="text-muted-foreground">{clip.platform ? PLATFORM_LABEL[clip.platform] : "Postad"}:</span>
+      <a href={clip.url} target="_blank" rel="noreferrer" className="inline-flex min-w-0 items-center gap-1 break-all underline underline-offset-4">
+        {clip.url}
+        <ExternalLink className="size-3.5 shrink-0" aria-hidden />
+      </a>
+      {clip.status === "postad" && canEdit && (
+        <button
+          type="button"
+          className="text-muted-foreground underline underline-offset-4 hover:text-foreground"
+          onClick={() => {
+            setPlatform(clip.platform ?? "");
+            setUrl(clip.url ?? "");
+            setEditing(true);
+          }}
+        >
+          Ändra länk
+        </button>
+      )}
+    </p>
+  );
+}
+
+/** Ja och Nej för ett klipp att granska. block: varför Ja inte går än. */
+function ReviewButtons({ clip, busy, block, onApprove, onReject }: {
+  clip: CampaignClip;
+  busy: boolean;
+  block?: string;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  if (clip.status !== "renderad" && clip.status !== "underkand") return null;
+  const waiting = clip.status === "renderad";
+  return (
+    <>
+      <div className="flex gap-2">
+        <Button
+          className="h-9 flex-1"
+          variant="outline"
+          disabled={busy || !waiting || !!block}
+          title={waiting ? block : "Rätta problemen först"}
+          onClick={onApprove}
+        >
+          <ThumbsUp aria-hidden />
+          Ja
+        </Button>
+        <Button className="h-9 flex-1 text-muted-foreground" variant="outline" disabled={busy} onClick={onReject}>
+          <ThumbsDown aria-hidden />
+          Nej
+        </Button>
+      </div>
+      {waiting && block && <p className="text-xs text-muted-foreground">{block}.</p>}
+    </>
+  );
+}
+
+/** Utanför Klippen visar ett godkänt eller postat klipp bara en länk dit, och Ångra. Postningen finns på ett ställe. */
+function ElsewhereActions({ clip, busy, onUndo }: { clip: CampaignClip; busy: boolean; onUndo: () => void }) {
+  if (clip.status === "postad") {
+    return (
+      <Link href={`/queue?tab=skicka-in#klipp-${clip.id}`} className={buttonVariants({ variant: "outline", className: "h-9" })}>
+        Skicka in i Klippen
+        <ArrowRight aria-hidden />
+      </Link>
+    );
+  }
+  if (clip.status !== "godkand") return null;
+  return (
+    <div role="status" className="space-y-2 rounded-[10px] border border-[#174a2a] bg-[#0d1a12] p-3 text-sm">
+      <p className="flex items-start gap-2 text-good">
+        <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden />
+        Godkänt. Klippet ligger i Klippen, under Att posta.
+      </p>
+      <Link href={`/queue?tab=posta#klipp-${clip.id}`} className={buttonVariants({ className: "h-9 w-full" })}>
+        Posta i Klippen
+        <ArrowRight aria-hidden />
+      </Link>
+      <Button className="w-full" size="sm" variant="ghost" disabled={busy} onClick={onUndo}>
+        Ångra godkännande
+      </Button>
+    </div>
+  );
+}
+
+/** Det som sällan behövs ligger i en meny, så att raden inte har en vägg av knappar. */
+function MoreMenu({ clip, busy, onUndo, onReload, children }: {
+  clip: CampaignClip;
+  busy: boolean;
+  onUndo: () => void;
+  onReload?: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <details className="group rounded-lg border border-line">
+      <summary className="flex h-9 cursor-pointer list-none items-center gap-2 px-3 text-sm text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
+        <MoreHorizontal className="size-4" aria-hidden />
+        Mer
+      </summary>
+      <div className="space-y-2 border-t border-line p-2">
+        <VersionButton clip={clip} onCreated={onReload} />
+        <Button className="w-full" size="sm" variant="ghost" disabled={busy} onClick={onUndo}>
+          Ångra godkännande
+        </Button>
+        {children}
+      </div>
+    </details>
+  );
+}
+
 export function ClipResultRow({ clip, number, formats, runId, source, active = false, onUpdate, onReload, approvedAction, posting }: Props) {
   const [caption, setCaption] = useState(clip.caption ?? "");
   const [title, setTitle] = useState(clip.title ?? "");
   const [editing, setEditing] = useState(false);
-  const [platform, setPlatform] = useState<Platform | "">(clip.platform ?? "");
-  const [url, setUrl] = useState(clip.url ?? "");
-  const [editingLink, setEditingLink] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -266,6 +463,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
     }
   }
 
+  const approve = () => patch(captionDirty ? { status: "godkand", caption } : { status: "godkand" });
   const approveBlock = hasProblems
     ? "Klippet har problem som måste rättas först"
     : needsFormat
@@ -285,7 +483,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
       if (clip.status !== "renderad") return setKeyHint(clip.status === "underkand" ? "Ja: rätta problemen först." : "Ja går bara för klipp som väntar på granskning.");
       if (approveBlock) return setKeyHint(`Ja: ${approveBlock.toLowerCase()}.`);
       setKeyHint(null);
-      patch(captionDirty ? { status: "godkand", caption } : { status: "godkand" });
+      approve();
     } else if (key === "n") {
       if (clip.status !== "renderad" && clip.status !== "underkand") return setKeyHint("Nej går bara för klipp som väntar eller är underkända.");
       setKeyHint(null);
@@ -315,8 +513,6 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
     return () => window.removeEventListener("keydown", onKey);
   }, [active]);
 
-  const queueLink = `/queue?tab=${clip.status === "godkand" ? "posta" : "skicka-in"}#klipp-${clip.id}`;
-
   return (
     <article
       id={`klipp-${clip.id}`}
@@ -339,16 +535,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
         <CampaignStatusBadge status={clip.status} />
         {clip.version_of != null && <Badge variant="outline">Version av #{clip.version_of}</Badge>}
         {clip.format && <Badge variant="outline">{formatName}</Badge>}
-        {/* Utanför projektsidan, till exempel i Klippen, går det att öppna projektet klippet kommer från. */}
-        {source ? (
-          <Link href={source.href} className="text-[13px] text-muted-foreground underline underline-offset-4 hover:text-foreground">
-            Från: {source.label}
-          </Link>
-        ) : runId ? (
-          <Link href={`/runs/${runId}`} className="text-[13px] text-muted-foreground underline underline-offset-4 hover:text-foreground">
-            Öppna projektet
-          </Link>
-        ) : null}
+        <SourceLink source={source} runId={runId} />
       </header>
 
       <div className="relative col-start-2 aspect-[9/16] w-full max-w-[230px] overflow-hidden rounded-xl bg-black lg:col-start-auto">
@@ -383,29 +570,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
             {clip.reason}
           </p>
         )}
-        {clip.subscores && (
-          <dl
-            aria-label="Claudes delpoäng"
-            title="Betyget är summan av delpoängen, justerat mot de andra klippen i samma video."
-            className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4"
-          >
-            {SUBSCORES.map(([key, label]) => {
-              const points = clip.subscores![key];
-              return (
-                <div key={key} className="min-w-0">
-                  <dt className={cn("text-[12px]", key === "hook" ? "font-medium text-foreground" : "text-muted-foreground")}>{label}</dt>
-                  <dd className="text-[13px] font-semibold tabular-nums">
-                    {points}
-                    <span className="font-normal text-muted-foreground">/25</span>
-                  </dd>
-                  <div aria-hidden className="mt-1 h-1 overflow-hidden rounded-full bg-line">
-                    <div className={cn("h-full rounded-full", key === "hook" ? "bg-brand" : "bg-muted-foreground/60")} style={{ width: `${(points / 25) * 100}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-          </dl>
-        )}
+        {clip.subscores && <Subscores subscores={clip.subscores} />}
 
         {canEditCaption && formats.length > 0 && !elsewhere && (
           <div className="space-y-1.5">
@@ -533,110 +698,15 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
         )}
 
         {hasPosts && <ClipPosts clip={clip} onUpdate={onUpdate} readOnly={!posting} />}
-        {!hasPosts && POSTED.includes(clip.status) && clip.url && !editingLink && (
-          <p className="flex flex-wrap items-center gap-1.5 text-sm">
-            <span className="text-muted-foreground">{clip.platform ? PLATFORM_LABEL[clip.platform] : "Postad"}:</span>
-            <a
-              href={clip.url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex min-w-0 items-center gap-1 break-all underline underline-offset-4"
-            >
-              {clip.url}
-              <ExternalLink className="size-3.5 shrink-0" aria-hidden />
-            </a>
-            {clip.status === "postad" && posting && (
-              <button
-                type="button"
-                className="text-muted-foreground underline underline-offset-4 hover:text-foreground"
-                onClick={() => {
-                  setPlatform(clip.platform ?? "");
-                  setUrl(clip.url ?? "");
-                  setEditingLink(true);
-                }}
-              >
-                Ändra länk
-              </button>
-            )}
-          </p>
-        )}
-        {editingLink && (
-          <div className="space-y-2 rounded-[10px] border border-line bg-panel p-3">
-            <NativeSelect aria-label="Plattform" value={platform} onChange={(e) => setPlatform(e.target.value as Platform | "")} disabled={busy}>
-              <option value="" disabled>
-                Plattform…
-              </option>
-              {Object.entries(PLATFORM_LABEL).map(([id, label]) => (
-                <option key={id} value={id}>
-                  {label}
-                </option>
-              ))}
-            </NativeSelect>
-            <Input aria-label="Ny länk till det postade klippet" type="url" value={url} onChange={(e) => setUrl(e.target.value)} disabled={busy} />
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                disabled={busy || !platform || !url.trim()}
-                onClick={async () => {
-                  if (await patch({ platform: platform as Platform, url: url.trim() })) setEditingLink(false);
-                }}
-              >
-                Spara länken
-              </Button>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditingLink(false)}>
-                Avbryt
-              </Button>
-            </div>
-          </div>
-        )}
+        {!hasPosts && <LegacyLink clip={clip} busy={busy} canEdit={!!posting} onSave={patch} />}
 
         <Transcript clipId={clip.id} />
       </div>
 
       <div className="col-start-2 flex flex-col gap-2 lg:col-start-auto">
-        {(clip.status === "renderad" || clip.status === "underkand") && (
-          <div className="flex gap-2">
-            <Button
-              className="h-9 flex-1"
-              variant="outline"
-              disabled={busy || clip.status !== "renderad" || !!approveBlock}
-              title={clip.status === "underkand" ? "Rätta problemen först" : approveBlock}
-              onClick={() => patch(captionDirty ? { status: "godkand", caption } : { status: "godkand" })}
-            >
-              <ThumbsUp aria-hidden />
-              Ja
-            </Button>
-            <Button className="h-9 flex-1 text-muted-foreground" variant="outline" disabled={busy} onClick={() => patch({ status: "nekad" })}>
-              <ThumbsDown aria-hidden />
-              Nej
-            </Button>
-          </div>
-        )}
-        {clip.status === "renderad" && approveBlock && (
-          <p className="text-xs text-muted-foreground">{approveBlock}.</p>
-        )}
+        <ReviewButtons clip={clip} busy={busy} block={approveBlock} onApprove={approve} onReject={() => patch({ status: "nekad" })} />
 
-        {elsewhere && (
-          <div role="status" className="space-y-2 rounded-[10px] border border-[#174a2a] bg-[#0d1a12] p-3 text-sm">
-            <p className="flex items-start gap-2 text-good">
-              <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden />
-              Godkänt. Klippet ligger i Klippen, under Att posta.
-            </p>
-            <Link href={queueLink} className={buttonVariants({ className: "h-9 w-full" })}>
-              Posta i Klippen
-              <ArrowRight aria-hidden />
-            </Link>
-            <Button className="w-full" size="sm" variant="ghost" disabled={busy} onClick={() => patch({ status: "renderad" })}>
-              Ångra godkännande
-            </Button>
-          </div>
-        )}
-        {!posting && clip.status === "postad" && (
-          <Link href={queueLink} className={buttonVariants({ variant: "outline", className: "h-9" })}>
-            Skicka in i Klippen
-            <ArrowRight aria-hidden />
-          </Link>
-        )}
+        {!posting && <ElsewhereActions clip={clip} busy={busy} onUndo={() => patch({ status: "renderad" })} />}
 
         {posting && approved && (clip.status === "godkand" || hasPosts) && (
           <PublishButton clip={clip} posting={posting} block={postBlock} onUpdate={onUpdate} />
@@ -680,19 +750,9 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
 
         {/* Det som sällan behövs ligger i en meny, så att raden inte har en vägg av knappar. */}
         {posting && clip.status === "godkand" && (
-          <details className="group rounded-lg border border-line">
-            <summary className="flex h-9 cursor-pointer list-none items-center gap-2 px-3 text-sm text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
-              <MoreHorizontal className="size-4" aria-hidden />
-              Mer
-            </summary>
-            <div className="space-y-2 border-t border-line p-2">
-              <VersionButton clip={clip} onCreated={onReload} />
-              <Button className="w-full" size="sm" variant="ghost" disabled={busy} onClick={() => patch({ status: "renderad" })}>
-                Ångra godkännande
-              </Button>
-              {approvedAction}
-            </div>
-          </details>
+          <MoreMenu clip={clip} busy={busy} onUndo={() => patch({ status: "renderad" })} onReload={onReload}>
+            {approvedAction}
+          </MoreMenu>
         )}
         {clip.status === "postad" && !hasPosts && posting && (
           <>
