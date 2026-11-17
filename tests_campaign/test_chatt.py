@@ -301,7 +301,7 @@ def test_empty_or_long_message_gives_400(client, chatapp, message) -> None:  # n
 def test_409_while_a_run_or_a_chat_search_is_going(client, chatapp) -> None:  # noqa: F811
     client.app.state.active_run_id = 5
     answer = _new_chat(client, chatapp, _search())
-    assert answer.status_code == 409 and "körning" in answer.json()["detail"]
+    assert answer.status_code == 409 and "projekt" in answer.json()["detail"]
     client.app.state.active_run_id = None
     with chat.lock:
         assert _new_chat(client, chatapp, _search()).status_code == 409
