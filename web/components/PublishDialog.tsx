@@ -100,8 +100,8 @@ export function CampaignRules({ detail, open = false }: { detail: CampaignProfil
       {missing.length > 0 && (
         <p className="mt-1">
           Länken till {missing.join(" och ")} saknas.{" "}
-          <Link href={`/campaigns/${detail.name}?tab=installningar`} className="underline underline-offset-4 hover:text-foreground">
-            Lägg in {missing.length > 1 ? "dem" : "den"} under kampanjens Inställningar
+          <Link href={`/campaigns/${detail.name}?tab=installningar&del=oversikt#lankar`} className="underline underline-offset-4 hover:text-foreground">
+            Lägg in {missing.length > 1 ? "dem" : "den"} under kampanjens Ställ in
           </Link>
           .
         </p>
