@@ -456,11 +456,13 @@ export default function RunDetailPage() {
               <p className="font-medium text-[#fca5a5]">Körningen misslyckades</p>
               {run.error && <p className="mt-1 font-mono text-[13px] break-words text-[#f2c4c4]">{run.error}</p>}
               <p className="mt-3 text-sm text-muted-foreground">
-                {failedStep === "transcribe"
-                  ? "Klara delar är sparade. Kör igen fortsätter där körningen stoppade."
-                  : "Kör igen startar om körningen med samma val."}
+                {run.retry_problem
+                  ? run.retry_problem
+                  : failedStep === "transcribe"
+                    ? "Klara delar är sparade. Kör igen fortsätter där körningen stoppade."
+                    : "Kör igen startar om körningen med samma val."}
               </p>
-              <Button className="mt-3 h-9" onClick={handleRetry} disabled={retrying}>
+              <Button className="mt-3 h-9" onClick={handleRetry} disabled={retrying || !!run.retry_problem}>
                 {retrying ? <Loader2 className="animate-spin" aria-hidden /> : <RotateCcw aria-hidden />}
                 {retrying ? "Startar…" : "Kör igen"}
               </Button>

@@ -58,6 +58,28 @@ def load_picks(path: Path) -> list[dict]:
     return picks
 
 
+TITLE_WORDS = 8
+
+
+def spoken_title(transcript: Path, start: float | None, end: float | None) -> str:
+    """Snabbläget har ingen rubrik från Claude. De första orden som sägs i klippet blir rubriken, så att klippet
+    går att granska. Tomt när inget sägs eller transkriptet saknas."""
+    if start is None or end is None or not transcript.exists():
+        return ""
+    try:
+        segments = json.loads(transcript.read_text(encoding="utf-8")).get("segments", [])
+    except ValueError:
+        return ""
+    said = [w["word"].strip() for s in segments for w in s.get("words") or []
+            if start <= w["start"] < end and w["word"].strip()]
+    if not said:
+        return ""
+    title = " ".join(said[:TITLE_WORDS])
+    if len(said) > TITLE_WORDS:
+        title = title.rstrip(",;:") + "…"
+    return title[0].upper() + title[1:]
+
+
 def title_from_name(path: Path) -> str:
     """clip_03_too_close_call.mp4 blir 'Too close call'."""
     words = re.sub(r"^clip_\d+_?", "", path.stem).replace("_", " ").strip()
@@ -115,6 +137,8 @@ def finish_vod(
         hook = pick.get("title") or ""  # filnamnet blir ingen hook-text
         hook = "" if PLACEHOLDER.search(hook) else hook  # snabblägets "Moment h:mm:ss" blir ingen hook-text
         start, end = pick.get("start"), pick.get("end")
+        if PLACEHOLDER.search(title):  # rubrik och caption utan platshållaren, men ingen hook-text av talet
+            title = spoken_title(settings.work_dir / vod_id / "transcript.json", start, end) or title
         out = clip_dir / "klara" / src.name
 
         before = existing.get(str(out)) or existing.get(str(src))

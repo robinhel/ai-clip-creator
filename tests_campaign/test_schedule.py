@@ -630,6 +630,39 @@ def test_undoing_the_approval_also_cancels_the_waiting_upload(client, settings, 
     assert FakeYouTube.calls == []
 
 
+def test_a_new_caption_on_an_approved_clip_cancels_the_waiting_upload(client, settings, clip_id, notes):
+    """Ett ja gäller den caption som fanns. Den gamla texten får inte laddas upp vid tiden."""
+    at = _at(timedelta(hours=1))
+    post_id = _post(client, clip_id, at=at).json()["id"]
+    answer = client.patch(f"/campaign/clips/{clip_id}", json={"caption": "Ny text"})
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["status"] in ("renderad", "underkand")
+    assert _row(settings, post_id)["status"] == "cancelled"
+    _run(settings, at, timedelta(seconds=10))
+    assert FakeYouTube.calls == []
+
+
+def test_a_new_caption_is_refused_while_the_clip_uploads(client, settings, clip_id, notes):
+    post_id = _post(client, clip_id).json()["id"]
+    with sqlite3.connect(settings.data_dir / "klipp.db") as db:
+        db.execute("UPDATE scheduled_posts SET status = 'running' WHERE id = ?", (post_id,))
+    answer = client.patch(f"/campaign/clips/{clip_id}", json={"caption": "Ny text"})
+    assert answer.status_code == 409 and "laddas upp" in answer.json()["detail"]
+    clip = ClipLog(settings.data_dir / "klipp.db").get(clip_id)
+    assert (clip["status"], clip["caption"]) == ("godkand", "c")
+
+
+def test_every_way_out_of_approved_cancels_the_waiting_uploads(client, settings, clip_id, notes):
+    """Kontrollen ligger i klipploggen, så en ny väg som ändrar status kan inte glömma den."""
+    youtube = _post(client, clip_id, "youtube").json()["id"]
+    tiktok = _post(client, clip_id, "tiktok", fields={"title": "x"}, account="open1").json()["id"]
+    log = ClipLog(settings.data_dir / "klipp.db")
+    log.update(clip_id, status="postad")  # postad räknas som godkänt: posterna väntar kvar
+    assert _row(settings, youtube)["status"] == "waiting"
+    log.update(clip_id, status="underkand")
+    assert (_row(settings, youtube)["status"], _row(settings, tiktok)["status"]) == ("cancelled", "cancelled")
+
+
 def test_undoing_the_approval_is_refused_while_the_clip_uploads(client, settings, clip_id, notes):
     post_id = _post(client, clip_id).json()["id"]
     with sqlite3.connect(settings.data_dir / "klipp.db") as db:

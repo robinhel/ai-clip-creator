@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .brain import Brain
 from .budget import Budget, budget_from_settings
-from .cliplog import POST_STATUSES, STATUSES, ClipLog
+from .cliplog import POST_STATUSES, STATUSES, ClipLog, UploadRunning
 from .config import Settings, load_settings
 from .facit import load_facit, score
 from .media import probe
@@ -235,7 +235,7 @@ def cmd_reframe(args, settings: Settings) -> int:
             if clip is None:
                 raise ValueError("Klippet finns inte.")
             editor.reframe_clip(clip, _profile(settings, clip["profile"]), settings, log)
-        except (ValueError, RuntimeError) as error:
+        except (ValueError, RuntimeError, UploadRunning) as error:
             failed += 1
             print(f"FEL #{clip_id}: {error}")
             continue
