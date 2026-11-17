@@ -754,7 +754,7 @@ export function HomeClient() {
                   <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
                   <span>
                     {text}
-                    <KeyFix problem={text} />
+                    {/* ProblemFix har också nycklarna, med länk till rätt nyckel i Inställningar. */}
                     <ProblemFix id={profile.name} problem={text} />
                   </span>
                 </li>
