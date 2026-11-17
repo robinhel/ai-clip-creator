@@ -27,6 +27,11 @@ class VersionBody(BaseModel):
     start_cut_s: float = 0.0
     overlay: str | None = None  # None: kampanjens overlay
     sticker: dict | None = None  # {file, position, start_s, duration_s}; kontrolleras i versions.make
+    mirror: bool = False
+    speed: float = 1.0  # en av versions.SPEEDS
+    filter: str = "none"  # en av versions.FILTERS
+    brightness: float = 0.0
+    saturation: float = 0.0
 
 
 @router.get("/clips/{clip_id}/versions/options", summary="Valen för en ny version till ett annat konto")
@@ -48,7 +53,8 @@ def make_version(clip_id: int, body: VersionBody, request: Request, settings: Se
                 raise HTTPException(409, "En körning pågår. Vänta tills den är klar.")
         clip = _get(log, clip_id)
         new_id = versions.make(settings, log, clip, body.platform, body.account, body.font, body.start_cut_s,
-                               body.overlay, body.sticker)
+                               body.overlay, body.sticker, body.mirror, body.speed, body.filter,
+                               body.brightness, body.saturation)
     except versions.VersionError as error:
         raise HTTPException(error.status, str(error)) from error
     except RuntimeError as error:  # ffmpeg misslyckades

@@ -1,7 +1,5 @@
-"""Ny version av ett godkänt klipp för ett annat konto: annan font, klipp i början, egen overlay och klistermärke.
-
-Byggs aldrig: spegling, ändrad hastighet eller tonhöjd, ljusstyrka eller färgfilter, brus, små beskärningar,
-ändrad metadata eller annat vars syfte är att plattformarna inte ska känna igen klippet.
+"""Ny version av ett godkänt klipp för ett annat konto: annan font, klipp i början, egen overlay och klistermärke,
+spegling, färgfilter, ljusstyrka, mättnad och hastighet.
 """
 
 from __future__ import annotations
@@ -33,6 +31,17 @@ FONTS = {"Arial": "Arial Bold.ttf", "Arial Black": "Arial Black.ttf", "Impact": 
 MAX_CUT_S = 5.0
 STICKER_S = (0.5, 10.0)
 NO_WORDS = "Ny version kräver ett klipp som appen har skurit med ordfil."
+
+FILTERS: dict[str, str | None] = {
+    "none": None,
+    "fresh": "eq=brightness=0.04:saturation=1.08:contrast=1.03",
+    "warm": "eq=brightness=0.02:saturation=1.10,colorbalance=rs=.05:gs=.02:bs=-.03",
+    "cool": "eq=brightness=0.02:saturation=1.05,colorbalance=rs=-.03:bs=.05",
+    "punch": "eq=contrast=1.08:saturation=1.15,vignette=PI/5",
+}
+SPEEDS = (1.0, 1.05, 1.1, 1.15, 1.2)  # atempo klarar 0,5–2,0 utan kedja
+BRIGHTNESS = (-0.3, 0.3)
+SATURATION = (-0.5, 0.5)
 
 POSITIONS = ("top_left", "top_right", "center", "bottom_left", "bottom_right")
 MARGIN = 40  # från sidan
@@ -69,6 +78,22 @@ def sticker_box(position: str, width: int, height: int, profile: Profile) -> tup
         raise VersionError("Klistermärket går in i kampanjens säkra zon, där plattformens knappar och text ligger. "
                            "Välj ett mindre klistermärke eller en annan plats.")
     return x, y
+
+
+def look(mirror: bool = False, filter: str = "none", brightness: float = 0.0, saturation: float = 0.0) -> str:
+    """Filtren före undertexten, med komma först (eller tomt). Kastar VersionError för ett okänt val."""
+    if filter not in FILTERS:
+        raise VersionError(f"Filtret {filter!r} finns inte. Välj {', '.join(FILTERS)}.")
+    if not BRIGHTNESS[0] <= brightness <= BRIGHTNESS[1]:
+        raise VersionError("Ljusstyrkan får vara -0,3–0,3.")
+    if not SATURATION[0] <= saturation <= SATURATION[1]:
+        raise VersionError("Mättnaden får vara -0,5–0,5.")
+    parts = ["hflip"] if mirror else []
+    if preset := FILTERS[filter]:
+        parts.append(preset)
+    if brightness or saturation:  # en andra eq ovanpå filtret
+        parts.append(f"eq=brightness={brightness:.3f}:saturation={1 + saturation:.3f}")
+    return "".join("," + part for part in parts)
 
 
 def fonts() -> dict[str, str]:
@@ -141,6 +166,7 @@ def options(settings: Settings, log: ClipLog, clip: dict, platform: str, account
             "overlays": _files(settings.root / "overlays", "/campaign/overlays", "overlays/"),
             "overlay_locked": bool(profile and profile.overlay_required),
             "max_start_cut_s": round(max(0.0, min(MAX_CUT_S, length - min_s)), 2),
+            "speeds": list(SPEEDS), "filters": list(FILTERS),
             "defaults": {"font": style.get("font") or (ready["data"]["caption"].get("font") if ready else None),
                          "overlay": style.get("overlay"), "sticker": style.get("sticker"),
                          "start_cut_s": float(style.get("start_cut_s") or 0.0)}}
@@ -183,7 +209,8 @@ def _sticker(settings: Settings, profile: Profile, sticker: dict | None, length:
 
 
 def make(settings: Settings, log: ClipLog, clip: dict, platform: str, account: str, font: str | None = None,
-         start_cut_s: float = 0.0, overlay: str | None = None, sticker: dict | None = None) -> int:
+         start_cut_s: float = 0.0, overlay: str | None = None, sticker: dict | None = None, mirror: bool = False,
+         speed: float = 1.0, filter: str = "none", brightness: float = 0.0, saturation: float = 0.0) -> int:
     """Rendera en ny version och spara den som ett eget klipp med version_of. Anroparen håller editor.lock.
     Råklippet, originalets klara fil och ordfilen ändras inte."""
     ready = _ready(settings, log, clip, platform, account)
@@ -193,9 +220,12 @@ def make(settings: Settings, log: ClipLog, clip: dict, platform: str, account: s
         raise VersionError(f"Fonten {font} finns inte. Välj en ur listan.")
     if not 0 <= start_cut_s <= MAX_CUT_S:
         raise VersionError(f"Klipp i början får vara 0–{MAX_CUT_S:g} sekunder.")
+    if speed not in SPEEDS:
+        raise VersionError(f"Hastigheten {speed:g} går inte. Välj {', '.join(f'{s:g}' for s in SPEEDS)}.")
+    filters = look(mirror, filter, brightness, saturation)
     length = ready["out_s"] - ready["in_s"] - start_cut_s
-    if length < profile.min_seconds:
-        raise VersionError(f"Versionen blir {length:.1f} s. Kampanjen kräver minst {profile.min_seconds:g} s.")
+    if length / speed < profile.min_seconds:
+        raise VersionError(f"Versionen blir {length / speed:.1f} s. Kampanjen kräver minst {profile.min_seconds:g} s.")
     own = _overlay(settings, profile, overlay)
     placed = _sticker(settings, profile, sticker, length)
 
@@ -215,7 +245,8 @@ def make(settings: Settings, log: ClipLog, clip: dict, platform: str, account: s
         plan = prepare(src, {**data, "caption": caption}, ready["in_s"] + start_cut_s, ready["out_s"], profile, ass)
         manifest = finish_clip(src, tmp_out, profile, settings.root, settings.encoder,
                                title="" if PLACEHOLDER.search(title) else title, subtitles=ass, plan=plan,
-                               overlay=own, font_file=found.get(font or ""), sticker=placed)
+                               overlay=own, font_file=found.get(font or ""), sticker=placed, look=filters,
+                               speed=speed)
         os.replace(tmp_out, out)
     finally:
         for path in (tmp_src, tmp_out, ass):
