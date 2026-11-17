@@ -23,7 +23,7 @@ const gb = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
 /** Ett hinder före start. Med en länk till stället där det rättas, när det finns ett. */
 type Blocker = { text: string; href?: string; linkText?: string };
 
-/** Nycklar läggs in under Inställningar. Texten kommer från servern, till exempel "BERGET_API_KEY saknas i .env." */
+/** Nycklar läggs in under Inställningar. Texten kommer från servern, till exempel "Berget-nyckeln (BERGET_API_KEY) saknas. Lägg in den under Inställningar." */
 const isKeyProblem = (text: string) => /API_KEY|nyckel/i.test(text);
 
 function KeyFix({ problem }: { problem: string }) {
@@ -451,7 +451,7 @@ export function HomeClient() {
       });
       router.push(`/runs/${run.id}`);
     } catch (err) {
-      setStartError(err instanceof Error ? err.message : "Kunde inte starta");
+      setStartError(err instanceof Error ? err.message : "Kunde inte starta projektet. Försök igen.");
       setStarting(false);
     }
   }
@@ -474,7 +474,7 @@ export function HomeClient() {
       const run = await api.campaign.runs.create({ profile: fits[0].name, vod_id: s.vod_id, game: s.game ?? undefined });
       router.push(`/runs/${run.id}`);
     } catch (err) {
-      setQuickErrors((all) => ({ ...all, [s.vod_id]: err instanceof Error ? err.message : "Kunde inte starta" }));
+      setQuickErrors((all) => ({ ...all, [s.vod_id]: err instanceof Error ? err.message : "Kunde inte starta projektet. Försök igen." }));
       setQuickBusy(null);
     }
   }

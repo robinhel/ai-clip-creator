@@ -618,7 +618,7 @@ function useFinishAgain(runId: number, run: CampaignRunDetail | null, clips: Cam
       setStartedAt(Date.now() - 1000);
     } catch (err) {
       before.current = null;
-      setError(errorText(err, "Kunde inte starta"));
+      setError(errorText(err, "Kunde inte göra klippen kampanjklara igen. Försök igen."));
     }
   }
 
