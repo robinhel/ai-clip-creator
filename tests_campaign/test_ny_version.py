@@ -143,3 +143,230 @@ def test_only_png_files_in_the_sticker_folder_can_be_used(tmp_path, name) -> Non
     assert versions.sticker_path(tmp_path, "fire.png") == (tmp_path / "stickers" / "fire.png").resolve()
     with pytest.raises(versions.VersionError, match="stickers/"):
         versions.sticker_path(tmp_path, name)
+
+
+# ---------- 3. POST versions, GET options och klistermärken ----------
+
+import json  # noqa: E402
+import subprocess  # noqa: E402
+
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from campaign import api, subtitles  # noqa: E402
+from campaign.workflow import finish_vod  # noqa: E402
+from clipsmith.settings import CaptionConfig, ReframeConfig  # noqa: E402
+
+from .conftest import make_clip, make_overlay, needs_ffmpeg, needs_subtitles, set_profile  # noqa: E402
+
+RAW = "clip_01_no_way.mp4"
+WORDS = [{"start": 0.5, "end": 0.9, "word": "Bro,"}, {"start": 1.0, "end": 1.5, "word": "no"},
+         {"start": 2.0, "end": 2.6, "word": "wei"}, {"start": 6.0, "end": 6.5, "word": "wow"}]
+NO_WORDS = "Ny version kräver ett klipp som appen har skurit med ordfil."
+
+
+def _png(path: Path, size: str = "400x400") -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"color=c=red:s={size},format=rgba",
+                    "-frames:v", "1", str(path)], check=True)
+    return path
+
+
+@pytest.fixture
+def vclip(settings, monkeypatch):
+    """Timmy med två TikTok-konton och ett godkänt klipp på 10 s med ordfil, kampanjklart."""
+    from campaign import versions
+
+    monkeypatch.setitem(finish.ENCODER_ARGS, "libx264", ["-c:v", "libx264", "-preset", "ultrafast"])
+    fonts = settings.root / "fonts"
+    fonts.mkdir()
+    (fonts / "Impact.ttf").write_bytes(b"ttf")
+    monkeypatch.setattr(versions, "FONT_DIRS", (fonts,))
+    set_profile(settings, clip={"min_seconds": 3, "max_seconds": 60}, accounts={"tiktok": ["openA", "openB"]})
+    make_overlay(settings.root / "overlays" / "skiimasktimmy.png")
+    _png(settings.root / "stickers" / "fire.png")
+    raw = make_clip(settings.out_dir / "123" / RAW, seconds=10)
+    subtitles.save_words(raw, WORDS, CaptionConfig(enabled=True, style="box"), ReframeConfig(mode="center"), raw)
+    log = ClipLog(settings.data_dir / "klipp.db")
+    log.add_run(1, "123", "skiimasktimmy", "Bodycam")
+    (result,) = finish_vod("123", load_profile("skiimasktimmy", settings.profiles_dir), settings, log,
+                           game="Bodycam", review=False)
+    log.update(result["id"], status="godkand", format="funny", problems=[])
+    monkeypatch.delenv("CLIPSMITH_API_KEY", raising=False)
+    app = FastAPI()
+    app.state.active_run_id = None
+    app.include_router(api.router)
+    app.dependency_overrides[api.get_settings] = lambda: settings
+    return TestClient(app), log, result["id"]
+
+
+def _options(client, clip_id, account="openB"):
+    return client.get(f"/campaign/clips/{clip_id}/versions/options",
+                      params={"platform": "tiktok", "account": account}).json()
+
+
+def _make(client, clip_id, **body):
+    return client.post(f"/campaign/clips/{clip_id}/versions",
+                       json={"platform": "tiktok", "account": "openB", "font": None, "start_cut_s": 0,
+                             "overlay": None, "sticker": None, **body})
+
+
+def _spy(monkeypatch) -> list:
+    from campaign import versions
+
+    seen: list = []
+    real = versions.finish_clip
+
+    def spy(*args, **kwargs):
+        ass = kwargs.get("subtitles")
+        seen.append({**kwargs, "ass": ass and ass.read_text(encoding="utf-8-sig")})
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(versions, "finish_clip", spy)
+    return seen
+
+
+@needs_ffmpeg
+def test_the_options_list_fonts_stickers_overlays_and_the_accounts_style(vclip, settings) -> None:
+    client, _, clip_id = vclip
+    options = _options(client, clip_id)
+    assert (options["allowed"], options["reason"]) == (True, None)
+    assert options["fonts"] == [{"name": "Impact", "label": "Impact"}]
+    assert options["stickers"] == [{"file": "fire.png", "url": "/campaign/stickers/fire.png"}]
+    assert options["overlays"] == [{"file": "overlays/skiimasktimmy.png",
+                                    "url": "/campaign/overlays/skiimasktimmy.png"}]
+    assert options["overlay_locked"] is True  # Timmys overlay krävs
+    assert options["max_start_cut_s"] == 5.0
+    assert options["defaults"] == {"font": "Arial", "overlay": None, "sticker": None, "start_cut_s": 0.0}
+    set_profile(settings, accounts_style={"openB": {"font": "Impact", "start_cut_s": 2}})
+    assert _options(client, clip_id)["defaults"]["start_cut_s"] == 2.0
+    assert _options(client, clip_id)["defaults"]["font"] == "Impact"
+    set_profile(settings, clip={"min_seconds": 7, "max_seconds": 60})
+    assert _options(client, clip_id)["max_start_cut_s"] == 3.0  # 10 s - 7 s
+
+
+@needs_ffmpeg
+def test_a_campaign_with_one_account_needs_no_version(vclip, settings) -> None:
+    client, _, clip_id = vclip
+    set_profile(settings, accounts={"tiktok": ["openA"]})  # som Blizzard
+    reason = "Kampanjen har bara ett konto på TikTok. Ny version behövs inte."
+    assert (_options(client, clip_id)["allowed"], _options(client, clip_id)["reason"]) == (False, reason)
+    answer = _make(client, clip_id)
+    assert (answer.status_code, answer.json()["detail"]) == (400, reason)
+
+
+@needs_ffmpeg
+def test_an_account_that_already_has_the_clip_gets_no_version(vclip) -> None:
+    client, log, clip_id = vclip
+    log.add_post(clip_id, "tiktok", "https://www.tiktok.com/@a/video/1", account="openA")
+    assert _options(client, clip_id, "openA")["allowed"] is False
+    assert _make(client, clip_id, account="openA").status_code == 409
+    assert _make(client, clip_id, account="okänt").status_code == 400  # inte kampanjens konto
+
+
+@needs_subtitles
+def test_a_version_cuts_the_start_shifts_the_words_and_changes_only_its_own_font(vclip, settings,
+                                                                                    monkeypatch) -> None:
+    client, log, clip_id = vclip
+    raw, done = settings.out_dir / "123" / RAW, settings.out_dir / "123" / "klara" / RAW
+    before = (done.stat().st_mtime_ns, raw.stat().st_mtime_ns, subtitles.words_path(raw).read_bytes())
+    seen = _spy(monkeypatch)
+    answer = _make(client, clip_id, font="Impact", start_cut_s=1.2,
+                   sticker={"file": "fire.png", "position": "top_right", "start_s": 0, "duration_s": 3})
+    assert answer.status_code == 201, answer.text
+    version = answer.json()
+    assert (version["version_of"], version["filename"], version["title"]) == (clip_id, "clip_01_no_way.v1.mp4",
+                                                                            log.get(clip_id)["title"])
+    assert version["status"] in ("renderad", "underkand")
+    (call,) = seen
+    assert "Style: Box,Impact," in call["ass"]
+    assert "BRO" not in call["ass"] and "Dialogue: 0,0:00:00.80," in call["ass"]  # wei vid 2,0 s blir 0,8 s
+    assert call["font_file"] == str(settings.root / "fonts" / "Impact.ttf")
+    assert (call["sticker"]["x"], call["sticker"]["y"], call["sticker"]["end_s"]) == (720, 135, 3.0)
+    out = settings.out_dir / "123" / "klara" / "clip_01_no_way.v1.mp4"
+    length = float(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries",
+                                   "stream=duration", "-of", "csv=p=0", str(out)],
+                                  capture_output=True, text=True, check=True).stdout)
+    assert length == pytest.approx(10.0 - 1.2, abs=1 / 30 + 0.001)
+    assert (done.stat().st_mtime_ns, raw.stat().st_mtime_ns, subtitles.words_path(raw).read_bytes()) == before
+    assert json.loads(subtitles.words_path(raw).read_text())["caption"]["font"] == "Arial"
+    assert not [p for p in out.parent.parent.rglob(".*")]  # inga tillfälliga filer kvar
+    assert _make(client, clip_id).json()["filename"] == "clip_01_no_way.v2.mp4"
+    listed = {c["id"]: c["version_of"] for c in client.get("/campaign/clips").json()}
+    assert listed[clip_id] is None and listed[version["id"]] == clip_id
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize(("body", "text"), [
+    ({"start_cut_s": 5.5}, "0–5"),
+    ({"start_cut_s": -1}, "0–5"),
+    ({"font": "Wingdings"}, "Fonten"),
+    ({"overlay": "overlays/annan.png"}, "kräver sin egen overlay"),
+    ({"sticker": {"file": "../overlays/skiimasktimmy.png", "position": "center", "start_s": 0, "duration_s": 2}},
+     "stickers/"),
+    ({"sticker": {"file": "fire.png", "position": "center", "start_s": 0, "duration_s": 0.2}}, "0,5–10"),
+    ({"sticker": {"file": "fire.png", "position": "center", "start_s": 0, "duration_s": 11}}, "0,5–10"),
+    ({"sticker": {"file": "fire.png", "position": "center", "start_s": 20, "duration_s": 2}}, "inom klippet"),
+    ({"sticker": {"file": "tall.png", "position": "center", "start_s": 0, "duration_s": 2}}, "säkra zon"),
+])
+def test_bad_choices_are_refused_and_nothing_is_made(vclip, settings, body, text) -> None:
+    client, log, clip_id = vclip
+    _png(settings.root / "stickers" / "tall.png", "320x1200")  # i full bredd 320 × 1200: in i safe_bottom
+    count = len(log.list())
+    answer = _make(client, clip_id, **body)
+    assert answer.status_code == 400 and text in answer.json()["detail"], answer.text
+    assert len(log.list()) == count
+
+
+@needs_ffmpeg
+def test_a_clip_too_short_after_the_cut_is_refused(vclip, settings) -> None:
+    client, _, clip_id = vclip
+    set_profile(settings, clip={"min_seconds": 6, "max_seconds": 60})
+    answer = _make(client, clip_id, start_cut_s=4.5)
+    assert answer.status_code == 400 and "minst 6" in answer.json()["detail"]
+
+
+@needs_ffmpeg
+def test_only_an_approved_clip_with_a_word_file_gets_a_version(vclip, settings) -> None:
+    client, log, clip_id = vclip
+    log.update(clip_id, status="renderad")
+    assert _make(client, clip_id).status_code == 400
+    log.update(clip_id, status="godkand")
+    subtitles.words_path(settings.out_dir / "123" / RAW).unlink()
+    answer = _make(client, clip_id)
+    assert (answer.status_code, answer.json()["detail"]) == (400, NO_WORDS)
+
+
+@needs_subtitles
+def test_an_own_overlay_is_used_when_the_campaign_does_not_require_its_own(vclip, settings, monkeypatch) -> None:
+    client, _, clip_id = vclip
+    set_profile(settings, overlay={"file": "overlays/skiimasktimmy.png", "required": False, "mode": "full"})
+    own = make_overlay(settings.root / "overlays" / "own.png")
+    seen = _spy(monkeypatch)
+    assert _make(client, clip_id, overlay="overlays/own.png").status_code == 201
+    assert seen[-1]["overlay"] == own.resolve()
+
+
+@needs_ffmpeg
+def test_a_version_waits_for_a_running_edit_or_run(vclip) -> None:
+    client, _, clip_id = vclip
+    assert editor.lock.acquire(blocking=False)
+    try:
+        assert _make(client, clip_id).status_code == 409
+    finally:
+        editor.lock.release()
+    client.app.state.active_run_id = 7
+    assert _make(client, clip_id).status_code == 409
+
+
+def test_stickers_are_served_but_nothing_outside_the_folder(settings) -> None:
+    app = FastAPI()
+    app.include_router(api.router)
+    app.dependency_overrides[api.get_settings] = lambda: settings
+    client = TestClient(app)
+    (settings.root / "stickers").mkdir()
+    (settings.root / "stickers" / "fire.png").write_bytes(b"\x89PNG")
+    answer = client.get("/campaign/stickers/fire.png")
+    assert (answer.status_code, answer.headers["content-type"], answer.content) == (200, "image/png", b"\x89PNG")
+    assert client.get("/campaign/stickers/..%2Fprofiles%2Fskiimasktimmy.yaml").status_code == 404
+    assert client.get("/campaign/stickers/saknas.png").status_code == 404
