@@ -59,3 +59,15 @@ def test_budget_exceeded_stops_before_call(tmp_path) -> None:
     with pytest.raises(BudgetExceeded):
         provider.pick("text", _candidate(), "ctx")
     provider._client.messages.create.assert_not_called()
+
+
+def test_the_answer_has_room_for_thinking_before_the_json(tmp_path) -> None:
+    # Sonnet 5.5 thinks first, in its own block: about 800 tokens before a JSON answer of about 150.
+    # With max_tokens 1024 the JSON was cut (3 of 6 answers, 17 nov). The text block after thinking is read.
+    provider, _ = _provider(tmp_path)
+    answer = _response()
+    answer.content = [SimpleNamespace(type="thinking", thinking=""), *answer.content]
+    provider._client.messages.create.return_value = answer
+    pick = provider.pick("[+0.0s] hello", _candidate(), "ctx")
+    assert pick is not None and pick.include
+    assert provider._client.messages.create.call_args.kwargs["max_tokens"] >= 4096
