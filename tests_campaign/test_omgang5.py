@@ -346,3 +346,7 @@ def test_earnings_count_each_post_on_its_own_and_use_what_whop_paid(client, sett
     assert {c["id"]: c["usd"] for c in earnings["per_clip"]} == {two: 0.0, paid: 3.0, guess: 5.0}
     assert earnings["estimated_usd"] == 8.0
     assert earnings["paid_usd"] == 9.2  # 4.2 som Whop betalade, plus uppskattade 5.0 där beloppet saknas
+
+    # Ångra på Betald: beloppet står kvar i inlägget, men det är inte utbetalt längre.
+    log.update_post(shorts, status="analytics_inskickad")
+    assert client.get("/campaign/summary").json()["earnings"]["paid_usd"] == 5.0

@@ -14,14 +14,14 @@ STATUSES = [
     "nekad",  # du sa nej
     "postad",  # uppe på TikTok, Shorts eller Reels
     "inskickad",  # länken är inskickad till Content Rewards
-    "analytics_inskickad",  # skärminspelningen av statistiken är inskickad
+    "analytics_inskickad",  # Analytics inskickad: skärminspelningen av inläggets analytics är inskickad
     "betald",
 ]
 
 # Ett inlägg är klippet på en plattform. Varje inlägg skickas in, följs och betalas för sig.
 POST_STATUSES = ["postad", "inskickad", "analytics_inskickad", "betald"]
 POST_COLUMNS = ("id, clip_id, platform, account, url, status, views, likes, comments, shares, paid_usd, created, "
-                "updated")
+                "updated, prev_status")
 # Ett inlägg per klipp, plattform och konto. Ett inlägg loggat för hand har inget konto (NULL), och räknas som
 # ett eget konto: två utan konto på samma plattform går inte.
 POSTS_TABLE = """CREATE TABLE IF NOT EXISTS {name} (
@@ -45,6 +45,7 @@ NEW_COLUMNS = {
     "runs": {"focus": "TEXT", "min_s": "INTEGER", "max_s": "INTEGER", "title": "TEXT",
              "channel_name": "TEXT", "thumbnail_url": "TEXT", "duration_s": "INTEGER", "created": "TEXT",
              "start_s": "REAL", "end_s": "REAL"},
+    "posts": {"prev_status": "TEXT"},  # statusen före den senaste, så att Ångra på Betald går tillbaka dit
 }
 
 
@@ -290,13 +291,19 @@ class ClipLog:
         self._sync(clip_id)
         return post_id
 
-    def update_post(self, post_id: int, **fields) -> None:
+    @staticmethod
+    def _check_post_fields(fields: dict) -> None:
         if "status" in fields and fields["status"] not in POST_STATUSES:
             raise ValueError(f"Okänd status för ett inlägg: {fields['status']}")
         unknown = set(fields) - {"status", "url", "platform", "paid_usd", *STAT_KEYS}
         if unknown:
             raise ValueError(f"Fält som inte får ändras: {sorted(unknown)}")
+
+    def update_post(self, post_id: int, **fields) -> None:
+        self._check_post_fields(fields)
         post = self.get_post(post_id)
+        if fields.get("status", post["status"]) != post["status"]:
+            fields["prev_status"] = post["status"]
         if fields:
             sets = ", ".join(f"{key} = ?" for key in fields)
             with self._db() as db:
@@ -370,7 +377,7 @@ class ClipLog:
                 elif post["status"] == "inskickad" and post["views"] >= min_views:
                     items.append(
                         f"{where}: har {post['views']} visningar. Skicka skärminspelningen av "
-                        "inläggets statistik i kampanjens formulär."
+                        "inläggets analytics i analytics-formuläret."
                     )
         return items
 
