@@ -55,3 +55,12 @@ export function bySubmitTime(now = Date.now()) {
   const key = (clip: CampaignClip) => submitDeadline([clip], now) ?? Infinity;
   return (a: CampaignClip, b: CampaignClip) => key(a) - key(b) || 0;
 }
+
+/** Hur Robin rättar ett underkänt klipp. caption: felet är bara i captionen. projekt: gör klippen kampanjklara
+ * igen på projektsidan. null: ingen rad, för klippet är inte underkänt, eller det är en egen video utan den knappen. */
+export function rejectedFix(clip: Pick<CampaignClip, "status" | "vod_id" | "problems">): "caption" | "projekt" | null {
+  if (clip.status !== "underkand") return null;
+  // Alla fel från serverns kontroll av captionen börjar med "Captionen ".
+  if (clip.problems.length > 0 && clip.problems.every((p) => p.startsWith("Captionen "))) return "caption";
+  return clip.vod_id === "upload" ? null : "projekt";
+}

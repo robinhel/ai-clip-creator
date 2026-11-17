@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bySubmitTime, defaultStep, stepCount, stepOf, stepOrder, submitDeadline } from "./steps";
+import { bySubmitTime, defaultStep, rejectedFix, stepCount, stepOf, stepOrder, submitDeadline } from "./steps";
 import type { CampaignClip, ClipPost } from "./types";
 
 const MIN = 60_000;
@@ -51,5 +51,18 @@ describe("submitDeadline", () => {
     const newPost = { ...clip([post("postad", 35), post("postad", 2)]), id: 4 };
     const order = [late, twentyLeft, fiveLeft, newPost].sort(bySubmitTime(NOW)).map((c) => c.id);
     expect(order).toEqual([3, 2, 4, 1]);
+  });
+
+  it("ett underkänt klipp med fel bara i captionen rättas med captionen, och en egen video får ingen rad om projektsidan", () => {
+    const failed = (vod_id: string, problems: string[]) => ({ status: "underkand", vod_id, problems }) as CampaignClip;
+    const caption = "Captionen saknar hashtaggen #ad.";
+    const length = "Klippet är 4.0 s. Kampanjen kräver minst 7 s.";
+    expect(rejectedFix(failed("v123", [caption]))).toBe("caption");
+    expect(rejectedFix(failed("upload", [caption]))).toBe("caption");
+    // Fel i captionen och annat: captionen räcker inte.
+    expect(rejectedFix(failed("v123", [caption, length]))).toBe("projekt");
+    // En egen video har ingen knapp för att göra klippen kampanjklara igen.
+    expect(rejectedFix(failed("upload", [length]))).toBeNull();
+    expect(rejectedFix({ status: "renderad", vod_id: "v123", problems: [] } as unknown as CampaignClip)).toBeNull();
   });
 });

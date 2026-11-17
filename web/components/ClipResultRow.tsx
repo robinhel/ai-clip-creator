@@ -15,6 +15,7 @@ import { CopyButton } from "@/components/CopyButton";
 import { CampaignRules, type Posting, PublishButton } from "@/components/PublishDialog";
 import { api } from "@/lib/api";
 import { VersionButton } from "@/components/VersionDialog";
+import { rejectedFix } from "@/lib/steps";
 import { clock, cn, SUMMARY_CHANGED } from "@/lib/utils";
 import type { CampaignClip, CampaignClipPatch, CampaignFormat, ClipEditInfo, ClipSubscores, ClipTranscript, Platform } from "@/lib/types";
 
@@ -379,6 +380,29 @@ function MoreMenu({ clip, busy, onUndo, onReload, children }: {
   );
 }
 
+/** Vad Robin gör med ett underkänt klipp. Ett fel bara i captionen rättas här; en egen video har ingen projektsida. */
+function RejectedFix({ clip, runId }: { clip: CampaignClip; runId?: number }) {
+  const fix = rejectedFix(clip);
+  if (fix === "caption") {
+    return <p className="text-sm text-muted-foreground">Felet är bara i captionen. Tryck Ändra rubrik och caption, rätta texten och spara.</p>;
+  }
+  if (fix !== "projekt") return null;
+  return (
+    <p className="text-sm text-muted-foreground">
+      Rätta problemen och gör klippen kampanjklara igen
+      {runId ? (
+        <>
+          {" "}på{" "}
+          <Link href={`/runs/${runId}`} className="underline underline-offset-4 hover:text-foreground">
+            projektsidan
+          </Link>
+        </>
+      ) : null}
+      .
+    </p>
+  );
+}
+
 export function ClipResultRow({ clip, number, formats, runId, source, active = false, onUpdate, onReload, approvedAction, posting }: Props) {
   const [caption, setCaption] = useState(clip.caption ?? "");
   const [title, setTitle] = useState(clip.title ?? "");
@@ -682,20 +706,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
         <ReviewNotes review={clip.review} />
         {posting?.campaign && approved && <CampaignRules detail={posting.campaign} />}
 
-        {clip.status === "underkand" && (
-          <p className="text-sm text-muted-foreground">
-            Rätta problemen och gör klippen kampanjklara igen
-            {runId ? (
-              <>
-                {" "}på{" "}
-                <Link href={`/runs/${runId}`} className="underline underline-offset-4 hover:text-foreground">
-                  projektsidan
-                </Link>
-              </>
-            ) : null}
-            . Är problemet bara i captionen räcker det att ändra och spara den.
-          </p>
-        )}
+        <RejectedFix clip={clip} runId={runId} />
 
         {hasPosts && <ClipPosts clip={clip} onUpdate={onUpdate} readOnly={!posting} />}
         {!hasPosts && <LegacyLink clip={clip} busy={busy} canEdit={!!posting} onSave={patch} />}
