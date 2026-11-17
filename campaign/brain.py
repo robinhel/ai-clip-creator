@@ -13,6 +13,7 @@ class Brain:
         self.settings = settings
         self.budget = budget
         self._client = client
+        self.last_usd = 0.0  # vad det senaste anropet kostade
 
     @property
     def available(self) -> bool:
@@ -55,7 +56,7 @@ class Brain:
             tool_choice={"type": "tool", "name": "svar"},
         )
         usage = response.usage
-        self.budget.record(
+        self.last_usd = self.budget.record(
             model,
             purpose,
             input_tokens=usage.input_tokens,

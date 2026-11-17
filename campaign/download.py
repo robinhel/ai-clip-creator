@@ -100,3 +100,19 @@ def download_vod(vod_id: str, work_dir: Path, quality: str = "1080p60",
     join_segments(parts, out)
     shutil.rmtree(parts, ignore_errors=True)
     return out
+
+
+def _hms(seconds: int) -> str:
+    return f"{seconds // 3600:02d}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}"
+
+
+def download_part(vod_id: str, start_s: int, end_s: int, out: Path, quality: str = "1080p60") -> Path:
+    """Bara en del av VOD:en, från start_s till end_s (hela sekunder), till out. twitch-dl klipper vid
+    närmaste nyckelbild, så delen kan börja upp till ett par sekunder fel; ta med marginal."""
+    out.parent.mkdir(parents=True, exist_ok=True)
+    _run_twitchdl(
+        [sys.executable, "-m", "twitchdl", "download", vod_id, "--quality", _resolve_quality(vod_id, quality),
+         "--start", _hms(start_s), "--end", _hms(end_s), "--format", "mp4", "--output", str(out), "--overwrite"],
+        None,
+    )
+    return out

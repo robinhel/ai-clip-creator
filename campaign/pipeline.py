@@ -8,6 +8,7 @@ import shutil
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -71,6 +72,21 @@ def finish(vod_id: str, profile: Profile, settings: Settings, game: str | None,
     if not (settings.out_dir / vod_id / subdir).is_dir():
         subdir = None  # en körning från före mapparna per körning har klippen direkt i out/<vod>/
     return finish_vod(vod_id, profile, settings, log, brain=brain, game=game, review=review, subdir=subdir)
+
+
+def cut_picks(mp4: Path, transcript: Transcript, picks: list[PickResult], run_dir: Path, cfg) -> list[Path]:
+    """Skär klippen. Undertexten bränns in i finish, så att Robin kan rätta orden i redigeraren (ordfilen per
+    klipp). Utan omformatering (mode none) skär clipsmith utan undertext med -c copy, och då glider orden:
+    där bränner clipsmith in undertexten som förut."""
+    words_file = cfg.caption.enabled and cfg.reframe.mode != "none"
+    cut_cfg = cfg.model_copy(update={"caption": cfg.caption.model_copy(update={"enabled": False})}) \
+        if words_file else cfg
+    paths = cut_all_clips(mp4, transcript, picks, run_dir, cut_cfg)  # väljer webbkamera per klipp
+    if words_file:
+        for path, result in zip(paths, picks, strict=True):
+            words = pick_words(transcript, result.pick.start_offset_s, result.pick.end_offset_s)
+            save_words(path, words, cfg.caption, cfg.reframe, path, hook=hook_span(result.pick))
+    return paths
 
 
 def _twitch_ids(vod_id: str, channel: str, secrets) -> tuple[str, str]:
@@ -199,17 +215,7 @@ def make_clips(
                 result.pick.format = None  # ett id som kampanjen inte har blir inget format
         if picks:
             emit("clip", 85.0, "")
-            # Undertexten bränns in i finish, så att Robin kan rätta orden i redigeraren (ordfilen per klipp).
-            # Utan omformatering (mode none) skär clipsmith utan undertext med -c copy, och då glider orden:
-            # där bränner clipsmith in undertexten som förut.
-            words_file = cfg.caption.enabled and cfg.reframe.mode != "none"
-            cut_cfg = cfg.model_copy(update={"caption": cfg.caption.model_copy(update={"enabled": False})}) \
-                if words_file else cfg
-            paths = cut_all_clips(mp4, transcript, picks, run_dir, cut_cfg)  # väljer webbkamera per klipp
-            if words_file:
-                for path, result in zip(paths, picks, strict=True):
-                    words = pick_words(transcript, result.pick.start_offset_s, result.pick.end_offset_s)
-                    save_words(path, words, cfg.caption, cfg.reframe, path, hook=hook_span(result.pick))
+            cut_picks(mp4, transcript, picks, run_dir, cfg)
     legacy = settings.out_dir / vod_id / "picks.json"
     if not legacy.exists() and (mp4.parent / "picks.json").exists() and any(legacy.parent.glob("clip_*.mp4")):
         shutil.copy(mp4.parent / "picks.json", legacy)  # gamla klipp i out/<vod>/ behåller sina val

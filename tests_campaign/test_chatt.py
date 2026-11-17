@@ -161,7 +161,7 @@ def test_times_come_from_the_quoted_words() -> None:
     words = [{"start": float(i), "end": i + 0.5, "word": w} for i, w in enumerate(
         "go go now we win the fight and then we win the fight again".split())]
     # "we win the fight" sägs två gånger: platsen närmast Claudes sekunder gäller
-    assert chat.place(words, "we win", "the fight", 8.5, 12.0) == (9.0, 11.5)
+    assert chat.place(words, "we win", "the fight", 8.5, 12.0) == (9.0, 12.5)
     assert chat.place(words, "we win", "the fight", 3.0, 6.0) == (3.0, 6.5)
     assert chat.place(words, "Now, we WIN!", "fight.", 3.0, 6.0) == (2.0, 6.5)  # skiljetecken och versaler
     assert chat.place(words, "nobody said this", "the fight", 3.0, 6.0) is None
@@ -249,7 +249,7 @@ def test_refine_changes_the_hits_with_one_cheap_call(client, chatapp, settings) 
     data = client.post("/campaign/chats/1/messages", json={"message": "bara raserna, kortare"}).json()
     [hit] = data["hits"]
     assert (hit["id"], hit["title"], hit["grade"]) == (keep["id"], "Skyborn", 7)
-    assert hit["start_s"] == pytest.approx(_word("vodA", "the")["start"])
+    assert hit["start_s"] == pytest.approx(_word("vodA", "the", 1)["start"])
     assert len(chatapp.script.calls) == 3  # bara tolkningen, ingen ny sökning
     assert chatapp.script.calls[2]["model"] == settings.review_model
     assert data["messages"][-1]["text"] == "Bara raserna, och den börjar senare."
@@ -361,6 +361,7 @@ def test_a_twitch_vod_without_video_downloads_only_the_part(client, chatapp, set
         return []
 
     monkeypatch.setattr(download, "_run_twitchdl", twitchdl)
+    monkeypatch.setattr(download, "_resolve_quality", lambda vod_id, quality: quality)  # frågar annars Twitch
     monkeypatch.setattr(pipeline, "cut_all_clips", cut)
     monkeypatch.setattr(pipeline, "finish", lambda *a, **k: [])
     answer = client.post("/campaign/chats/1/clips", json={"hit_ids": [hit["id"]]})
