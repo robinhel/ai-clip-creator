@@ -96,7 +96,7 @@ def upload(file: UploadFile = File(...), profile: str = Form(...), title: str = 
         wanted = {"file": sticker, "position": sticker_position, "start_s": sticker_start_s,
                   "duration_s": sticker_duration_s} if sticker else None
         try:
-            placed = versions._sticker(settings, campaign, wanted, length)
+            placed = versions._sticker(settings, campaign, wanted, length, hook, own)
         except versions.VersionError as error:
             raise HTTPException(400, str(error)) from error
         cut = ["-ss", f"{start_cut_s:.3f}"] if start_cut_s else []
