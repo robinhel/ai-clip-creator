@@ -662,7 +662,7 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
                 raise HTTPException(400, "Klippet har problem. Rätta dem innan du godkänner.")
             if profile.formats and not (fields.get("format") or clip["format"]):
                 raise HTTPException(400, "Välj ett format innan du godkänner.")
-        if new == "nekad" and status == "godkand":  # bort från Att posta: inget får laddas upp efteråt
+        if status == "godkand" and new in ("nekad", "renderad"):  # Ta bort eller Ångra godkännande: inget laddas upp efteråt
             from .schedule import Schedule, ScheduleError  # schedule läser klipploggen; importen hålls här
 
             try:
