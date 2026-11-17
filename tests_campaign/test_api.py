@@ -73,6 +73,20 @@ def test_approving_needs_a_format_from_the_campaign(client, settings) -> None:
     assert response.json()["format"] == "funny"
 
 
+def test_the_format_warning_goes_away_when_the_format_is_chosen(client, settings) -> None:
+    log = ClipLog(settings.data_dir / "klipp.db")
+    no_format = "Klippet har inget format ännu. Välj ett när du godkänner."
+    clip_id = log.add(vod_id="123", profile="skiimasktimmy", file=str(settings.out_dir / "123" / "a.mp4"),
+                      title="No way", caption=CAPTION, status="renderad", warnings=[no_format, "Annat"])
+    assert client.get("/campaign/clips").json()[0]["warnings"] == [no_format, "Annat"]
+
+    chosen = client.patch(f"/campaign/clips/{clip_id}", json={"format": "funny"}).json()
+    assert chosen["warnings"] == ["Annat"]
+    # Godkända och postade klipp från förr har varningen sparad; den visas inte när formatet finns.
+    log.update(clip_id, status="postad", warnings=[no_format])
+    assert client.get("/campaign/clips").json()[0]["warnings"] == []
+
+
 def test_status_follows_the_flow_and_posting_needs_a_link(client, settings) -> None:
     clip_id = _clip(settings, status="godkand", clip_format="funny")
     other = _clip(settings, clip_format="funny")
