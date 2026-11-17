@@ -43,6 +43,7 @@ SAME_TEXT = ("Samma text finns redan på ett annat konto för det här klippet. 
              "ny text.")
 TIKTOK_LIVE = ("uploading", "uploaded", "processing", "published")
 FINISHED = ("done", "reminded", "failed", "cancelled")
+FINISHED_SHOWN_H = 24  # Att posta visar avslutade poster så här länge
 _thread: list[threading.Thread] = []
 
 
@@ -178,13 +179,15 @@ class Schedule:
         return self._view(row, _now())
 
     def list(self) -> list[dict]:
-        """Väntande (och pågående) först, närmast tid först, sedan de 20 senast avslutade."""
+        """Väntande (och pågående) först, närmast tid först, sedan högst 20 avslutade från de senaste 24 timmarna.
+        Äldre avslutade poster ligger kvar i databasen men visas inte."""
         select = "SELECT s.*, c.title AS clip_title, c.profile FROM scheduled_posts s LEFT JOIN clips c ON c.id = s.clip_id"
+        now = _now()
         with self._db() as db:
             coming = db.execute(f"{select} WHERE s.status IN ('waiting', 'running') ORDER BY s.at").fetchall()
-            finished = db.execute(f"{select} WHERE s.status IN ({', '.join('?' * len(FINISHED))}) "
-                                  "ORDER BY s.updated DESC, s.id DESC LIMIT 20", FINISHED).fetchall()
-        now = _now()
+            finished = db.execute(f"{select} WHERE s.status IN ({', '.join('?' * len(FINISHED))}) AND s.updated >= ? "
+                                  "ORDER BY s.updated DESC, s.id DESC LIMIT 20",
+                                  (*FINISHED, _iso(now - timedelta(hours=FINISHED_SHOWN_H)))).fetchall()
         return [self._view(row, now) for row in (*coming, *finished)]
 
     # ---------- schemalägg och avbryt ----------
