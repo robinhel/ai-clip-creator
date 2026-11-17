@@ -149,7 +149,7 @@ def finish_vod(
                 in_s, out_s = (meta["in_s"], meta["out_s"]) if meta else (0.0, probe(src)["duration"])
                 plan = prepare(src, words, in_s, out_s, profile, ass)  # tystnad och ehm bort; samma som redigeraren
             manifest = finish_clip(src, out, profile, settings.root, settings.encoder, title=hook, subtitles=ass,
-                                   plan=plan)
+                                   plan=plan, frame=words["reframe"]["mode"] if words else "")
         finally:
             if ass:
                 ass.unlink(missing_ok=True)

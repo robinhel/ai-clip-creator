@@ -19,6 +19,7 @@ import threading
 from pathlib import Path
 
 from clipsmith.config.loaders import load_config
+from clipsmith.rendering.clipper import _build_ffmpeg_cmd
 from clipsmith.settings import CaptionConfig, ReframeConfig
 
 from .caption import build_caption
@@ -254,7 +255,7 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
                 ass = raw.with_name(f".{raw.stem}.edit.ass")  # punkt först, som _tmp
                 plan = prepare(src, {**data, "words": new_words}, new_in, new_out, profile, ass)
             rendered = finish_clip(src, tmp_done, profile, settings.root, settings.encoder, title=new_title,
-                                   subtitles=ass, plan=plan)
+                                   subtitles=ass, plan=plan, frame=data["reframe"]["mode"] if data else "")
 
         # Precis före bytet: klippet kan ha postats under tiden. Sedan tas ett gammalt ja bort, så att
         # inget godkännande gäller den nya filen om något går fel efteråt.
@@ -297,6 +298,52 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
     if trimmed and state["start_s"] is not None:
         fields.update(start_s=round(state["start_s"] + new_in, 3), end_s=round(state["start_s"] + new_out, 3))
     log.update(clip["id"], **fields)
+
+
+def reframe_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog) -> None:
+    """Gör om klippet i kampanjens bildläge (clipsmith-configens reframe). Råklippet skärs om ur källvideon
+    work/<vod>/<vod>.mp4 över samma del av den. Rubrik, ord och trimning är kvar, och sedan görs klippet
+    kampanjklart som efter en redigering, med en ny regelkontroll. Anroparen håller `lock`."""
+    raw = raw_path(clip, settings)
+    reason = why_not(clip, raw)
+    if reason:
+        raise ValueError(reason)
+    assert raw is not None
+    video = settings.work_dir / clip["vod_id"] / f"{clip['vod_id']}.mp4"
+    if not video.is_file():
+        raise ValueError(f"Källvideon saknas: {video}. Den behövs för att skära om klippet.")
+    state = _state(clip, raw)
+    if state["start_s"] is None:
+        raise ValueError("Klippet saknar sin tid i källvideon, så det går inte att skära om.")
+    reframe = load_config(settings.root / (profile.clipsmith_config or "")).reframe
+    data, _ = _words(raw, profile, settings)
+    meta, source = edit_meta(raw), source_path(raw)
+    done = raw.parent / "klara" / raw.name
+    tmp_source, tmp_raw, old_done = _tmp(source, "reframe"), _tmp(raw, "trim"), _tmp(done, "old")
+    try:
+        start = state["start_s"]
+        run(_build_ffmpeg_cmd(video, start, start + state["duration_s"], None, reframe, tmp_source))
+        os.replace(tmp_source, source)
+        if meta:  # trimmat: råklippet skärs ur det nya originalet, och metafilen får råklippets nya identitet
+            _trim(source, tmp_raw, meta["in_s"], meta["out_s"], settings.encoder)
+            os.replace(tmp_raw, raw)
+            stat = raw.stat()
+            _write_atomic(_original(raw)[1], json.dumps({
+                **meta, "raw_size": stat.st_size, "raw_mtime_ns": stat.st_mtime_ns}).encode("utf-8"))
+        if data:  # samma ord, nu till det nya råklippet och dess bildläge
+            save_words(raw, data["words"], CaptionConfig(**data["caption"]), reframe, source_path(raw),
+                       hook=data.get("hook"))
+        if done.exists():  # edit_clip gör klippet kampanjklart när det färdiga klippet saknas
+            os.replace(done, old_done)
+        try:
+            edit_clip(log.get(clip["id"]), profile, settings, log)
+        except Exception:
+            if old_done.exists():
+                os.replace(old_done, done)
+            raise
+    finally:
+        for path in (tmp_source, tmp_raw, old_done):
+            path.unlink(missing_ok=True)
 
 
 def _has_overlay(profile: Profile, settings: Settings) -> bool:

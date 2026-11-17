@@ -89,4 +89,4 @@ caption:
   enabled: true
 
 reframe:
-  mode: fit             # hela 16:9-bilden i mitten, på en suddig kopia av sig själv (inte inzoomad)
+  mode: zoom            # bilden 1000 px hög, sidorna bortklippta, på svart; rubriken ovanför och undertexten under

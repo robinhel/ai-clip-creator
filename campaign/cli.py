@@ -225,6 +225,27 @@ def cmd_posted(args, settings: Settings) -> int:
     return 0
 
 
+def cmd_reframe(args, settings: Settings) -> int:
+    from . import editor
+
+    log, failed = _log(settings), 0
+    for clip_id in args.clip_ids:
+        clip = log.get(clip_id)
+        try:
+            if clip is None:
+                raise ValueError("Klippet finns inte.")
+            editor.reframe_clip(clip, _profile(settings, clip["profile"]), settings, log)
+        except (ValueError, RuntimeError) as error:
+            failed += 1
+            print(f"FEL #{clip_id}: {error}")
+            continue
+        clip = log.get(clip_id)
+        print(f"{'UNDERKÄND' if clip['problems'] else 'KLAR'} #{clip_id} {clip['file']}")
+        for problem in clip["problems"] or []:
+            print(f"    problem: {problem}")
+    return 1 if failed else 0
+
+
 def cmd_mark(args, settings: Settings) -> int:
     log = _log(settings)
     posts = log.posts(args.clip_id)
@@ -340,6 +361,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("url")
     p.add_argument("--platform", default="tiktok")
     p.set_defaults(func=cmd_posted)
+
+    p = sub.add_parser("reframe", help="Gör om klipp i kampanjens bildläge; rubrik och ord är kvar")
+    p.add_argument("clip_ids", type=int, nargs="+")
+    p.set_defaults(func=cmd_reframe)
 
     p = sub.add_parser("mark", help="Sätt status på ett klipp")
     p.add_argument("clip_id", type=int)

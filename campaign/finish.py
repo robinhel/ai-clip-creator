@@ -11,6 +11,8 @@ import re
 import textwrap
 from pathlib import Path
 
+from clipsmith.rendering.clipper import ZOOM_TOP
+
 from .media import find_font, need, probe, run
 from .profile import Profile
 
@@ -18,6 +20,7 @@ WIDTH, HEIGHT = 1080, 1920
 HOOK_SECONDS = 3
 HOOK_FONT_SIZE = 64
 HOOK_LINE_CHARS = 22  # ryms i 1080 px vid HOOK_FONT_SIZE
+HOOK_GAP = 24  # zoom: luft mellan hookens sista rad och bilden
 
 ENCODER_ARGS = {
     "libx264": ["-c:v", "libx264", "-preset", "medium", "-crf", "19"],
@@ -43,11 +46,15 @@ def _hook_esc(value: str) -> str:
 
 
 def _hook(
-    profile: Profile, title: str, font: str | None, last: str, text_on_top: bool
+    profile: Profile, title: str, font: str | None, last: str, text_on_top: bool, frame: str = ""
 ) -> list[str]:
-    """Titeln centrerad i övre säkra zonen de första sekunderna, på upp till tre rader."""
+    """Titeln centrerad i övre säkra zonen de första sekunderna, på upp till tre rader. I bildläget zoom
+    står den på det svarta precis ovanför bilden, men aldrig i den övre säkra zonen."""
     lines = textwrap.wrap(title, HOOK_LINE_CHARS, max_lines=3, placeholder="…")
     top = int(HEIGHT * profile.safe_top) + (int(profile.text_font_size * 1.6) if text_on_top else 0)
+    if frame == "zoom":
+        above = ZOOM_TOP - HOOK_GAP - HOOK_FONT_SIZE - (len(lines) - 1) * int(HOOK_FONT_SIZE * 1.25)
+        top = max(top, above)
     font_part = f"fontfile='{_esc(font)}':" if font else ""
     parts = []
     for i, line in enumerate(lines):
@@ -83,13 +90,14 @@ def _pieces(pieces: list[tuple[float, float]], has_audio: bool, cold_open: bool)
 def build_filter(
     profile: Profile, has_overlay: bool, has_audio: bool, font: str | None, title: str = "",
     subtitles: Path | None = None, pieces: list[tuple[float, float]] | None = None, cold_open: bool = False,
-    sticker: dict | None = None, look: str = "", speed: float = 1.0,
+    sticker: dict | None = None, look: str = "", speed: float = 1.0, frame: str = "",
 ) -> str:
     """Filtergrafen. Ingång 0 är klippet, sedan hooken (cold_open), overlay-bilden och klistermärket om de finns.
     Med bitar (tidskartan) sätts de ihop först. Undertexten bränns in sedan, så att overlayen ligger ovanpå den.
     sticker: {w, h, x, y, start_s, end_s}, en ny versions klistermärke ovanpå overlayen under en stund.
     look: filter (",hflip,eq=...") på bilden före undertexten, så att texten inte speglas. speed: hela klippet
-    snabbare sist, så att undertexten och hooken följer med."""
+    snabbare sist, så att undertexten och hooken följer med. frame: råklippets bildläge (ordfilens reframe.mode),
+    som bestämmer var hooken står."""
     burn = f",subtitles=filename='{_esc(str(subtitles))}'" if subtitles else ""
     parts = _pieces(pieces, has_audio, cold_open) if pieces else []
     ov = 2 if pieces and cold_open else 1
@@ -127,7 +135,7 @@ def build_filter(
     title = re.sub(r"[\x00-\x1f]", " ", title).strip()  # ett styrtecken (NUL) stoppar ffmpeg-anropet
     if profile.hook_text and title:
         text_on_top = bool(profile.text) and not has_overlay and profile.text_position == "top"
-        parts += _hook(profile, title, font, last, text_on_top)
+        parts += _hook(profile, title, font, last, text_on_top, frame)
         last = "withhook"
     fast = (f",setpts=PTS/{speed:g}", f",atempo={speed:g}") if speed != 1.0 else ("", "")
     parts.append(f"[{last}]format=yuv420p{fast[0]}[vout]")
@@ -140,6 +148,7 @@ def finish_clip(
     src: Path, out: Path, profile: Profile, root: Path, encoder: str = "libx264", title: str = "",
     subtitles: Path | None = None, plan: dict | None = None, overlay: Path | None = None,
     font_file: str | None = None, sticker: dict | None = None, look: str = "", speed: float = 1.0,
+    frame: str = "",
 ) -> dict:
     """Rendera den kampanjklara versionen. plan är tidskartan (campaign.timemap). En ny version kan ge en egen
     overlay, en fontfil till texten på skärmen och ett klistermärke (med path). Returnerar ett manifest om vad
@@ -162,7 +171,7 @@ def finish_clip(
     cmd += [
         "-filter_complex",
         build_filter(profile, has_overlay, info["has_audio"], font, title, subtitles,
-                     plan["pieces"] if plan else None, cold_open, sticker, look, speed),
+                     plan["pieces"] if plan else None, cold_open, sticker, look, speed, frame),
         "-map",
         "[vout]",
     ]

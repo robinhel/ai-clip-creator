@@ -246,7 +246,7 @@ def make(settings: Settings, log: ClipLog, clip: dict, platform: str, account: s
         manifest = finish_clip(src, tmp_out, profile, settings.root, settings.encoder,
                                title="" if PLACEHOLDER.search(title) else title, subtitles=ass, plan=plan,
                                overlay=own, font_file=found.get(font or ""), sticker=placed, look=filters,
-                               speed=speed)
+                               speed=speed, frame=data["reframe"]["mode"])
         os.replace(tmp_out, out)
     finally:
         for path in (tmp_src, tmp_out, ass):

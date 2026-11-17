@@ -139,6 +139,11 @@ def _build_ffmpeg_cmd(
     return cmd
 
 
+# zoom: the picture's top edge. Its bottom (ZOOM_TOP + 1000) leaves one caption line (about 110 px)
+# above the bottom safe zone (20 %, y 1536), where the captions stand.
+ZOOM_TOP = 416
+
+
 def _video_filter(reframe: ReframeConfig, ass_path: Path | None) -> str:
     parts: list[str] = []
 
@@ -151,6 +156,13 @@ def _video_filter(reframe: ReframeConfig, ass_path: Path | None) -> str:
             "boxblur=10:2,scale=1080:1920:flags=bilinear[fit_blur];"
             "[fit_fg]scale=1080:-2:flags=lanczos[fit_pic];"
             "[fit_blur][fit_pic]overlay=(W-w)/2:(H-h)/2"
+        )
+    elif reframe.mode == "zoom":
+        # The picture 1000 px high with the sides cut to 1080 (about 60 % of a 16:9 width), on black.
+        # The title stands on the black above it, the captions on the black below it.
+        parts.append(
+            "scale=1080:1000:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1000,"
+            f"pad=1080:1920:0:{ZOOM_TOP}:black"
         )
     elif reframe.mode == "webcam" and reframe.webcam_rect:
         x, y, w, h = reframe.webcam_rect
