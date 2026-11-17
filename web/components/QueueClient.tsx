@@ -11,7 +11,7 @@ import { RemoveFromQueue } from "@/components/RemoveFromQueue";
 import { ScheduledList } from "@/components/ScheduledList";
 import { api } from "@/lib/api";
 import { pollWhileVisible } from "@/lib/poll";
-import { clipDeadline, countByStatus, defaultStep, isStep, STEP_STATUSES, stepCount, stepOrder, submitDeadline, type ClipStep } from "@/lib/steps";
+import { bySubmitTime, countByStatus, defaultStep, isStep, STEP_STATUSES, stepCount, stepOrder, submitDeadline, type ClipStep } from "@/lib/steps";
 import { cn, SUMMARY_CHANGED } from "@/lib/utils";
 import type {
   CampaignClip,
@@ -275,7 +275,7 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
         ? rejected
         : list("granska").sort(byScore)
       : tab === "skicka-in"
-        ? list("skicka-in").sort((a, b) => (clipDeadline(a) ?? Infinity) - (clipDeadline(b) ?? Infinity))
+        ? list("skicka-in").sort(bySubmitTime(now))
         : list("posta");
   // Postade och inskickade klipp som saknar en av kampanjens plattformar. Hopfällda under Att posta.
   const morePlatforms = (clips ?? []).filter((c) => c.status === "inskickad" && freePlatforms(c).length > 0);

@@ -41,12 +41,6 @@ export function defaultStep(counts: Partial<Record<CampaignStatus, number>>): Cl
 /** Content Rewards tar bara emot ett inlägg inom 30 minuter. Appen räknar från att länken sparades. */
 export const SUBMIT_WINDOW_MS = 30 * 60_000;
 
-/** När klippets första inlägg som inte är inskickat måste vara inskickat, i ms. null: inget väntar. */
-export function clipDeadline(clip: CampaignClip): number | null {
-  const times = (clip.posts ?? []).filter((p) => p.status === "postad").map((p) => Date.parse(p.created) + SUBMIT_WINDOW_MS);
-  return times.length ? Math.min(...times) : null;
-}
-
 /** Den närmaste tiden som inte har gått ut, bland alla klipp. null: ingen. */
 export function submitDeadline(clips: CampaignClip[], now = Date.now()): number | null {
   const times = clips.flatMap((clip) =>
@@ -54,4 +48,10 @@ export function submitDeadline(clips: CampaignClip[], now = Date.now()): number 
   );
   const coming = times.filter((t) => t > now);
   return coming.length ? Math.min(...coming) : null;
+}
+
+/** Ordningen i Skicka in: först klippen som hinner skickas in, med minst tid kvar överst. Sist de där tiden har gått ut. */
+export function bySubmitTime(now = Date.now()) {
+  const key = (clip: CampaignClip) => submitDeadline([clip], now) ?? Infinity;
+  return (a: CampaignClip, b: CampaignClip) => key(a) - key(b) || 0;
 }
