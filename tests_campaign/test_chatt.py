@@ -412,3 +412,41 @@ def test_material_video_streams_with_range(client, chatapp, settings) -> None:  
     make_clip(settings.work_dir / "loose" / "loose.mp4", seconds=1)
     assert client.get("/campaign/material/loose/video").status_code == 404  # ingen kampanj har den
     assert client.get("/campaign/material/vodB/video").status_code == 404  # ingen video
+
+
+# ---------- modeller utan tvingat verktyg, och Claude nere ----------
+
+
+def test_brain_can_let_the_model_choose_the_tool(settings) -> None:
+    """Sonnet 5.5 tar inte tool_choice tool. Utan tvång läses svaret ur verktyget eller ur JSON i texten."""
+    claude = Script({"hits": []})
+    b = Brain(settings, budget_from_settings(settings), client=claude)
+    assert b.ask(purpose="p", model="m", system="s", content="c", schema={}, force_tool=False) == {"hits": []}
+    assert claude.calls[0]["tool_choice"] == {"type": "auto"}
+    text = SimpleNamespace(usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+                           content=[SimpleNamespace(type="text", text='Här: {"hits": [1]} klart')])
+    claude.create = lambda **kwargs: text
+    assert b.ask(purpose="p", model="m", system="s", content="c", schema={}, force_tool=False) == {"hits": [1]}
+    claude.create = Script({"a": 1}).create
+    assert b.ask(purpose="p", model="m", system="s", content="c", schema={}) == {"a": 1}  # som förut
+
+
+def test_the_search_does_not_force_the_tool(client, chatapp) -> None:  # noqa: F811
+    _new_chat(client, chatapp, _search(), {"hits": []})
+    interpret, search = chatapp.script.calls
+    assert interpret["tool_choice"] == {"type": "tool", "name": "svar"}
+    assert search["tool_choice"] == {"type": "auto"}
+
+
+def test_claude_down_gives_502_and_saves_nothing(client, chatapp) -> None:  # noqa: F811
+    import anthropic
+    import httpx
+
+    def down(**kwargs):
+        raise anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+
+    chatapp.script.create = down
+    answer = _new_chat(client, chatapp)
+    assert answer.status_code == 502 and "Claude" in answer.json()["detail"]
+    assert client.get("/campaign/profiles/skiimasktimmy/chats").json() == []
+    assert not chat.lock.locked()
