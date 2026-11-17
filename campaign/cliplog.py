@@ -266,12 +266,16 @@ class ClipLog:
         self._sync(clip_id)
         return post_id
 
-    def update_post(self, post_id: int, **fields) -> None:
+    @staticmethod
+    def _check_post_fields(fields: dict) -> None:
         if "status" in fields and fields["status"] not in POST_STATUSES:
             raise ValueError(f"Okänd status för ett inlägg: {fields['status']}")
         unknown = set(fields) - {"status", "url", "platform", "paid_usd", *STAT_KEYS}
         if unknown:
             raise ValueError(f"Fält som inte får ändras: {sorted(unknown)}")
+
+    def update_post(self, post_id: int, **fields) -> None:
+        self._check_post_fields(fields)
         post = self.get_post(post_id)
         if fields.get("status", post["status"]) != post["status"]:
             fields["prev_status"] = post["status"]
