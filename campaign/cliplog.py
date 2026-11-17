@@ -116,12 +116,19 @@ class ClipLog:
                 return
             if "account" not in {row[1] for row in db.execute("PRAGMA table_info(posts)")}:
                 tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+
+                def has(table: str, *columns: str) -> bool:
+                    # Gamla uppladdningstabeller får sina kolumner först när TikTok- eller YouTube-delen öppnar
+                    # dem, och det sker efter ClipLog vid start. Saknas en kolumn gissas inget konto.
+                    return table in tables and set(columns) <= {
+                        row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+
                 guesses = []
-                if "tiktok_uploads" in tables:
+                if has("tiktok_uploads", "clip_id", "open_id", "mode", "post_id"):
                     guesses.append("""SELECT open_id AS a FROM tiktok_uploads u WHERE u.clip_id = p.clip_id
                         AND p.platform = 'tiktok' AND u.mode = 'direct' AND u.open_id IS NOT NULL
                         AND u.post_id != '' AND substr(p.url, -length(u.post_id) - 7) = '/video/' || u.post_id""")
-                if "youtube_uploads" in tables:
+                if has("youtube_uploads", "clip_id", "channel_id", "video_id"):
                     guesses.append("""SELECT channel_id AS a FROM youtube_uploads u WHERE u.clip_id = p.clip_id
                         AND p.platform = 'youtube_shorts' AND u.channel_id IS NOT NULL AND u.video_id != ''
                         AND substr(p.url, -length(u.video_id) - 1) = '/' || u.video_id""")
