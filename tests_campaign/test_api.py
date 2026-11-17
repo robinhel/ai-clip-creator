@@ -318,3 +318,13 @@ def test_old_image_review_warnings_are_shown_as_review_notes(client, settings) -
     clip = next(c for c in client.get("/campaign/clips").json() if c["id"] == clip_id)
     assert clip["warnings"] == ["Klippet är kort."]
     assert clip["review"]["notes"] == ["Ny beskrivning.", "Spelaren hoppar ur bilen."]
+
+
+def test_the_api_docs_say_project_not_run() -> None:
+    """Samma ord i hela appen: rubrikerna i API:ts dokumentation säger projekt, aldrig körning."""
+    from campaign import editor_api, versions_api
+
+    routes = [*api.router.routes, *editor_api.router.routes, *versions_api.router.routes]
+    summaries = [route.summary for route in routes if getattr(route, "summary", None)]
+    assert any("projekt" in s for s in summaries)
+    assert [s for s in summaries if "körning" in s.lower()] == []

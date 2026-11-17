@@ -253,7 +253,8 @@ def test_post_needs_the_api_key(setup, monkeypatch) -> None:
 def test_running_job_or_another_edit_gives_409(setup) -> None:
     client, _, clip_id = setup
     client.app.state.active_run_id = 5
-    assert client.post(f"/campaign/clips/{clip_id}/edit", json={"title": "Ny"}).status_code == 409
+    answer = client.post(f"/campaign/clips/{clip_id}/edit", json={"title": "Ny"})
+    assert (answer.status_code, answer.json()["detail"]) == (409, "Ett projekt pågår. Vänta tills det är klart.")
     client.app.state.active_run_id = None
     assert editor.lock.acquire(blocking=False)
     try:

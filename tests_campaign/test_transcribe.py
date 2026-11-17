@@ -151,7 +151,8 @@ def test_four_500_in_a_row_names_the_part_and_hides_the_key(settings) -> None:
     message = str(error.value)
     assert "Del 1 av 2" in message
     assert "sparade" in message
-    assert "fortsätter" in message
+    assert "Kör projektet igen" in message and "fortsätter" in message
+    assert "körning" not in message  # samma ord i hela appen: projekt
     assert "hemlig-nyckel" not in message
 
 
