@@ -286,3 +286,20 @@ def test_a_new_version_for_another_account(app):
     _call("make_version", {"clip_id": 5, "platform": "tiktok", "account": "openB", "mirror": True, "speed": 1.1})
     assert json.loads(app.requests[-1].content) == {"platform": "tiktok", "account": "openB", "mirror": True,
                                                     "speed": 1.1}
+
+
+def test_chat_tools_call_the_chat_routes(app):
+    _call("chat_send", {"profile_id": "blizzard_nordics", "message": "nya raser"})
+    _call("chat_send", {"profile_id": "blizzard_nordics", "message": "kortare", "chat_id": 3})
+    _call("chat_send", {"profile_id": "blizzard_nordics", "chat_id": 3, "confirm": True})
+    _call("chat_make_clips", {"chat_id": 3, "hit_ids": [11, 12]})
+    assert [(r.method, r.url.path, json.loads(r.content)) for r in app.requests] == [
+        ("POST", "/campaign/profiles/blizzard_nordics/chats", {"message": "nya raser"}),
+        ("POST", "/campaign/chats/3/messages", {"message": "kortare"}),
+        ("POST", "/campaign/chats/3/messages", {"confirm": True}),
+        ("POST", "/campaign/chats/3/clips", {"hit_ids": [11, 12]}),
+    ]
+    tools = _tools()
+    for name in ("chat_send", "chat_make_clips"):
+        assert tools[name].annotations.open_world_hint and not tools[name].annotations.destructive_hint
+        assert tools[name].description.startswith("Kostar pengar"), name
