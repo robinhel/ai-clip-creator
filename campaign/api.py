@@ -290,6 +290,21 @@ def create_run(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
+    return _create_run(body, request, background_tasks, db, settings)
+
+
+def _own_file_missing(vod_id: str, settings: Settings) -> str | None:
+    """En körning från en egen fil (python -m campaign local) har filens namn som VOD-id. Den körs om
+    från work/<id>/<id>.mp4. Finns filen inte kvar, kan appen inte köra den igen."""
+    if vod_id.isdigit() or _mp4(vod_id, settings).exists():
+        return None
+    return (f"Källfilen till projektet finns inte längre ({vod_id}.mp4 i work/). "
+            "Kör filen igen med python -m campaign local.")
+
+
+def _create_run(body: CampaignRunCreate, request: Request, background_tasks: BackgroundTasks, db: Session,
+                settings: Settings, own_file: dict | None = None) -> dict:
+    """own_file: klipploggens rad för en körning från en egen fil. Den körs från filen i work/, utan Twitch."""
     profile = _profile(body.profile, settings)
     ready = _describe_profile(profile.name, settings)
     if not ready["ready"]:
@@ -308,18 +323,24 @@ def create_run(
     except BudgetExceeded as error:
         raise HTTPException(400, f"{error} Körningen startar inte. Vänta tills taket går över, "
                                  "eller höj det i .env.") from error
-    facts = _facts(body.vod_id, fresh=True)  # färska fakta, så att diskkollen har rätt längd
-    if facts["live"]:
-        raise HTTPException(400, LIVE)
-    if not facts["channel"] or facts["channel"] != ready["channel"].lower():
-        raise HTTPException(400, f"VOD:en är från {facts['channel_name'] or 'en okänd kanal'}, inte från "
-                                 f"kampanjens kanal {ready['channel']}. Kampanjen får bara använda "
-                                 "streamerns egna streams.")
-    space = _estimate(facts, settings, disk)
-    if not space["estimate"]["fits"]:
-        need = space["estimate"]["download_gb"] * 1.1 + 1
-        raise HTTPException(400, f"Disken räcker inte. VOD:en behöver ungefär {need:.1f} GB med marginal, "
-                                 f"och det finns {space['estimate']['disk_free_gb']} GB ledigt.")
+    if own_file is not None:
+        problem = _own_file_missing(body.vod_id, settings)
+        if problem:
+            raise HTTPException(409, problem)
+        facts = {key: own_file[key] for key in ("title", "channel_name", "thumbnail_url", "duration_s")}
+    else:
+        facts = _facts(body.vod_id, fresh=True)  # färska fakta, så att diskkollen har rätt längd
+        if facts["live"]:
+            raise HTTPException(400, LIVE)
+        if not facts["channel"] or facts["channel"] != ready["channel"].lower():
+            raise HTTPException(400, f"VOD:en är från {facts['channel_name'] or 'en okänd kanal'}, inte från "
+                                     f"kampanjens kanal {ready['channel']}. Kampanjen får bara använda "
+                                     "streamerns egna streams.")
+        space = _estimate(facts, settings, disk)
+        if not space["estimate"]["fits"]:
+            need = space["estimate"]["download_gb"] * 1.1 + 1
+            raise HTTPException(400, f"Disken räcker inte. VOD:en behöver ungefär {need:.1f} GB med marginal, "
+                                     f"och det finns {space['estimate']['disk_free_gb']} GB ledigt.")
 
     focus = body.focus.strip()
     game = (body.game or "").strip() or None
@@ -329,7 +350,7 @@ def create_run(
         if editor.lock.locked():  # redigeraren kollar active_run_id under samma lås
             raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
         # Kollas igen här, där ingen annan körning kan skriva filen: en halv video används aldrig.
-        if _mp4(body.vod_id, settings).exists() and not _downloaded(facts, settings):
+        if own_file is None and _mp4(body.vod_id, settings).exists() and not _downloaded(facts, settings):
             _remove_half_download(body.vod_id, settings)
         run = Run(vod_id=body.vod_id, channel=ready["channel"], status=RunStatus.pending)
         db.add(run)
@@ -348,7 +369,7 @@ def create_run(
         raise
     background_tasks.add_task(run_campaign_vod, run.id, body.vod_id, profile.name, game, settings,
                               start_s=body.start_s, end_s=body.end_s, focus=focus, min_s=min_s,
-                              max_s=max_s, app=request.app)
+                              max_s=max_s, local=own_file is not None, app=request.app)
     return run.to_dict()
 
 
@@ -368,10 +389,14 @@ def retry_run(
     run = db.get(Run, run_id)
     if run is not None and run.status != RunStatus.failed:  # saknas den i clipsmiths databas visas den som failed
         raise HTTPException(400, "Bara en misslyckad körning kan köras igen.")
-    body = CampaignRunCreate(profile=meta["profile"], vod_id=meta["vod_id"], game=meta["game"],
-                             start_s=meta.get("start_s") or 0.0, end_s=meta.get("end_s") or 0.0,
-                             focus=meta["focus"] or "", min_s=meta["min_s"], max_s=meta["max_s"])
-    return create_run(body, request, background_tasks, db, settings)
+    values = dict(profile=meta["profile"], vod_id=meta["vod_id"], game=meta["game"],
+                  start_s=meta.get("start_s") or 0.0, end_s=meta.get("end_s") or 0.0,
+                  focus=meta["focus"] or "", min_s=meta["min_s"], max_s=meta["max_s"])
+    if meta["vod_id"].isdigit():
+        return _create_run(CampaignRunCreate(**values), request, background_tasks, db, settings)
+    # En egen fil: VOD-id är filens namn och klarar inte kontrollen för Twitch-id.
+    return _create_run(CampaignRunCreate.model_construct(**values), request, background_tasks, db, settings,
+                       own_file=meta)
 
 
 def _run_clips(meta: dict, clips: list[dict]) -> list[dict]:
@@ -437,8 +462,10 @@ def get_run(run_id: int, db: Session = Depends(get_db),
     meta = log.run(run_id)
     if meta is None:
         raise HTTPException(404, "Körningen finns inte.")
-    return _describe_run(_with_facts(meta, log), db, log.list(), steps=True,
-                         berget_usd_per_min=_berget_price(settings))
+    out = _describe_run(_with_facts(meta, log), db, log.list(), steps=True,
+                        berget_usd_per_min=_berget_price(settings))
+    out["retry_problem"] = _own_file_missing(meta["vod_id"], settings)  # varför Kör igen inte går
+    return out
 
 
 @router.post("/runs/{run_id}/finish", status_code=202, summary="Gör klippen kampanjklara igen",
