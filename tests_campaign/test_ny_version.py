@@ -174,6 +174,25 @@ def test_the_text_at_the_top_ends_below_the_hook_and_the_campaigns_text(tmp_path
     assert "y=207:" in finish.build_filter(text, False, True, None, title="Galet skott")  # där hooken ritas
 
 
+def test_in_zoom_a_sticker_at_the_top_goes_below_the_lower_title(tmp_path) -> None:
+    from campaign import versions
+    from campaign.config import Settings
+
+    # zoom: rubriken står ovanför bilden, 416 - 24 - 64 = 328, och slutar en rad (80 px) senare.
+    hook = _profile(hook_text=True)
+    assert "y=328:" in finish.build_filter(hook, False, True, None, title="Galet skott", frame="zoom")
+    assert finish.top_text_end(hook, tmp_path, "Galet skott", frame="zoom") == 328 + 80
+    assert finish.top_text_end(hook, tmp_path, "Galet skott") == 134 + 80  # utan zoom: som förut
+    sticker = tmp_path / "stickers" / "fire.png"
+    sticker.parent.mkdir()
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=400x400,format=rgba",
+                    "-frames:v", "1", str(sticker)], check=True)
+    placed = versions._sticker(Settings(root=tmp_path), hook, {"file": "fire.png", "position": "top_left",
+                                                               "start_s": 0, "duration_s": 2}, 5.0, "Galet skott",
+                               frame="zoom")
+    assert (placed["x"], placed["y"]) == (40, 328 + 80 + 20)
+
+
 @pytest.mark.parametrize("name", ["../overlays/x.png", "fire.jpg", "saknas.png", "/etc/passwd"])
 def test_only_png_files_in_the_sticker_folder_can_be_used(tmp_path, name) -> None:
     from campaign import versions
