@@ -266,7 +266,9 @@ class Schedule:
         key, name = NAMES[platform]
         allowed = profile.accounts.get(key) if profile else None
         if account and allowed and not self._names(platform, account) & {a.lower() for a in allowed}:
-            raise ScheduleError(f"Kampanjen postar bara från {', '.join(allowed)} på {name}. Välj det kontot.")
+            # Profilen kan ange kontot med sitt id. Robin läser namnet.
+            names = ", ".join(self.label(platform, a) for a in allowed)
+            raise ScheduleError(f"Kampanjen postar bara från {names} på {name}. Välj det kontot.")
         limit = profile.max_posts_per_day if profile else 3
         if counts and len(self._post_times(platform, account, *_day(at))) >= limit:
             day = at.astimezone(STOCKHOLM)
