@@ -272,6 +272,7 @@ def list_streams(db: Session = Depends(get_db), settings: Settings = Depends(get
         run_row = db.get(Run, meta["run_id"]) if meta else None
         stream.update(run_id=meta["run_id"] if meta else None,
                       run_status=(run_row.status.value if run_row else "failed") if meta else None,
+                      run_cancelled=bool(run_row and run_row.error == pipeline.CANCELLED),
                       clip_count=len(_run_clips(meta, clips)) if meta else 0)
     streams.recommend(found)
     return sorted(found, key=lambda s: s["created_at"] or "", reverse=True)

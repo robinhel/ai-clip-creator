@@ -811,6 +811,11 @@ export interface VodInfo {
   fast_campaigns?: string[];
 }
 
+export interface StreamInfo {
+  /** Robin avbröt streamens senaste projekt. Kortet säger då Avbruten, inte Misslyckades. */
+  run_cancelled?: boolean;
+}
+
 export interface UploadOptions {
   /** Kampanjens regel för material, till exempel att bara streamerns egna streams får användas. */
   source_allowed?: string | null;

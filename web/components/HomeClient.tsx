@@ -98,6 +98,7 @@ const streamTime = (s: StreamInfo) => (s.created_at ? serverTime(s.created_at) :
 
 function streamTag(s: StreamInfo): { text: string; tone: string } | null {
   if (s.run_id == null || !s.run_status) return null;
+  if (s.run_cancelled) return { text: "Avbruten", tone: "bg-black/70" };
   if (s.run_status === "failed") return { text: "Misslyckades", tone: "bg-bad font-semibold text-white" };
   if (s.run_status === "done") return { text: `Klar, ${s.clip_count} klipp`, tone: "bg-black/70" };
   return { text: "Pågår", tone: "bg-brand text-white" };
