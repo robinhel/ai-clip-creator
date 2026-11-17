@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 
 from campaign.brain import Brain
 from campaign.cli import main
@@ -12,7 +13,7 @@ from campaign.media import grab_frames, probe
 from campaign.profile import load_profile
 from campaign.workflow import finish_vod
 
-from .conftest import FakeClient, make_clip, make_overlay, needs_ffmpeg
+from .conftest import PAKET, FakeClient, make_clip, make_overlay, needs_ffmpeg
 
 GOOD_REVIEW = {"facecam_visible": True, "text_visible": True, "overlay_visible": True, "problems": []}
 
@@ -64,6 +65,7 @@ def test_finish_vod_makes_campaign_ready_clip(settings, budget):
     make_overlay(settings.root / "overlays" / "skiimasktimmy.png")
     make_clip(settings.out_dir / "v1" / "clip_01_too_close_call.mp4")
     _picks(settings.work_dir / "v1" / "picks.json")
+    shutil.copy(PAKET / "config.timmy.yaml", settings.root / "config.timmy.yaml")
     log = ClipLog(settings.data_dir / "klipp.db")
     client = FakeClient(GOOD_REVIEW)
     brain = Brain(settings, budget, client=client)
@@ -82,6 +84,7 @@ def test_finish_vod_makes_campaign_ready_clip(settings, budget):
     # Granskningen skickade fyra bilder och loggades i budgeten.
     sent = client.messages.calls[0]["messages"][0]["content"]
     assert sum(1 for part in sent if part["type"] == "image") == 4
+    assert "top 40%" in sent[-1]["text"]  # layouten från kampanjens config
     assert budget.summary()["by_purpose"]["granska"]["calls"] == 1
 
 
@@ -139,6 +142,7 @@ def test_cli_finish_status_and_facit(settings, monkeypatch, capsys):
 
     assert main(["finish", "v1", "--no-review"]) == 0
     assert "KLAR #1" in capsys.readouterr().out
+    assert main(["mark", "1", "godkand"]) == 0
     assert main(["posted", "1", "https://example.com/v"]) == 0
     assert main(["stats", "1", "--views", "2500", "--likes", "30"]) == 0
     assert "klarar kravet" in capsys.readouterr().out

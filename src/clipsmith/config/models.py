@@ -14,6 +14,12 @@ class ClipConfig(BaseModel):
     preroll_s: int = 25
     postroll_s: int = 10
     min_clip_gap_s: int = 120  # minimum seconds between candidates sent to LLM
+    min_picks: int = 0  # force-accept top candidates if the LLM accepts fewer than this
+    ask_without_speech: bool = False  # ask the LLM about moments with no transcript (trailers, music)
+    # v2: part grades, cuts on whole sentences and one calibration call per VOD. legacy: as before.
+    selection_mode: Literal["legacy", "v2"] = "v2"
+    select: Literal["llm", "signals"] = "llm"  # signals = the top candidates become clips, no LLM call
+    signals_top_n: int = 15  # how many clips signals mode makes per run
 
 
 class CandidatesConfig(BaseModel):
@@ -27,6 +33,17 @@ class CandidatesConfig(BaseModel):
     audio_energy_window_s: float = 2.0
     audio_energy_peak_multiplier: float = 2.0
     audio_energy_boost: float = 15.0
+    # Chat messages with one of these words (whole word, any case) add reaction_weight to a chat peak.
+    reaction_words: list[str] = []
+    reaction_weight: float = 0.0
+    # One sender adds at most this much to a chat window (None: no cap). A spammer is not a hot chat.
+    density_author_cap: float | None = None
+    # The rise over the previous chat window counts this much extra: a sudden jump beats a slow rise.
+    density_surge_gain: float = 0.0
+    scene_enabled: bool = False  # picture cuts as candidates, for video without speech (trailers)
+    scene_threshold: float = 0.3  # ffmpeg scene score 0-1
+    scene_boost: float = 30.0
+    scene_max: int = 12  # keep only the strongest cuts per video
     hype_keywords: list[str] = [
         "jaja",
         "jeje",
@@ -76,6 +93,8 @@ class LLMConfig(BaseModel):
     model_openai: str = "gpt-4.1"
     model_ollama: str = "llama3.1:8b"
     retry: RetryConfig = RetryConfig()
+    instructions: str = ""  # replaces the Twitch intro of the system prompt (Anthropic); "" = unchanged
+    frames: int = 0  # frames from the candidate's window sent with each question (Anthropic); 0 = none
 
 
 class CaptionConfig(BaseModel):
@@ -84,11 +103,18 @@ class CaptionConfig(BaseModel):
     font_size: int = 72  # ASS pts at 1080×1920; 72 ≈ TikTok-style captions
     outline: int = 3
     position: str = "bottom"
+    # "box": bold capitals, up to 3 words, a coloured box behind the word being said, above the bottom
+    # safe zone or on the seam when stacked. "outline": the old karaoke look and placement (MarginV 80).
+    style: Literal["box", "outline"] = "box"
+    # ASS &HAABBGGRR; default gold
+    box_colour: str = Field(default="&H0000D7FF", pattern=r"^&H[0-9A-Fa-f]{8}$")
 
 
 class ReframeConfig(BaseModel):
     mode: Literal["center", "webcam", "face", "none", "stacked"] = "center"
     webcam_rect: list[int] | None = None
+    # Several camera positions: each clip uses the one where faces are found. The first is the default.
+    webcam_rects: list[list[int]] | None = None
     gameplay_rect: list[int] | None = None
     split_ratio: float = Field(default=0.4, ge=0.01, le=0.99)
 

@@ -1,0 +1,238 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { CheckCircle2, Loader2, Plus, XCircle } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { CopyButton } from "@/components/CopyButton";
+import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import type { TikTokAccount, TikTokStatus } from "@/lib/types";
+
+const REDIRECT_URI = "http://127.0.0.1:8000/campaign/tiktok/callback/";
+
+/** Kontona. En äldre server har bara ett konto på toppnivå; det får open_id "". */
+export function tiktokAccounts(status: TikTokStatus): TikTokAccount[] {
+  if (status.accounts) return status.accounts;
+  if (!status.connected) return [];
+  const { display_name, avatar_url, scopes, refresh_expires_at, pending_24h } = status;
+  return [{ open_id: "", display_name, avatar_url, scopes, connected: true, refresh_expires_at, pending_24h }];
+}
+
+export const accountName = (a: Pick<TikTokAccount, "display_name">) => a.display_name ?? "TikTok-konto";
+
+function AddAccount() {
+  // Samma flik: TikTok leder tillbaka till Inställningar efter inloggningen.
+  return (
+    <a href={api.campaign.tiktok.connectUrl} className={buttonVariants({ className: "h-9" })}>
+      <Plus aria-hidden />
+      Lägg till TikTok-konto
+    </a>
+  );
+}
+
+function AccountRow({ account: a, limit, onDisconnected }: { account: TikTokAccount; limit: number; onDisconnected: () => void }) {
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const name = accountName(a);
+
+  async function disconnect() {
+    setBusy(true);
+    setError(null);
+    try {
+      // En äldre server kan bara koppla från alla, och har då bara ett konto.
+      await (a.open_id ? api.campaign.tiktok.disconnectAccount(a.open_id) : api.campaign.tiktok.disconnect());
+      onDisconnected();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Kunde inte koppla från ${name}`);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li data-account={a.open_id} className="py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        {a.avatar_url ? (
+          // eslint-disable-next-line @next/next/no-img-element -- TikToks profilbild.
+          <img src={a.avatar_url} alt="" className="size-10 shrink-0 rounded-full object-cover" />
+        ) : (
+          <div className="grid size-10 shrink-0 place-items-center rounded-full bg-line text-sm font-semibold text-muted-foreground uppercase">
+            {name.slice(0, 1)}
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium">{name}</p>
+          <p className="flex flex-wrap items-center gap-x-2 text-[13px] text-muted-foreground">
+            {a.connected ? (
+              <span className="text-good">Kopplat</span>
+            ) : (
+              <a href={api.campaign.tiktok.connectUrl} className="font-medium text-bad underline underline-offset-4">
+                Logga in igen
+              </a>
+            )}
+            <span className="tabular-nums">
+              {a.pending_24h} av {limit} utkast väntar
+            </span>
+          </p>
+        </div>
+        {!confirm && (
+          <Button variant="outline" className="h-8" onClick={() => setConfirm(true)}>
+            Koppla från
+          </Button>
+        )}
+      </div>
+      {confirm && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-2 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm">
+          <span className="mr-auto text-[#fca5a5]">Koppla från {name}?</span>
+          <Button variant="destructive" className="h-8" disabled={busy} onClick={disconnect}>
+            {busy && <Loader2 className="animate-spin" aria-hidden />}
+            Ja, koppla från
+          </Button>
+          <Button variant="ghost" className="h-8" disabled={busy} onClick={() => setConfirm(false)}>
+            Avbryt
+          </Button>
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-bad">
+          {error}
+        </p>
+      )}
+    </li>
+  );
+}
+
+interface Props {
+  /** ?tiktok=ok eller ?tiktok=fel från serverns callback. */
+  result?: string;
+  reason?: string;
+  /** Ändras när TikTok-nycklarna sparas, så att läget läses om. */
+  refresh?: string;
+}
+
+/** TikTok-kontona, så att godkända klipp kan skickas som utkast till rätt kontos inkorg. */
+export function TikTokCard({ result: fromUrl, reason: reasonFromUrl, refresh }: Props) {
+  // Svaret från callbacken sparas här, så att meddelandet står kvar när ?tiktok= tas bort ur adressen.
+  const [{ result, reason }] = useState({ result: fromUrl, reason: reasonFromUrl });
+  const [status, setStatus] = useState<TikTokStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const ref = useRef<HTMLElement>(null);
+
+  // När meddelandet har visats: ta bort ?tiktok= och ?orsak=, så att det inte visas igen vid omladdning.
+  useEffect(() => {
+    if (!result || (!status && !error)) return;
+    ref.current?.scrollIntoView({ block: "center" }); // kortet ligger långt ner på sidan
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("tiktok")) return;
+    url.searchParams.delete("tiktok");
+    url.searchParams.delete("orsak");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+  }, [result, status, error]);
+
+  const load = useCallback(() => {
+    api.campaign.tiktok
+      .status()
+      .then((s) => {
+        setStatus(s);
+        setError(null);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte läsa läget för TikTok"));
+  }, []);
+
+  useEffect(load, [load, refresh]);
+
+  const accounts = status ? tiktokAccounts(status) : [];
+
+  return (
+    <section ref={ref} aria-label="TikTok-konton" className="mt-5 border-t border-line pt-4 text-sm">
+      <h3 className="font-semibold">Konton</h3>
+
+      {result === "ok" && status && accounts.some((a) => a.connected) && (
+        <p role="status" className="mt-2 flex items-center gap-2 rounded-lg border border-[#174a2a] bg-[#0d1a12] px-3 py-2 text-good">
+          <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+          TikTok är kopplat.
+        </p>
+      )}
+      {result === "fel" && (
+        <p role="alert" className="mt-2 flex items-center gap-2 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-[#fca5a5]">
+          <XCircle className="size-4 shrink-0" aria-hidden />
+          TikTok kopplades inte: {reason || "okänt fel"}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="mt-2 text-bad">
+          {error}
+        </p>
+      )}
+      {!status && !error && <p className="mt-1 text-muted-foreground">Läser läget för TikTok…</p>}
+
+      {status && !status.configured && (
+        <>
+          <p className="mt-1">TikTok är inte inställt. Client key och Client secret saknas.</p>
+          <p className="mt-1 text-muted-foreground">
+            När TikTok är inställt kan du koppla konton och skicka godkända klipp som utkast till TikTok-inkorgen.
+          </p>
+          <details className="mt-3">
+            <summary className="cursor-pointer text-muted-foreground select-none hover:text-foreground">
+              Så ställer du in TikTok
+            </summary>
+            <ol className="mt-3 list-decimal space-y-2.5 pl-5">
+              <li>
+                Skapa en app av typen Desktop på{" "}
+                <a href="https://developers.tiktok.com/apps" target="_blank" rel="noreferrer" className="text-brand underline-offset-4 hover:underline">
+                  developers.tiktok.com
+                </a>
+                .
+              </li>
+              <li>Lägg till produkterna Login Kit och Content Posting API.</li>
+              <li>
+                Välj scopes <code className="text-[13px]">user.info.basic</code> och{" "}
+                <code className="text-[13px]">video.upload</code>.
+              </li>
+              <li>
+                Lägg in redirect-adressen:
+                <span className="mt-1.5 flex flex-wrap items-center gap-2">
+                  <code className="rounded-md border border-line bg-background px-2 py-1 text-[13px]">{REDIRECT_URI}</code>
+                  <CopyButton text={REDIRECT_URI} label="Kopiera" />
+                </span>
+              </li>
+              <li>Lägg till dina TikTok-konton under Target users i Sandbox.</li>
+              <li>
+                Klistra in Client key och Client secret ovanför och tryck Spara. Står det fortfarande att TikTok inte är
+                inställt: starta om servern.
+              </li>
+            </ol>
+          </details>
+        </>
+      )}
+
+      {status?.configured && (
+        <>
+          {accounts.length === 0 ? (
+            <div className="mt-2 rounded-xl border border-dashed border-line px-4 py-5 text-center">
+              <p className="text-muted-foreground">Inga TikTok-konton är kopplade än.</p>
+              <div className="mt-3">
+                <AddAccount />
+              </div>
+            </div>
+          ) : (
+            <>
+              <ul className="divide-y divide-line">
+                {accounts.map((a) => (
+                  <AccountRow key={a.open_id} account={a} limit={status.pending_limit} onDisconnected={load} />
+                ))}
+              </ul>
+              <div className="mt-2">
+                <AddAccount />
+              </div>
+            </>
+          )}
+          <p className={cn("mt-2 text-xs text-muted-foreground", accounts.length === 0 && "text-center")}>
+            TikTok frågar vilket konto du vill använda. Medan appen är i sandbox måste kontot finnas under Target users i
+            utvecklarportalen.
+          </p>
+        </>
+      )}
+    </section>
+  );
+}

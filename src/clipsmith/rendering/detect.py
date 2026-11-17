@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import subprocess  # nosec B403
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..io.media import video_duration
 
@@ -194,6 +195,57 @@ def detect_webcam_rect(
         )
 
     return list(best_rect)
+
+
+_CHOICE_SAMPLES = 5
+
+
+@functools.cache
+def _cascade() -> Any:  # cv2.CascadeClassifier
+    try:
+        import cv2  # type: ignore[import-untyped]
+    except ImportError as exc:
+        raise RuntimeError("opencv-python-headless is required for webcam detection") from exc
+    cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")  # type: ignore[attr-defined]
+    if cascade.empty():
+        raise RuntimeError("Failed to load Haar cascade")
+    return cascade
+
+
+def _count_faces(crop: Any) -> int:  # crop: a BGR numpy array
+    """Faces in one webcam rect, same Haar cascade as detect_webcam_rect."""
+    import cv2  # type: ignore[import-untyped]
+
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    return len(_cascade().detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(24, 24)))
+
+
+def choose_webcam_rect(
+    mp4: Path, start: float, end: float, rects: list[list[int]], samples: int = _CHOICE_SAMPLES
+) -> tuple[list[int], list[int]]:
+    """Pick the rect where faces show up in most of `samples` frames spread evenly over the clip.
+
+    Returns (rect, frames with a face per rect). No face anywhere: the first rect, with a warning.
+    """
+    import cv2  # type: ignore[import-untyped]
+
+    hits = [0] * len(rects)
+    with tempfile.TemporaryDirectory() as tmp:
+        for i in range(samples):
+            t = start + (i + 0.5) * (end - start) / samples
+            png = Path(tmp) / f"frame_{i}.png"
+            frame = cv2.imread(str(png)) if _extract_frame(mp4, t, png) else None
+            if frame is None:
+                log.debug("frame extraction failed at t=%.1fs", t)
+                continue
+            for j, (x, y, w, h) in enumerate(rects):
+                crop = frame[y : y + h, x : x + w]
+                if crop.size and _count_faces(crop) > 0:  # empty when the rect is outside a smaller VOD
+                    hits[j] += 1
+    best = max(range(len(rects)), key=lambda j: hits[j])  # ties go to the earlier rect
+    if hits[best] == 0:
+        log.warning("no face in any webcam rect for %.1f-%.1fs, using the default %s", start, end, rects[0])
+    return list(rects[best]), hits
 
 
 def load_or_detect_webcam_rect(mp4: Path, vod_dir: Path, reframe: "ReframeConfig") -> None:

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "klipp": {
+      "command": "/Users/robinhellgren/repos/privat/ai-clip-creator/.venv/bin/python",
+      "args": ["-m", "campaign.mcp_server"]
+    }
+  }
+}

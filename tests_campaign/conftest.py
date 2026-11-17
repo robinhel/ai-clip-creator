@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from campaign.budget import Budget
 from campaign.config import Settings
@@ -15,6 +16,9 @@ from campaign.config import Settings
 PAKET = Path(__file__).resolve().parent.parent
 HAS_FFMPEG = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 needs_ffmpeg = pytest.mark.skipif(not HAS_FFMPEG, reason="ffmpeg saknas")
+HAS_SUBTITLES = HAS_FFMPEG and " subtitles " in subprocess.run(
+    ["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True).stdout
+needs_subtitles = pytest.mark.skipif(not HAS_SUBTITLES, reason="ffmpeg saknas eller har inte libass (subtitles)")
 
 
 class FakeMessages:
@@ -39,9 +43,11 @@ class FakeClient:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    """En tom projektmapp med riktiga priser och profiler."""
+    """En tom projektmapp med riktiga priser och Timmys profil. Testerna räknar med en enda kampanj,
+    så nya profiler i profiles/ ändrar dem inte."""
     shutil.copy(PAKET / "priser.yaml", tmp_path / "priser.yaml")
-    shutil.copytree(PAKET / "profiles", tmp_path / "profiles")
+    (tmp_path / "profiles").mkdir()
+    shutil.copy(PAKET / "profiles" / "skiimasktimmy.yaml", tmp_path / "profiles")
     return Settings(root=tmp_path, anthropic_api_key="test-nyckel")
 
 
@@ -73,3 +79,47 @@ def make_overlay(path: Path) -> Path:
         check=True,
     )
     return path
+
+
+@pytest.fixture
+def fake_twitch(monkeypatch):
+    """Låtsas-Twitch för campaign.vodinfo. Ändra `videos` i testet. `calls` räknar anropen."""
+    from campaign import vodinfo
+
+    state = SimpleNamespace(calls=0, error=None, videos={
+        "2925991945": {"title": "3x Playtest Key GIVEAWAY", "lengthSeconds": 13950,
+                       "createdAt": "2026-11-11T18:01:44Z", "game": {"name": "Bodycam"},
+                       "owner": {"login": "skiimasktimmy", "displayName": "SkiiMaskTimmy"}},
+    })
+
+    def get_video(vod_id):
+        state.calls += 1
+        if state.error:
+            raise state.error
+        return state.videos.get(vod_id)
+
+    def gql_query(query):
+        vod_id = query.split('"')[1]
+        video = state.videos.get(vod_id)
+        return {"data": {"video": video and {
+            "previewThumbnailURL": f"https://static-cdn.jtvnw.net/{vod_id}-640x360.jpg",
+            "owner": video["owner"]}}}
+
+    monkeypatch.setattr(vodinfo, "_cache", {})
+    monkeypatch.setattr(vodinfo.twitch, "get_video", get_video)
+    monkeypatch.setattr(vodinfo.twitch, "gql_query", gql_query)
+    return state
+
+
+def set_profile(settings: Settings, **changes) -> None:
+    """Ändra kopian av Timmys profil i testmappen, aldrig filen i repot."""
+    path = settings.profiles_dir / "skiimasktimmy.yaml"
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data.update(changes)
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+
+
+def set_helper(settings: Settings, on: bool) -> None:
+    """Hjälpen för inskick till Content Rewards, som Inställningar sparar den."""
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    (settings.data_dir / "preferences.json").write_text(f'{{"submit_helper": {str(on).lower()}}}')

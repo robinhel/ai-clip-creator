@@ -12,9 +12,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from .routes import analytics, clips, files, health, publish, runs, stream
-from ..db.session import init_db
+from ..db.models import Run, RunStatus
+from ..db.session import get_session, init_db
 from ..settings import load_config
 from ..telemetry import tracer  # noqa: F401 — side-effect: initialises OTel SDK
+
+
+def _fail_interrupted_runs() -> None:
+    """Background runs die with the server, so a run still marked as going can never finish."""
+    db = get_session()
+    try:
+        db.query(Run).filter(Run.status.in_([RunStatus.pending, RunStatus.running])).update(
+            {"status": RunStatus.failed, "error": "Servern startades om mitt i körningen. Tryck Kör igen."},
+            synchronize_session=False,
+        )
+        db.commit()
+    finally:
+        db.close()
 
 
 @asynccontextmanager
@@ -23,6 +37,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     db_path = cfg.work_dir.expanduser() / "clipsmith.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     init_db(db_path)
+    _fail_interrupted_runs()
     app.state.active_run_id = None  # int | None; cleared by worker on completion
     try:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -30,6 +45,11 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         FastAPIInstrumentor.instrument_app(app)
     except ImportError:
         pass
+    from campaign.schedule import start as start_schedule  # schemalagda uppladdningar
+    from campaign.scout import start as start_scout  # kampanjbevakningen, var 10:e minut
+
+    start_scout()
+    start_schedule()
     yield
 
 
@@ -111,6 +131,25 @@ app.include_router(files.router)
 app.include_router(health.router)
 app.include_router(publish.router)
 app.include_router(analytics.router)
+
+# Robins kampanjlager (campaign/): kampanjval, kö och klipplogg i webbappen.
+from campaign.api import router as campaign_router
+from campaign.editor_api import router as editor_router
+from campaign.keys import router as keys_router
+from campaign.profiles_api import router as profiles_router
+from campaign.schedule_api import router as schedule_router
+from campaign.scout_api import router as scout_router
+from campaign.tiktok_api import router as tiktok_router
+from campaign.youtube_api import router as youtube_router
+
+app.include_router(campaign_router)
+app.include_router(tiktok_router)
+app.include_router(youtube_router)
+app.include_router(scout_router)
+app.include_router(profiles_router)
+app.include_router(editor_router)
+app.include_router(keys_router)
+app.include_router(schedule_router)
 
 
 @app.get("/", include_in_schema=False)

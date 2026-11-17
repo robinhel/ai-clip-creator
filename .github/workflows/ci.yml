@@ -13,7 +13,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -e ".[dev]" mypy
-      - run: ruff check src tests
+      - run: ruff check src tests campaign tests_campaign
       - run: mypy src
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -31,12 +31,13 @@ jobs:
         with:
           python-version: "3.11"
       - run: sudo apt-get install -y ffmpeg
-      - run: pip install -e ".[dev,server]"
+      - run: pip install -e ".[dev,server,vision]" -r requirements-campaign.txt
       - run: mkdir -p work
       - run: alembic upgrade head
         env:
           DATABASE_URL: sqlite:///./work/ci_test.db
       - run: python -m pytest tests/ -q
+      - run: python -m pytest tests_campaign -q
 
   security:
     runs-on: ubuntu-latest
@@ -45,7 +46,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install --upgrade pip
+      - run: pip install --upgrade pip setuptools
       - run: pip install -e ".[dev]"
       - run: bandit -r src/ -ll -x tests/
       # PYSEC-2026-89: markdown 3.10.2 — transitive dep via mkdocs (dev only, no fix available yet)

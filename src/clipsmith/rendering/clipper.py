@@ -10,6 +10,7 @@ import sys
 import unicodedata
 from pathlib import Path
 
+from . import detect
 from .captions import _write_ass
 from ..models.transcript import Transcript
 from ..selection.selector import PickResult
@@ -39,11 +40,29 @@ def cut_all_clips(
     """Cut, reframe, and caption every accepted pick. Returns paths of created files."""
     out_dir.mkdir(parents=True, exist_ok=True)
     results: list[Path] = []
+    rects = config.reframe.webcam_rects or []
     for i, pr in enumerate(picks, 1):
         slug = _title_slug(pr.pick.title_es)
         out_path = out_dir / f"clip_{i:02d}_{slug}.mp4"
-        results.append(_cut_one(mp4_path, transcript, pr, i, out_path, config))
+        clip_config = config
+        if len(rects) > 1 and config.reframe.mode != "none":
+            pr.webcam_rect = _choose_rect(mp4_path, pr, i, rects)
+            reframe = config.reframe.model_copy(update={"webcam_rect": pr.webcam_rect})
+            clip_config = config.model_copy(update={"reframe": reframe})
+        results.append(_cut_one(mp4_path, transcript, pr, i, out_path, clip_config))
     return results
+
+
+def _choose_rect(mp4_path: Path, pr: PickResult, index: int, rects: list[list[int]]) -> list[int]:
+    try:
+        rect, hits = detect.choose_webcam_rect(
+            mp4_path, pr.pick.start_offset_s, pr.pick.end_offset_s, rects
+        )
+    except (ImportError, RuntimeError) as exc:  # no OpenCV or no cascade: keep the default
+        log.warning("clip %d: webcam choice skipped (%s), using %s", index, exc, rects[0])
+        return list(rects[0])
+    log.info("clip %d: webcam rect %s  (faces per rect %s)", index, rect, hits)
+    return rect
 
 
 def _cut_one(
@@ -60,7 +79,7 @@ def _cut_one(
     ass_path: Path | None = None
     if config.caption.enabled:
         ass_path = out_path.with_suffix(".ass")
-        _write_ass(transcript, start, end, config.caption, ass_path)
+        _write_ass(transcript, start, end, config.caption, ass_path, config.reframe)
 
     cmd = _build_ffmpeg_cmd(mp4_path, start, end, ass_path, config.reframe, out_path)
     log.info("clip %d  [%.1f-%.1fs]  ->  %s", index, start, end, out_path.name)

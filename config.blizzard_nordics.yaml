@@ -1,0 +1,92 @@
+# clipsmith-inställningar för kampanjen blizzard_nordics. En kopia av config.timmy.yaml.
+# Används så här:  clipsmith process <fil.mp4> --config config.blizzard_nordics.yaml
+# Materialet är Blizzards egna videofiler (trailers, gameplay, paneler), inte Twitch-streams.
+# Därför finns ingen kanal och ingen facecam-ruta.
+
+channels: []
+
+work_dir: ./work
+out_dir: ./out
+
+clip:
+  min_seconds: 11                  # kampanjen kräver längre än 10 s
+  max_seconds: 45
+  preroll_s: 10
+  postroll_s: 5
+  min_clip_gap_s: 30               # trailers är korta, så stunderna får ligga närmare varandra
+  min_picks: 0                     # tvinga aldrig fram klipp som Claude sa nej till
+  ask_without_speech: true         # trailers har ofta bara musik; Claude får frågan även utan tal
+
+candidates:
+  density_window_s: 15
+  density_peak_multiplier: 3.0
+  density_author_cap: 3.0         # en avsändare väger högst 3 per fönster: en spammare är ingen topp
+  density_surge_gain: 0.5         # ökningen mot förra fönstret räknas extra: en topp är en plötslig ökning
+  existing_clip_boost: 100.0
+  clip_command_boost: 25.0
+  dedupe_window_s: 20
+  transcript_hype_score: 20.0
+  audio_energy_enabled: true       # strid, explosioner och musik syns här, även utan tal
+  audio_energy_window_s: 2.0
+  audio_energy_peak_multiplier: 2.0
+  audio_energy_boost: 15.0
+  scene_enabled: true              # bildbyten blir kandidater, så att en trailer utan tal får några
+  scene_threshold: 0.3
+  scene_boost: 30.0
+  scene_max: 12                    # de starkaste bildbytena per video
+  hype_keywords:
+    - "for the horde"
+    - "for the alliance"
+    - "azeroth"
+    - "warcraft"
+    - "no way"
+    - "let's go"
+
+transcribe:
+  model: small
+  compute_type: int8
+  language: en
+  chunk_minutes: 30
+  chunk_overlap_s: 30
+  max_workers: 2
+
+llm:
+  provider: anthropic
+  model_anthropic: claude-sonnet-5-5
+  frames: 4             # fyra små bildrutor ur kandidatens fönster följer med varje fråga till Claude
+  # Ersätter Twitch-instruktionen. Svarets JSON-format läggs till efter av clipsmith.
+  instructions: |
+    You select moments from official Blizzard video for World of Warcraft: Forever: trailers,
+    cinematics, class and zone showcases, developer deep dives and gameplay. The clips are short
+    vertical videos (TikTok, YouTube Shorts) posted by a fan in the official Blizzard clipping campaign.
+
+    You get one candidate moment: its signals (picture cuts, loud sound, speech), the transcript
+    around it if anyone speaks, and frames from the video with their times.
+
+    A good clip:
+    - stands on its own: a stranger understands it without the rest of the video
+    - shows the world and its zones, something new in the game, a class or race in action, a fight,
+      a boss, big magic, or one clear cinematic scene with a beginning and an end
+    - starts on a strong image or the first words of a strong line, never mid-sentence or mid-shot
+    - ends right after the payoff: the hit, the reveal, the end of the line or the scene
+
+    Reject (include: false) logos, rating cards, title cards, black frames, credits, menus, talking
+    heads with nothing to see, and anything that needs earlier context.
+
+    When there is no transcript, choose start and end from the frames and the picture cuts.
+    When someone speaks, also choose start and end from what is said.
+
+    title becomes the first line of the post's caption. Write it in English, as a real fan would:
+    3-7 words, true to what the clip shows. No hashtags, no invented facts, numbers or dates.
+    The game is out now: never write "coming soon". Do not call it gameplay unless it is gameplay.
+
+    Add the field "format" to your JSON with the id that fits the clip best:
+    - world_reveal: the world and its zones, sweeping shots of cities, landscapes and new areas
+    - epic_moment: combat, bosses and magic
+    - cinematic_beat: one scene from a trailer with a clear start and end
+
+caption:
+  enabled: true
+
+reframe:
+  mode: center          # mitten av 16:9-bilden blir 9:16, ingen facecam

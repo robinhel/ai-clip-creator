@@ -1,4 +1,4 @@
-import { DashboardClient } from "@/components/DashboardClient";
+import { HomeClient } from "@/components/HomeClient";
 
 export const dynamic = "force-dynamic";
 
@@ -7,12 +7,12 @@ export default function Page() {
     return (
       <main className="flex min-h-screen items-center justify-center">
         <div className="text-center space-y-2">
-          <p className="text-lg font-semibold">Service is paused</p>
-          <p className="text-sm text-muted-foreground">The pipeline is offline. Check back soon.</p>
+          <p className="text-lg font-semibold">Tjänsten är pausad</p>
+          <p className="text-sm text-muted-foreground">Klippverktyget är avstängt just nu. Försök igen senare.</p>
         </div>
       </main>
     );
   }
 
-  return <DashboardClient />;
+  return <HomeClient />;
 }

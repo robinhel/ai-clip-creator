@@ -19,11 +19,12 @@ def compute_audio_rms_series(
 ) -> list[tuple[float, float]]:
     """Return (t_center, rms_db) per analysis window. Skips silence (db <= -90).
 
-    Results are cached to <cache_dir>/audio_rms.json so the expensive ffmpeg
+    Results are cached to <cache_dir>/audio_rms_v2.json so the expensive ffmpeg
     scan only runs once per VOD. Pass cache_dir=None to disable caching.
     Uses ffmpeg astats + ametadata filters — no Python audio library required.
     """
-    cache_path = (cache_dir / "audio_rms.json") if cache_dir is not None else None
+    # v2: per-window values. audio_rms.json from before holds a running mean and is not read.
+    cache_path = (cache_dir / "audio_rms_v2.json") if cache_dir is not None else None
 
     if cache_path is not None and cache_path.exists():
         data = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -40,9 +41,12 @@ def compute_audio_rms_series(
         "-y",
         "-i",
         str(mp4),
+        "-vn",
         "-af",
         f"aresample={sample_rate},"
-        f"astats=metadata=1:reset={reset_samples},"
+        # astats counts reset in frames, not samples: one frame per window, reset after each frame.
+        f"asetnsamples=n={reset_samples}:p=0,"
+        "astats=metadata=1:reset=1,"
         "ametadata=mode=print:file=-",
         "-f",
         "null",
@@ -96,12 +100,14 @@ def find_rms_peaks(
 ) -> list[tuple[float, float]]:
     """Return (t_center, norm_score) for windows at least peak_multiplier σ above mean.
 
+    mean and std come from the louder half of the windows, so long pauses and fades
+    do not widen std until no window can reach the threshold.
     norm_score = (rms_db - mean) / std — louder spikes score proportionally higher.
     Returns [] for empty or essentially flat (std < 0.5 dB) series.
     """
     if len(series) < 2:
         return []
-    dbs = [db for _, db in series]
+    dbs = sorted(db for _, db in series)[len(series) // 2 :]
     mean = sum(dbs) / len(dbs)
     std = (sum((d - mean) ** 2 for d in dbs) / len(dbs)) ** 0.5
     if std < 0.5:

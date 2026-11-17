@@ -1,0 +1,111 @@
+# Kampanjprofil: [NORDICS] Blizzard - World of Warcraft Forever (Clipping Culture, via Content Rewards)
+# Reglerna är avskrivna från kampanjen 13 november 2026 (ClippingAlpha get_campaign, kl. 18 UTC)
+# och från kampanjens brief (Google Doc) samma dag. Briefen går före där de skiljer sig.
+# Kontrollera mot kampanjsidan om något har ändrats.
+# Id:t är blizzard_nordics, eftersom appen bara tillåter a-z, siffror och _ i kampanjens id.
+
+name: blizzard_nordics
+streamer: Blizzard Entertainment
+campaign: "[NORDICS] Blizzard - World of Warcraft Forever (Clipping Culture)"
+language: en
+
+# clipsmiths inställningar: ingen Twitch-kanal, ingen facecam, mitten av bilden blir 9:16.
+# Kör:  clipsmith process <fil.mp4> --config config.blizzard_nordics.yaml
+clipsmith_config: config.blizzard_nordics.yaml
+
+preferred_games: [World of Warcraft]
+
+source:
+  allowed: "Bara officiellt Blizzard-material från innehållsmappen https://f.io/Qt7AFTMz och extramappen https://f.io/8uBzkEqf: trailers, gameplay och paneler. Filer utan tal är tillåtna. Robin laddar ner filerna själv."
+  banned:
+    - Streams, även Blizzards egna och streamers
+    - Andras innehåll och orelaterade virala klipp
+    - AI-röster och AI-berättare
+    - Suddigt eller lågkvalitativt material
+
+clip:
+  min_seconds: 11    # kampanjen kräver minst 10 s; 11 ger marginal
+  max_seconds: 45    # eget val, kampanjen anger inget tak
+
+formats:
+  - id: world_reveal
+    name: World reveal
+    description: Show the world and its zones. Sweeping shots of cities, landscapes and new areas. Open on the most striking view.
+  - id: epic_moment
+    name: Epic moment
+    description: Combat, bosses and magic. Big spells, clashes and boss reveals. Start right before the hit and end on the payoff.
+  - id: cinematic_beat
+    name: Cinematic beat
+    description: One scene from a trailer with a clear start and end, like a line, a reveal or a confrontation. Never cut mid-scene.
+
+on_screen_text:
+  text: ""
+  required: false    # kampanjen kräver ingen text på bilden
+  position: top
+  font_size: 46
+  font_file: null
+
+overlay:
+  file: null
+  required: false    # ingen overlay i kampanjen
+  mode: full
+
+facecam:
+  required: false    # Blizzards material har ingen facecam
+
+safe_zone:
+  top: 0.07
+  bottom: 0.20
+
+caption:
+  # Kampanjens krav: texten först, sedan "#ad #blizzardpartner" på en egen rad, och högst 3 fler hashtags efter dem.
+  tag_line: "#ad #blizzardpartner"
+  max_extra_hashtags: 3
+  must_include:
+    - "@warcraft"        # tagga @warcraft på TikTok och YouTube
+  hashtags: []           # inga obligatoriska; spelets hashtag läggs till med --game
+  game_hashtag: true
+  template: "{title} @warcraft"
+  # Briefens exempel:
+  #   World of Warcraft: Forever looks beautiful. @warcraft
+  #   #ad #blizzardpartner
+
+audio:
+  lufs: -14
+
+platforms: [tiktok]   # Robin 15 nov: Blizzard postas inte på YouTube
+
+# Blizzard: "inte på flera konton". Bara clipvault.hq26 får posta, och appen nekar andra konton.
+accounts:
+  tiktok: ["-000Rx8cN3gSEx6rd87rIUKOXqgBCm52XDAc"]   # clipvault.hq26 (open_id)
+
+posting:
+  max_per_day: 3        # per konto och svensk dag
+  min_gap_minutes: 120  # schemat varnar när två inlägg ligger närmare
+
+# Minst 0,5 % engagemang: 5 likes per 1 000 visningar.
+engagement_min_percent:
+  - {views_up_to: null, min: 0.5}
+
+payment:
+  cpm_usd: 4.00
+  min_views: 250     # minst 250 visningar för betalning
+
+approval: >
+  Skicka in klippen via Content Rewards. Bara visningar från Sverige, Danmark, Norge och
+  Finland betalas. Frågor går till Clipping Culture, inte till Blizzard.
+
+other_rules:
+  - "Caption: engelska, skriven som en riktig fan. Inga påhittade fakta, siffror eller datum."
+  - "Caption: skriv aldrig Gifted, Sponsored eller PR i stället för #ad."
+  - "Hashtaggarna efter #ad #blizzardpartner ska handla om innehållet."
+  - "Text på bilden är valfri och bara på engelska. Spelet är släppt: skriv aldrig coming soon."
+  - "Kalla inte något gameplay om det inte är gameplay."
+  - "Bakgrundsmusik får finnas om originalljudet hörs tydligt."
+  - "Posten ska ligga kvar i minst 30 dagar, och likes ska synas."
+  - "Samma video får postas högst 5 gånger, och inte på flera konton."
+  - "Bara visningar från SE, DK, NO och FI betalas."
+
+links:
+  content_rewards: "https://contentrewards.com/c/campaigns/c21c887c-5a8a-4891-a5b9-c094f7f1a689"
+  analytics_form: null

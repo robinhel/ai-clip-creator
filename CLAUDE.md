@@ -188,11 +188,11 @@ uppgiften kräver det, så att `git pull upstream` fortsätter fungera.
 
 ```bash
 clipsmith run-vod <VOD-id> --config config.timmy.yaml   # hämta, transkribera, välja, klippa
-python -m campaign finish <VOD-id> --game "Spelets namn" # overlay, text, caption, kontroll
+python -m campaign finish <VOD-id> --profile skiimasktimmy --game "Spelets namn" # overlay, text, caption, kontroll
 python -m campaign approve                                # ja eller nej per klipp
 python -m campaign posted <klipp-id> <länk>               # logga att klippet är postat
 python -m campaign stats <klipp-id> --views 2500 --likes 30
 python -m campaign status                                 # klipplogg, att göra, budget
 python -m campaign facit facit/<fil>.yaml                 # träffar mot facit
-python -m campaign check-setup                            # ffmpeg, nyckel, profil
+python -m campaign check-setup --profile skiimasktimmy     # ffmpeg, nyckel, profil
 ```

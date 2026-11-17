@@ -102,6 +102,9 @@ def test_timmy_profile_loads(settings):
 def test_profile_reports_missing_overlay(settings):
     profile = load_profile("skiimasktimmy", settings.profiles_dir)
     assert any("Overlay" in p for p in profile.problems(settings.root))
+    # Appen visar texten och länkar till fliken Overlay, där bilden laddas upp.
+    missing = next(p for p in profile.problems(settings.root) if p.startswith("Overlay-bilden saknas"))
+    assert "Ladda upp den under Overlay" in missing
     overlay = settings.root / "overlays" / "skiimasktimmy.png"
     overlay.parent.mkdir()
     overlay.write_bytes(b"png")
@@ -115,6 +118,8 @@ def test_caption_has_link_hashtags_and_game(settings):
     for tag in ("#skiimasktimmy", "#twitchclips", "#fps", "#gaming", "#arcraiders"):
         assert tag in caption
     assert check_caption(caption, profile) == []
+    with_https = caption.replace("twitch.tv/", "https://twitch.tv/")
+    assert check_caption(with_https, profile) == []  # länken räknas som förut, även inuti en längre länk
 
 
 def test_caption_check_finds_missing_parts(settings):
@@ -215,3 +220,22 @@ def test_facit_score_counts_hits_and_misses():
     result = score(moments, clips, tolerance=10.0)
     assert (result["hits"], result["total"]) == (2, 3)
     assert result["missed"][0]["note"] == "b"
+
+
+# --- text på skärmen --------------------------------------------------------
+
+
+def test_the_white_text_is_drawn_only_when_there_is_no_overlay(settings):
+    """Overlayen har redan kanalens text. Annars står texten två gånger."""
+    from campaign.finish import build_filter
+
+    profile = load_profile("skiimasktimmy", settings.profiles_dir)
+    assert "drawtext" not in build_filter(profile, has_overlay=True, has_audio=True, font=None)
+    assert "drawtext" in build_filter(profile, has_overlay=False, has_audio=True, font=None)
+
+
+def test_the_signals_mode_placeholder_title_must_be_replaced(settings):
+    profile = load_profile("skiimasktimmy", settings.profiles_dir)
+    placeholder = build_caption("Moment 0:36:35", profile, game="Bodycam")
+    assert any(p.startswith("Captionen har kvar platshållaren Moment 0:36:35") for p in check_caption(placeholder, profile))
+    assert check_caption(build_caption("Moment of truth at 0:36", profile, game="Bodycam"), profile) == []

@@ -17,8 +17,11 @@ def build_retry(
     *,
     candidate_id: str,
     provider: str,
+    waits: tuple[float, ...] | None = None,
 ) -> Any:
     """Return a configured tenacity Retrying context manager.
+
+    waits: fixed seconds before each new try (one try more than waits), instead of cfg's backoff.
 
     Usage:
         retry = build_retry(cfg, candidate_id="123.4", provider="anthropic")
@@ -34,6 +37,7 @@ def build_retry(
         _anthropic_errors: tuple = (
             _anthropic.RateLimitError,
             _anthropic.APIConnectionError,
+            _anthropic.InternalServerError,  # 500 and up, also 529 overloaded
         )
     except ImportError:
         _anthropic_errors = ()
@@ -76,10 +80,14 @@ def build_retry(
     )
     if cfg.jitter:
         wait_strategy = tenacity.wait_combine(wait_strategy, tenacity.wait_random(0, 1))
+    attempts = cfg.max_attempts
+    if waits:
+        wait_strategy = tenacity.wait_chain(*(tenacity.wait_fixed(w) for w in waits))
+        attempts = len(waits) + 1
 
     return tenacity.Retrying(
         retry=tenacity.retry_if_exception_type(retried) if retried else tenacity.retry_never,
-        stop=tenacity.stop_after_attempt(cfg.max_attempts),
+        stop=tenacity.stop_after_attempt(attempts),
         wait=wait_strategy,
         before_sleep=_before_sleep,
         reraise=True,

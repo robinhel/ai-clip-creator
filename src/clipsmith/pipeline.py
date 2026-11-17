@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from typing import Callable
 
 import structlog
@@ -39,6 +40,14 @@ def save_picks(picks: list[PickResult], path: Path) -> None:
     )
 
 
+def _parse_time(value: str) -> datetime | None:
+    """Twitch's createdAt ("2026-11-04T18:00:00Z"), or None when it is missing or unreadable."""
+    try:
+        return datetime.fromisoformat(value) if value else None
+    except ValueError:
+        return None
+
+
 def _setup_logging(verbose: bool) -> None:
     _configure_logging(verbose=verbose)
 
@@ -60,6 +69,7 @@ def process_vod(
     end_s: float = 0.0,
     on_stage: Callable[[str, float], None] | None = None,
     resume: bool = False,
+    focus: str = "",
 ) -> None:
     """Run the full pipeline for one VOD: download → transcribe → candidates → select → clip."""
     video_id = video.id
@@ -74,7 +84,9 @@ def process_vod(
 
     if secrets.twitch_client_id and secrets.twitch_client_secret and video.user_id:
         with TwitchClient(secrets.twitch_client_id, secrets.twitch_client_secret) as tc:
-            existing_clips = tc.get_clips_for_vod(video.user_id, video_id)
+            existing_clips = tc.get_clips_for_vod(
+                video.user_id, video_id, started_at=_parse_time(video.created_at)
+            )
     else:
         existing_clips = []
         log.info("skipping existing-clips fetch (no Twitch credentials or local mode)")
@@ -175,6 +187,8 @@ def process_vod(
     candidates = build_candidates(
         chat, existing_clips, cfg.candidates, transcript=transcript, mp4_path=mp4_path
     )
+    # Scene and audio signals cover the whole video; keep only the chosen part.
+    candidates = [c for c in candidates if c.t_center >= start_s and (not end_s or c.t_center <= end_s)]
 
     if not candidates:
         log.info("no chat signals — falling back to evenly-spaced transcript samples")
@@ -211,14 +225,24 @@ def process_vod(
     log.info("stage_start", stage="select")
     if on_stage:
         on_stage("select", 60.0)
-    console.print(
-        f"[cyan]selecting clips[/cyan] via {cfg.llm.provider} (top {max_candidates} candidates)..."
+    if cfg.clip.select == "signals":
+        console.print(
+            f"[cyan]selecting clips[/cyan] from the signals (top {cfg.clip.signals_top_n}, no LLM)..."
+        )
+    else:
+        console.print(
+            f"[cyan]selecting clips[/cyan] via {cfg.llm.provider} (top {max_candidates} candidates)..."
+        )
+    # signals mode makes no LLM call, so no provider (and no Claude budget) is created
+    picker = None if cfg.clip.select == "signals" else get_provider(
+        cfg, secrets, prompt_version=prompt_version, video=mp4_path
     )
-    picker = get_provider(cfg, secrets, prompt_version=prompt_version)
     stream_context = build_stream_context(
         channel=video.user_login,
         vod_title=video.title,
         vod_duration=video.duration,
+        focus=focus,
+        clip_range=(cfg.clip.min_seconds, cfg.clip.max_seconds),
     )
     picks = select_clips(
         candidates,
@@ -250,6 +274,8 @@ def process_vod(
     out_dir = cfg.out_dir.expanduser() / video_id
     console.print(f"[cyan]cutting clips[/cyan] -> {out_dir}")
     clip_paths = cut_all_clips(mp4_path, transcript, picks, out_dir, cfg)
+    if any(p.webcam_rect for p in picks):
+        save_picks(picks, picks_path)  # with the webcam rect chosen per clip
     ckpt.mark_done("render")
     log.info("stage_done", stage="render", elapsed_ms=round((time.monotonic() - _t0) * 1000))
     console.print(f"[green]done[/green]: {len(clip_paths)} clip(s) in {out_dir}")

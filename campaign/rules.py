@@ -60,5 +60,8 @@ def check_clip(
             problems.append("Bildgranskningen hittade ingen facecam i klippet.")
         if profile.text_required and not review.get("text_visible", False):
             problems.append("Bildgranskningen kunde inte läsa texten på skärmen.")
-        problems += [f"Bildgranskning: {p}" for p in review.get("problems", [])]
+        if review.get("face_covered", False):
+            problems.append("Bildgranskningen såg text över ansiktet.")
+        # Claudes beskrivningar (notes, och problems i äldre granskningar) är inga avvikelser. De sparas i
+        # granskningen och visas för sig, så att varningarna bara är sådant du ska göra något åt.
     return problems, warnings

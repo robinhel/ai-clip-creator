@@ -22,6 +22,15 @@ class Settings:
     budget_month_usd: float = 200.0
     budget_day_usd: float = 10.0
     encoder: str = "libx264"  # libx264 | h264_nvenc | h264_videotoolbox
+    berget_api_key: str = ""
+    transcribe_model: str = "Systran/faster-whisper-large-v3"  # KB-Whisper översätter engelska till svenska
+    tiktok_client_key: str = ""
+    tiktok_client_secret: str = ""
+    tiktok_redirect_uri: str = "http://127.0.0.1:8000/campaign/tiktok/callback/"
+    youtube_client_id: str = ""
+    youtube_client_secret: str = ""
+    youtube_redirect_uri: str = "http://127.0.0.1:8000/campaign/youtube/callback/"
+    web_url: str = "http://localhost:3000"  # dit TikTok- och YouTube-inloggningen leder tillbaka
 
     @property
     def work_dir(self) -> Path:
@@ -64,4 +73,15 @@ def load_settings(root: str | Path | None = None) -> Settings:
         budget_month_usd=_float("BUDGET_USD_PER_MONTH", 200.0),
         budget_day_usd=_float("BUDGET_USD_PER_DAY", 10.0),
         encoder=os.environ.get("KLIPP_ENCODER", "libx264").strip() or "libx264",
+        berget_api_key=os.environ.get("BERGET_API_KEY", "").strip(),
+        transcribe_model=os.environ.get("KLIPP_TRANSCRIBE_MODEL", "").strip() or "Systran/faster-whisper-large-v3",
+        tiktok_client_key=os.environ.get("TIKTOK_CLIENT_KEY", "").strip(),
+        tiktok_client_secret=os.environ.get("TIKTOK_CLIENT_SECRET", "").strip(),
+        tiktok_redirect_uri=os.environ.get("TIKTOK_REDIRECT_URI", "").strip()
+        or "http://127.0.0.1:8000/campaign/tiktok/callback/",
+        youtube_client_id=os.environ.get("YOUTUBE_CLIENT_ID", "").strip(),
+        youtube_client_secret=os.environ.get("YOUTUBE_CLIENT_SECRET", "").strip(),
+        youtube_redirect_uri=os.environ.get("YOUTUBE_REDIRECT_URI", "").strip()
+        or "http://127.0.0.1:8000/campaign/youtube/callback/",
+        web_url=os.environ.get("KLIPP_WEB_URL", "").strip().rstrip("/") or "http://localhost:3000",
     )

@@ -85,6 +85,45 @@ def test_density_hype_emotes_boost_score():
     assert hyped_max > plain_max
 
 
+def _spam_chat(distinct: bool) -> list[ChatMessage]:
+    """Quiet chat from many viewers, then 40 messages in 12 s: one spammer, or 40 different viewers."""
+    quiet = [_msg(float(i * 10), author=f"u{i}") for i in range(50)]
+    burst = [_msg(300.0 + i * 0.3, author=f"b{i}" if distinct else "spammer") for i in range(40)]
+    return quiet + burst
+
+
+def test_density_author_cap_ignores_one_spammer():
+    near = lambda scores: [t for t, _ in scores if 290 <= t <= 320]  # noqa: E731
+    assert near(compute_density_scores(_spam_chat(False), window_s=15, peak_multiplier=4.0))  # no cap: as before
+    assert not near(compute_density_scores(_spam_chat(False), window_s=15, peak_multiplier=4.0, author_cap=3.0))
+    assert near(compute_density_scores(_spam_chat(True), window_s=15, peak_multiplier=4.0, author_cap=3.0))
+
+
+def _ramp(levels: list[int], start: float) -> list[ChatMessage]:
+    """levels[k] messages from new viewers in the k-th 15 s window after start."""
+    return [
+        _msg(start + 15 * k + n * 15 / level, author=f"r{k}_{n}")
+        for k, level in enumerate(levels)
+        for n in range(level)
+    ]
+
+
+def test_density_surge_gain_favours_a_sudden_jump():
+    quiet = [_msg(float(i * 5), author="a") for i in range(120)]  # 3 messages per 15 s for 10 minutes
+    sudden = quiet + _ramp([8], 600.0)
+    slow = quiet + _ramp([4, 5, 6, 7, 8], 600.0)  # the same level, reached step by step
+    assert compute_density_scores(sudden, window_s=15, peak_multiplier=3.0) == []
+    assert compute_density_scores(sudden, window_s=15, peak_multiplier=3.0, surge_gain=0.5)
+    assert compute_density_scores(slow, window_s=15, peak_multiplier=3.0, surge_gain=0.5) == []
+
+
+def test_builder_uses_the_author_cap_from_config():
+    chat = _chat(_spam_chat(False))
+    sources = lambda cfg: {s for c in build_candidates(chat, [], cfg) for s in c.sources}  # noqa: E731
+    assert "chat_density" in sources(_cfg())
+    assert "chat_density" not in sources(_cfg(density_author_cap=3.0))
+
+
 # ── deduplication ────────────────────────────────────────────────────────────
 
 
@@ -205,3 +244,102 @@ def test_transcript_hype_merges_with_clip_command():
     ]
     assert merged, "clip_command and nearby transcript_hype should merge"
     assert merged[0].score > 25.0
+
+
+# ── reaction words in chat (off by default) ──────────────────────────────────
+
+
+def _reactions_chat() -> list[ChatMessage]:
+    # Steady chat, then a burst at 100-110 s where half the messages react.
+    quiet = [_msg(float(t), "hey") for t in range(0, 200, 4)]
+    burst = [
+        _msg(100.0 + i * 0.5, text)
+        for i, text in enumerate(["LMAO", "no way!!", "W", "omg", "ok"] * 2)
+    ]
+    return sorted(quiet + burst, key=lambda m: m.time_in_seconds)
+
+
+def test_reaction_words_are_off_by_default() -> None:
+    msgs = _reactions_chat()
+    assert CandidatesConfig().reaction_words == [] and CandidatesConfig().reaction_weight == 0.0
+    assert compute_density_scores(msgs, window_s=10, peak_multiplier=2.0) == compute_density_scores(
+        msgs, window_s=10, peak_multiplier=2.0, reaction_words=["lmao", "w"], reaction_weight=0.0
+    )
+
+
+def test_reaction_words_raise_the_score_as_whole_words_ignoring_case() -> None:
+    words = ["lmao", "no way", "w", "omg", "??"]
+    plain = dict(compute_density_scores(_reactions_chat(), window_s=10, peak_multiplier=2.0))
+    loud = dict(
+        compute_density_scores(
+            _reactions_chat(),
+            window_s=10,
+            peak_multiplier=2.0,
+            reaction_words=words,
+            reaction_weight=1.0,
+        )
+    )
+    best = max(plain, key=plain.get)
+    assert loud[best] == plain[best] + 8  # LMAO, no way, W, omg twice; "ok" is not a reaction
+    # "w" is a whole word: "wow" and "what" do not count, "W" and "w!" do. "??" counts inside "what??".
+    msgs = [
+        _msg(0.0, "wow"),
+        _msg(1.0, "what"),
+        _msg(2.0, "W"),
+        _msg(3.0, "w!"),
+        _msg(4.0, "what??"),
+    ]
+    off = compute_density_scores(msgs, window_s=10, peak_multiplier=0.0)[0][1]
+    on = compute_density_scores(
+        msgs, window_s=10, peak_multiplier=0.0, reaction_words=words, reaction_weight=1.0
+    )
+    assert on[0][1] == off + 3
+
+
+def test_build_candidates_uses_the_reaction_words_from_the_config() -> None:
+    cfg = CandidatesConfig(
+        density_window_s=10,
+        density_peak_multiplier=2.0,
+        audio_energy_enabled=False,
+        reaction_words=["lmao", "no way", "w", "omg"],
+        reaction_weight=1.0,
+    )
+    with_words = build_candidates(_chat(_reactions_chat()), [], cfg)
+    without = build_candidates(
+        _chat(_reactions_chat()), [], cfg.model_copy(update={"reaction_weight": 0.0})
+    )
+    assert [c.t_center for c in with_words] == [c.t_center for c in without]
+    assert "reactions" in " ".join(with_words[0].reasons)
+
+
+def test_common_reactions_do_not_lower_the_bar_for_the_whole_stream() -> None:
+    # Every message all stream long is "lol": no window stands out, with or without reaction words.
+    msgs = [_msg(float(t), "lol") for t in range(0, 600, 2)]
+    assert (
+        compute_density_scores(
+            msgs, window_s=10, peak_multiplier=1.5, reaction_words=["lol"], reaction_weight=1.0
+        )
+        == []
+    )
+
+
+def test_spam_with_repeated_letters_counts_as_a_reaction() -> None:
+    words = ["w", "haha", "lmao", "lol"]
+    spam = ["WWWWWW", "wWw", "ahahah", "hahaha", "LMAOOOO", "lolll"]
+    msgs = [_msg(float(i), text) for i, text in enumerate([*spam, "wow", "what", "hello"])]
+    off = compute_density_scores(msgs, window_s=20, peak_multiplier=0.0)[0][1]
+    on = compute_density_scores(
+        msgs, window_s=20, peak_multiplier=0.0, reaction_words=words, reaction_weight=1.0
+    )
+    assert on[0][1] == off + len(spam)
+
+
+def test_density_scores_do_not_depend_on_the_message_order() -> None:
+    msgs = _reactions_chat()
+    kwargs = {
+        "window_s": 10,
+        "peak_multiplier": 2.0,
+        "reaction_words": ["lmao", "w"],
+        "reaction_weight": 1.0,
+    }
+    assert compute_density_scores(msgs[::-1], **kwargs) == compute_density_scores(msgs, **kwargs)

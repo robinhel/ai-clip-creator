@@ -11,7 +11,11 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
 
   const headers: Record<string, string> = {};
   req.headers.forEach((value, key) => {
-    if (key.toLowerCase() !== "host") headers[key] = value;
+    // fetch sätter längden själv utifrån bodyn; en vidarebefordrad längd kan krocka med den.
+    // Adress-headers skickas inte vidare: uvicorn litar på dem, och då kunde vem som helst se ut att anropa från datorn.
+    // Expect (curl vid stora uppladdningar) vägras av Nodes fetch.
+    if (!["host", "content-length", "expect", "x-forwarded-for", "x-real-ip", "forwarded", "x-forwarded-host"].includes(key.toLowerCase()))
+      headers[key] = value;
   });
   const apiKey = process.env.API_KEY;
   if (apiKey) {
@@ -23,13 +27,14 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
     const upstream = await fetch(url.toString(), {
       method: req.method,
       headers,
-      body: hasBody ? await req.text() : undefined,
+      // Bytes, inte text: en PNG (overlay-bilden) måste komma fram oförändrad.
+      body: hasBody ? await req.arrayBuffer() : undefined,
       cache: "no-store",
     });
     const contentType = upstream.headers.get("content-type") ?? "application/json";
     const responseHeaders: Record<string, string> = { "Content-Type": contentType };
-    // Pass through range/streaming headers so video playback works correctly
-    for (const h of ["Content-Range", "Accept-Ranges", "Content-Length"]) {
+    // Pass through range/streaming headers so video playback works, and the file name for downloads
+    for (const h of ["Content-Range", "Accept-Ranges", "Content-Length", "Content-Disposition"]) {
       const v = upstream.headers.get(h);
       if (v) responseHeaders[h] = v;
     }

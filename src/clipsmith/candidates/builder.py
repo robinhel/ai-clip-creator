@@ -65,14 +65,19 @@ def build_candidates(
         chat.messages,
         window_s=config.density_window_s,
         peak_multiplier=config.density_peak_multiplier,
+        reaction_words=config.reaction_words,
+        reaction_weight=config.reaction_weight,
+        author_cap=config.density_author_cap,
+        surge_gain=config.density_surge_gain,
     )
+    kind = "chat density peak with reactions" if config.reaction_weight else "chat density peak"
     for t, score in density_scores:
         raw.append(
             (
                 t,
                 score,
                 "chat_density",
-                f"chat density peak (score={score:.1f}) at t={t:.1f}s",
+                f"{kind} (score={score:.1f}) at t={t:.1f}s",
             )
         )
 
@@ -112,6 +117,16 @@ def build_candidates(
                     "audio_energy",
                     f"voice spike at {t:.1f}s ({norm_score:.1f}σ above baseline)",
                 )
+            )
+
+    # --- Signal 6: picture cuts (trailers without speech), the strongest scene_max ---
+    if config.scene_enabled and mp4_path is not None:
+        from .scenes import find_scene_cuts
+
+        cuts = find_scene_cuts(mp4_path, config.scene_threshold, cache_dir=mp4_path.parent)
+        for t, score in sorted(cuts, key=lambda c: c[1], reverse=True)[: config.scene_max]:
+            raw.append(
+                (t, score * config.scene_boost, "scene_change", f"picture cut at {t:.1f}s (scene {score:.2f})")
             )
 
     # --- Merge: deduplicate within dedupe_window_s, keeping max score ---
