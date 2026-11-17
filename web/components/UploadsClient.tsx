@@ -40,7 +40,7 @@ export function UploadsClient() {
   const [filter, setFilter] = useState("fresh");
   const [brightness, setBrightness] = useState(0);
   const [saturation, setSaturation] = useState(0);
-  const [framing, setFraming] = useState("fill");
+  const [framing, setFraming] = useState("fit");
   const [opts, setOpts] = useState<UploadOptions | null>(null);
   const [font, setFont] = useState("");
   const [cut, setCut] = useState(0);

@@ -53,7 +53,7 @@ def upload_options(profile: str, settings: Settings = Depends(get_settings)) -> 
              dependencies=[Depends(verify_api_key)])
 def upload(file: UploadFile = File(...), profile: str = Form(...), title: str = Form(""),
            mirror: bool = Form(False), speed: float = Form(1.0), filter: str = Form("none"),
-           brightness: float = Form(0.0), saturation: float = Form(0.0), framing: str = Form("fill"),
+           brightness: float = Form(0.0), saturation: float = Form(0.0), framing: str = Form("fit"),
            font: str = Form(""), start_cut_s: float = Form(0.0), overlay: str = Form(""), sticker: str = Form(""),
            sticker_position: str = Form("top_right"), sticker_start_s: float = Form(0.0),
            sticker_duration_s: float = Form(3.0), settings: Settings = Depends(get_settings)) -> dict:
