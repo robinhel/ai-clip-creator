@@ -27,7 +27,7 @@ _lock = threading.Lock()
 
 def http_client() -> httpx.Client:
     return httpx.Client(timeout=20, follow_redirects=True,
-                        headers={"User-Agent": "Mozilla/5.0 (klippverktyg; läser kampanjsidan högst en gång i timmen)"})
+                        headers={"User-Agent": "Mozilla/5.0 (klippverktyg; reads the campaign page at most once an hour)"})
 
 
 def clear_cache() -> None:
