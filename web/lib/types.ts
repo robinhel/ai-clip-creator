@@ -330,6 +330,8 @@ export interface ClipPost {
   estimate_usd: number | null;
   /** open_id eller channel_id. null: loggat för hand utan konto. Saknas hos äldre servrar. */
   account?: string | null;
+  /** Statusen före den senaste, så att Ångra på Betald går tillbaka dit. Saknas hos äldre servrar. */
+  prev_status?: PostStatus | null;
 }
 
 export type ClipAccountState = "free" | "scheduled" | "posted";
