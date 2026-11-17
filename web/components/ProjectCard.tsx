@@ -87,42 +87,57 @@ function Picture({ src, dim, fallback }: { src: string | null; dim?: boolean; fa
   return <img src={src} alt="" className={`h-full w-full object-cover ${dim ? "grayscale-[.6]" : ""}`} />;
 }
 
-export function ProjectCard({ run }: { run: CampaignRunInfo }) {
-  const active = isActive(run);
-  const todo = waiting(run.clip_counts ?? {});
-  const meta = [run.channel_name ?? run.profile, run.game, run.created ? day.format(serverTime(run.created)) : null].filter(Boolean);
+/** Misslyckades av ett fel, inte för att Robin avbröt. */
+const failedByError = (run: CampaignRunInfo) => run.status === "failed" && !run.cancelled;
+
+/** "SkiiMaskTimmy, Bodycam, 17 nov." */
+function metaLine(run: CampaignRunInfo): string {
+  const created = run.created ? day.format(serverTime(run.created)) : null;
+  return [run.channel_name ?? run.profile, run.game, created].filter(Boolean).join(", ");
+}
+
+function RunPicture({ run }: { run: CampaignRunInfo }) {
   const own = !/^\d+$/.test(run.vod_id); // en egen fil har filens namn som VOD-id
   const src = run.thumbnail_url ?? (run.poster_url ? api.campaign.proxied(run.poster_url) : null);
+  return <Picture src={src} dim={isActive(run)} fallback={own ? "Egen fil" : `VOD ${run.vod_id}`} />;
+}
+
+function Progress({ pct }: { pct: number | null | undefined }) {
+  return (
+    <div
+      className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-line"
+      role="progressbar"
+      aria-label="Förlopp"
+      aria-valuenow={Math.round(pct ?? 0)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+    >
+      <div className="h-full rounded-full bg-brand" style={{ width: `${Math.max(2, pct ?? 0)}%` }} />
+    </div>
+  );
+}
+
+export function ProjectCard({ run }: { run: CampaignRunInfo }) {
+  const todo = waiting(run.clip_counts ?? {});
   // Felets första rad, så att Robin ser varför utan att öppna projektet.
-  const why = run.status === "failed" && !run.cancelled ? run.error?.split("\n")[0] : null;
+  const why = failedByError(run) ? run.error?.split("\n")[0] : null;
   return (
     <Card
       href={`/runs/${run.run_id}`}
-      image={<Picture src={src} dim={active} fallback={own ? "Egen fil" : `VOD ${run.vod_id}`} />}
+      image={<RunPicture run={run} />}
       tag={statusTag(run)}
-      tagTone={run.status === "failed" && !run.cancelled ? "bg-bad font-semibold text-white" : "bg-black/70"}
+      tagTone={failedByError(run) ? "bg-bad font-semibold text-white" : "bg-black/70"}
       title={run.title || run.vod_id}
       meta={
         <>
-          {meta.join(", ")}
+          {metaLine(run)}
           <span className="block">Kampanj: {run.profile}</span>
         </>
       }
     >
       {todo && <p className="text-[13px] font-medium text-brand">{todo}</p>}
       {why && <p className="line-clamp-2 text-[13px] break-words text-[#fca5a5]">{why}</p>}
-      {active && (
-        <div
-          className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-line"
-          role="progressbar"
-          aria-label="Förlopp"
-          aria-valuenow={Math.round(run.pct ?? 0)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
-          <div className="h-full rounded-full bg-brand" style={{ width: `${Math.max(2, run.pct ?? 0)}%` }} />
-        </div>
-      )}
+      {isActive(run) && <Progress pct={run.pct} />}
     </Card>
   );
 }

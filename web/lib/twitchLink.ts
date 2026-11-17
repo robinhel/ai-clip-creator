@@ -8,8 +8,9 @@ export interface TwitchLink {
 function twitchTime(text: string): number | null {
   if (/^\d+$/.test(text)) return Number(text);
   const m = text.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/i);
-  if (!m || !(m[1] || m[2] || m[3])) return null;
-  return Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0);
+  if (!m?.[0]) return null; // en tom text passar mönstret men är ingen tid
+  const [h, min, s] = m.slice(1).map((part) => Number(part ?? 0));
+  return h * 3600 + min * 60 + s;
 }
 
 /**
