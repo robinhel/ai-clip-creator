@@ -415,6 +415,7 @@ def test_setup_tells_what_is_missing(settings, env, tools, tmp_path, monkeypatch
     del tools["found"]["ffprobe"]
     checks = _checks(settings)
     assert (checks["ffmpeg"]["ok"], checks["ffprobe"]["ok"], checks["disk"]["ok"]) == (False, False, False)
+    assert checks["disk"]["detail"].startswith("9,7 GB ledigt av 228 GB")  # svenskt decimalkomma
     assert "subtitles" in checks["ffmpeg"]["detail"] and "drawtext" not in checks["ffmpeg"]["detail"]
 
     del tools["found"]["ffmpeg"]
