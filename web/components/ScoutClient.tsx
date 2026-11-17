@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ScoutCard } from "@/components/ScoutCard";
+import { ScoutCard, existingCampaign } from "@/components/ScoutCard";
 import { api } from "@/lib/api";
 import { serverTime } from "@/lib/utils";
-import type { ScoutCampaign, ScoutStatus } from "@/lib/types";
+import type { CampaignProfile, ScoutCampaign, ScoutStatus } from "@/lib/types";
 
 const views = new Intl.NumberFormat("sv-SE");
 const when = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -16,7 +16,8 @@ const POLL_MS = 3000;
 const POLL_MAX_MS = 30_000;
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
-export function ScoutClient() {
+/** Fliken Nya kampanjer under Kampanjer. campaigns: de inlagda, så att korten kan visa Finns redan. */
+export function ScoutClient({ campaigns = null }: { campaigns?: CampaignProfile[] | null }) {
   const [status, setStatus] = useState<ScoutStatus | null>(null);
   // Äldre server utan /campaign/scout, eller servern svarar inte.
   const [off, setOff] = useState(false);
@@ -73,19 +74,18 @@ export function ScoutClient() {
   }
 
   return (
-    <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
-      <h1 className="text-3xl font-bold tracking-tight">Kampanjbevakning</h1>
-      <p className="mt-1.5 max-w-[640px] text-muted-foreground">
+    <section aria-label="Nya kampanjer">
+      <p className="max-w-[640px] text-muted-foreground">
         Nya clipping-kampanjer från ClippingAlpha med betyg. Färska kampanjer med få klippare, låg gräns för betalning och
-        budget som räcker hamnar högst. Lägg in den du vill köra under Kampanjer.
+        budget som räcker hamnar högst. Lägg in kampanjen fyller i Ny kampanj åt dig.
       </p>
 
       {off && !status && (
-        <p className="mt-7 rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted-foreground">
-          Bevakningen är inte igång.
+        <p role="alert" className="mt-7 rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted-foreground">
+          Appens server svarar inte, så listan går inte att läsa. Starta servern och läs om sidan.
         </p>
       )}
-      {!status && !off && <p className="mt-7 text-sm text-muted-foreground">Läser bevakningen…</p>}
+      {!status && !off && <p className="mt-7 text-sm text-muted-foreground">Läser listan…</p>}
 
       {status && (
         <>
@@ -99,16 +99,18 @@ export function ScoutClient() {
                 <dd className="tabular-nums">{status.updated_at ? when.format(serverTime(status.updated_at)) : "Inte än"}</dd>
               </div>
               <div>
-                <dt className="text-xs text-muted-foreground">Anrop i dag</dt>
-                <dd className="tabular-nums">
-                  {status.calls_today} av {status.call_limit}
+                <dt className="text-xs text-muted-foreground">Hämtningar i dag</dt>
+                <dd className="tabular-nums" title="ClippingAlpha tillåter ett visst antal hämtningar per dag.">
+                  {status.calls_today} av högst {status.call_limit}
                 </dd>
               </div>
               <div>
-                <dt className="text-xs text-muted-foreground">Dina medianvisningar</dt>
-                <dd className="tabular-nums">
+                <dt className="text-xs text-muted-foreground">Dina vanliga visningar per klipp</dt>
+                <dd className="tabular-nums" title="Betyget räknar med att ett klipp får så många visningar.">
                   {views.format(status.median_views)}{" "}
-                  <span className="text-muted-foreground">({status.median_source})</span>
+                  <span className="text-muted-foreground">
+                    ({status.median_source === "dina inlägg" ? "från dina inlägg" : "uppskattat, inga inlägg än"})
+                  </span>
                 </dd>
               </div>
             </dl>
@@ -125,7 +127,9 @@ export function ScoutClient() {
               </p>
             )}
             {!status.enabled && (
-              <p className="w-full text-xs text-muted-foreground">Bakgrundskontrollen är avstängd (KLIPP_SCOUT=0).</p>
+              <p className="w-full text-xs text-muted-foreground">
+                Listan kontrolleras inte av sig själv, eftersom KLIPP_SCOUT=0 står i .env. Tryck Kontrollera nu.
+              </p>
             )}
           </section>
 
@@ -143,14 +147,21 @@ export function ScoutClient() {
             </p>
           )}
 
-          {status.campaigns.length === 0 ? (
+          {/* Vid fel visas bara felet, inte också att listan är tom. */}
+          {status.campaigns.length === 0 && !status.error ? (
             <p className="mt-6 rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted-foreground">
-              Inga kampanjer än. Bevakningen kontrollerar var 10:e minut.
+              Inga nya kampanjer än. Listan kontrolleras var 10:e minut.
             </p>
           ) : (
             <div className="mt-6 space-y-3">
               {status.campaigns.map((c) => (
-                <ScoutCard key={c.ref} campaign={c} busy={busy === c.ref} onDismiss={() => setDismissed(c, true)} />
+                <ScoutCard
+                  key={c.ref}
+                  campaign={c}
+                  busy={busy === c.ref}
+                  existing={existingCampaign(c, campaigns)}
+                  onDismiss={() => setDismissed(c, true)}
+                />
               ))}
             </div>
           )}
@@ -172,6 +183,6 @@ export function ScoutClient() {
           )}
         </>
       )}
-    </main>
+    </section>
   );
 }

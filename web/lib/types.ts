@@ -616,7 +616,14 @@ export interface CampaignProfileDetail extends CampaignProfile {
   };
   on_screen_text: { text: string; position: TextPosition; required: boolean };
   safe_zone: { top: number; bottom: number };
-  caption: { template: string; hashtags: string[]; must_include: string[] };
+  caption: {
+    template: string;
+    hashtags: string[];
+    must_include: string[];
+    /** Egen rad efter texten, till exempel "#ad #blizzardpartner". Saknas hos äldre servrar. */
+    tag_line?: string | null;
+    max_extra_hashtags?: number | null;
+  };
   payment: { cpm_usd: number | null; min_views: number | null; max_payout_per_clip_usd: number | null };
   clipsmith_config: string | null;
 }
@@ -784,4 +791,105 @@ export interface CampaignChat {
   default_scope: SearchScope;
   messages: ChatMessage[];
   hits: ChatHit[];
+}
+
+// --- Ställ in, konton och egna videor (flode-kampanjer). Eget block, så att sammanslagningar blir enkla. ---
+
+/** twitch: kampanjen klipper streams från en Twitch-kanal. local: bara egna videor, channel är tom. */
+export type CampaignSource = "twitch" | "local";
+
+// Läggs ihop med CampaignProfile ovan. Saknas hos äldre servrar.
+export interface CampaignProfile {
+  source?: CampaignSource;
+  /** Det kampanjen tillåter. clip_min_s och clip_max_s är det appen klipper. */
+  allowed_min_s?: number;
+  allowed_max_s?: number;
+  /** Nycklar som saknas. De står också i problems, men visas en gång överst. */
+  key_problems?: string[];
+  /** Kampanjens läge i ord, utan nycklarna. Samma text som Kontroll under Inställningar. */
+  state?: string;
+  facecam?: { required: boolean; camera: boolean; rects_set: boolean };
+  /** Kampanjen i Bevakning som den lades in från. */
+  scout_ref?: string | null;
+}
+
+/** Ett konto som kampanjen postar från. name är null när kontot inte är kopplat i appen. */
+export interface CampaignAccountRef {
+  id: string;
+  name: string | null;
+}
+
+export type AccountPlatform = "tiktok" | "youtube_shorts";
+
+// Läggs ihop med CampaignProfileDetail ovan. Saknas hos äldre servrar.
+export interface CampaignProfileDetail {
+  material?: { allowed: string | null; banned: string[] };
+  platforms?: Platform[];
+  /** Tom lista: alla kopplade konton på plattformen får posta. */
+  accounts?: Record<AccountPlatform, CampaignAccountRef[]>;
+  posting?: { max_per_day: number; min_gap_minutes: number };
+  engagement?: { views_up_to: number | null; min: number }[];
+  /** Varför chatten inte kan fråga Claude, eller null. */
+  chat_problem?: string | null;
+}
+
+/** GET /campaign/accounts: kopplade konton med namn och kampanjerna som har valt dem. */
+export interface ConnectedAccount {
+  id: string;
+  name: string;
+  connected: boolean;
+  used_by: { name: string; streamer: string }[];
+}
+export type ConnectedAccounts = Record<AccountPlatform, ConnectedAccount[]>;
+
+/** PUT /campaign/profiles/{id}/settings. Fält som inte skickas rörs inte. */
+export interface CampaignSettingsBody {
+  streamer?: string;
+  campaign?: string;
+  language?: string;
+  links?: { content_rewards: string | null; analytics_form: string | null };
+  caption_template?: string;
+  hashtags?: string[];
+  must_include?: string[];
+  on_screen_text?: string;
+  text_position?: TextPosition;
+  allowed_min_s?: number;
+  allowed_max_s?: number;
+  clip_min_s?: number;
+  clip_max_s?: number;
+  cpm_usd?: number | null;
+  min_views?: number | null;
+  max_payout_per_clip_usd?: number | null;
+  formats?: { id?: string; name: string; description: string }[];
+  platforms?: Platform[];
+  accounts?: Partial<Record<AccountPlatform, string[]>>;
+}
+
+// Läggs ihop med CampaignProfileCreate ovan.
+export interface CampaignProfileCreate {
+  source?: CampaignSource;
+  /** Kampanjens id när källan är egna videor. */
+  name?: string;
+  content_rewards_url?: string;
+  analytics_form_url?: string;
+  platforms?: Platform[];
+  scout_ref?: string;
+}
+
+// Läggs ihop med SetupCheck ovan: länken till stället där raden rättas.
+export interface SetupCheck {
+  href?: string;
+}
+
+// Läggs ihop med TikTokStatus och YouTubeStatus ovan: adressen som servern använder.
+export interface TikTokStatus {
+  redirect_uri?: string;
+}
+export interface YouTubeStatus {
+  redirect_uri?: string;
+}
+
+// Läggs ihop med MaterialItem ovan: senaste projektet med källan. Saknas hos äldre servrar.
+export interface MaterialItem {
+  run_id?: number;
 }
