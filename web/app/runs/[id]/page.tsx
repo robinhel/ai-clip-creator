@@ -25,7 +25,7 @@ const FILTERS: { id: string; label: string; statuses?: CampaignStatus[] }[] = [
   { id: "underkanda", label: "Underkända", statuses: ["underkand"] },
 ];
 
-/** Nycklar läggs in under Inställningar. Texten kommer från servern, till exempel "BERGET_API_KEY saknas i .env." */
+/** Nycklar läggs in under Inställningar. Texten kommer från servern, till exempel "Berget-nyckeln (BERGET_API_KEY) saknas. Lägg in den under Inställningar. Den behövs för transkriberingen." */
 function KeyFix({ text }: { text?: string | null }) {
   if (!text || !/API_KEY|nyckel/i.test(text)) return null;
   return (

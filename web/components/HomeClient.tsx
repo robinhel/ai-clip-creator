@@ -23,7 +23,7 @@ const gb = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
 /** Ett hinder före start. Med en länk till stället där det rättas, när det finns ett. */
 type Blocker = { text: string; href?: string; linkText?: string };
 
-/** Nycklar läggs in under Inställningar. Texten kommer från servern, till exempel "Berget-nyckeln (BERGET_API_KEY) saknas. Lägg in den under Inställningar." */
+/** Nycklar läggs in under Inställningar. Texten kommer från servern, till exempel "Berget-nyckeln (BERGET_API_KEY) saknas. Lägg in den under Inställningar. Den behövs för transkriberingen." */
 const isKeyProblem = (text: string) => /API_KEY|nyckel/i.test(text);
 
 function KeyFix({ problem }: { problem: string }) {

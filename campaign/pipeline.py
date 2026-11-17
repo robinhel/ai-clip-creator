@@ -227,7 +227,8 @@ def make_clips(
         # Steget först, så att ett fel här syns på Transkriberar och inte på hämtningen.
         report("transcribe", 15.0, f"Transkriberar via Berget ({settings.transcribe_model})")
         if not settings.berget_api_key:
-            raise ValueError("BERGET_API_KEY saknas i .env. Den behövs för transkriberingen.")
+            raise ValueError("Berget-nyckeln (BERGET_API_KEY) saknas. Lägg in den under Inställningar. "
+                             "Den behövs för transkriberingen.")
         transcribe_vod(mp4, vod_id, transcript, post=berget_post(settings.berget_api_key),
                        model=settings.transcribe_model, language=profile.language,
                        on_part=lambda n, total: report("transcribe", 15.0 + 25.0 * (n - 1) / total,
