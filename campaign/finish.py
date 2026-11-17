@@ -83,9 +83,11 @@ def _pieces(pieces: list[tuple[float, float]], has_audio: bool, cold_open: bool)
 def build_filter(
     profile: Profile, has_overlay: bool, has_audio: bool, font: str | None, title: str = "",
     subtitles: Path | None = None, pieces: list[tuple[float, float]] | None = None, cold_open: bool = False,
+    sticker: dict | None = None,
 ) -> str:
-    """Filtergrafen. Ingång 0 är klippet, sedan hooken (cold_open) och overlay-bilden om de finns. Med bitar
-    (tidskartan) sätts de ihop först. Undertexten bränns in sedan, så att overlayen ligger ovanpå den."""
+    """Filtergrafen. Ingång 0 är klippet, sedan hooken (cold_open), overlay-bilden och klistermärket om de finns.
+    Med bitar (tidskartan) sätts de ihop först. Undertexten bränns in sedan, så att overlayen ligger ovanpå den.
+    sticker: {w, h, x, y, start_s, end_s}, en ny versions klistermärke ovanpå overlayen under en stund."""
     burn = f",subtitles=filename='{_esc(str(subtitles))}'" if subtitles else ""
     parts = _pieces(pieces, has_audio, cold_open) if pieces else []
     ov = 2 if pieces and cold_open else 1
@@ -101,6 +103,12 @@ def build_filter(
             position = "0:0" if profile.overlay_mode == "top" else "0:H-h"
         parts.append(f"[{last}][ov]overlay={position}[withov]")
         last = "withov"
+    if sticker:
+        index = ov + int(has_overlay)
+        parts.append(f"[{index}:v]scale={sticker['w']}:{sticker['h']}[st]")
+        parts.append(f"[{last}][st]overlay={sticker['x']}:{sticker['y']}:"
+                     f"enable='between(t,{sticker['start_s']:.3f},{sticker['end_s']:.3f})'[withsticker]")
+        last = "withsticker"
     # Overlayen har redan kanalens text, så den vita texten ritas bara utan overlay.
     if profile.text and not has_overlay:
         if profile.text_position == "top":
@@ -127,14 +135,16 @@ def build_filter(
 
 def finish_clip(
     src: Path, out: Path, profile: Profile, root: Path, encoder: str = "libx264", title: str = "",
-    subtitles: Path | None = None, plan: dict | None = None,
+    subtitles: Path | None = None, plan: dict | None = None, overlay: Path | None = None,
+    font_file: str | None = None, sticker: dict | None = None,
 ) -> dict:
-    """Rendera den kampanjklara versionen. plan är tidskartan (campaign.timemap). Returnerar ett manifest
-    om vad som gjordes."""
+    """Rendera den kampanjklara versionen. plan är tidskartan (campaign.timemap). En ny version kan ge en egen
+    overlay, en fontfil till texten på skärmen och ett klistermärke (med path). Returnerar ett manifest om vad
+    som gjordes."""
     info = probe(src)
-    overlay = profile.overlay_path(root)
+    overlay = overlay or profile.overlay_path(root)
     has_overlay = overlay is not None and overlay.exists()
-    font = find_font(profile.text_font_file)
+    font = font_file or find_font(profile.text_font_file)
     out.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = [need("ffmpeg"), "-y", "-v", "error", "-i", str(src)]
@@ -144,10 +154,12 @@ def finish_clip(
         cmd += ["-ss", f"{start:.6f}", "-t", f"{end - start:.6f}", "-i", str(src)]
     if has_overlay:
         cmd += ["-i", str(overlay)]
+    if sticker:
+        cmd += ["-i", str(sticker["path"])]
     cmd += [
         "-filter_complex",
         build_filter(profile, has_overlay, info["has_audio"], font, title, subtitles,
-                     plan["pieces"] if plan else None, cold_open),
+                     plan["pieces"] if plan else None, cold_open, sticker),
         "-map",
         "[vout]",
     ]
@@ -161,6 +173,7 @@ def finish_clip(
         "file": str(out),
         "overlay_applied": has_overlay,
         "subtitles_applied": subtitles is not None,
+        "sticker_applied": sticker is not None,
         "silence_cut_s": plan["silence_cut_s"] if plan else 0.0,
         "fillers_cut": plan["fillers_cut"] if plan else 0,
         "cold_open_s": plan["cold_open_s"] if plan else 0.0,
