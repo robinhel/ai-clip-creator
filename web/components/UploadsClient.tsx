@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, Lock, Upload, X } from "lucide-react";
+import { Info, Loader2, Lock, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClipResultRow } from "@/components/ClipResultRow";
 import { POSITIONS } from "@/components/VersionDialog";
-import { api } from "@/lib/api";
+import { api, uploadWithProgress } from "@/lib/api";
+import { takeHandedOverFiles } from "@/lib/handoff";
 import { cn } from "@/lib/utils";
-import type { CampaignClip, CampaignProfile, StickerPosition, UploadOptions } from "@/lib/types";
+import type { CampaignClip, CampaignProfile, CampaignStatus, StickerPosition, UploadOptions } from "@/lib/types";
 
 // Samma val som servern (campaign/versions.py). Servern kontrollerar dem.
 const SPEEDS = [1, 1.05, 1.1, 1.15, 1.2];
@@ -28,7 +29,51 @@ const num = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 2, maximumFr
 const sec = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
 const field = "mt-1 h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand disabled:opacity-60 [&>option]:bg-panel";
 
-type Item = { key: string; file: File; title: string; state: "waiting" | "busy" | "done" | "error"; message?: string };
+type Item = {
+  key: string;
+  file: File;
+  title: string;
+  state: "waiting" | "busy" | "done" | "error";
+  message?: string;
+  /** Uppladdningen i procent medan state är busy. 100 betyder att servern gör om videon. */
+  percent?: number;
+};
+
+// Flikar som på projektsidan, så att ett nekat klipp går att hitta och ångra.
+const TABS: { id: string; label: string; statuses: CampaignStatus[] }[] = [
+  { id: "granska", label: "Att granska", statuses: ["renderad", "underkand"] },
+  { id: "godkanda", label: "Godkända", statuses: ["godkand"] },
+  { id: "postade", label: "Postade", statuses: ["postad", "inskickad", "analytics_inskickad", "betald"] },
+  { id: "nekade", label: "Nekade", statuses: ["nekad"] },
+];
+
+const LEAVE_WARNING = "Videorna i listan är inte klara. Lämnar du sidan kan de gå förlorade. Vill du lämna sidan ändå?";
+
+/** Varnar innan sidan lämnas medan videor väntar eller laddas upp: vid omladdning och vid klick på en länk i appen. */
+function useLeaveWarning(on: boolean) {
+  useEffect(() => {
+    if (!on) return;
+    function beforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = ""; // äldre webbläsare kräver ett värde
+    }
+    // Före Next.js länkar (fångas på vägen ner), så att ett nej stoppar bytet av sida.
+    function click(e: MouseEvent) {
+      const link = (e.target as Element | null)?.closest?.("a[href]");
+      if (!link || link.getAttribute("target") === "_blank" || e.defaultPrevented) return;
+      if (!window.confirm(LEAVE_WARNING)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }
+    window.addEventListener("beforeunload", beforeUnload);
+    document.addEventListener("click", click, true);
+    return () => {
+      window.removeEventListener("beforeunload", beforeUnload);
+      document.removeEventListener("click", click, true);
+    };
+  }, [on]);
+}
 
 export function UploadsClient() {
   const [profiles, setProfiles] = useState<CampaignProfile[]>([]);
@@ -51,22 +96,41 @@ export function UploadsClient() {
   const [stickerLength, setStickerLength] = useState("3");
   const [busy, setBusy] = useState(false);
   const [clips, setClips] = useState<CampaignClip[]>([]);
+  const [tab, setTab] = useState("granska");
+  // Servern svarar inte: visas i stället för "Ingen aktiv kampanj" och en tom lista.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
+  // Klipp som blev klara i den här omgången, för länken till Klippen.
+  const [made, setMade] = useState(0);
 
   const loadClips = useCallback(() => {
-    api.campaign.clips.list({ vod_id: "upload" }).then(setClips).catch(() => {});
+    api.campaign.clips
+      .list({ vod_id: "upload" })
+      .then(setClips)
+      .catch((err) => setLoadError(err instanceof Error ? err.message : "Kunde inte hämta de egna videorna"));
   }, []);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoadError(null);
+    // ?kampanj=<id> väljer kampanjen, till exempel från kampanjsidan.
+    const wanted = new URLSearchParams(window.location.search).get("kampanj");
     api.campaign
       .profiles()
       .then((list) => {
         const active = list.filter((p) => p.active);
         setProfiles(active);
-        setProfile((current) => current || active[0]?.name || "");
+        setProfile((current) => current || active.find((p) => p.name === wanted)?.name || active[0]?.name || "");
+        setProfilesLoaded(true);
       })
-      .catch(() => {});
+      .catch((err) => setLoadError(err instanceof Error ? err.message : "Kunde inte hämta kampanjerna"));
     loadClips();
   }, [loadClips]);
+
+  useEffect(() => {
+    load();
+    // Videor som Robin drog in på Hem.
+    add(takeHandedOverFiles());
+  }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Valen gäller kampanjen: en kampanj kan kräva sin egen overlay.
   useEffect(() => {
@@ -83,8 +147,8 @@ export function UploadsClient() {
     };
   }, [profile]);
 
-  function add(files: FileList | null) {
-    if (!files) return;
+  function add(files: FileList | File[] | null) {
+    if (!files || files.length === 0) return;
     const added = Array.from(files).map((file) => ({ key: `${file.name}-${file.size}-${Math.random()}`, file, title: "", state: "waiting" as const }));
     setItems((list) => [...list, ...added]);
   }
@@ -94,9 +158,10 @@ export function UploadsClient() {
 
   async function makeAll() {
     setBusy(true);
+    setMade(0);
     // En i taget: servern kodar om varje video, och det tar datorns kraft.
     for (const item of items.filter((i) => i.state === "waiting" || i.state === "error")) {
-      update(item.key, { state: "busy", message: undefined });
+      update(item.key, { state: "busy", message: undefined, percent: 0 });
       const form = new FormData();
       form.append("file", item.file);
       form.append("profile", profile);
@@ -117,8 +182,9 @@ export function UploadsClient() {
         form.append("sticker_duration_s", String(lengthS));
       }
       try {
-        const clip = await api.campaign.upload(form);
+        const clip = await uploadWithProgress(form, (percent) => update(item.key, { percent }));
         update(item.key, { state: "done", message: `Klipp #${clip.id}` });
+        setMade((n) => n + 1);
         loadClips();
       } catch (err) {
         update(item.key, { state: "error", message: err instanceof Error ? err.message : "Gick inte att göra om" });
@@ -127,8 +193,11 @@ export function UploadsClient() {
     setBusy(false);
   }
 
-  const toReview = clips.filter((c) => c.status === "renderad" || c.status === "underkand");
   const approved = clips.filter((c) => c.status === "godkand").length;
+  const activeTab = TABS.find((t) => t.id === tab) ?? TABS[0];
+  const shown = clips.filter((c) => activeTab.statuses.includes(c.status));
+  const source = opts?.source_allowed;
+  useLeaveWarning(busy || items.some((i) => i.state === "waiting"));
   const formats = profiles.find((p) => p.name === profile)?.formats ?? [];
   const waiting = items.filter((i) => i.state === "waiting" || i.state === "error").length;
   // Utan valen ännu: som förut. Kräver kampanjen sin text bränns rubriken inte in.
@@ -153,11 +222,20 @@ export function UploadsClient() {
       <h1 className="text-3xl font-bold tracking-tight">Egna videor</h1>
       <p className="mt-1.5 text-muted-foreground">
         Dra in videor. Appen gör om dem till 9:16 med valen nedan. Säg ja till ett klipp, så hamnar det i{" "}
-        <Link href="/queue" className="text-brand underline-offset-4 hover:underline">
-          Att posta
+        <Link href="/queue?tab=posta" className="text-brand underline-offset-4 hover:underline">
+          Klippen, Att posta
         </Link>
-        {approved > 0 ? `, där ${approved} egna klipp redan väntar` : ""}.
+        {approved === 1 ? ", där 1 eget klipp redan väntar" : approved > 1 ? `, där ${approved} egna klipp redan väntar` : ""}.
       </p>
+
+      {loadError && (
+        <div role="alert" className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">
+          <span className="flex-1">{loadError}</span>
+          <button type="button" onClick={load} className="inline-flex h-8 items-center rounded-lg border border-[#4d1d1d] px-3 font-medium hover:bg-white/5">
+            Försök igen
+          </button>
+        </div>
+      )}
 
       <section className="mt-6 grid gap-6 rounded-2xl border border-line bg-panel p-5 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-3">
@@ -217,7 +295,10 @@ export function UploadsClient() {
                     className={cn("text-xs", item.state === "error" ? "text-[#fca5a5]" : "text-muted-foreground")}
                   >
                     {item.state === "busy" ? (
-                      <Loader2 className="size-4 animate-spin" aria-label="Görs om" />
+                      <span className="inline-flex items-center gap-1.5 tabular-nums" role="status">
+                        <Loader2 className="size-4 animate-spin" aria-hidden />
+                        {(item.percent ?? 0) < 100 ? `Laddar upp ${item.percent ?? 0} %` : "Gör om videon…"}
+                      </span>
                     ) : item.state === "done" ? (
                       `Klar: ${item.message}`
                     ) : (
@@ -250,6 +331,12 @@ export function UploadsClient() {
                 </option>
               ))}
             </select>
+            {source && (
+              <p className="mt-1.5 flex items-start gap-1.5 rounded-lg border border-[#5a4416] bg-[#1b160b] px-2.5 py-2 text-xs text-warn">
+                <Info className="mt-px size-3.5 shrink-0" aria-hidden />
+                <span>Kampanjens regel för material: {source}</span>
+              </p>
+            )}
           </div>
           <div role="radiogroup" aria-label="Bild" className="space-y-1">
             <p className="text-[13px] text-muted-foreground">Bild</p>
@@ -468,20 +555,52 @@ export function UploadsClient() {
             {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Upload aria-hidden />}
             {busy ? "Gör om…" : waiting > 1 ? `Gör om ${waiting} videor` : "Gör om videon"}
           </Button>
-          {!profile && <p className="text-xs text-muted-foreground">Ingen aktiv kampanj. Slå på en under Kampanjer.</p>}
+          {profilesLoaded && !profile && (
+            <p className="text-xs text-muted-foreground">
+              Ingen aktiv kampanj.{" "}
+              <Link href="/campaigns" className="underline underline-offset-4 hover:text-foreground">
+                Slå på en under Kampanjer
+              </Link>
+              .
+            </p>
+          )}
+          {!busy && made > 0 && (
+            <p role="status" className="text-xs text-good">
+              {made === 1 ? "1 klipp är klart." : `${made} klipp är klara.`} Granska nedan, eller i{" "}
+              <Link href="/queue?tab=granska" className="underline underline-offset-4">
+                Klippen, Att granska
+              </Link>
+              .
+            </p>
+          )}
           {stickerProblem && <p className="text-xs text-muted-foreground">{stickerProblem}</p>}
         </div>
       </section>
 
       <section className="mt-8">
-        <h2 className="text-xl font-semibold">Att granska</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Säg ja till klippet för att skicka det till Att posta.</p>
-        {toReview.length === 0 ? (
+        <h2 className="text-xl font-semibold">Dina egna klipp</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Säg ja till klippet för att skicka det till Att posta. Ett nekat klipp ligger under Nekade, där det går att ångra.
+        </p>
+        <div role="tablist" aria-label="Visa egna klipp" className="mt-3 flex w-fit max-w-full flex-wrap overflow-hidden rounded-[9px] border border-line text-[13px]">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={tab === t.id}
+              onClick={() => setTab(t.id)}
+              className="px-3 py-1.5 whitespace-nowrap text-muted-foreground hover:text-foreground aria-selected:bg-panel aria-selected:text-foreground"
+            >
+              {t.label} <span className="tabular-nums">{clips.filter((c) => t.statuses.includes(c.status)).length}</span>
+            </button>
+          ))}
+        </div>
+        {shown.length === 0 ? (
           <p className="mt-4 rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted-foreground">
-            Inga egna videor väntar på granskning.
+            {loadError ? "Klippen går inte att visa just nu." : tab === "granska" ? "Inga egna videor väntar på granskning." : "Inga egna klipp med den statusen."}
           </p>
         ) : (
-          toReview.map((clip, index) => (
+          shown.map((clip, index) => (
             <ClipResultRow
               key={`${clip.id}-${clip.updated}`}
               clip={clip}

@@ -787,3 +787,29 @@ export interface CampaignChat {
   messages: ChatMessage[];
   hits: ChatHit[];
 }
+
+// --- Hem, Projekt och Egna videor (flode-hem). Fält som äldre servrar saknar, därför valfria. ---
+
+export interface CampaignRunInfo {
+  /** Bilden från projektets första klipp, för projekt utan Twitch-bild (egna filer). */
+  poster_url?: string | null;
+  /** Robin avbröt hämtningen av klipp. */
+  cancelled?: boolean;
+  /** Projektet hämtar klipp i servern just nu, och det går att avbryta. */
+  cancellable?: boolean;
+}
+
+export interface CampaignRunDetail {
+  /** Snabbläget: signalerna väljer klippen, utan Claude. */
+  fast?: boolean;
+}
+
+export interface VodInfo {
+  /** Kampanjer i snabbläget: ingen Claude-kostnad och inget fält Leta efter. */
+  fast_campaigns?: string[];
+}
+
+export interface UploadOptions {
+  /** Kampanjens regel för material, till exempel att bara streamerns egna streams får användas. */
+  source_allowed?: string | null;
+}
