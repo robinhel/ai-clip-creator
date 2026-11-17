@@ -35,12 +35,13 @@ STAT_KEYS = ("views", "likes", "comments", "shares")
 COLUMNS = (
     "id, vod_id, profile, start_s, end_s, title, format, signals, file, caption, status, "
     "problems, warnings, review, platform, url, views, likes, comments, shares, note, "
-    "created, updated, score, reason, subscores"
+    "created, updated, score, reason, subscores, version_of"
 )
 
 # Kolumner som kom till efter första versionen. Saknas de läggs de till när loggen öppnas.
 NEW_COLUMNS = {
-    "clips": {"score": "INTEGER", "reason": "TEXT", "subscores": "TEXT"},
+    "clips": {"score": "INTEGER", "reason": "TEXT", "subscores": "TEXT",
+              "version_of": "INTEGER"},  # en ny version för ett annat konto: originalets id
     "runs": {"focus": "TEXT", "min_s": "INTEGER", "max_s": "INTEGER", "title": "TEXT",
              "channel_name": "TEXT", "thumbnail_url": "TEXT", "duration_s": "INTEGER", "created": "TEXT",
              "start_s": "REAL", "end_s": "REAL"},
@@ -161,21 +162,21 @@ class ClipLog:
             clip_format: str | None = None, signals: list | None = None,
             problems: list | None = None, warnings: list | None = None,
             review: dict | None = None, score: int | None = None, reason: str = "",
-            subscores: dict | None = None) -> int:
+            subscores: dict | None = None, version_of: int | None = None) -> int:
         if status not in STATUSES:
             raise ValueError(f"Okänd status: {status}")
         with self._db() as db:
             cursor = db.execute(
                 """INSERT INTO clips (vod_id, profile, start_s, end_s, title, format, signals,
                    file, caption, status, problems, warnings, review, created, updated, score, reason,
-                   subscores)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   subscores, version_of)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (vod_id, profile, start_s, end_s, title, clip_format,
                  json.dumps(signals or []), file, caption, status,
                  json.dumps(problems or [], ensure_ascii=False),
                  json.dumps(warnings or [], ensure_ascii=False),
                  json.dumps(review, ensure_ascii=False) if review else None,
-                 _now(), _now(), score, reason, json.dumps(subscores) if subscores else None),
+                 _now(), _now(), score, reason, json.dumps(subscores) if subscores else None, version_of),
             )
             return int(cursor.lastrowid)
 
@@ -185,6 +186,13 @@ class ClipLog:
         if row is None:
             raise SystemExit(f"Hittar inget klipp med id {clip_id}.")
         return self._row(row)
+
+    def family(self, clip_id: int) -> list[int]:
+        """Originalet och dess versioner, i den ordning de lades till. Samma klipp för reglerna per konto."""
+        root = self.get(clip_id)["version_of"] or clip_id
+        with self._db() as db:
+            rows = db.execute("SELECT id FROM clips WHERE id = ? OR version_of = ? ORDER BY id", (root, root))
+            return [row[0] for row in rows]
 
     def list(self, status: str | None = None) -> list[dict]:
         query = f"SELECT {COLUMNS} FROM clips"

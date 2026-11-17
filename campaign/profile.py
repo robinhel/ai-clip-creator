@@ -52,6 +52,9 @@ class Profile:
     cut_silence: bool = True
     cut_fillers: bool = True
     cold_open: bool = True
+    # Kontots fasta stil för en ny version: konto (id eller namn som i accounts) -> font, overlay, sticker,
+    # start_cut_s. Saknas kontot: standardvärden.
+    accounts_style: dict[str, dict] = field(default_factory=dict)
     raw: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -145,6 +148,21 @@ def _edit(data: dict) -> dict[str, bool]:
     return flags
 
 
+def _accounts_style(data: dict) -> dict[str, dict]:
+    value = data.get("accounts_style") or {}
+    if not isinstance(value, dict) or not all(isinstance(style, dict) for style in value.values()):
+        raise SystemExit("accounts_style måste vara en karta med en stil per konto, till exempel "
+                         "accounts_style: {kontot: {font: Impact}}.")
+    styles = {}
+    for account, style in value.items():
+        where = f"accounts_style.{account}"
+        for key, kinds in (("font", (str,)), ("overlay", (str,)), ("sticker", (dict,))):
+            if style.get(key) is not None and not isinstance(style[key], kinds):
+                raise SystemExit(f"{where}.{key} har fel typ: {style[key]!r}.")
+        styles[str(account)] = {**style, "start_cut_s": _number(style, "start_cut_s", 0, f"{where}.start_cut_s")}
+    return styles
+
+
 def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
     """Läs en profil. Ange namnet (skiimasktimmy) eller en sökväg till YAML-filen."""
     path = Path(name_or_path)
@@ -197,5 +215,6 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
         max_posts_per_day=_number(data.get("posting") or {}, "max_per_day", 3, "posting.max_per_day", int),
         min_gap_minutes=_number(data.get("posting") or {}, "min_gap_minutes", 120, "posting.min_gap_minutes", int),
         **_edit(data),
+        accounts_style=_accounts_style(data),
         raw=data,
     )
