@@ -27,6 +27,7 @@ from .caption import check_caption
 from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog
 from .config import Settings, load_settings
 from .media import need, probe, run
+from . import pipeline
 from .pipeline import finish_run, run_campaign_vod
 from .profile import PLATFORMS, Profile, load_profile
 from .vodinfo import VodNotFound, vod_facts
@@ -229,7 +230,16 @@ def vod_info(vod_id: str = PathParam(pattern=r"^\d{6,15}$"),
     problems = [text for text, hit in ((LIVE, facts["live"]), (SSD_MISSING, not disk["connected"])) if hit]
     campaigns = [p["name"] for p in list_profiles(settings)
                  if p["active"] and p["channel"] and p["channel"].lower() == facts["channel"]]
-    return {**facts, **_estimate(facts, settings, disk), "campaigns": campaigns, "problems": problems}
+    return {**facts, **_estimate(facts, settings, disk), "campaigns": campaigns, "problems": problems,
+            "fast_campaigns": [name for name in campaigns if _fast(name, settings)]}
+
+
+def _fast(name: str, settings: Settings) -> bool:
+    """Väljer kampanjen klipp med signalerna, utan Claude (snabbläget)? Då kostar körningen inget hos Claude."""
+    try:
+        return pipeline.signals_mode(load_profile(name, settings.profiles_dir), settings)
+    except (SystemExit, Exception):  # en trasig profil syns redan i list_profiles
+        return False
 
 
 @router.get("/streams", summary="De senaste streamsen för kampanjernas kanaler")
@@ -394,7 +404,7 @@ def _with_facts(meta: dict, log: ClipLog) -> dict:
 
 
 def _describe_run(meta: dict, db: Session, clips: list[dict], steps: bool = False,
-                  berget_usd_per_min: float | None = None) -> dict:
+                  berget_usd_per_min: float | None = None, fast: bool = False) -> dict:
     run = db.get(Run, meta["run_id"])
     if run is None:
         status, error, created, events = "failed", "Körningen saknas i clipsmiths databas.", None, []
@@ -404,17 +414,26 @@ def _describe_run(meta: dict, db: Session, clips: list[dict], steps: bool = Fals
                   .filter(PipelineEvent.run_id == run.id).order_by(PipelineEvent.id)]
     progress = estimate.progress(status, events, meta["duration_s"])
     counts: dict[str, int] = {}
-    for clip in _run_clips(meta, clips):
+    own = _run_clips(meta, clips)
+    for clip in own:
         counts[clip["status"]] = counts.get(clip["status"], 0) + 1
     out = {key: meta[key] for key in ("run_id", "vod_id", "profile", "game", "focus", "min_s", "max_s",
                                       "title", "channel_name", "thumbnail_url", "duration_s")}
     out.update(start_s=meta.get("start_s") or 0, end_s=meta.get("end_s") or 0)  # 0 för gamla körningar
     out.update(created=meta["created"] or created, status=status, stage=progress["stage"],
                pct=progress["pct"], message=progress["message"], error=error, clip_counts=counts)
+    first = min(own, key=lambda c: c["id"], default=None)  # bilden för projekt utan Twitch-bild, som en egen fil
+    out.update(poster_url=f"/campaign/clips/{first['id']}/poster?v={quote(first['updated'] or '')}" if first else None,
+               cancelled=status == "failed" and error == pipeline.CANCELLED,
+               cancellable=status in ("pending", "running") and pipeline.is_cancellable(meta["run_id"]))
     if steps:
-        out.update(steps=progress["steps"], eta_s=progress["eta_s"],
-                   cost_estimate_usd=estimate.cost_usd(meta["duration_s"], berget_usd_per_min),
-                   cost_estimate=estimate.cost(meta["duration_s"], berget_usd_per_min))
+        cost = estimate.cost(meta["duration_s"], berget_usd_per_min)
+        if fast and cost:  # snabbläget: signalerna väljer, inget anrop till Claude
+            cost = {**cost, "claude_usd": 0.0, "usd": cost["berget_usd"]}
+            progress["steps"] = [{**s, "label": "Signalerna väljer, utan Claude"} if s["id"] == "select" else s
+                                 for s in progress["steps"]]
+        out.update(steps=progress["steps"], eta_s=progress["eta_s"], fast=fast,
+                   cost_estimate_usd=cost and cost["usd"], cost_estimate=cost)
     return out
 
 
@@ -438,7 +457,20 @@ def get_run(run_id: int, db: Session = Depends(get_db),
     if meta is None:
         raise HTTPException(404, "Körningen finns inte.")
     return _describe_run(_with_facts(meta, log), db, log.list(), steps=True,
-                         berget_usd_per_min=_berget_price(settings))
+                         berget_usd_per_min=_berget_price(settings), fast=_fast(meta["profile"], settings))
+
+
+@router.post("/runs/{run_id}/cancel", status_code=202, summary="Avbryt en körning som pågår",
+             dependencies=[Depends(verify_api_key)])
+def cancel_run(run_id: int, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> dict:
+    """Körningen stoppar vid nästa steg: före nästa anrop till Claude, före nästa klipp, och hämtningen direkt.
+    Klara filer behålls, en halv nedladdning tas bort. Den markeras som misslyckad med texten CANCELLED."""
+    if _log(settings).run(run_id) is None:
+        raise HTTPException(404, "Projektet finns inte.")
+    run = db.get(Run, run_id)
+    if run is None or run.status not in (RunStatus.pending, RunStatus.running) or not pipeline.cancel(run_id):
+        raise HTTPException(409, "Projektet hämtar inga klipp just nu, så det finns inget att avbryta.")
+    return {"cancelling": True}
 
 
 @router.post("/runs/{run_id}/finish", status_code=202, summary="Gör klippen kampanjklara igen",

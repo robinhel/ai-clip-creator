@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 from clipsmith.llm.base import SUBSCORES
@@ -24,6 +25,10 @@ from .subtitles import load_words
 from .timemap import prepare
 
 FORCED_REASON = "Claude valde inte klippet. Det togs med för att nå min_picks."
+
+
+class RunCancelled(Exception):
+    """Robin tryckte Avbryt. Körningen stoppar mellan två steg, så att inga halva filer blir kvar."""
 
 
 def load_picks(path: Path) -> list[dict]:
@@ -84,8 +89,12 @@ def finish_vod(
     game: str | None = None,
     review: bool = True,
     subdir: str | None = None,
+    stop: Callable[[], None] | None = None,
 ) -> list[dict]:
-    """Gå igenom out/<vod_id>/clip_*.mp4 och gör varje klipp kampanjklart."""
+    """Gå igenom out/<vod_id>/clip_*.mp4 och gör varje klipp kampanjklart.
+
+    stop anropas före varje klipp och kastar RunCancelled när Robin har avbrutit. Klara klipp är sparade,
+    och inget nytt klipp eller anrop till Claude börjar."""
     clip_dir = settings.out_dir / vod_id
     if subdir:
         clip_dir = clip_dir / subdir
@@ -98,6 +107,8 @@ def finish_vod(
 
     results: list[dict] = []
     for src in files:
+        if stop:
+            stop()
         index = int(re.match(r"clip_(\d+)", src.name).group(1))
         pick = picks[index - 1] if 0 < index <= len(picks) else {}
         title = pick.get("title") or title_from_name(src)

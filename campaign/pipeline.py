@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import logging
 import shutil
+import threading
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -38,10 +40,58 @@ from .subtitles import pick_words, save_words
 from .timemap import hook_span
 from .transcribe import berget_post, transcribe_vod
 from .vodinfo import vod_facts
-from .workflow import finish_vod
+from .workflow import RunCancelled, finish_vod
 
 Emit = Callable[[str, float, str], None]
 log = logging.getLogger(__name__)
+
+CANCELLED = "Du avbröt."  # projektsidan visar "Avbruten", inte ett fel
+# Körningar i den här processen som går att avbryta, med en flagga som Avbryt sätter. Körningen läser
+# flaggan mellan stegen, före varje anrop till Claude och före varje klipp, och stoppar där.
+_cancel_flags: dict[int, threading.Event] = {}
+_cancel_lock = threading.Lock()
+
+
+def _track(run_id: int) -> None:
+    with _cancel_lock:
+        _cancel_flags.setdefault(run_id, threading.Event())
+
+
+def _untrack(run_id: int) -> None:
+    with _cancel_lock:
+        _cancel_flags.pop(run_id, None)
+
+
+@contextmanager
+def cancellable(run_id: int) -> Iterator[None]:
+    """Medan körningen pågår går den att avbryta med cancel(run_id)."""
+    _track(run_id)
+    try:
+        yield
+    finally:
+        _untrack(run_id)
+
+
+def cancel(run_id: int) -> bool:
+    """Be körningen stoppa. False när den inte pågår i den här processen."""
+    with _cancel_lock:
+        flag = _cancel_flags.get(run_id)
+    if flag is None:
+        return False
+    flag.set()
+    return True
+
+
+def is_cancellable(run_id: int) -> bool:
+    with _cancel_lock:
+        return run_id in _cancel_flags
+
+
+def _stop_if_cancelled(run_id: int | None) -> None:
+    with _cancel_lock:
+        flag = _cancel_flags.get(run_id) if run_id is not None else None
+    if flag is not None and flag.is_set():
+        raise RunCancelled(CANCELLED)
 
 
 def clipsmith_config(profile: Profile, settings: Settings):
@@ -63,7 +113,7 @@ def signals_mode(profile: Profile, settings: Settings) -> bool:
 
 
 def finish(vod_id: str, profile: Profile, settings: Settings, game: str | None,
-           run_id: int | None = None) -> list[dict]:
+           run_id: int | None = None, stop: Callable[[], None] | None = None) -> list[dict]:
     """I snabbläget ingen bildgranskning och ingen Claude-budget, också när klippen görs klara igen."""
     review = not signals_mode(profile, settings)
     log = ClipLog(settings.data_dir / "klipp.db")
@@ -71,7 +121,8 @@ def finish(vod_id: str, profile: Profile, settings: Settings, game: str | None,
     subdir = f"run_{run_id}"
     if not (settings.out_dir / vod_id / subdir).is_dir():
         subdir = None  # en körning från före mapparna per körning har klippen direkt i out/<vod>/
-    return finish_vod(vod_id, profile, settings, log, brain=brain, game=game, review=review, subdir=subdir)
+    return finish_vod(vod_id, profile, settings, log, brain=brain, game=game, review=review, subdir=subdir,
+                      stop=stop)
 
 
 def cut_picks(mp4: Path, transcript: Transcript, picks: list[PickResult], run_dir: Path, cfg) -> list[Path]:
@@ -131,7 +182,17 @@ def make_clips(
 
     Körningens råklipp och val hamnar i out/<vod>/run_<id>/, så att två körningar på samma VOD inte blandas.
     Utan run_id hamnar de direkt i out/<vod>/, som före mapparna per körning.
+
+    Avbryter Robin körningen (cancel) kastas RunCancelled vid nästa steg, före nästa anrop till Claude eller
+    före nästa klipp. En halv nedladdning tas bort.
     """
+    def stop() -> None:
+        _stop_if_cancelled(run_id)
+
+    def report(stage: str, pct: float, message: str) -> None:
+        stop()
+        emit(stage, pct, message)
+
     cfg = clipsmith_config(profile, settings)
     if min_s or max_s:  # körningens längd i en kopia, kampanjens fil ändras inte
         clip = cfg.clip.model_copy(update={"min_seconds": min_s or cfg.clip.min_seconds,
@@ -148,23 +209,29 @@ def make_clips(
         percent = round(100 * done / max(total, 1))
         if percent not in shown:  # en händelse per procent, inte en per del (1 400 delar på 4 timmar)
             shown.add(percent)
-            emit("download", 5.0 + percent / 10, f"Hämtar: {percent} %")
+            report("download", 5.0 + percent / 10, f"Hämtar: {percent} %")
 
     if local:
+        report("download", 5.0, "Egen fil, inget att hämta")  # steget blir klart, inte fel
         mp4 = cfg.work_dir.expanduser() / vod_id / f"{vod_id}.mp4"
     else:
-        emit("download", 5.0, "Hämtar VOD:en")
-        mp4 = download_vod(vod_id, cfg.work_dir.expanduser(), on_progress=downloading)
+        report("download", 5.0, "Hämtar VOD:en")
+        try:
+            mp4 = download_vod(vod_id, cfg.work_dir.expanduser(), on_progress=downloading)
+        except RunCancelled:  # twitch-dl är stoppad; delarna tas bort, så att ingen halv VOD blir kvar
+            shutil.rmtree(cfg.work_dir.expanduser() / vod_id / "delar", ignore_errors=True)
+            raise
 
     transcript = mp4.parent / "transcript.json"
     if not transcript.exists():
+        # Steget först, så att ett fel här syns på Transkriberar och inte på hämtningen.
+        report("transcribe", 15.0, f"Transkriberar via Berget ({settings.transcribe_model})")
         if not settings.berget_api_key:
             raise ValueError("BERGET_API_KEY saknas i .env. Den behövs för transkriberingen.")
-        emit("transcribe", 15.0, f"Transkriberar via Berget ({settings.transcribe_model})")
         transcribe_vod(mp4, vod_id, transcript, post=berget_post(settings.berget_api_key),
                        model=settings.transcribe_model, language=profile.language,
-                       on_part=lambda n, total: emit("transcribe", 15.0 + 25.0 * (n - 1) / total,
-                                                     f"Del {n} av {total}"),
+                       on_part=lambda n, total: report("transcribe", 15.0 + 25.0 * (n - 1) / total,
+                                                       f"Del {n} av {total}"),
                        budget=budget_from_settings(settings))
 
     secrets = load_secrets()
@@ -180,10 +247,11 @@ def make_clips(
         skip_transcribe=True,
         skip_chat=(mp4.parent / "chat.json").exists(),
         skip_select=True,
-        on_stage=lambda stage, pct: emit(stage, pct, ""),
+        on_stage=lambda stage, pct: report(stage, pct, ""),
         start_s=start_s,
         end_s=end_s,
     )
+    stop()  # Avbryt under clipsmiths sista steg
     candidates = load_candidates(mp4.parent / "candidates.json")
     run_dir = settings.out_dir / vod_id
     if run_id is not None:
@@ -191,7 +259,7 @@ def make_clips(
     picks: list[PickResult] = []
     asked = 0
     if candidates:
-        emit("select", 60.0, "")
+        report("select", 60.0, "")
         transcript = Transcript.from_json((mp4.parent / "transcript.json").read_text(encoding="utf-8"))
         transcript.segments = [s for s in transcript.segments  # samma del av VOD:en som kandidaterna
                                if s.start >= start_s and (not end_s or s.start <= end_s)]
@@ -200,21 +268,27 @@ def make_clips(
 
         def ask(*args):
             nonlocal asked
+            stop()  # inget nytt anrop till Claude efter Avbryt
             asked += 1
             return picker.pick(*args)
+
+        def rank(*args):
+            stop()
+            return picker.rank(*args)
 
         context = build_stream_context(
             channel, title, duration, focus=_with_memory(focus, profile, settings), clip_range=(cfg.clip.min_seconds, cfg.clip.max_seconds),
             game=game or "", language=profile.language, formats=profile.formats, mode=cfg.clip.selection_mode)
         # Filens längd: Claudes slut efter filens slut gav ett för kort klipp. Egen fil: exakt från ffprobe.
         video_end_s = probe(mp4)["duration"] if local else float(meta.get("duration_s") or 0)
-        picks = select_clips(candidates, transcript, SimpleNamespace(pick=ask, rank=getattr(picker, "rank", None)),
+        picks = select_clips(candidates, transcript,
+                             SimpleNamespace(pick=ask, rank=rank if getattr(picker, "rank", None) else None),
                              context, cfg.clip, video_end_s=video_end_s)
         for result in picks:
             if result.pick.format not in profile.format_ids:
                 result.pick.format = None  # ett id som kampanjen inte har blir inget format
         if picks:
-            emit("clip", 85.0, "")
+            report("clip", 85.0, "")
             cut_picks(mp4, transcript, picks, run_dir, cfg)
     legacy = settings.out_dir / vod_id / "picks.json"
     if not legacy.exists() and (mp4.parent / "picks.json").exists() and any(legacy.parent.glob("clip_*.mp4")):
@@ -226,8 +300,8 @@ def make_clips(
         return cfg, f"Claude valde inga av {asked} kandidater." if asked else "Inga kandidater hittades."
     chooser = "Signalerna" if cfg.clip.select == "signals" else "Claude"
 
-    emit("finish", 90.0, "Lägger på overlay, text och caption och kontrollerar reglerna")
-    results = finish(vod_id, profile, settings, game, run_id)
+    report("finish", 90.0, "Lägger på overlay, text och caption och kontrollerar reglerna")
+    results = finish(vod_id, profile, settings, game, run_id, stop)
     if not any("id" in result for result in results):
         reasons = ", ".join(dict.fromkeys(result["skipped"] for result in results if "skipped" in result))
         return cfg, f"Inga nya klipp. {chooser} valde {len(picks)}, men {reasons}."
@@ -241,8 +315,11 @@ def _duration(seconds: int) -> str:
 
 
 def _fail(db, run_id: int, error: BaseException) -> None:
-    """Markera körningen som misslyckad, så att sidan slutar vänta."""
-    log.error("kampanjkörning %d misslyckades", run_id, exc_info=error)
+    """Markera körningen som misslyckad, så att sidan slutar vänta. En avbruten körning får texten CANCELLED."""
+    if isinstance(error, RunCancelled):
+        log.info("kampanjkörning %d avbröts", run_id)
+    else:
+        log.error("kampanjkörning %d misslyckades", run_id, exc_info=error)
     try:
         db.rollback()  # ett fel vid commit lämnar sessionen trasig
         run = db.get(Run, run_id)
@@ -272,6 +349,7 @@ def run_campaign_vod(
 ) -> None:
     """Bakgrundsjobb för POST /campaign/runs, och för python -m campaign local. Skriver förloppet som clipsmiths händelser."""
     db = get_session()
+    _track(run_id)  # Avbryt på projektsidan
     try:
         profile = load_profile(profile_name, settings.profiles_dir)
         cfg, why_none = make_clips(vod_id, profile, settings, game=game, start_s=start_s, end_s=end_s,
@@ -284,9 +362,20 @@ def run_campaign_vod(
         if not isinstance(error, Exception | SystemExit):
             raise
     finally:
+        _untrack(run_id)
         db.close()
         if app is not None:
             app.state.active_run_id = None
+
+
+# Varför finish_vod lät ett klipp vara, i ental och flertal, som Robin läser det på projektsidan.
+SKIPPED_TEXT = {
+    "finns redan i klipploggen": ("är redan granskat eller postat", "är redan granskade eller postade"),
+    "du har nekat klippet": ("är nekat", "är nekade"),
+    "samma del av VOD:en är redan klippt": ("har en del av VOD:en som redan är klippt",
+                                            "har delar av VOD:en som redan är klippta"),
+    "klippet ändrades under tiden": ("ändrades medan det gjordes om", "ändrades medan de gjordes om"),
+}
 
 
 def finish_summary(results: list[dict]) -> str:
@@ -295,8 +384,9 @@ def finish_summary(results: list[dict]) -> str:
     skipped = Counter(result["skipped"] for result in results if "skipped" in result)
     text = f"{done} klipp gjordes om." if done else "Inga klipp gjordes om."
     if skipped:
-        reasons = ", ".join(f"{reason}: {count}" for reason, count in skipped.most_common())
-        text += f" {sum(skipped.values())} hoppades över ({reasons})."
+        reasons = ", ".join(f"{count} {SKIPPED_TEXT.get(reason, (reason, reason))[count > 1]}"
+                            for reason, count in skipped.most_common())
+        text += f" {sum(skipped.values())} klipp rördes inte: {reasons}."
     return text
 
 
@@ -304,15 +394,20 @@ def finish_run(run_id: int, vod_id: str, profile_name: str, game: str | None, se
                app: Any = None) -> None:
     """Bakgrundsjobb för POST /campaign/runs/{id}/finish: gör klippen kampanjklara igen."""
     db = get_session()
+    _track(run_id)
     try:
         _emit(db, run_id, "finish", 90.0, "Gör klippen kampanjklara igen")
-        results = finish(vod_id, load_profile(profile_name, settings.profiles_dir), settings, game, run_id)
+        results = finish(vod_id, load_profile(profile_name, settings.profiles_dir), settings, game, run_id,
+                         lambda: _stop_if_cancelled(run_id))
         _emit(db, run_id, "done", 100.0, finish_summary(results), status=RunStatus.done)
+    except RunCancelled:  # klippen som hann göras om är hela och sparade; projektet är fortfarande klart
+        _emit(db, run_id, "done", 100.0, "Du avbröt. Klippen som hann göras om är sparade.", status=RunStatus.done)
     except BaseException as error:
         _fail(db, run_id, error)
         if not isinstance(error, Exception | SystemExit):
             raise
     finally:
+        _untrack(run_id)
         db.close()
         if app is not None:
             app.state.active_run_id = None

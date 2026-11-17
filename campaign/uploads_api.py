@@ -46,7 +46,8 @@ def upload_options(profile: str, settings: Settings = Depends(get_settings)) -> 
             "stickers": versions._files(settings.root / "stickers", "/campaign/stickers"),
             "overlays": versions._files(settings.root / "overlays", "/campaign/overlays", "overlays/"),
             "overlay_locked": campaign.overlay_required, "max_start_cut_s": versions.MAX_CUT_S,
-            "min_seconds": campaign.min_seconds, "hook_text": bool(campaign.hook_text), "framings": list(FRAMINGS)}
+            "min_seconds": campaign.min_seconds, "hook_text": bool(campaign.hook_text), "framings": list(FRAMINGS),
+            "source_allowed": (campaign.raw.get("source") or {}).get("allowed")}  # visas under kampanjväljaren
 
 
 @router.post("/uploads", status_code=201, summary="Ladda upp en egen video och gör om den till ett klipp att granska",
@@ -91,8 +92,9 @@ def upload(file: UploadFile = File(...), profile: str = Form(...), title: str = 
         except RuntimeError as error:
             raise HTTPException(400, "Filen går inte att läsa som video.") from error
         if start_cut_s and length / speed < campaign.min_seconds:  # utan klipp i början: regelkontrollen säger till
-            raise HTTPException(400, f"Klippet blir {max(length / speed, 0):.1f} s. "
-                                     f"Kampanjen kräver minst {campaign.min_seconds:g} s.")
+            short, low = (text.replace(".", ",") for text in (f"{max(length / speed, 0):.1f}",
+                                                               f"{campaign.min_seconds:g}"))
+            raise HTTPException(400, f"Klippet blir {short} s. Kampanjen kräver minst {low} s.")
         wanted = {"file": sticker, "position": sticker_position, "start_s": sticker_start_s,
                   "duration_s": sticker_duration_s} if sticker else None
         try:
@@ -118,6 +120,9 @@ def upload(file: UploadFile = File(...), profile: str = Form(...), title: str = 
     title = hook or name.stem  # namnet syns bara i listan
     caption = build_caption(hook, campaign)  # utan rubrik: bara kampanjens text, aldrig filens namn
     problems, warnings = check_clip(probe(done), manifest, campaign, caption)
+    # En egen video går inte att göra kampanjklar igen: säg vad Robin kan göra i stället.
+    problems = [f"{p} Ladda upp en längre video eller tryck Nej." if "Kampanjen kräver minst" in p else p
+                for p in problems]
     log = _log(settings)
     clip_id = log.add(vod_id=UPLOAD, profile=profile, file=str(done), title=title, caption=caption,
                       status="underkand" if problems else "renderad", problems=problems, warnings=warnings)

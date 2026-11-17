@@ -31,14 +31,13 @@ def check_clip(
     problems: list[str] = list(check_source(info))
     warnings: list[str] = []
 
+    length = f"{info['duration']:.1f}".replace(".", ",")  # svenskt talformat: 4,6 s
     if info["duration"] < profile.min_seconds:
-        problems.append(
-            f"Klippet är {info['duration']:.1f} s. Kampanjen kräver minst {profile.min_seconds:g} s."
-        )
+        low = f"{profile.min_seconds:g}".replace(".", ",")
+        problems.append(f"Klippet är {length} s. Kampanjen kräver minst {low} s.")
     if info["duration"] > profile.max_seconds:
-        problems.append(
-            f"Klippet är {info['duration']:.1f} s. Profilens tak är {profile.max_seconds:g} s."
-        )
+        high = f"{profile.max_seconds:g}".replace(".", ",")
+        problems.append(f"Klippet är {length} s. Profilens tak är {high} s.")
     if not info["has_audio"]:
         problems.append("Klippet saknar ljud. Streamens ljud måste höras.")
     if profile.text_required and not manifest.get("text_applied"):

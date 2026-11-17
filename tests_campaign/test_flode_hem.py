@@ -10,10 +10,11 @@ import time
 
 import pytest
 
-from campaign import api, download, pipeline
+from campaign import download, pipeline
 from campaign.cliplog import ClipLog
 from campaign.profile import load_profile
 from campaign.workflow import RunCancelled, finish_vod
+from clipsmith.candidates.builder import save_candidates
 
 from .conftest import PAKET, make_clip, needs_ffmpeg
 from .test_api import client  # noqa: F401  (fixture)
@@ -53,7 +54,7 @@ def test_cancel_stops_the_run_before_claude_and_frees_the_app(client, settings, 
     def process_vod(video, cfg, secrets, **kwargs):
         seen["cancellable"] = client.get(f"/campaign/runs/{run_id}").json()["cancellable"]
         seen["cancel"] = client.post(f"/campaign/runs/{run_id}/cancel").status_code
-        (vod.mp4.parent / "candidates.json").write_text("[]", encoding="utf-8")
+        save_candidates(vod.candidates, vod.mp4.parent / "candidates.json")
 
     monkeypatch.setattr(pipeline, "process_vod", process_vod)
     monkeypatch.setattr(pipeline, "_harvest_clips", lambda *a: None)
@@ -147,7 +148,7 @@ def test_cancel_when_clips_are_made_again_keeps_the_project_done(client, setting
     run_id = _run("done")
     ClipLog(settings.data_dir / "klipp.db").add_run(run_id, VOD, "skiimasktimmy", "Bodycam")
 
-    def finish(*args, stop=None):
+    def finish(vod_id, profile, settings, game, run_id, stop):
         pipeline.cancel(run_id)
         stop()
 
