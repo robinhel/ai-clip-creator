@@ -21,7 +21,7 @@ STATUSES = [
 # Ett inlägg är klippet på en plattform. Varje inlägg skickas in, följs och betalas för sig.
 POST_STATUSES = ["postad", "inskickad", "analytics_inskickad", "betald"]
 POST_COLUMNS = ("id, clip_id, platform, account, url, status, views, likes, comments, shares, paid_usd, created, "
-                "updated")
+                "updated, prev_status")
 # Ett inlägg per klipp, plattform och konto. Ett inlägg loggat för hand har inget konto (NULL), och räknas som
 # ett eget konto: två utan konto på samma plattform går inte.
 POSTS_TABLE = """CREATE TABLE IF NOT EXISTS {name} (
@@ -45,6 +45,7 @@ NEW_COLUMNS = {
     "runs": {"focus": "TEXT", "min_s": "INTEGER", "max_s": "INTEGER", "title": "TEXT",
              "channel_name": "TEXT", "thumbnail_url": "TEXT", "duration_s": "INTEGER", "created": "TEXT",
              "start_s": "REAL", "end_s": "REAL"},
+    "posts": {"prev_status": "TEXT"},  # statusen före den senaste, så att Ångra på Betald går tillbaka dit
 }
 
 
@@ -272,6 +273,8 @@ class ClipLog:
         if unknown:
             raise ValueError(f"Fält som inte får ändras: {sorted(unknown)}")
         post = self.get_post(post_id)
+        if fields.get("status", post["status"]) != post["status"]:
+            fields["prev_status"] = post["status"]
         if fields:
             sets = ", ".join(f"{key} = ?" for key in fields)
             with self._db() as db:
