@@ -102,6 +102,16 @@ def _save(log: ClipLog, redo: dict | None, common: dict, **fields) -> int | None
     return redo["id"]
 
 
+def _raw_clips(vod_id: str, settings: Settings, subdir: str | None) -> tuple[Path, list[Path], list[dict]]:
+    """Mappen med råklippen, råklippen och valen från clipsmith."""
+    clip_dir = settings.out_dir / vod_id / subdir if subdir else settings.out_dir / vod_id
+    files = sorted(clip_dir.glob("clip_*.mp4"))
+    if not files:
+        raise SystemExit(f"Hittar inga klipp i {clip_dir}. Kör clipsmith först.")
+    own = clip_dir / "picks.json"  # en körning i out/<vod>/run_<id>/ har sina egna val
+    return clip_dir, files, load_picks(own if own.exists() else settings.work_dir / vod_id / "picks.json")
+
+
 def finish_vod(
     vod_id: str,
     profile: Profile,
@@ -111,26 +121,15 @@ def finish_vod(
     game: str | None = None,
     review: bool = True,
     subdir: str | None = None,
-    stop: Callable[[], None] | None = None,
+    stop: Callable[[], None] = lambda: None,  # kastar RunCancelled när Robin har avbrutit
 ) -> list[dict]:
-    """Gå igenom out/<vod_id>/clip_*.mp4 och gör varje klipp kampanjklart.
-
-    stop anropas före varje klipp och kastar RunCancelled när Robin har avbrutit. Klara klipp är sparade,
-    och inget nytt klipp eller anrop till Claude börjar."""
-    clip_dir = settings.out_dir / vod_id
-    if subdir:
-        clip_dir = clip_dir / subdir
-    files = sorted(clip_dir.glob("clip_*.mp4"))
-    if not files:
-        raise SystemExit(f"Hittar inga klipp i {clip_dir}. Kör clipsmith först.")
-    own = clip_dir / "picks.json"  # en körning i out/<vod>/run_<id>/ har sina egna val
-    picks = load_picks(own if own.exists() else settings.work_dir / vod_id / "picks.json")
+    """Gå igenom out/<vod_id>/clip_*.mp4 och gör varje klipp kampanjklart."""
+    clip_dir, files, picks = _raw_clips(vod_id, settings, subdir)
     existing = {clip["file"]: clip for clip in log.list()}
 
     results: list[dict] = []
     for src in files:
-        if stop:
-            stop()
+        stop()  # före varje klipp: klara klipp är sparade, och inget nytt klipp eller anrop till Claude börjar
         index = int(re.match(r"clip_(\d+)", src.name).group(1))
         pick = picks[index - 1] if 0 < index <= len(picks) else {}
         title = pick.get("title") or title_from_name(src)

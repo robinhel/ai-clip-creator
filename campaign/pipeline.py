@@ -113,7 +113,7 @@ def signals_mode(profile: Profile, settings: Settings) -> bool:
 
 
 def finish(vod_id: str, profile: Profile, settings: Settings, game: str | None,
-           run_id: int | None = None, stop: Callable[[], None] | None = None) -> list[dict]:
+           run_id: int | None = None, stop: Callable[[], None] = lambda: None) -> list[dict]:
     """I snabbläget ingen bildgranskning och ingen Claude-budget, också när klippen görs klara igen."""
     review = not signals_mode(profile, settings)
     log = ClipLog(settings.data_dir / "klipp.db")
