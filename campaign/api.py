@@ -29,6 +29,7 @@ from .config import Settings, load_settings
 from .media import need, probe, run
 from .pipeline import finish_run, run_campaign_vod
 from .profile import PLATFORMS, Profile, load_profile
+from .rules import NO_FORMAT
 from .vodinfo import VodNotFound, vod_facts
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
@@ -511,13 +512,22 @@ def refinish_run(
 REVIEW_PREFIX = "Bildgranskning: "
 
 
+def _split_warnings(clip: dict) -> tuple[list[str], list[str]]:
+    """Varningarna som visas, och äldre klipps bildgranskning som låg bland varningarna."""
+    warnings = clip["warnings"] or []
+    # Äldre klipp har bildgranskningens beskrivningar som varningar. De visas med bildgranskningen i stället.
+    old_notes = [w.removeprefix(REVIEW_PREFIX) for w in warnings if w.startswith(REVIEW_PREFIX)]
+    # Varningen om format sparades när klippet gjordes. Den gäller inte längre när formatet är valt.
+    hidden = {NO_FORMAT} if clip["format"] else set()
+    shown = [w for w in warnings if not w.startswith(REVIEW_PREFIX) and w not in hidden]
+    return shown, old_notes
+
+
 def _public(clip: dict, settings: Settings) -> dict:
     out = {k: v for k, v in clip.items() if k != "file"}
     out["filename"] = Path(clip["file"] or "").name
     out["problems"] = clip["problems"] or []
-    # Äldre klipp har bildgranskningens beskrivningar som varningar. De visas med bildgranskningen i stället.
-    old_notes = [w.removeprefix(REVIEW_PREFIX) for w in clip["warnings"] or [] if w.startswith(REVIEW_PREFIX)]
-    out["warnings"] = [w for w in clip["warnings"] or [] if not w.startswith(REVIEW_PREFIX)]
+    out["warnings"], old_notes = _split_warnings(clip)
     if old_notes:
         review = dict(clip["review"] or {})
         review["notes"] = [*(review.get("notes") or []), *old_notes]

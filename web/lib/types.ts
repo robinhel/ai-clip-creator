@@ -821,6 +821,13 @@ export interface UploadOptions {
   source_allowed?: string | null;
 }
 
+// --- Klippen: menyn, flikarna och Publicera (flode-klippen) ---
+
+export interface ScheduledPost {
+  /** TikTok utan direktpostning: appen påminner på Macen och Robin postar själv. Saknas hos äldre servrar. */
+  reminder?: boolean;
+}
+
 // --- Ta bort VOD-filen på ett projekt (projekt-ta-bort) ---
 
 export interface CampaignRunInfo {
