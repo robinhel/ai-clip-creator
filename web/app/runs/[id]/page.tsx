@@ -453,7 +453,7 @@ export default function RunDetailPage() {
       {(isActive || run.status === "failed") && (
         <section className="mt-7">
           {isActive && (
-            <p className="mb-2 text-sm text-muted-foreground">
+            <p className="mb-2 max-w-[640px] text-sm text-muted-foreground">
               {run.eta_s != null ? `Cirka ${duration(run.eta_s)} kvar. ` : ""}
               {fastCost
                 ? `Kostar cirka ${usd.format(fastCost.berget_usd)} hos Berget. Signalerna väljer, utan Claude. `

@@ -486,7 +486,7 @@ export function UploadsClient() {
               <fieldset className="space-y-3 rounded-xl border border-line p-3">
                 <legend className="px-1 text-[13px] text-muted-foreground">Klistermärke</legend>
                 <div>
-                  {label("Klistermärke", "upload-sticker")}
+                  {label("Välj klistermärke", "upload-sticker")}
                   <select id="upload-sticker" value={sticker} onChange={(e) => setSticker(e.target.value)} disabled={busy} className={field}>
                     <option value="">Inget</option>
                     {opts.stickers.map((s) => (
