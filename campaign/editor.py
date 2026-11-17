@@ -85,6 +85,8 @@ def limits(profile: Profile) -> tuple[float, float]:
 
 
 def why_not(clip: dict, raw: Path | None) -> str | None:
+    if clip.get("version_of"):  # versionen delar råklipp med originalet
+        return "En version går inte att redigera. Gör en ny version av originalet i stället."
     if clip["status"] in LOCKED:
         return "Klippet är postat. Det går inte att ändra."
     if clip["status"] == "nekad":
