@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from clipsmith.api.deps import get_db, verify_api_key
 from clipsmith.db.models import Run, RunStatus
 
-from . import editor, estimate, pipeline, preferences, runinfo, streams
+from . import editor, estimate, pipeline, preferences, runinfo, streams, vodfiles
 from .budget import BudgetExceeded, budget_from_settings
 from .caption import check_caption
 from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog, UploadRunning
@@ -295,8 +295,8 @@ def _own_file_missing(vod_id: str, settings: Settings) -> str | None:
     från work/<id>/<id>.mp4. Finns filen inte kvar, kan appen inte köra den igen."""
     if vod_id.isdigit() or _mp4(vod_id, settings).exists():
         return None
-    return (f"Källfilen till projektet finns inte längre ({vod_id}.mp4 i work/). "
-            "Kör filen igen med python -m campaign local.")
+    return (f"Källfilen till projektet finns inte längre ({vod_id}.mp4 i work/), till exempel för att den togs "
+            "bort för att frigöra plats. Kör igen går inte. Kör filen igen med python -m campaign local.")
 
 
 def _create_run(body: CampaignRunCreate, request: Request, background_tasks: BackgroundTasks, db: Session,
@@ -417,7 +417,7 @@ def list_runs(db: Session = Depends(get_db), settings: Settings = Depends(get_se
     # Ett projekt per stream och kampanj: Kör igen och en ny körning på samma VOD visas som samma projekt,
     # med den senaste körningen. Klippen delas redan per VOD och kampanj (runinfo.run_clips).
     latest = {(meta["vod_id"], meta["profile"]): meta for meta in log.runs() if meta["profile"] not in off}
-    return [runinfo.describe(_with_facts(meta, log), db, clips)[0]
+    return [runinfo.describe(_with_facts(meta, log), db, clips, settings)[0]
             for meta in sorted(latest.values(), key=lambda m: m["run_id"], reverse=True)]
 
 
@@ -429,7 +429,7 @@ def get_run(run_id: int, db: Session = Depends(get_db),
     if meta is None:
         raise HTTPException(404, "Projektet finns inte.")
     meta = _with_facts(meta, log)
-    out, progress = runinfo.describe(meta, db, log.list())
+    out, progress = runinfo.describe(meta, db, log.list(), settings)
     out.update(runinfo.steps_and_cost(progress, meta["duration_s"], _berget_price(settings),
                                       runinfo.fast(meta["profile"], settings)))
     out["retry_problem"] = _own_file_missing(meta["vod_id"], settings)  # varför Kör igen inte går
@@ -448,6 +448,35 @@ def cancel_run(run_id: int, db: Session = Depends(get_db), settings: Settings = 
     if not (in_progress and pipeline.cancel(run_id)):
         raise HTTPException(409, "Projektet hämtar inga klipp just nu, så det finns inget att avbryta.")
     return {"cancelling": True}
+
+
+def _vod_in_use(vod_id: str, run_id: int, request: Request, db: Session) -> bool:
+    """Projektet pågår, eller körningen som pågår i appen använder samma VOD: en annan kampanj eller chatten."""
+    own = db.get(Run, run_id)
+    if own is not None and own.status in (RunStatus.pending, RunStatus.running):
+        return True
+    active_id = request.app.state.active_run_id
+    active = db.get(Run, active_id) if active_id is not None else None
+    return active is not None and active.vod_id == vod_id
+
+
+@router.delete("/runs/{run_id}/vod", summary="Ta bort projektets VOD-fil och delar för att frigöra plats",
+               dependencies=[Depends(verify_api_key)])
+def delete_run_vod(run_id: int, request: Request, db: Session = Depends(get_db),
+                   settings: Settings = Depends(get_settings)) -> dict:
+    """Bara work/<id>/<id>.mp4 och delarna. Klippen, transkriptet, chatten och klipploggen finns kvar.
+    Kör igen hämtar VOD:en från Twitch igen. En egen fil går inte att köra igen efteråt."""
+    meta = _log(settings).run(run_id)
+    if meta is None:
+        raise HTTPException(404, "Projektet finns inte.")
+    with _start_lock:  # ingen körning startar medan filerna tas bort
+        if _vod_in_use(meta["vod_id"], run_id, request, db):
+            raise HTTPException(409, "Projektet använder VOD-filen just nu. Vänta tills det är klart.")
+        try:
+            freed = vodfiles.remove(meta["vod_id"], settings)
+        except vodfiles.UnsafeVod as error:
+            raise HTTPException(400, str(error)) from error
+    return {"freed_bytes": freed, "freed_gb": round(freed / estimate.GB, 2)}
 
 
 @router.post("/runs/{run_id}/finish", status_code=202, summary="Gör klippen kampanjklara igen",

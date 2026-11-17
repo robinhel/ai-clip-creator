@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from clipsmith.db.models import PipelineEvent, Run
 
-from . import estimate, pipeline
+from . import estimate, pipeline, vodfiles
 from .config import Settings
 from .profile import load_profile
 
@@ -49,7 +49,7 @@ def _poster_url(own: list[dict]) -> str | None:
     return f"/campaign/clips/{first['id']}/poster?v={quote(first['updated'] or '')}" if first else None
 
 
-def describe(meta: dict, db: Session, clips: list[dict]) -> tuple[dict, dict]:
+def describe(meta: dict, db: Session, clips: list[dict], settings: Settings) -> tuple[dict, dict]:
     """Projektet som Hem och Projekt visar det, och förloppet med stegen för projektsidan."""
     status, error, created, events = _state(meta, db)
     progress = estimate.progress(status, events, meta["duration_s"])
@@ -60,7 +60,8 @@ def describe(meta: dict, db: Session, clips: list[dict]) -> tuple[dict, dict]:
                pct=progress["pct"], message=progress["message"], error=error,
                clip_counts=dict(Counter(c["status"] for c in own)), poster_url=_poster_url(own),
                cancelled=status == "failed" and error == pipeline.CANCELLED,
-               cancellable=status in ("pending", "running") and pipeline.is_cancellable(meta["run_id"]))
+               cancellable=status in ("pending", "running") and pipeline.is_cancellable(meta["run_id"]),
+               vod_bytes=vodfiles.size(meta["vod_id"], settings))  # det som Ta bort VOD-filen frigör
     return out, progress
 
 
