@@ -432,7 +432,7 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
             </p>
           )}
           {editing && clip.status === "godkand" && (
-            <p className="text-xs text-muted-foreground">Ändrar du captionen måste klippet godkännas igen.</p>
+            <p className="text-xs text-muted-foreground">Ändrar du captionen måste klippet godkännas igen. Schemalagda uppladdningar avbryts.</p>
           )}
           {editing && (
             <div className="flex flex-wrap gap-2">
