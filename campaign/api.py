@@ -690,9 +690,9 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
 
 
 def _check_min_views(views: int | None, profile: Profile) -> None:
-    """Statistik inskickad går först när inlägget har nått kampanjens min_views."""
+    """Analytics inskickad går först när inlägget har nått kampanjens min_views."""
     if (views or 0) < profile.min_views:
-        raise HTTPException(400, f"Statistiken skickas in först vid {profile.min_views} visningar. "
+        raise HTTPException(400, f"Analytics skickas in först vid {profile.min_views} visningar. "
                                  f"Inlägget har {views or 0}.")
 
 

@@ -14,7 +14,7 @@ STATUSES = [
     "nekad",  # du sa nej
     "postad",  # uppe på TikTok, Shorts eller Reels
     "inskickad",  # länken är inskickad till Content Rewards
-    "analytics_inskickad",  # skärminspelningen av statistiken är inskickad
+    "analytics_inskickad",  # Analytics inskickad: skärminspelningen av inläggets analytics är inskickad
     "betald",
 ]
 
@@ -352,7 +352,7 @@ class ClipLog:
                 elif post["status"] == "inskickad" and post["views"] >= min_views:
                     items.append(
                         f"{where}: har {post['views']} visningar. Skicka skärminspelningen av "
-                        "inläggets statistik i kampanjens formulär."
+                        "inläggets analytics i analytics-formuläret."
                     )
         return items
 

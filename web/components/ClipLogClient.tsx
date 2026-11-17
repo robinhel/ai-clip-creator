@@ -47,7 +47,11 @@ const DAY_MS = 86_400_000;
 /** Klipp från Egna videor har vod_id upload (campaign/uploads_api.py). */
 const UPLOAD = "upload";
 
-const NEXT_STEPS: Partial<Record<CampaignStatus, CampaignStatus[]>> = {
+/** Knapparna för stegen. Steget efter Inskickad heter Analytics inskickad i hela appen. */
+const STEP_LABEL = { inskickad: "Inskickad", analytics_inskickad: "Analytics inskickad", betald: "Betald" } as const;
+type NextStep = keyof typeof STEP_LABEL;
+
+const NEXT_STEPS: Partial<Record<CampaignStatus, NextStep[]>> = {
   postad: ["inskickad"],
   inskickad: ["analytics_inskickad", "betald"],
   analytics_inskickad: ["betald"],
@@ -199,11 +203,11 @@ const viewsOf = (item: TodoItem) => count.format((item.post ?? item.clip).views 
 
 /** Vad Robin ska göra i steget, i ord. Steget posta görs i Att posta och har en egen punkt. */
 const STEP_TEXT: Record<Exclude<Step, "posta">, (item: TodoItem, now: number) => string> = {
-  inskickad: () => `Skicka in länken i Content Rewards. Tryck sedan ${STATUS_LABEL.inskickad}.`,
+  inskickad: () => `Skicka in länken i Content Rewards. Tryck sedan ${STEP_LABEL.inskickad}.`,
   visningar: () => "Fyll i visningar, gillningar och kommentarer.",
   analytics_inskickad: (item) =>
-    `${viewsOf(item)} visningar. Skicka en skärminspelning av inläggets analytics i analytics-formuläret. Tryck sedan ${STATUS_LABEL.analytics_inskickad}.`,
-  betald: () => `Fyll i beloppet när Whop har betalat. Tryck sedan ${STATUS_LABEL.betald}.`,
+    `${viewsOf(item)} visningar. Skicka en skärminspelning av inläggets analytics i analytics-formuläret. Tryck sedan ${STEP_LABEL.analytics_inskickad}.`,
+  betald: () => `Fyll i beloppet när Whop har betalat. Tryck sedan ${STEP_LABEL.betald}.`,
   visningar_igen: (item, now) =>
     `Fyll i visningarna igen. De ändrades för ${days((item.post ?? item.clip).updated, now)} dagar sedan. Kampanjen betalar från ${count.format(item.minViews)}.`,
 };
@@ -439,7 +443,7 @@ function NotPosted({ status }: { status: CampaignStatus }) {
   );
 }
 
-function StepButton(props: { next: CampaignStatus; primary: boolean; locked: boolean; minViews: number; busy: boolean; onClick: () => void }) {
+function StepButton(props: { next: NextStep; primary: boolean; locked: boolean; minViews: number; busy: boolean; onClick: () => void }) {
   const { next, primary, locked, minViews, busy, onClick } = props;
   return (
     <div className="space-y-1">
@@ -451,9 +455,9 @@ function StepButton(props: { next: CampaignStatus; primary: boolean; locked: boo
         data-goto={primary ? "" : undefined}
         onClick={onClick}
       >
-        {STATUS_LABEL[next]}
+        {STEP_LABEL[next]}
       </Button>
-      {locked && <p className="text-xs text-muted-foreground">Går först vid {count.format(minViews)} visningar.</p>}
+      {locked && <p className="text-xs text-muted-foreground">Analytics går först vid {count.format(minViews)} visningar.</p>}
     </div>
   );
 }
@@ -792,7 +796,7 @@ function PageHeader({ refreshing, onRefresh }: { refreshing: boolean; onRefresh:
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Statistik</h1>
         <p className="text-sm text-muted-foreground">
-          Dina postade inlägg: skicka in, fyll i visningar, skicka analytics och markera {STATUS_LABEL.betald}.
+          Dina postade inlägg: skicka in, fyll i visningar, skicka analytics och markera {STEP_LABEL.betald}.
         </p>
       </div>
       <Button variant="outline" onClick={onRefresh} disabled={refreshing}>

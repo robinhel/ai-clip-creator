@@ -52,7 +52,7 @@ def test_each_post_is_sent_in_and_followed_on_its_own(client, settings) -> None:
     assert clip["status"] == "postad"
     assert (clip["views"], clip["likes"]) == (2500, 40)
 
-    # Statistik inskickad går först när inlägget har nått kampanjens min_views (2 000).
+    # Analytics inskickad går först när inlägget har nått kampanjens min_views (2 000).
     # Webben får gränsen med klippet, så att knappen kan låsas innan Robin klickar.
     assert clip["min_views"] == 2000
     assert client.patch(f"/campaign/posts/{reels}", json={"status": "inskickad"}).status_code == 200
