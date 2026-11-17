@@ -9,6 +9,7 @@ import { RemoveFromQueue } from "@/components/RemoveFromQueue";
 import { ScheduleBar } from "@/components/ScheduleDialog";
 import { ScheduledList } from "@/components/ScheduledList";
 import { api } from "@/lib/api";
+import { pollWhileVisible } from "@/lib/poll";
 import { SUMMARY_CHANGED } from "@/lib/utils";
 import type {
   CampaignClip,
@@ -78,6 +79,8 @@ const SECTIONS: { status: CampaignStatus; title: string; description: string; em
   },
 ];
 
+const POLL_MS = 15_000;
+
 export function QueueClient() {
   const [clips, setClips] = useState<CampaignClip[] | null>(null);
   const [profiles, setProfiles] = useState<CampaignProfile[]>([]);
@@ -126,6 +129,16 @@ export function QueueClient() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Schemat och klippen ändras av servern (uppladdning vid tiden). Läs om dem tyst medan fliken syns.
+  // Bara ett ändrat svar byter state, så att raderna inte ritas om och öppna formulär står kvar.
+  useEffect(() => {
+    const same = <T,>(next: T) => (prev: T) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
+    return pollWhileVisible(() => {
+      api.campaign.schedule.list().then((next) => setSchedule(same<ScheduledPost[] | null>(next))).catch(() => {});
+      api.campaign.clips.list().then((next) => setClips(same<CampaignClip[] | null>(next))).catch(() => {});
+    }, POLL_MS);
+  }, []);
 
   function handleUpdate(updated: CampaignClip) {
     setClips((prev) => prev?.map((c) => (c.id === updated.id ? updated : c)) ?? null);
