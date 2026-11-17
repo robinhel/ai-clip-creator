@@ -53,7 +53,7 @@ def post_edit(clip_id: int, body: EditBody, request: Request, settings: Settings
     try:
         with _start_lock:  # samma lås som när en körning startar, så att de inte kan börja samtidigt
             if getattr(request.app.state, "active_run_id", None) is not None:
-                raise HTTPException(409, "En körning pågår. Vänta tills den är klar.")
+                raise HTTPException(409, "Ett projekt pågår. Vänta tills det är klart.")
         clip = _get(log, clip_id)  # läs inuti låset
         profile = _profile(clip["profile"], settings)
         words = None if body.words is None else [w.model_dump() for w in body.words]
