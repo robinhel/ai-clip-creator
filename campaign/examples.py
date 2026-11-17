@@ -114,7 +114,7 @@ def fetch(url: str) -> dict:
         with http_client() as http:
             response = http.get(url)
     except httpx.HTTPError as error:
-        raise RuntimeError(f"Content Rewards gick inte att nå: {type(error).__name__}.") from error
+        raise RuntimeError("Content Rewards svarar inte. Försök igen om en stund.") from error
     if response.status_code != 200:
         raise RuntimeError(f"Content Rewards svarade {response.status_code}. Försök igen om en stund.")
     try:
