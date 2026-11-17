@@ -187,7 +187,7 @@ def test_finish_again_is_refused_for_a_failed_run(client, settings, started) -> 
     run_id = _run("failed")
     ClipLog(settings.data_dir / "klipp.db").add_run(run_id, VOD, "skiimasktimmy", "Bodycam")
     response = client.post(f"/campaign/runs/{run_id}/finish")
-    assert (response.status_code, response.json()["detail"]) == (400, "Körningen misslyckades. Tryck Kör igen.")
+    assert (response.status_code, response.json()["detail"]) == (400, "Projektet misslyckades. Tryck Kör igen.")
     assert client.app.state.active_run_id is None
 
 
@@ -224,7 +224,7 @@ def test_a_run_does_not_start_when_the_budget_is_used(client, settings, vod, sta
     budget_from_settings(settings).record("okänd-modell", "granska", 2_000_000, 0)  # 16 dollar
     response = client.post("/campaign/runs", json=BODY)
     assert response.status_code == 400
-    assert words in response.json()["detail"] and "Körningen startar inte" in response.json()["detail"]
+    assert words in response.json()["detail"] and "Projektet startar inte" in response.json()["detail"]
     assert started == []
 
 

@@ -240,3 +240,15 @@ def test_a_cancelled_project_is_cancelled_on_the_stream_card_too(client, setting
     db.close()
     cards = {s["vod_id"]: (s["run_status"], s["run_cancelled"]) for s in client.get("/campaign/streams").json()}
     assert cards == {VOD: ("failed", True), "2925070238": ("failed", False)}
+
+
+def test_the_server_says_project_not_run(client, settings) -> None:  # noqa: F811
+    """Samma ord i hela appen: projekt, aldrig körning i text som Robin ser."""
+    for method, path in (("get", "/campaign/runs/999"), ("post", "/campaign/runs/999/retry"),
+                         ("post", "/campaign/runs/999/cancel")):
+        response = getattr(client, method)(path)
+        assert (response.status_code, response.json()["detail"]) == (404, "Projektet finns inte."), path
+    done = _run("done")
+    ClipLog(settings.data_dir / "klipp.db").add_run(done, VOD, "skiimasktimmy", None)
+    response = client.post(f"/campaign/runs/{done}/retry")
+    assert (response.status_code, response.json()["detail"]) == (400, "Bara ett projekt som misslyckades eller avbröts kan köras igen.")
