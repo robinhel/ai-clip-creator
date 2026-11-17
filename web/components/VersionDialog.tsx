@@ -513,17 +513,15 @@ export function VersionButton({ clip, onCreated }: { clip: CampaignClip; onCreat
     };
   }, [clip]);
 
-  if (!start || Object.keys(start).length === 0) return null;
-  const allowed = Object.values(start).some((o) => o?.allowed);
-  const reasons = [...new Set(Object.values(start).map((o) => o?.reason).filter(Boolean))];
+  // Går ingen ny version att göra, visas knappen inte alls.
+  if (!start || !Object.values(start).some((o) => o?.allowed)) return null;
 
   return (
-    <div className="space-y-1.5 border-t border-line pt-3">
-      <Button className="h-9 w-full" variant="outline" disabled={!allowed} onClick={() => setOpen(true)}>
+    <div className="space-y-1.5">
+      <Button className="h-9 w-full" variant="outline" onClick={() => setOpen(true)}>
         <Copy aria-hidden />
         Ny version
       </Button>
-      {!allowed && reasons.map((r) => <p key={r} className="text-xs text-muted-foreground">{r}</p>)}
       {open && (
         <VersionDialog
           clip={clip}

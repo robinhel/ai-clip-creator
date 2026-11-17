@@ -413,7 +413,10 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
             }}
           />
         ) : (
-          subs?.reason && <p className="rounded-xl border border-line bg-background px-3 py-2.5 text-sm text-muted-foreground">{subs.reason}</p>
+          // En egen video har ingen undertext från appen; skälet gäller bara klipp ur en stream.
+          subs?.reason && clip.vod_id !== "upload" && (
+            <p className="rounded-xl border border-line bg-background px-3 py-2.5 text-sm text-muted-foreground">{subs.reason}</p>
+          )
         )}
 
         {clip.status === "godkand" && (
