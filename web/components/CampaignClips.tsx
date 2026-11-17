@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { ClipResultRow } from "@/components/ClipResultRow";
 import { api } from "@/lib/api";
 import type { CampaignClip, CampaignProfileDetail, CampaignStatus, MaterialItem } from "@/lib/types";
@@ -30,6 +31,17 @@ export function CampaignClips({ profile, material }: { profile: CampaignProfileD
   }, [profile.name]);
   useEffect(load, [load]);
 
+  // En länk från chatten (#klipp-41) visar alla klipp och rullar fram klippet.
+  useEffect(() => {
+    const match = /^#klipp-(\d+)$/.exec(window.location.hash);
+    if (!clips || !match) return;
+    const clip = clips.find((c) => c.id === Number(match[1]));
+    if (clip && !filter.statuses?.includes(clip.status)) setFilter(FILTERS[FILTERS.length - 1]);
+    requestAnimationFrame(() => document.getElementById(`klipp-${match[1]}`)?.scrollIntoView({ block: "start" }));
+    // Bara när klippen har kommit, inte när Robin byter filter själv.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clips === null]);
+
   const count = (f: (typeof FILTERS)[number]) => clips?.filter((c) => !f.statuses || f.statuses.includes(c.status)).length ?? 0;
   const visible = clips?.filter((c) => !filter.statuses || filter.statuses.includes(c.status)) ?? [];
   const source = (vodId: string) => material?.find((m) => m.vod_id === vodId)?.title || vodId;
@@ -54,12 +66,22 @@ export function CampaignClips({ profile, material }: { profile: CampaignProfileD
       </div>
       {visible.length === 0 ? (
         <p className="mt-6 rounded-2xl border border-dashed border-line px-4 py-8 text-center text-sm text-muted-foreground">
-          {clips.length === 0 ? "Kampanjen har inga klipp än. Skapa klipp i chatten." : "Inga klipp med den statusen."}
+          {clips.length === 0 ? (
+            <>
+              Kampanjen har inga klipp än.{" "}
+              <Link href={`/campaigns/${profile.name}?tab=skapa`} className="font-medium text-foreground underline underline-offset-4">
+                Skapa klipp i chatten
+              </Link>
+              .
+            </>
+          ) : (
+            "Inga klipp med den statusen."
+          )}
         </p>
       ) : (
         visible.map((clip, i) => (
           // Ny nyckel när servern har sparat, så att fälten visar det sparade.
-          <Fragment key={`${clip.id}-${clip.updated}`}>
+          <div key={`${clip.id}-${clip.updated}`} id={`klipp-${clip.id}`} className="scroll-mt-24">
             <p className="mt-5 -mb-3 truncate text-xs text-muted-foreground">Från: {source(clip.vod_id)}</p>
             <ClipResultRow
               clip={clip}
@@ -68,7 +90,7 @@ export function CampaignClips({ profile, material }: { profile: CampaignProfileD
               onUpdate={(updated) => setClips((prev) => prev?.map((c) => (c.id === updated.id ? updated : c)) ?? null)}
               onReload={load}
             />
-          </Fragment>
+          </div>
         ))
       )}
     </section>

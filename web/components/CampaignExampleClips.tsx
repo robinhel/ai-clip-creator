@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ExternalLink, Loader2 } from "lucide-react";
+import { ExternalLink, Loader2, RotateCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { usd } from "@/lib/utils";
 import type { CampaignExamples } from "@/lib/types";
@@ -17,12 +18,15 @@ const PLATFORMS: Record<string, string> = {
 };
 
 /** Kampanjens bästa klipp och klippare, från kampanjsidan på Content Rewards. */
-export function CampaignExampleClips({ id }: { id: string }) {
+export function CampaignExampleClips({ id, link }: { id: string; link?: string | null }) {
   const [data, setData] = useState<CampaignExamples | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let alive = true;
+    setError(null);
+    setData(null);
     api.campaign.profile
       .examples(id)
       .then((d) => alive && setData(d))
@@ -30,9 +34,32 @@ export function CampaignExampleClips({ id }: { id: string }) {
     return () => {
       alive = false;
     };
-  }, [id]);
+  }, [id, attempt]);
 
-  if (error) return <p role="alert" className="text-sm text-bad">{error}</p>;
+  const settings = `/campaigns/${id}?tab=installningar&del=oversikt#lankar`;
+  const linkClass = "text-foreground underline underline-offset-4";
+
+  if (error) {
+    return (
+      <div role="alert" className="max-w-[640px] space-y-3 text-sm">
+        <p className="text-bad">{error}</p>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <Button variant="outline" size="sm" onClick={() => setAttempt((n) => n + 1)}>
+            <RotateCw aria-hidden />
+            Försök igen
+          </Button>
+          {link && (
+            <a href={link} target="_blank" rel="noreferrer" className={`inline-flex items-center gap-1 ${linkClass}`}>
+              Öppna kampanjsidan på Content Rewards <ExternalLink className="size-3.5" aria-hidden />
+            </a>
+          )}
+          <Link href={settings} className={linkClass}>
+            Ändra länken under Ställ in
+          </Link>
+        </div>
+      </div>
+    );
+  }
   if (!data) {
     return (
       <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -44,8 +71,8 @@ export function CampaignExampleClips({ id }: { id: string }) {
     return (
       <p className="max-w-[640px] text-sm text-muted-foreground">
         {data.problem}{" "}
-        <Link href={`/campaigns/${id}?tab=profil`} className="text-foreground underline underline-offset-4">
-          Öppna Profil (YAML)
+        <Link href={settings} className={linkClass}>
+          Öppna Ställ in
         </Link>
       </p>
     );
@@ -54,7 +81,7 @@ export function CampaignExampleClips({ id }: { id: string }) {
   return (
     <div className="space-y-8">
       <p className="text-sm text-muted-foreground">
-        De klipp i kampanjen som har flest visningar. Hämtas från{" "}
+        Förebilder: de klipp i kampanjen som har flest visningar. Hämtas från{" "}
         {data.source && (
           <a href={data.source} target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-4">
             kampanjsidan på Content Rewards
