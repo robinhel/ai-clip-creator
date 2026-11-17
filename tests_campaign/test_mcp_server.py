@@ -267,3 +267,19 @@ def test_the_accounts_of_a_clip_and_a_new_text_for_another_account(app):
     request = app.requests[-1]
     assert (request.method, request.url.path, json.loads(request.content)) == (
         "POST", "/campaign/clips/5/variant", {"platform": "tiktok", "account": "openB"})
+
+
+def test_a_new_version_for_another_account(app):
+    tools = _tools()
+    assert tools["version_options"].annotations.read_only_hint
+    assert not tools["make_version"].annotations.open_world_hint  # renderas på Macen; inget publiceras
+    _call("version_options", {"clip_id": 5, "platform": "tiktok", "account": "openB"})
+    assert (app.requests[-1].method, app.requests[-1].url.raw_path.decode()) == (
+        "GET", "/campaign/clips/5/versions/options?platform=tiktok&account=openB")
+    sticker = {"file": "wow.png", "position": "top_right", "start_s": 0, "duration_s": 3}
+    _call("make_version", {"clip_id": 5, "platform": "tiktok", "account": "openB", "font": "Impact",
+                           "start_cut_s": 2, "sticker": sticker})
+    request = app.requests[-1]
+    assert (request.method, request.url.path, json.loads(request.content)) == (
+        "POST", "/campaign/clips/5/versions",
+        {"platform": "tiktok", "account": "openB", "font": "Impact", "start_cut_s": 2, "sticker": sticker})
