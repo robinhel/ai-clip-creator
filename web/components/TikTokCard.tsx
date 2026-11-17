@@ -1,14 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, Loader2, Plus, XCircle } from "lucide-react";
+import { CheckCircle2, ExternalLink, Loader2, Plus, XCircle } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { CopyButton } from "@/components/CopyButton";
 import { api } from "@/lib/api";
+import { TIKTOK_APP, TIKTOK_REDIRECT_URI, TIKTOK_VERIFIED_PREFIX } from "@/lib/appLinks";
 import { cn } from "@/lib/utils";
 import type { TikTokAccount, TikTokStatus } from "@/lib/types";
-
-const REDIRECT_URI = "http://127.0.0.1:8000/campaign/tiktok/callback/";
 
 /** Kontona. En äldre server har bara ett konto på toppnivå; det får open_id "". */
 export function tiktokAccounts(status: TikTokStatus): TikTokAccount[] {
@@ -27,6 +26,49 @@ function AddAccount() {
       <Plus aria-hidden />
       Lägg till TikTok-konto
     </a>
+  );
+}
+
+/** Adresserna som är inlagda i TikTok-appen. Visas alltid, så att de går att hitta när något ska ändras där. */
+function AppLinks() {
+  return (
+    <details className="mt-3" data-app-links>
+      <summary className="cursor-pointer text-muted-foreground select-none hover:text-foreground">
+        Kopplingar i TikTok-appen
+      </summary>
+      <p className="mt-2 text-muted-foreground">
+        Det här står i appen robin-klipp-verktyg på{" "}
+        <a href="https://developers.tiktok.com/apps" target="_blank" rel="noreferrer" className="text-brand underline-offset-4 hover:underline">
+          developers.tiktok.com
+        </a>
+        . Sidorna ligger i repot robinhel/robinhel.github.io (GitHub Pages). TikTok har verifierat prefixet{" "}
+        <code className="text-[13px]">{TIKTOK_VERIFIED_PREFIX}</code>.
+      </p>
+      <dl className="mt-3 space-y-3">
+        {TIKTOK_APP.map((link) => (
+          <div key={link.id}>
+            <dt className="text-[13px] text-muted-foreground">{link.label}</dt>
+            <dd className="mt-1 flex flex-wrap items-center gap-2">
+              {link.page ? (
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex min-w-0 items-center gap-1 rounded-md border border-line bg-background px-2 py-1 text-[13px] break-all underline-offset-4 hover:underline"
+                >
+                  {link.url}
+                  <ExternalLink className="size-3 shrink-0" aria-hidden />
+                </a>
+              ) : (
+                // Adressen på den egna datorn öppnas inte: servern väntar bara på TikToks svar där.
+                <code className="rounded-md border border-line bg-background px-2 py-1 text-[13px] break-all">{link.url}</code>
+              )}
+              <CopyButton text={link.url} label="Kopiera" />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </details>
   );
 }
 
@@ -192,8 +234,8 @@ export function TikTokCard({ result: fromUrl, reason: reasonFromUrl, refresh }: 
               <li>
                 Lägg in redirect-adressen:
                 <span className="mt-1.5 flex flex-wrap items-center gap-2">
-                  <code className="rounded-md border border-line bg-background px-2 py-1 text-[13px]">{REDIRECT_URI}</code>
-                  <CopyButton text={REDIRECT_URI} label="Kopiera" />
+                  <code className="rounded-md border border-line bg-background px-2 py-1 text-[13px]">{TIKTOK_REDIRECT_URI}</code>
+                  <CopyButton text={TIKTOK_REDIRECT_URI} label="Kopiera" />
                 </span>
               </li>
               <li>Lägg till dina TikTok-konton under Target users i Sandbox.</li>
@@ -233,6 +275,8 @@ export function TikTokCard({ result: fromUrl, reason: reasonFromUrl, refresh }: 
           </p>
         </>
       )}
+
+      {status && <AppLinks />}
     </section>
   );
 }

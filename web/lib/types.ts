@@ -260,6 +260,22 @@ export interface VersionOptions {
   defaults: { font: string | null; overlay: string | null; sticker: VersionSticker | null; start_cut_s: number };
 }
 
+/** GET /campaign/uploads/options. Samma bilder som en ny version, efter kampanjens regler. */
+export interface UploadOptions {
+  fonts: { name: string; label: string }[];
+  stickers: { file: string; url: string }[];
+  overlays: { file: string; url: string }[];
+  /** Kampanjen kräver sin egen overlay; den går inte att byta. */
+  overlay_locked: boolean;
+  max_start_cut_s: number;
+  /** Kampanjens kortaste klipp i sekunder. */
+  min_seconds: number;
+  /** false: kampanjen bränner inte in rubriken, så fonten syns inte där. */
+  hook_text: boolean;
+  /** fill: fyll 9:16 och skär bort kanterna. fit: hela bilden på en suddig bakgrund. */
+  framings: string[];
+}
+
 /** POST /campaign/clips/{id}/versions. Bara de här valen; inga filter, ingen spegling, ingen ändrad hastighet. */
 export interface VersionCreate {
   platform: "tiktok" | "youtube";

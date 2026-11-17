@@ -5,9 +5,8 @@ import { CheckCircle2, Loader2, Plus, XCircle } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { CopyButton } from "@/components/CopyButton";
 import { api } from "@/lib/api";
+import { YOUTUBE_REDIRECT_URI } from "@/lib/appLinks";
 import type { YouTubeChannel, YouTubeStatus } from "@/lib/types";
-
-const REDIRECT_URI = "http://127.0.0.1:8000/campaign/youtube/callback/";
 
 export const channelName = (c: Pick<YouTubeChannel, "title">) => c.title ?? "YouTube-kanal";
 
@@ -194,8 +193,8 @@ export function YouTubeCard({ refresh }: { /** Ändras när YouTube-nycklarna sp
             <li>
               Lägg in redirect-adressen:
               <span className="mt-1.5 flex flex-wrap items-center gap-2">
-                <code className="rounded-md border border-line bg-background px-2 py-1 text-[13px]">{REDIRECT_URI}</code>
-                <CopyButton text={REDIRECT_URI} label="Kopiera" />
+                <code className="rounded-md border border-line bg-background px-2 py-1 text-[13px]">{YOUTUBE_REDIRECT_URI}</code>
+                <CopyButton text={YOUTUBE_REDIRECT_URI} label="Kopiera" />
               </span>
             </li>
             <li>Lägg till ditt Google-konto under Test users på sidan för inloggningen (OAuth consent screen).</li>

@@ -14,7 +14,7 @@ from . import editor
 from .caption import PLACEHOLDER
 from .cliplog import POST_STATUSES, ClipLog
 from .config import Settings
-from .finish import HEIGHT, WIDTH, finish_clip
+from .finish import HEIGHT, WIDTH, finish_clip, top_text_end
 from .media import probe
 from .profile import Profile, load_profile
 from .profile_edit import overlay_target
@@ -45,6 +45,7 @@ SATURATION = (-0.5, 0.5)
 
 POSITIONS = ("top_left", "top_right", "center", "bottom_left", "bottom_right")
 MARGIN = 40  # från sidan
+TEXT_GAP = 20  # luft mellan texten uppe och ett klistermärke under den
 STICKER_W = 320  # klistermärkets bredd i bilden; höjden följer bilden
 
 
@@ -66,16 +67,20 @@ def sticker_path(root: Path, file: object) -> Path:
     return target
 
 
-def sticker_box(position: str, width: int, height: int, profile: Profile) -> tuple[int, int]:
-    """Var klistermärket hamnar: precis utanför kampanjens säkra zoner, MARGIN från sidan. Ryms det inte
-    mellan zonerna blir det 400."""
+def sticker_box(position: str, width: int, height: int, profile: Profile, text_end: int = 0) -> tuple[int, int]:
+    """Var klistermärket hamnar: precis utanför kampanjens säkra zoner, MARGIN från sidan. Uppe hamnar det under
+    texten uppe (text_end, från finish.top_text_end), så att rubriken syns. Ryms det inte blir det 400."""
     if position not in POSITIONS:
         raise VersionError(f"Platsen {position!r} finns inte. Välj {', '.join(POSITIONS)}.")
     top, bottom = math.ceil(HEIGHT * profile.safe_top), math.floor(HEIGHT * (1 - profile.safe_bottom))
+    first = max(top, text_end + TEXT_GAP) if text_end else top
     x = {"left": MARGIN, "right": WIDTH - width - MARGIN}.get(position.split("_")[-1], (WIDTH - width) // 2)
-    y = {"top": top, "bottom": bottom - height}.get(position.split("_")[0], (HEIGHT - height) // 2)
+    y = {"top": first, "bottom": bottom - height}.get(position.split("_")[0], (HEIGHT - height) // 2)
     if y < top or y + height > bottom:
         raise VersionError("Klistermärket går in i kampanjens säkra zon, där plattformens knappar och text ligger. "
+                           "Välj ett mindre klistermärke eller en annan plats.")
+    if y < text_end:
+        raise VersionError("Klistermärket täcker rubriken eller kampanjens text uppe. "
                            "Välj ett mindre klistermärke eller en annan plats.")
     return x, y
 
@@ -187,7 +192,10 @@ def _overlay(settings: Settings, profile: Profile, overlay: str | None) -> Path 
     return path
 
 
-def _sticker(settings: Settings, profile: Profile, sticker: dict | None, length: float) -> dict | None:
+def _sticker(settings: Settings, profile: Profile, sticker: dict | None, length: float, title: str = "",
+             overlay: Path | None = None, frame: str = "") -> dict | None:
+    """Klistermärket kontrollerat och placerat. title, overlay och frame (bildläget) är klippets: texten uppe
+    ska synas."""
     if sticker is None:
         return None
     path = sticker_path(settings.root, sticker.get("file"))
@@ -204,7 +212,8 @@ def _sticker(settings: Settings, profile: Profile, sticker: dict | None, length:
     except RuntimeError as error:
         raise VersionError(f"Klistermärket {path.name} går inte att läsa.") from error
     height = round(STICKER_W * info["height"] / info["width"])
-    x, y = sticker_box(str(sticker.get("position")), STICKER_W, height, profile)
+    text_end = top_text_end(profile, settings.root, title, overlay, frame)
+    x, y = sticker_box(str(sticker.get("position")), STICKER_W, height, profile, text_end)
     return {"path": path, "w": STICKER_W, "h": height, "x": x, "y": y, "start_s": start, "end_s": start + duration}
 
 
@@ -227,7 +236,9 @@ def make(settings: Settings, log: ClipLog, clip: dict, platform: str, account: s
     if length / speed < profile.min_seconds:
         raise VersionError(f"Versionen blir {length / speed:.1f} s. Kampanjen kräver minst {profile.min_seconds:g} s.")
     own = _overlay(settings, profile, overlay)
-    placed = _sticker(settings, profile, sticker, length)
+    title = root["title"] or ""
+    hook = "" if PLACEHOLDER.search(title) else title
+    placed = _sticker(settings, profile, sticker, length, hook, own, data["reframe"]["mode"])
 
     done = raw.parent / "klara" / raw.name
     number = 1
@@ -235,7 +246,6 @@ def make(settings: Settings, log: ClipLog, clip: dict, platform: str, account: s
         number += 1
     tmp_src, tmp_out = editor._tmp(raw, "version"), editor._tmp(out, "render")
     ass = raw.with_name(f".{raw.stem}.version.ass")  # punkt först, som _tmp
-    title = root["title"] or ""
     try:
         src = raw
         if start_cut_s > 0:  # råklippet börjar vid in_s; versionen börjar start_cut_s senare
@@ -244,7 +254,7 @@ def make(settings: Settings, log: ClipLog, clip: dict, platform: str, account: s
         caption = {**data["caption"], **({"font": font} if font else {})}  # bara versionens undertext
         plan = prepare(src, {**data, "caption": caption}, ready["in_s"] + start_cut_s, ready["out_s"], profile, ass)
         manifest = finish_clip(src, tmp_out, profile, settings.root, settings.encoder,
-                               title="" if PLACEHOLDER.search(title) else title, subtitles=ass, plan=plan,
+                               title=hook, subtitles=ass, plan=plan,
                                overlay=own, font_file=found.get(font or ""), sticker=placed, look=filters,
                                speed=speed, frame=data["reframe"]["mode"])
         os.replace(tmp_out, out)

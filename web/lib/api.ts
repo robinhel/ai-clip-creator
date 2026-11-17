@@ -13,6 +13,7 @@ import type {
   ClipAccounts,
   ClipVariant,
   VersionCreate,
+  UploadOptions,
   VersionOptions,
   CampaignSummary,
   KeyGroup,
@@ -157,6 +158,9 @@ export const api = {
     },
     /** En egen video görs om och blir ett klipp att granska. 201 med klippet, 400 med svensk text. */
     upload: (form: FormData) => apiFetch<CampaignClip>("/campaign/uploads", { method: "POST", body: form }),
+    /** Font, overlay, klistermärke och bildläge för egna videor i kampanjen. */
+    uploadOptions: (profile: string) =>
+      apiFetch<UploadOptions>(`/campaign/uploads/options?profile=${encodeURIComponent(profile)}`),
     clips: {
       list: (filter: { status?: CampaignStatus; vod_id?: string; run_id?: number } = {}) => {
         const query = new URLSearchParams(
