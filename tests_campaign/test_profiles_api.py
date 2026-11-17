@@ -846,7 +846,7 @@ def test_the_overlay_picture_can_be_removed(client, settings) -> None:
 
 def test_yaml_errors_are_in_plain_swedish(client, settings) -> None:
     text = _profile_text(settings).replace("platforms: [tiktok, instagram_reels, youtube_shorts]",
-                                           "platforms: [tiktok, instagram_reels: youtube_shorts]")
+                                           "platforms: [tiktok, instagram_reels: x: youtube_shorts]")
     detail = client.put("/campaign/profiles/skiimasktimmy/yaml", json={"yaml": text}).json()["detail"]
     assert detail.startswith("Fel på rad ")
     assert "expected" not in detail and "but got" not in detail

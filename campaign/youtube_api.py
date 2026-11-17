@@ -30,7 +30,8 @@ _pending: dict[str, tuple[float, str]] = {}  # state -> (när, code_verifier). B
 
 @router.get("/youtube/status", summary="Kopplade YouTube-kanaler och dagens uppladdningar")
 def youtube_status(settings: Settings = Depends(get_settings)) -> dict:
-    return YouTube(settings).status()
+    # Adressen som servern använder, så att webben visar samma som ska stå i utvecklarportalen.
+    return {**YouTube(settings).status(), "redirect_uri": settings.youtube_redirect_uri}
 
 
 @router.get("/youtube/connect", summary="Logga in på Google (öppnas direkt mot :8000)",

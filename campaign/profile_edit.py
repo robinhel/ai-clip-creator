@@ -6,6 +6,8 @@ Fel ger ValueError med svensk text. Filer skrivs atomiskt (tmp-fil och os.replac
 
 from __future__ import annotations
 
+import copy
+import json
 import os
 import re
 import stat
@@ -145,7 +147,27 @@ def overlay_target(root: Path, file: object) -> Path:
 # ---------- profilens YAML ----------
 
 
-def _parse(text: str) -> object:
+# PyYAML:s vanligaste fel i enkel svenska. Nyckeln är början på felets text.
+YAML_PROBLEMS = (
+    ("expected ',' or ']'", "En lista inom [ ] är inte rätt skriven. Kontrollera kommatecken och klamrar."),
+    ("expected ',' or '}'", "En karta inom { } är inte rätt skriven. Kontrollera kommatecken och klamrar."),
+    ("mapping values are not allowed", "Ett kolon står på fel ställe. Sätt texten inom citattecken om den har ett kolon."),
+    ("found character '\\t'", "Raden har en tabb. Använd mellanslag för indrag."),
+    ("could not find expected ':'", "Ett kolon saknas efter fältets namn."),
+    ("found unexpected end of stream", "Ett citattecken är inte stängt."),
+    ("expected <block end>", "Indraget är fel. Rader i samma del ska ha lika många mellanslag."),
+    ("did not find expected", "Indraget är fel. Rader i samma del ska ha lika många mellanslag."),
+    ("expected a comment or a line break", "Något står efter värdet på raden. Sätt texten inom citattecken."),
+)
+
+
+def _yaml_problem(error: yaml.YAMLError) -> str:
+    problem = str(getattr(error, "problem", None) or "")
+    return next((text for start, text in YAML_PROBLEMS if problem.startswith(start)),
+                "Texten går inte att läsa. Kontrollera klamrar, citattecken, kolon och indrag.")
+
+
+def parse_yaml(text: str) -> object:
     """Läs YAML utan ankare och alias, så att en liten fil inte kan växa till en enorm (billion laughs)."""
     try:
         for event in yaml.parse(text, Loader=yaml.SafeLoader):
@@ -154,8 +176,8 @@ def _parse(text: str) -> object:
         return yaml.safe_load(text)
     except yaml.YAMLError as error:
         mark = getattr(error, "problem_mark", None)
-        where = f" på rad {mark.line + 1}" if mark else ""
-        raise ValueError(f"YAML-fel{where}: {getattr(error, 'problem', None) or error}") from error
+        where = f"Fel på rad {mark.line + 1}" if mark else "Fel i texten"
+        raise ValueError(f"{where}: {_yaml_problem(error)}") from error
 
 
 def _check_types(data: dict, root: Path) -> None:
@@ -194,7 +216,7 @@ def _check_types(data: dict, root: Path) -> None:
 
 def check_profile_text(text: str, profile_id: str, root: Path) -> Profile:
     """Samma kontroller som load_profile, plus det som annars kraschar senare i kedjan."""
-    data = _parse(text)
+    data = parse_yaml(text)
     if not isinstance(data, dict):
         raise ValueError("Profilen måste vara en YAML-karta med fält som name och streamer.")
     _check_types(data, root)
@@ -261,6 +283,151 @@ def set_keys(text: str, section: str, values: dict[str, str]) -> str:
         lines[head] += "\n"
     lines[head + 1:head + 1] = missing
     return "".join(lines)
+
+
+# ---------- formuläret Ställ in: ändra fält och låt resten av filen vara ----------
+
+DELETE = object()  # värdet i update_profile: ta bort fältet
+UNSAVED = "Ändringen gick inte att skriva in i filen. Gör den under Avancerat (YAML)."
+
+
+def _literal(value: object) -> str:
+    """Värdet som YAML på en rad. JSON är giltig YAML. Ett flyttal skrivs alltid med punkt, aldrig som 1e-05."""
+    if isinstance(value, float):
+        text = f"{value:.6f}".rstrip("0")
+        return text + "0" if text.endswith(".") else text
+    if isinstance(value, list):
+        return "[" + ", ".join(_literal(v) for v in value) + "]"
+    if value is None or isinstance(value, bool | int | str):
+        return json.dumps(value, ensure_ascii=False)
+    raise ValueError(UNSAVED)
+
+
+def _comment(line: str) -> str:
+    """Kommentaren sist på raden, med blanktecknen före, annars tom text. # inom citattecken räknas inte."""
+    quote, i = None, 0
+    while i < len(line):
+        ch = line[i]
+        if quote:
+            if quote == '"' and ch == "\\":
+                i += 1
+            elif ch == quote:
+                quote = None
+        elif ch in "\"'" and line[:i].rstrip()[-1:] in ("", ":", "[", "{", ",", "-"):
+            quote = ch
+        elif ch == "#" and line[i - 1:i] in (" ", "\t"):
+            return line[len(line[:i].rstrip(" \t")):].rstrip("\r\n")
+        i += 1
+    return ""
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" \t"))
+
+
+def _end(lines: list[str], head: int) -> int:
+    """Raden efter fältets sista rad: rader med större indrag, och listrader med samma indrag.
+    Kommentarer och tomma rader efter fältet hör till nästa fält."""
+    ind, last = _indent(lines[head]), head
+    for i in range(head + 1, len(lines)):
+        stripped = lines[i].strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if _indent(lines[i]) > ind or (_indent(lines[i]) == ind and (stripped == "-" or stripped.startswith("- "))):
+            last = i
+        else:
+            break
+    return last + 1
+
+
+def _find(lines: list[str], key: str, start: int, end: int, ind: int) -> int | None:
+    pattern = re.compile(rf"[ \t]{{{ind}}}{re.escape(key)}:(\s|$)")
+    return next((i for i in range(start, end) if pattern.match(lines[i]) and _indent(lines[i]) == ind), None)
+
+
+def _render(key: str, value: object, ind: str) -> list[str]:
+    if isinstance(value, dict):
+        if not value:
+            return [f"{ind}{key}: {{}}\n"]
+        return [f"{ind}{key}:\n", *(line for k, v in value.items() for line in _render(k, v, ind + "  "))]
+    if isinstance(value, list) and value and all(isinstance(v, dict) for v in value):  # formats
+        out = [f"{ind}{key}:\n"]
+        for item in value:
+            out += [f"{ind}  {'- ' if n == 0 else '  '}{k}: {_literal(v)}\n" for n, (k, v) in enumerate(item.items())]
+        return out
+    return [f"{ind}{key}: {_literal(value)}\n"]
+
+
+def _replace_field(lines: list[str], head: int, key: str, value: object, ind: str) -> list[str]:
+    """Byt fältet på raden head. En kommentar på en enradig rad står kvar."""
+    end = _end(lines, head)
+    if value is DELETE:
+        return lines[:head] + lines[end:]
+    new = _render(key, value, ind)
+    if end == head + 1 and len(new) == 1 and (comment := _comment(lines[head])):
+        new = [new[0].rstrip("\n") + comment + "\n"]
+    return lines[:head] + new + lines[end:]
+
+
+def _set(lines: list[str], path: str, value: object, expected: dict) -> list[str]:
+    top, _, sub = path.partition(".")
+    head = _find(lines, top, 0, len(lines), 0)
+    if not sub:
+        if head is not None:
+            return _replace_field(lines, head, top, value, "")
+        return lines if value is DELETE else [*lines, "\n", *_render(top, value, "")]
+    if head is None:
+        return lines if value is DELETE else [*lines, "\n", *_render(top, {sub: value}, "")]
+    end = _end(lines, head)
+    after_colon = lines[head].split(":", 1)[1]
+    if after_colon.strip() and not after_colon.strip().startswith("#"):  # en del på en rad, {a: 1}
+        return lines[:head] + _render(top, expected.get(top) or {}, "") + lines[end:]
+    children = [line for line in lines[head + 1:end] if line.strip() and not line.lstrip().startswith("#")]
+    ind = children[0][:_indent(children[0])] if children else "  "
+    found = _find(lines, sub, head + 1, end, len(ind))
+    if found is not None:
+        return _replace_field(lines, found, sub, value, ind)
+    return lines if value is DELETE else lines[:end] + _render(sub, value, ind) + lines[end:]
+
+
+def update_profile(text: str, changes: dict[str, object]) -> str:
+    """Byt fälten i changes, till exempel "campaign", "caption.template" och "formats", och låt resten av
+    filen vara. Kommentarer i fält som inte ändras finns kvar. DELETE tar bort fältet. ValueError om
+    resultatet inte blir exakt profilen med ändringarna."""
+    before = parse_yaml(text)
+    if not isinstance(before, dict):
+        raise ValueError("Profilen måste vara en YAML-karta med fält som name och streamer.")
+    expected = copy.deepcopy(before)
+    for path, value in changes.items():
+        top, _, sub = path.partition(".")
+        if not sub:
+            if value is DELETE:
+                expected.pop(top, None)
+            else:
+                expected[top] = value
+            continue
+        section = expected.get(top)
+        if section is None:
+            section = expected[top] = {}
+        if not isinstance(section, dict):
+            raise ValueError(f"{top} måste vara en karta med fält. Ändra den under Avancerat (YAML).")
+        if value is DELETE:
+            section.pop(sub, None)
+        else:
+            section[sub] = value
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    for path, value in changes.items():
+        lines = _set(lines, path, value, expected)
+    new = "".join(lines)
+    try:
+        same = parse_yaml(new) == expected
+    except ValueError:
+        same = False
+    if not same:
+        raise ValueError(UNSAVED)
+    return new
 
 
 def set_active(text: str, active: bool) -> str:
@@ -335,7 +502,8 @@ def reframe_text(text: str, webcams: list[list[int]], gameplay: list[int], split
 # ---------- ny kampanj ----------
 
 
-def _format_ids(formats: list[dict]) -> list[dict]:
+def format_ids(formats: list[dict]) -> list[dict]:
+    """Formaten med ett id var. Ett id som finns står kvar; ett nytt görs av namnet."""
     taken: set[str] = set()
     out = []
     for item in formats:
@@ -349,9 +517,11 @@ def _format_ids(formats: list[dict]) -> list[dict]:
 
 
 def new_profile_text(profile_id: str, body: dict, config_name: str) -> str:
-    """Profilen som YAML. Bara channel och streamer krävs; resten får standardvärden."""
-    link = f"twitch.tv/{profile_id}"
-    text = link if body.get("on_screen_text") is None else body["on_screen_text"]
+    """Profilen som YAML. Bara kanal (eller id för egna videor) och streamer krävs; resten får standardvärden."""
+    local = body.get("source") == "local"
+    link = None if local else f"twitch.tv/{profile_id}"
+    default_text = link or ""
+    text = default_text if body.get("on_screen_text") is None else body["on_screen_text"]
     payment = {k: body[k] for k in ("cpm_usd", "min_views", "max_payout_per_clip_usd") if body.get(k) is not None}
     data = {
         "name": profile_id,
@@ -360,7 +530,7 @@ def new_profile_text(profile_id: str, body: dict, config_name: str) -> str:
         "language": body.get("language") or "en",
         "clipsmith_config": config_name,
         "clip": {"min_seconds": body["clip_min_s"], "max_seconds": body["clip_max_s"]},
-        "formats": _format_ids(body.get("formats") or []),
+        "formats": format_ids(body.get("formats") or []),
         "on_screen_text": {"text": text, "required": bool(text), "position": body["text_position"],
                            "font_size": 46, "font_file": None},
         "overlay": {"file": f"overlays/{profile_id}.png", "required": body["overlay_required"],
@@ -368,32 +538,48 @@ def new_profile_text(profile_id: str, body: dict, config_name: str) -> str:
         "facecam": {"required": body["facecam_required"]},
         "safe_zone": {"top": 0.07, "bottom": 0.20},
         "caption": {
-            "must_include": body["must_include"] if body.get("must_include") is not None else [link],
-            "hashtags": body["hashtags"] if body.get("hashtags") is not None else [f"#{profile_id}", "#twitchclips"],
+            "must_include": body["must_include"] if body.get("must_include") is not None else ([link] if link else []),
+            "hashtags": body["hashtags"] if body.get("hashtags") is not None else
+            ([f"#{profile_id}", "#twitchclips"] if link else []),
             "game_hashtag": True,
-            "template": body.get("caption_template") or f"{{title}} 👉 {link}",
+            "template": body.get("caption_template") or (f"{{title}} 👉 {link}" if link else "{title}"),
         },
         "audio": {"lufs": -14},
         "payment": payment,
     }
     if body.get("engagement_min_percent") is not None:
         data["engagement_min_percent"] = [{"views_up_to": None, "min": body["engagement_min_percent"]}]
+    if body.get("platforms"):
+        data["platforms"] = list(dict.fromkeys(body["platforms"]))
+    data["links"] = {"content_rewards": body.get("content_rewards_url") or None,
+                     "analytics_form": body.get("analytics_form_url") or None}
+    if body.get("scout_ref"):
+        data["scout_ref"] = body["scout_ref"]
     streamer = " ".join(str(body["streamer"]).split())  # en radbrytning här skulle lämna kommentaren
     header = (f"# Kampanjprofil: {streamer}. Skapad i appen {date.today().isoformat()}.\n"
-              "# Ändra den under Kampanjer i appen eller här. Kontrollera reglerna mot kampanjsidan.\n\n")
+              + ("# Bara egna videor, ingen Twitch-kanal.\n" if local else "")
+              + "# Ändra den under Kampanjer i appen eller här. Kontrollera reglerna mot kampanjsidan.\n\n")
     return header + yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
 
 
-def new_config_text(template: str, profile_id: str, min_s: int, max_s: int) -> str:
-    """En kopia av mallen med kanalen utbytt och utan uppmätta rutor. Övriga kommentarer finns kvar."""
+NEW_REFRAME_LOCAL = (
+    "reframe:\n"
+    "  mode: zoom            # egna videor: mitten av bilden, ingen kamera\n"
+)
+
+
+def new_config_text(template: str, profile_id: str, min_s: int, max_s: int, local: bool = False) -> str:
+    """En kopia av mallen med kanalen utbytt och utan uppmätta rutor. Övriga kommentarer finns kvar.
+    local: bara egna videor, så ingen kanal och ingen kamera."""
     lines = template.splitlines(keepends=True)
     start = 0
     while start < len(lines) and lines[start].startswith("#"):
         start += 1
+    run = ("clipsmith process <fil.mp4>" if local else "clipsmith run-vod <VOD-id>")
     text = (f"# clipsmith-inställningar för kampanjen {profile_id}. Skapad i appen {date.today().isoformat()}\n"
             f"# som en kopia av config.timmy.yaml.\n"
-            f"# Används så här:  clipsmith run-vod <VOD-id> --config config.{profile_id}.yaml\n"
+            f"# Används så här:  {run} --config config.{profile_id}.yaml\n"
             + "".join(lines[start:]))
-    text = _replace_block(text, "channels", f"channels:\n  - {profile_id}\n")
-    text = _replace_block(text, "reframe", NEW_REFRAME)
+    text = _replace_block(text, "channels", "channels: []\n" if local else f"channels:\n  - {profile_id}\n")
+    text = _replace_block(text, "reframe", NEW_REFRAME_LOCAL if local else NEW_REFRAME)
     return set_keys(text, "clip", {"min_seconds": str(min_s), "max_seconds": str(max_s)})

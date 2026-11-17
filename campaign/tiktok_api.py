@@ -42,7 +42,8 @@ def _only_local(request: Request) -> None:
 
 @router.get("/tiktok/status", summary="Är TikTok kopplat, och hur många utkast väntar")
 def tiktok_status(settings: Settings = Depends(get_settings)) -> dict:
-    return TikTok(settings).status()
+    # Adressen som servern använder, så att webben visar samma som ska stå i utvecklarportalen.
+    return {**TikTok(settings).status(), "redirect_uri": settings.tiktok_redirect_uri}
 
 
 @router.get("/tiktok/connect", summary="Logga in på TikTok (öppnas direkt mot :8000)",

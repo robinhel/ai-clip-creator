@@ -98,7 +98,7 @@ def _set_link(settings, link: str) -> None:
 def test_examples_need_a_content_rewards_link(client, settings) -> None:
     http, calls = client
     body = http.get("/campaign/profiles/skiimasktimmy/examples").json()
-    assert body["clips"] == [] and "Lägg in kampanjens länk" in body["problem"]
+    assert body["clips"] == [] and "Ställ in" in body["problem"]
     _set_link(settings, "https://whop.com/x/")
     body = http.get("/campaign/profiles/skiimasktimmy/examples").json()
     assert body["clips"] == [] and "contentrewards.com" in body["problem"]

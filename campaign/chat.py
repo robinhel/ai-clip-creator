@@ -107,6 +107,21 @@ def brain(settings: Settings) -> Brain:
     return Brain(settings, budget_from_settings(settings))
 
 
+NO_KEY = "Claude-nyckeln saknas. Lägg in den under Inställningar, så kan chatten leta."
+
+
+def blocker(available: bool, sources: list[dict], twitch: bool) -> str | None:
+    """Varför chatten inte kan fråga Claude, eller None. Kontrolleras före varje anrop, så att inget kostar
+    pengar i onödan. Webben visar samma text och låser rutan."""
+    if not available:
+        return NO_KEY
+    if not any(m["has_transcript"] for m in sources):
+        return ("Inget material med transkript än. " + (
+            "Hämta klipp från en stream på Hem, så transkriberas den." if twitch
+            else "Ladda upp en egen video under Egna videor, så transkriberas den."))
+    return None
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -209,7 +224,7 @@ def material(profile: str, settings: Settings, log: ClipLog) -> list[dict]:
                     clips=clips[vod_id])
     items = sorted(found.values(), key=lambda m: (m["created"] or "", m["_run"]), reverse=True)
     for item in items:
-        del item["_run"]
+        item["run_id"] = item.pop("_run")  # det senaste projektet med källan
     return items
 
 
@@ -400,6 +415,8 @@ def send(settings: Settings, profile_name: str, *, chat_id: int | None = None, m
     sources = material(profile.name, settings, clip_log)
     by_id = {item["vod_id"]: item for item in sources}
     b = brain(settings)
+    if problem := blocker(b.available, sources, bool(cfg.channels)):
+        raise ChatError(400, problem)
 
     if confirm:
         pending = history[-1].get("confirm") if history and history[-1]["role"] == "assistant" else None
