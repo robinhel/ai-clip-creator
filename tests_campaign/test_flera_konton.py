@@ -99,6 +99,27 @@ def test_the_migration_keeps_every_post_and_fills_the_account_where_it_is_safe(s
     assert {(p["clip_id"], p["platform"]): p["account"] for p in ClipLog(path).posts()} == accounts
 
 
+def test_the_migration_works_with_upload_tables_from_before_accounts(settings) -> None:
+    # tiktok_uploads från före flera konton saknar open_id, mode och post_id; youtube_uploads saknar video_id.
+    # Kolumnerna läggs till först när TikTok-delen öppnar tabellen, efter ClipLog vid start.
+    path = settings.data_dir / "klipp.db"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _old_db(path)
+    with sqlite3.connect(path) as db:
+        db.execute("DROP TABLE tiktok_uploads")
+        db.execute("""CREATE TABLE tiktok_uploads (id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER,
+            publish_id TEXT, status TEXT, error TEXT, created TEXT, checked TEXT)""")
+        db.execute("DROP TABLE youtube_uploads")
+        db.execute("""CREATE TABLE youtube_uploads (id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER,
+            channel_id TEXT, status TEXT)""")
+    before = _summary(path)
+    log = ClipLog(path)
+    assert _summary(path) == before
+    assert {p["account"] for p in log.posts()} == {None}
+    with sqlite3.connect(path) as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+
+
 def test_a_post_is_unique_per_clip_platform_and_account(settings) -> None:
     log = ClipLog(settings.data_dir / "klipp.db")
     clip_id = _clip(settings)
