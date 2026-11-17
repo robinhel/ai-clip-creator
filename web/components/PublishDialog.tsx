@@ -1000,7 +1000,7 @@ export function PublishButton({ clip, posting, block, onUpdate }: {
 
   return (
     <div className="space-y-1.5">
-      <Button className="h-9 w-full" disabled={!!block} onClick={() => setOpen({})}>
+      <Button className="h-auto min-h-9 w-full py-2 whitespace-normal" disabled={!!block} onClick={() => setOpen({})}>
         <Send aria-hidden />
         {first ? "Publicera" : "Publicera på fler plattformar"}
       </Button>
