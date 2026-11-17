@@ -371,3 +371,62 @@ def test_stickers_are_served_but_nothing_outside_the_folder(settings) -> None:
     assert (answer.status_code, answer.headers["content-type"], answer.content) == (200, "image/png", b"\x89PNG")
     assert client.get("/campaign/stickers/..%2Fprofiles%2Fskiimasktimmy.yaml").status_code == 404
     assert client.get("/campaign/stickers/saknas.png").status_code == 404
+
+
+# ---------- 4. spärrarna i schemat: originalet och versionerna är samma klipp ----------
+
+from .test_flera_konton import SAME, _schedule, notes, sched  # noqa: E402, F401
+from .test_schedule import _stockholm  # noqa: E402
+
+
+def _family(settings, versions_count: int = 1) -> list[int]:
+    """Ett godkänt original och godkända versioner med egna filer, i en kampanj med sex TikTok-konton."""
+    set_profile(settings, accounts={"tiktok": [f"open{c}" for c in "ABCDEF"]})
+    log = ClipLog(settings.data_dir / "klipp.db")
+    ids: list[int] = []
+    for i in range(versions_count + 1):
+        path = settings.out_dir / "v" / "klara" / (f"clip_01_x.v{i}.mp4" if i else "clip_01_x.mp4")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"mp4")
+        ids.append(log.add(vod_id="v", profile="skiimasktimmy", file=str(path), title="Timmy lands it", caption="c",
+                           status="godkand", start_s=10.0, end_s=40.0, version_of=ids[0] if ids else None))
+    return ids
+
+
+def test_a_version_on_account_b_stops_the_original_and_another_version_on_b(sched, settings) -> None:  # noqa: F811
+    original, version, other = _family(settings, 2)
+    assert _schedule(sched, version, "openB", title="Second take").status_code == 201
+    assert _schedule(sched, original, "openB", title="Third take", at=_stockholm(1, 18)).status_code == 409
+    assert _schedule(sched, other, "openB", title="Fourth take", at=_stockholm(1, 18)).status_code == 409
+    assert _schedule(sched, original, "openA", title="Fifth take", at=_stockholm(1, 18)).status_code == 201
+
+
+def test_versions_count_towards_the_five_accounts(sched, settings) -> None:  # noqa: F811
+    original, version = _family(settings)
+    log = ClipLog(settings.data_dir / "klipp.db")
+    for i, account in enumerate("ABCD"):
+        log.add_post(original, "tiktok", f"https://www.tiktok.com/@a/video/{i}", account=f"open{account}")
+    assert _schedule(sched, version, "openE", title="Fifth").status_code == 201
+    sixth = _schedule(sched, original, "openF", title="Sixth", at=_stockholm(1, 18))
+    assert sixth.status_code == 400 and "5 konton" in sixth.json()["detail"]
+
+
+def test_a_version_needs_its_own_text(sched, settings) -> None:  # noqa: F811
+    original, version = _family(settings)
+    assert _schedule(sched, original, "openA", title="Huge clutch").status_code == 201
+    same = _schedule(sched, version, "openB", title="huge  CLUTCH #fyp", at=_stockholm(1, 18))
+    assert (same.status_code, same.json()["detail"]) == (400, SAME)
+
+
+def test_a_version_close_in_time_to_the_original_gets_the_warning(sched, settings) -> None:  # noqa: F811
+    original, version = _family(settings)
+    _schedule(sched, original, "openA", title="Huge clutch")
+    near = _schedule(sched, version, "openB", title="Second take", at=_stockholm(1, 13)).json()
+    assert near["warning"].startswith("Samma klipp ligger på openA kl. 12:00. "), near["warning"]
+
+
+def test_the_original_lists_the_account_of_its_version(sched, settings) -> None:  # noqa: F811
+    original, version = _family(settings)
+    _schedule(sched, version, "openB", title="Second take")
+    accounts = sched.get(f"/campaign/clips/{original}/accounts", params={"platform": "tiktok"}).json()["accounts"]
+    assert {a["account"]: a["state"] for a in accounts}["openB"] == "scheduled"
