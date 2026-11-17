@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DeleteVod } from "@/components/DeleteVod";
 import { api } from "@/lib/api";
 import { serverTime } from "@/lib/utils";
 import type { CampaignClip, CampaignProfile, CampaignRunInfo, CampaignStatus } from "@/lib/types";
@@ -51,6 +52,7 @@ function Card({
   title,
   meta,
   children,
+  footer,
 }: {
   href: string;
   image: React.ReactNode;
@@ -59,22 +61,24 @@ function Card({
   title: string;
   meta: React.ReactNode;
   children?: React.ReactNode;
+  /** Knappar under kortet. De ligger utanför länken, så att ett klick inte öppnar projektet. */
+  footer?: React.ReactNode;
 }) {
   return (
-    <Link
-      href={href}
-      className="group overflow-hidden rounded-2xl border border-line bg-panel transition-colors hover:border-[#3a3a44] focus-visible:outline-2 focus-visible:outline-brand"
-    >
-      <div className="relative aspect-video bg-[#1f1f26]">
-        {image}
-        <span className={`absolute top-2.5 left-2.5 rounded-md px-2 py-0.5 text-xs ${tagTone}`}>{tag}</span>
-      </div>
-      <div className="space-y-1 px-3.5 py-3">
-        <p className="line-clamp-2 font-semibold leading-snug break-words">{title}</p>
-        <div className="text-[13px] text-muted-foreground">{meta}</div>
-        {children}
-      </div>
-    </Link>
+    <div className="flex flex-col overflow-hidden rounded-2xl border border-line bg-panel transition-colors hover:border-[#3a3a44]">
+      <Link href={href} className="group flex-1 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand">
+        <div className="relative aspect-video bg-[#1f1f26]">
+          {image}
+          <span className={`absolute top-2.5 left-2.5 rounded-md px-2 py-0.5 text-xs ${tagTone}`}>{tag}</span>
+        </div>
+        <div className="space-y-1 px-3.5 py-3">
+          <p className="line-clamp-2 font-semibold leading-snug break-words">{title}</p>
+          <div className="text-[13px] text-muted-foreground">{meta}</div>
+          {children}
+        </div>
+      </Link>
+      {footer && <div className="px-3.5 pb-3">{footer}</div>}
+    </div>
   );
 }
 
@@ -117,6 +121,9 @@ function Progress({ pct }: { pct: number | null | undefined }) {
   );
 }
 
+/** VOD-filen finns på disken, och projektet använder den inte just nu. */
+const canFreeSpace = (run: CampaignRunInfo) => Boolean(run.vod_bytes) && !isActive(run);
+
 export function ProjectCard({ run }: { run: CampaignRunInfo }) {
   const todo = waiting(run.clip_counts ?? {});
   // Felets första rad, så att Robin ser varför utan att öppna projektet.
@@ -128,6 +135,7 @@ export function ProjectCard({ run }: { run: CampaignRunInfo }) {
       tag={statusTag(run)}
       tagTone={failedByError(run) ? "bg-bad font-semibold text-white" : "bg-black/70"}
       title={run.title || run.vod_id}
+      footer={canFreeSpace(run) ? <DeleteVod run={run} small /> : null}
       meta={
         <>
           {metaLine(run)}

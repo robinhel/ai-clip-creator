@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Bell, Check, Keyboard, Loader2, RotateCcw, Sparkles, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClipResultRow, ignoreKey } from "@/components/ClipResultRow";
+import { DeleteVod } from "@/components/DeleteVod";
 import { clipTotal } from "@/components/ProjectCard";
 import { api, cancelRun } from "@/lib/api";
 import { clock, cn, duration, serverTime, usd } from "@/lib/utils";
@@ -282,12 +283,15 @@ interface RetryProps {
 function RetryButton({ run, retrying, retryError, onRetry, keyText }: RetryProps & { run: CampaignRunDetail; keyText: string | null }) {
   return (
     <>
-      <Button className="mt-3 h-9" onClick={onRetry} disabled={retrying || !!run.retry_problem}>
-        {retrying ? <Loader2 className="animate-spin" aria-hidden /> : <RotateCcw aria-hidden />}
-        {retrying ? "Startar…" : "Kör igen"}
-      </Button>
+      {/* Länken till Inställningar bredvid knappen, med mellanrum, och under den på en smal skärm. */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+        <Button className="h-9" onClick={onRetry} disabled={retrying || !!run.retry_problem}>
+          {retrying ? <Loader2 className="animate-spin" aria-hidden /> : <RotateCcw aria-hidden />}
+          {retrying ? "Startar…" : "Kör igen"}
+        </Button>
+        <KeyFix text={keyText} />
+      </div>
       {retryError && <p className="mt-2 text-sm text-[#fca5a5]">{retryError}</p>}
-      <KeyFix text={keyText} />
     </>
   );
 }
@@ -697,6 +701,21 @@ function usePolling(on: boolean, poll: () => Promise<unknown>) {
   }, [on, tick, poll]);
 }
 
+function FinishButton({ running, disabled, onClick }: { running: boolean; disabled: boolean; onClick: () => void }) {
+  return (
+    <Button
+      variant="outline"
+      className="h-9"
+      onClick={onClick}
+      disabled={disabled || running}
+      title="Lägger på overlay och text, skriver caption och kör regelkontrollen igen"
+    >
+      {running ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
+      {running ? "Gör klippen klara…" : "Gör klippen kampanjklara igen"}
+    </Button>
+  );
+}
+
 export default function RunDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -759,19 +778,13 @@ export default function RunDetailPage() {
       <div className="mt-2 flex flex-wrap items-start gap-4">
         {/* basis 20rem: på en smal skärm hamnar knappen under rubriken i stället för att trycka ihop den. */}
         <RunHeader run={run} clips={clips} />
-        {/* Bara när knappen kan rätta något. Ett misslyckat projekt har inga klipp att göra om; servern svarar 400. */}
-        {run.status !== "failed" && (canRedo || finish.running) && (
-          <Button
-            variant="outline"
-            className="h-9"
-            onClick={finish.start}
-            disabled={isActive || finish.running}
-            title="Lägger på overlay och text, skriver caption och kör regelkontrollen igen"
-          >
-            {finish.running ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
-            {finish.running ? "Gör klippen klara…" : "Gör klippen kampanjklara igen"}
-          </Button>
-        )}
+        <div className="flex flex-wrap items-start gap-2">
+          {/* Bara när knappen kan rätta något. Ett misslyckat projekt har inga klipp att göra om; servern svarar 400. */}
+          {run.status !== "failed" && (canRedo || finish.running) && (
+            <FinishButton running={finish.running} disabled={isActive} onClick={finish.start} />
+          )}
+          <DeleteVod run={run} onDeleted={fetchRun} />
+        </div>
       </div>
 
       {error && (

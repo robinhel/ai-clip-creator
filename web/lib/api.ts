@@ -42,6 +42,8 @@ import type {
 } from "./types";
 // Kampanjen som nav (kontrakt-chatt.md).
 import type { CampaignChat, ChatSummary, MaterialItem } from "./types";
+// Ta bort VOD-filen på ett projekt (projekt-ta-bort).
+import type { FreedSpace } from "./types";
 
 // JSON API calls go through the Next.js rewrite proxy (/api/* → FastAPI).
 // This avoids CORS and removes the need for NEXT_PUBLIC_API_BASE in the browser.
@@ -307,3 +309,9 @@ export function uploadWithProgress(form: FormData, onProgress: (percent: number)
     xhr.send(form);
   });
 }
+
+// --- Ta bort VOD-filen på ett projekt (projekt-ta-bort) ---
+
+/** Ta bort projektets VOD-fil och delar. Klippen och klipploggen finns kvar. 409 medan projektet pågår. */
+export const deleteRunVod = (runId: number) =>
+  apiFetch<FreedSpace>(`/campaign/runs/${runId}/vod`, { method: "DELETE" });

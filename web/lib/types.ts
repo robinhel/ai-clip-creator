@@ -820,3 +820,16 @@ export interface UploadOptions {
   /** Kampanjens regel för material, till exempel att bara streamerns egna streams får användas. */
   source_allowed?: string | null;
 }
+
+// --- Ta bort VOD-filen på ett projekt (projekt-ta-bort) ---
+
+export interface CampaignRunInfo {
+  /** Byte som Ta bort VOD-filen frigör. null när filen redan är borttagen eller saknas. */
+  vod_bytes?: number | null;
+}
+
+/** DELETE /campaign/runs/{id}/vod */
+export interface FreedSpace {
+  freed_bytes: number;
+  freed_gb: number;
+}
