@@ -155,8 +155,8 @@ def _spy(monkeypatch) -> list:
 
 
 @needs_ffmpeg
-@pytest.mark.parametrize(("form", "whole"), [({}, False), ({"framing": "fill"}, False), ({"framing": "fit"}, True)])
-def test_fit_keeps_the_whole_wide_picture_and_fill_still_crops_it(client, settings, tmp_path, form, whole) -> None:
+@pytest.mark.parametrize(("form", "whole"), [({}, True), ({"framing": "fill"}, False), ({"framing": "fit"}, True)])
+def test_the_whole_picture_is_the_default_and_fill_still_crops_it(client, settings, tmp_path, form, whole) -> None:
     answer = _upload(client, _edges(tmp_path / "bred.mp4"), **form)
     assert answer.status_code == 201, answer.text
     out = ClipLog(settings.data_dir / "klipp.db").get(answer.json()["id"])["file"]
