@@ -588,6 +588,7 @@ def test_a_clip_that_is_uploading_now_cannot_be_removed(client, settings, clip_i
 
 
 def test_removing_can_be_undone_but_the_rules_still_apply(client, settings, clip_id, notes):
+    ClipLog(settings.data_dir / "klipp.db").update(clip_id, format="clutch")  # ett godkänt klipp har ett format
     post_id = _post(client, clip_id).json()["id"]
     client.patch(f"/campaign/clips/{clip_id}", json={"status": "nekad"})
     answer = client.patch(f"/campaign/clips/{clip_id}", json={"status": "godkand"})
