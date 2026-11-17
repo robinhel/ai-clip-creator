@@ -122,3 +122,9 @@ def test_examples_report_when_the_page_cannot_be_read(client, settings) -> None:
     response = http.get("/campaign/profiles/skiimasktimmy/examples")
     assert response.status_code == 502
     assert "Content Rewards svarade 503" in response.json()["detail"]
+
+
+def test_the_real_client_can_build_a_request() -> None:
+    # Headers måste vara ASCII. Ett "ä" i User-Agent gav 500 vid första riktiga hämtningen.
+    with examples.http_client() as http:
+        assert http.build_request("GET", PAGE_URL).headers["user-agent"]
