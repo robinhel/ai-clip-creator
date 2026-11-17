@@ -549,6 +549,16 @@ def test_the_campaign_account_can_be_named_by_its_handle(client, settings, clip_
     assert _post(client, clip_id, account="UC1").status_code == 201
 
 
+def test_the_refusal_names_the_campaign_account_and_not_its_id(client, settings, clip_id, monkeypatch):
+    # Blizzards profil anger TikTok-kontot med sitt open_id. Robin ska läsa kontots namn, inte id:t.
+    monkeypatch.setattr(FakeYouTube, "accounts",
+                        lambda self: {"UC1": {"title": "Fel kanal"}, "UC2": {"title": "Timmy Clips"}})
+    set_profile(settings, accounts={"youtube_shorts": ["UC2"]})
+    detail = _post(client, clip_id, account="UC1").json()["detail"]
+    assert "Timmy Clips" in detail
+    assert "UC2" not in detail
+
+
 def test_a_tiktok_reminder_without_account_is_allowed_with_campaign_accounts(client, settings, clip_id):
     set_profile(settings, accounts={"tiktok": ["open9"]})
     assert _post(client, clip_id, "tiktok", fields={}, account=None).status_code == 201
