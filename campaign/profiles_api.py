@@ -22,6 +22,7 @@ from twitchdl import twitch
 
 from clipsmith.api.deps import verify_api_key
 
+from . import examples
 from . import profile_edit as edit
 from .api import _describe_profile, _log, get_settings
 from .config import Settings
@@ -193,6 +194,22 @@ def get_overlay(profile_id: str, settings: Settings = Depends(get_settings)) -> 
     if target is None or not target.is_file():
         raise HTTPException(404, "Kampanjen har ingen overlay-bild än.")
     return FileResponse(target, media_type="image/png")
+
+
+# ---------- exempelklipp ----------
+
+
+@router.get("/profiles/{profile_id}/examples", summary="Kampanjens bästa klipp och klippare från Content Rewards")
+def get_examples(profile_id: str, settings: Settings = Depends(get_settings)) -> dict:
+    url = _load(profile_id, settings).content_rewards_url
+    problem = examples.link_problem(url)
+    if problem:
+        return {"source": url, "problem": problem, "clips": [], "earners": []}
+    try:
+        data = examples.fetch(url)
+    except RuntimeError as error:
+        raise HTTPException(502, str(error)) from error
+    return {"source": url, "problem": None, **data}
 
 
 # ---------- profilens YAML ----------
