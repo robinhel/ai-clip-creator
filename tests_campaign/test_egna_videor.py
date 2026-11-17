@@ -237,6 +237,8 @@ def test_the_options_follow_the_campaign(client, extras) -> None:
         "min_seconds": 3.0,
         "hook_text": False,  # Timmy kräver sin text, så rubriken bränns inte in
         "framings": ["fill", "fit"],
+        # Kampanjens regel för material, så att Robin ser den under väljaren.
+        "source_allowed": "Bara SkiiMaskTimmys Twitch-streams: live eller tidigare sändningar (VOD).",
     }
     assert client.get("/campaign/uploads/options", params={"profile": "finns-inte"}).status_code == 400
 
@@ -259,3 +261,12 @@ def test_a_sticker_at_the_top_goes_below_the_burned_in_title(client, extras, tmp
     assert answer.status_code == 201, answer.text
     (call,) = seen
     assert (call["sticker"]["x"], call["sticker"]["y"]) == (40, 134 + 80 + 20)  # rubriken: en rad, 80 px
+
+
+@needs_ffmpeg
+def test_a_too_short_video_says_what_to_do_with_a_decimal_comma(client, tmp_path) -> None:
+    clip = _upload(client, make_clip(tmp_path / "kort.mp4", seconds=2), speed="1.2").json()
+    assert clip["status"] == "underkand"
+    [problem] = clip["problems"]
+    assert problem.startswith("Klippet är 1,7 s.")  # svenskt talformat, inte 1.7
+    assert problem.endswith("Ladda upp en längre video eller tryck Nej.")

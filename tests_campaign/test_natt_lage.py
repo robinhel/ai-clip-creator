@@ -197,9 +197,9 @@ def test_finish_summary_tells_what_was_done_and_why_clips_were_skipped() -> None
                {"file": "b", "skipped": "finns redan i klipploggen"},
                {"file": "c", "skipped": "finns redan i klipploggen"}]
     assert pipeline.finish_summary(results) == (
-        "2 klipp gjordes om. 3 hoppades över (finns redan i klipploggen: 2, du har nekat klippet: 1).")
+        "2 klipp gjordes om. 3 klipp rördes inte: 2 är redan granskade eller postade, 1 är nekat.")
     assert pipeline.finish_summary(results[2:3]) == (
-        "Inga klipp gjordes om. 1 hoppades över (du har nekat klippet: 1).")
+        "Inga klipp gjordes om. 1 klipp rördes inte: 1 är nekat.")
     assert pipeline.finish_summary([{"id": 1}]) == "1 klipp gjordes om."
     assert pipeline.finish_summary([]) == "Inga klipp gjordes om."
 
@@ -211,7 +211,7 @@ def test_finish_run_puts_the_summary_in_the_runs_message(client, settings, monke
     pipeline.finish_run(run_id, VOD, "skiimasktimmy", "Bodycam", settings)
     run = client.get(f"/campaign/runs/{run_id}").json()
     assert (run["status"], run["message"]) == (
-        "done", "1 klipp gjordes om. 1 hoppades över (du har nekat klippet: 1).")
+        "done", "1 klipp gjordes om. 1 klipp rördes inte: 1 är nekat.")
 
 
 # ---------- 4. budget ----------
