@@ -84,7 +84,7 @@ For each match give: vod_id (from the header), start_s and end_s (seconds from t
 first 3-6 words exactly as in the transcript), end_quote (the last 3-6 words exactly), title (short and catchy, \
 English), reason (one sentence in Swedish: why it matches), grade (1-10: how well it matches and how good a clip it \
 makes). A clip is {min_s}-{max_s} seconds and starts and ends on whole sentences. Return no hits when nothing \
-matches."""
+matches. Answer only by calling the tool svar."""
 
 SEARCH_SCHEMA = {
     "type": "object",
@@ -314,7 +314,8 @@ def _search(b: Brain, query: str, sources: list[dict], cfg, kept: list[dict], se
     found, cost = [], 0.0
     for text in _calls(sources, transcripts):
         answer = b.ask(purpose="chattsökning", model=cfg.llm.model_anthropic, system=system,
-                       content=f"Request: {query}\n\n{text}", schema=SEARCH_SCHEMA, max_tokens=4000)
+                       content=f"Request: {query}\n\n{text}", schema=SEARCH_SCHEMA, max_tokens=4000,
+                       force_tool=False)  # kampanjens modell kan vara en som inte tar ett tvingat verktyg
         cost += b.last_usd
         for hit in answer.get("hits") or []:
             vod = str(hit.get("vod_id", ""))

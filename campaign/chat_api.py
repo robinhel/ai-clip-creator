@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+import anthropic
 from fastapi import BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -94,6 +95,9 @@ def _send(request: Request, settings: Settings, profile: str, **kwargs) -> int:
         return chat.send(settings, profile, **kwargs)
     except BudgetExceeded as error:
         raise HTTPException(402, f"{error} Inget skickades till Claude.") from error
+    except anthropic.APIError as error:  # nere, överbelastad eller fel i anropet: inget sparas
+        raise HTTPException(502, f"Claude svarar inte just nu ({type(error).__name__}). Inget sparades. "
+                                 "Försök igen om en stund.") from error
     except chat.ChatError as error:
         raise HTTPException(error.status, error.text) from error
     except SystemExit as error:  # en trasig profil
