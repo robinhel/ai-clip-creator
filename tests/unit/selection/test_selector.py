@@ -173,6 +173,27 @@ def test_select_clips_clamped_duration() -> None:
     assert picks[0].pick.duration_s == pytest.approx(30.0)
 
 
+@pytest.mark.parametrize("mode", ["legacy", "v2"])
+def test_select_clips_keeps_the_clip_inside_the_video(mode: str) -> None:
+    # Claude chose 7.1-18.1 s in a 15.0 s file: the cut stopped at 15.0 and the clip was 7.9 s,
+    # under the campaign's minimum. The end stays inside the file and the start moves back instead.
+    class _PastTheEnd:
+        def pick(self, tw: str, c: CandidateMoment, sc: str) -> ClipPick:
+            return ClipPick(include=True, start_offset_s=7.1, end_offset_s=18.1, title_es="Fin", reason="test")
+
+    picks = select_clips(
+        [_candidate(10.0)],
+        _transcript(_seg(0.1, 15.0, "the talk runs to the end of the file")),
+        _PastTheEnd(),
+        "ctx",
+        _cfg(min_seconds=11, max_seconds=45, selection_mode=mode),  # type: ignore[arg-type]
+        video_end_s=15.0,
+    )
+    assert len(picks) == 1
+    assert picks[0].pick.end_offset_s == pytest.approx(15.0)
+    assert picks[0].pick.start_offset_s == pytest.approx(4.0)
+
+
 def test_build_stream_context_contains_channel() -> None:
     ctx = build_stream_context("chuyelwuero", "Stream title", "3h21m4s")
     assert "chuyelwuero" in ctx
