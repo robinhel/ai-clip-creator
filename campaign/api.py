@@ -19,16 +19,17 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from clipsmith.api.deps import get_db, verify_api_key
-from clipsmith.db.models import PipelineEvent, Run, RunStatus
+from clipsmith.db.models import Run, RunStatus
 
-from . import editor, estimate, preferences, streams
+from . import editor, estimate, pipeline, preferences, runinfo, streams
 from .budget import BudgetExceeded, budget_from_settings
 from .caption import check_caption
-from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog
+from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog, UploadRunning
 from .config import Settings, load_settings
 from .media import need, probe, run
 from .pipeline import finish_run, run_campaign_vod
 from .profile import PLATFORMS, Profile, load_profile
+from .rules import NO_FORMAT
 from .vodinfo import VodNotFound, vod_facts
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
@@ -262,7 +263,8 @@ def vod_info(vod_id: str = PathParam(pattern=r"^\d{6,15}$"),
     problems = [text for text, hit in ((LIVE, facts["live"]), (SSD_MISSING, not disk["connected"])) if hit]
     campaigns = [p["name"] for p in list_profiles(settings)
                  if p["active"] and p["channel"] and p["channel"].lower() == facts["channel"]]
-    return {**facts, **_estimate(facts, settings, disk), "campaigns": campaigns, "problems": problems}
+    return {**facts, **_estimate(facts, settings, disk), "campaigns": campaigns, "problems": problems,
+            "fast_campaigns": [name for name in campaigns if runinfo.fast(name, settings)]}
 
 
 @router.get("/streams", summary="De senaste streamsen för kampanjernas kanaler")
@@ -291,11 +293,7 @@ def list_streams(db: Session = Depends(get_db), settings: Settings = Depends(get
     clips = log.list()
     latest = {meta["vod_id"]: meta for meta in log.runs()}  # runs() är i ordning, så den sista vinner
     for stream in found:
-        meta = latest.get(stream["vod_id"])
-        run_row = db.get(Run, meta["run_id"]) if meta else None
-        stream.update(run_id=meta["run_id"] if meta else None,
-                      run_status=(run_row.status.value if run_row else "failed") if meta else None,
-                      clip_count=len(_run_clips(meta, clips)) if meta else 0)
+        stream.update(runinfo.stream_run(latest.get(stream["vod_id"]), db, clips))
     streams.recommend(found)
     return sorted(found, key=lambda s: s["created_at"] or "", reverse=True)
 
@@ -323,6 +321,21 @@ def create_run(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
+    return _create_run(body, request, background_tasks, db, settings)
+
+
+def _own_file_missing(vod_id: str, settings: Settings) -> str | None:
+    """En körning från en egen fil (python -m campaign local) har filens namn som VOD-id. Den körs om
+    från work/<id>/<id>.mp4. Finns filen inte kvar, kan appen inte köra den igen."""
+    if vod_id.isdigit() or _mp4(vod_id, settings).exists():
+        return None
+    return (f"Källfilen till projektet finns inte längre ({vod_id}.mp4 i work/). "
+            "Kör filen igen med python -m campaign local.")
+
+
+def _create_run(body: CampaignRunCreate, request: Request, background_tasks: BackgroundTasks, db: Session,
+                settings: Settings, own_file: dict | None = None) -> dict:
+    """own_file: klipploggens rad för en körning från en egen fil. Den körs från filen i work/, utan Twitch."""
     profile = _profile(body.profile, settings)
     ready = _describe_profile(profile.name, settings)
     if not ready["ready"]:
@@ -339,30 +352,36 @@ def create_run(
     try:
         budget_from_settings(settings).check()  # dags- och månadstaket, innan 15 GB hämtas
     except BudgetExceeded as error:
-        raise HTTPException(400, f"{error} Körningen startar inte. Vänta tills taket går över, "
+        raise HTTPException(400, f"{error} Projektet startar inte. Vänta tills taket går över, "
                                  "eller höj det i .env.") from error
-    facts = _facts(body.vod_id, fresh=True)  # färska fakta, så att diskkollen har rätt längd
-    if facts["live"]:
-        raise HTTPException(400, LIVE)
-    if not facts["channel"] or facts["channel"] != ready["channel"].lower():
-        raise HTTPException(400, f"VOD:en är från {facts['channel_name'] or 'en okänd kanal'}, inte från "
-                                 f"kampanjens kanal {ready['channel']}. Kampanjen får bara använda "
-                                 "streamerns egna streams.")
-    space = _estimate(facts, settings, disk)
-    if not space["estimate"]["fits"]:
-        need = space["estimate"]["download_gb"] * 1.1 + 1
-        raise HTTPException(400, f"Disken räcker inte. VOD:en behöver ungefär {need:.1f} GB med marginal, "
-                                 f"och det finns {space['estimate']['disk_free_gb']} GB ledigt.")
+    if own_file is not None:
+        problem = _own_file_missing(body.vod_id, settings)
+        if problem:
+            raise HTTPException(409, problem)
+        facts = {key: own_file[key] for key in ("title", "channel_name", "thumbnail_url", "duration_s")}
+    else:
+        facts = _facts(body.vod_id, fresh=True)  # färska fakta, så att diskkollen har rätt längd
+        if facts["live"]:
+            raise HTTPException(400, LIVE)
+        if not facts["channel"] or facts["channel"] != ready["channel"].lower():
+            raise HTTPException(400, f"VOD:en är från {facts['channel_name'] or 'en okänd kanal'}, inte från "
+                                     f"kampanjens kanal {ready['channel']}. Kampanjen får bara använda "
+                                     "streamerns egna streams.")
+        space = _estimate(facts, settings, disk)
+        if not space["estimate"]["fits"]:
+            need = space["estimate"]["download_gb"] * 1.1 + 1
+            raise HTTPException(400, f"Disken räcker inte. VOD:en behöver ungefär {need:.1f} GB med marginal, "
+                                     f"och det finns {space['estimate']['disk_free_gb']} GB ledigt.")
 
     focus = body.focus.strip()
     game = (body.game or "").strip() or None
     with _start_lock:
         if request.app.state.active_run_id is not None:
-            raise HTTPException(429, "En körning pågår redan. Vänta tills den är klar.")
+            raise HTTPException(429, "Ett projekt hämtar redan klipp. Vänta tills det är klart.")
         if editor.lock.locked():  # redigeraren kollar active_run_id under samma lås
             raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
         # Kollas igen här, där ingen annan körning kan skriva filen: en halv video används aldrig.
-        if _mp4(body.vod_id, settings).exists() and not _downloaded(facts, settings):
+        if own_file is None and _mp4(body.vod_id, settings).exists() and not _downloaded(facts, settings):
             _remove_half_download(body.vod_id, settings)
         run = Run(vod_id=body.vod_id, channel=ready["channel"], status=RunStatus.pending)
         db.add(run)
@@ -375,13 +394,13 @@ def create_run(
                                channel_name=facts["channel_name"], thumbnail_url=facts["thumbnail_url"],
                                duration_s=facts["duration_s"], start_s=body.start_s, end_s=body.end_s)
     except Exception:  # annars står körningen som pågående, och appen säger 429 tills servern startas om
-        run.status, run.error = RunStatus.failed, "Körningen kunde inte sparas i klipploggen. Försök igen."
+        run.status, run.error = RunStatus.failed, "Projektet kunde inte sparas i klipploggen. Försök igen."
         db.commit()
         request.app.state.active_run_id = None
         raise
     background_tasks.add_task(run_campaign_vod, run.id, body.vod_id, profile.name, game, settings,
                               start_s=body.start_s, end_s=body.end_s, focus=focus, min_s=min_s,
-                              max_s=max_s, app=request.app)
+                              max_s=max_s, local=own_file is not None, app=request.app)
     return run.to_dict()
 
 
@@ -397,20 +416,18 @@ def retry_run(
     """En ny körning med samma kampanj, VOD och val. Samma kontroller som en ny körning."""
     meta = _log(settings).run(run_id)
     if meta is None:
-        raise HTTPException(404, "Körningen finns inte.")
+        raise HTTPException(404, "Projektet finns inte.")
     run = db.get(Run, run_id)
     if run is not None and run.status != RunStatus.failed:  # saknas den i clipsmiths databas visas den som failed
-        raise HTTPException(400, "Bara en misslyckad körning kan köras igen.")
-    body = CampaignRunCreate(profile=meta["profile"], vod_id=meta["vod_id"], game=meta["game"],
-                             start_s=meta.get("start_s") or 0.0, end_s=meta.get("end_s") or 0.0,
-                             focus=meta["focus"] or "", min_s=meta["min_s"], max_s=meta["max_s"])
-    return create_run(body, request, background_tasks, db, settings)
-
-
-def _run_clips(meta: dict, clips: list[dict]) -> list[dict]:
-    """Klippen från en körning. shortcut: klipploggen vet inte run_id, så det är klippen från samma
-    VOD och kampanj. Två körningar av samma VOD delar klipp; spara run_id per klipp om det behövs."""
-    return [c for c in clips if c["vod_id"] == meta["vod_id"] and c["profile"] == meta["profile"]]
+        raise HTTPException(400, "Bara ett projekt som misslyckades eller avbröts kan köras igen.")
+    values = dict(profile=meta["profile"], vod_id=meta["vod_id"], game=meta["game"],
+                  start_s=meta.get("start_s") or 0.0, end_s=meta.get("end_s") or 0.0,
+                  focus=meta["focus"] or "", min_s=meta["min_s"], max_s=meta["max_s"])
+    if meta["vod_id"].isdigit():
+        return _create_run(CampaignRunCreate(**values), request, background_tasks, db, settings)
+    # En egen fil: VOD-id är filens namn och klarar inte kontrollen för Twitch-id.
+    return _create_run(CampaignRunCreate.model_construct(**values), request, background_tasks, db, settings,
+                       own_file=meta)
 
 
 def _with_facts(meta: dict, log: ClipLog) -> dict:
@@ -426,40 +443,15 @@ def _with_facts(meta: dict, log: ClipLog) -> dict:
     return {**meta, **fields}
 
 
-def _describe_run(meta: dict, db: Session, clips: list[dict], steps: bool = False,
-                  berget_usd_per_min: float | None = None) -> dict:
-    run = db.get(Run, meta["run_id"])
-    if run is None:
-        status, error, created, events = "failed", "Körningen saknas i clipsmiths databas.", None, []
-    else:
-        status, error, created = run.status.value, run.error, run.created_at.isoformat()
-        events = [(e.stage, e.pct, e.created_at, e.message) for e in db.query(PipelineEvent)
-                  .filter(PipelineEvent.run_id == run.id).order_by(PipelineEvent.id)]
-    progress = estimate.progress(status, events, meta["duration_s"])
-    counts: dict[str, int] = {}
-    for clip in _run_clips(meta, clips):
-        counts[clip["status"]] = counts.get(clip["status"], 0) + 1
-    out = {key: meta[key] for key in ("run_id", "vod_id", "profile", "game", "focus", "min_s", "max_s",
-                                      "title", "channel_name", "thumbnail_url", "duration_s")}
-    out.update(start_s=meta.get("start_s") or 0, end_s=meta.get("end_s") or 0)  # 0 för gamla körningar
-    out.update(created=meta["created"] or created, status=status, stage=progress["stage"],
-               pct=progress["pct"], message=progress["message"], error=error, clip_counts=counts)
-    if steps:
-        out.update(steps=progress["steps"], eta_s=progress["eta_s"],
-                   cost_estimate_usd=estimate.cost_usd(meta["duration_s"], berget_usd_per_min),
-                   cost_estimate=estimate.cost(meta["duration_s"], berget_usd_per_min))
-    return out
-
-
 @router.get("/runs", summary="Projekten, ett per stream och kampanj, nyast först")
 def list_runs(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> list[dict]:
     log = _log(settings)
     clips = log.list()
     off = _turned_off(settings)
     # Ett projekt per stream och kampanj: Kör igen och en ny körning på samma VOD visas som samma projekt,
-    # med den senaste körningen. Klippen delas redan per VOD och kampanj (_run_clips).
+    # med den senaste körningen. Klippen delas redan per VOD och kampanj (runinfo.run_clips).
     latest = {(meta["vod_id"], meta["profile"]): meta for meta in log.runs() if meta["profile"] not in off}
-    return [_describe_run(_with_facts(meta, log), db, clips)
+    return [runinfo.describe(_with_facts(meta, log), db, clips)[0]
             for meta in sorted(latest.values(), key=lambda m: m["run_id"], reverse=True)]
 
 
@@ -469,9 +461,27 @@ def get_run(run_id: int, db: Session = Depends(get_db),
     log = _log(settings)
     meta = log.run(run_id)
     if meta is None:
-        raise HTTPException(404, "Körningen finns inte.")
-    return _describe_run(_with_facts(meta, log), db, log.list(), steps=True,
-                         berget_usd_per_min=_berget_price(settings))
+        raise HTTPException(404, "Projektet finns inte.")
+    meta = _with_facts(meta, log)
+    out, progress = runinfo.describe(meta, db, log.list())
+    out.update(runinfo.steps_and_cost(progress, meta["duration_s"], _berget_price(settings),
+                                      runinfo.fast(meta["profile"], settings)))
+    out["retry_problem"] = _own_file_missing(meta["vod_id"], settings)  # varför Kör igen inte går
+    return out
+
+
+@router.post("/runs/{run_id}/cancel", status_code=202, summary="Avbryt en körning som pågår",
+             dependencies=[Depends(verify_api_key)])
+def cancel_run(run_id: int, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> dict:
+    """Körningen stoppar vid nästa steg: före nästa anrop till Claude, före nästa klipp, och hämtningen direkt.
+    Klara filer behålls, en halv nedladdning tas bort. Den markeras som misslyckad med texten CANCELLED."""
+    if _log(settings).run(run_id) is None:
+        raise HTTPException(404, "Projektet finns inte.")
+    run = db.get(Run, run_id)
+    in_progress = run is not None and run.status in (RunStatus.pending, RunStatus.running)
+    if not (in_progress and pipeline.cancel(run_id)):
+        raise HTTPException(409, "Projektet hämtar inga klipp just nu, så det finns inget att avbryta.")
+    return {"cancelling": True}
 
 
 @router.post("/runs/{run_id}/finish", status_code=202, summary="Gör klippen kampanjklara igen",
@@ -485,13 +495,13 @@ def refinish_run(
 ) -> dict:
     meta = _log(settings).run(run_id)
     if meta is None:
-        raise HTTPException(404, "Körningen hör inte till någon kampanj.")
+        raise HTTPException(404, "Projektet hör inte till någon kampanj.")
     run = db.get(Run, run_id)
     if run is not None and run.status == RunStatus.failed:
-        raise HTTPException(400, "Körningen misslyckades. Tryck Kör igen.")
+        raise HTTPException(400, "Projektet misslyckades. Tryck Kör igen.")
     with _start_lock:
         if request.app.state.active_run_id is not None:
-            raise HTTPException(429, "En körning pågår redan. Vänta tills den är klar.")
+            raise HTTPException(429, "Ett projekt hämtar redan klipp. Vänta tills det är klart.")
         if editor.lock.locked():  # redigeraren kollar active_run_id under samma lås
             raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
         request.app.state.active_run_id = run_id
@@ -506,13 +516,22 @@ def refinish_run(
 REVIEW_PREFIX = "Bildgranskning: "
 
 
+def _split_warnings(clip: dict) -> tuple[list[str], list[str]]:
+    """Varningarna som visas, och äldre klipps bildgranskning som låg bland varningarna."""
+    warnings = clip["warnings"] or []
+    # Äldre klipp har bildgranskningens beskrivningar som varningar. De visas med bildgranskningen i stället.
+    old_notes = [w.removeprefix(REVIEW_PREFIX) for w in warnings if w.startswith(REVIEW_PREFIX)]
+    # Varningen om format sparades när klippet gjordes. Den gäller inte längre när formatet är valt.
+    hidden = {NO_FORMAT} if clip["format"] else set()
+    shown = [w for w in warnings if not w.startswith(REVIEW_PREFIX) and w not in hidden]
+    return shown, old_notes
+
+
 def _public(clip: dict, settings: Settings) -> dict:
     out = {k: v for k, v in clip.items() if k != "file"}
     out["filename"] = Path(clip["file"] or "").name
     out["problems"] = clip["problems"] or []
-    # Äldre klipp har bildgranskningens beskrivningar som varningar. De visas med bildgranskningen i stället.
-    old_notes = [w.removeprefix(REVIEW_PREFIX) for w in clip["warnings"] or [] if w.startswith(REVIEW_PREFIX)]
-    out["warnings"] = [w for w in clip["warnings"] or [] if not w.startswith(REVIEW_PREFIX)]
+    out["warnings"], old_notes = _split_warnings(clip)
     if old_notes:
         review = dict(clip["review"] or {})
         review["notes"] = [*(review.get("notes") or []), *old_notes]
@@ -567,7 +586,7 @@ def list_clips(status: str | None = None, vod_id: str | None = None, run_id: int
         clips = [c for c in clips if c["profile"] == profile]
     if run_id is not None:
         meta = log.run(run_id)
-        clips = _run_clips(meta, clips) if meta else []
+        clips = runinfo.run_clips(meta, clips) if meta else []
     elif not profile:  # en direktlänk till ett projekt visar dess klipp även när kampanjen är avstängd
         off = _turned_off(settings)
         clips = [c for c in clips if c["profile"] not in off]
@@ -697,13 +716,6 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
                 raise HTTPException(400, "Klippet har problem. Rätta dem innan du godkänner.")
             if profile.formats and not (fields.get("format") or clip["format"]):
                 raise HTTPException(400, "Välj ett format innan du godkänner.")
-        if status == "godkand" and new in ("nekad", "renderad"):  # Ta bort eller Ångra godkännande: inget laddas upp efteråt
-            from .schedule import Schedule, ScheduleError  # schedule läser klipploggen; importen hålls här
-
-            try:
-                Schedule(settings).cancel_for_clip(clip_id)
-            except ScheduleError as error:
-                raise HTTPException(error.status, str(error)) from error
         if new == "renderad" and problems:
             fields["status"] = "underkand"
         if new == "postad":
@@ -718,14 +730,17 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
 
     _apply_to_posts(log, clip, fields)
     if fields:
-        log.update(clip_id, **fields)
+        try:  # ett klipp som lämnar godkänt får sina väntande uppladdningar avbrutna i klipploggen
+            log.update(clip_id, **fields)
+        except UploadRunning as error:
+            raise HTTPException(409, str(error)) from error
     return _public(log.get(clip_id), settings)
 
 
 def _check_min_views(views: int | None, profile: Profile) -> None:
-    """Statistik inskickad går först när inlägget har nått kampanjens min_views."""
+    """Analytics inskickad går först när inlägget har nått kampanjens min_views."""
     if (views or 0) < profile.min_views:
-        raise HTTPException(400, f"Statistiken skickas in först vid {profile.min_views} visningar. "
+        raise HTTPException(400, f"Analytics skickas in först vid {profile.min_views} visningar. "
                                  f"Inlägget har {views or 0}.")
 
 
@@ -807,7 +822,8 @@ def _payout(views: int, payment: dict) -> float:
 
 def _earnings(clips: list[dict], settings: Settings, posts: list[dict]) -> dict:
     """Intäkter per klipp och månad. min_views och taket gäller varje inlägg för sig, så ett klipp med
-    inlägg räknas per inlägg. Utbetalt är vad Whop betalade när beloppet är ifyllt, annars uppskattningen.
+    inlägg räknas per inlägg. Utbetalt gäller betalda inlägg: vad Whop betalade när beloppet är ifyllt, annars
+    uppskattningen.
     Gamla klipp utan inlägg räknas på klippets egna siffror."""
     payments: dict[str, dict] = {}
     by_clip: dict[int, list[dict]] = {}
@@ -827,10 +843,8 @@ def _earnings(clips: list[dict], settings: Settings, posts: list[dict]) -> dict:
         for part in parts:
             estimate = _payout(part["views"] or 0, payments[clip["profile"]])
             usd += estimate
-            if part["paid_usd"] is not None:
-                paid += float(part["paid_usd"])
-            elif part["status"] == "betald":
-                paid += estimate
+            if part["status"] == "betald":  # efter Ångra från Betald står beloppet kvar, men det räknas inte
+                paid += estimate if part["paid_usd"] is None else float(part["paid_usd"])
         usd = round(usd, 2)
         per_clip.append({"id": clip["id"], "views": clip["views"], "usd": usd})
         if clip["created"]:

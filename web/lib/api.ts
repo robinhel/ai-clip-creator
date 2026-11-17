@@ -85,7 +85,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
       detail = undefined;
     }
     if (res.status === 503 && detail === "Backend unavailable") {
-      throw new Error("Servern svarar inte. Kör FastAPI på port 8000?");
+      throw new Error("Appens server är inte igång. Starta den och tryck Försök igen.");
     }
     if (typeof detail === "string") throw Object.assign(new Error(detail), { status: res.status });
     // FastAPI:s valideringsfel (422) har detail som en lista med fält och meddelande.
@@ -292,3 +292,31 @@ export const api = {
       apiFetch<CampaignProfileDetail & { warning?: string | null }>("/campaign/profiles", { method: "POST", body: JSON.stringify(body) }),
   },
 };
+
+// --- Hem, Projekt och Egna videor (flode-hem) ---
+
+/** Avbryt ett projekt som hämtar klipp. 202, eller 409 när inget pågår. */
+export const cancelRun = (runId: number) =>
+  apiFetch<{ cancelling: boolean }>(`/campaign/runs/${runId}/cancel`, { method: "POST" });
+
+/** Samma som api.campaign.upload, men med förloppet för uppladdningen i procent (fetch kan inte visa det). */
+export function uploadWithProgress(form: FormData, onProgress: (percent: number) => void): Promise<CampaignClip> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${PROXY}/campaign/uploads`);
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(Math.round((e.loaded / e.total) * 100));
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(JSON.parse(xhr.responseText) as CampaignClip);
+      let detail: unknown;
+      try {
+        detail = JSON.parse(xhr.responseText).detail;
+      } catch {
+        detail = undefined;
+      }
+      if (xhr.status === 503 && detail === "Backend unavailable") return reject(new Error("Appens server svarar inte."));
+      reject(new Error(typeof detail === "string" ? detail : `Servern svarade med fel ${xhr.status}. Försök igen.`));
+    };
+    xhr.onerror = () => reject(new Error("Appens server svarar inte."));
+    xhr.send(form);
+  });
+}

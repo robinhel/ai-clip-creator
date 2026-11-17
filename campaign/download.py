@@ -68,12 +68,17 @@ def _run_twitchdl(cmd: list[str], on_progress: Callable[[int, int], None] | None
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     assert proc.stdout is not None
     text, last = "", None
-    for chunk in iter(lambda: proc.stdout.read1(65536), b""):
-        text = text[-200:] + chunk.decode(errors="replace")  # svansen: en rad kan delas mellan två bitar
-        found = re.findall(r"Downloaded (\d+)/(\d+) VODs", text)  # " VODs": inte ett halvt tal i slutet
-        if found and on_progress and found[-1] != last:
-            last = found[-1]
-            on_progress(int(last[0]), int(last[1]))
+    try:
+        for chunk in iter(lambda: proc.stdout.read1(65536), b""):
+            text = text[-200:] + chunk.decode(errors="replace")  # svansen: en rad kan delas mellan två bitar
+            found = re.findall(r"Downloaded (\d+)/(\d+) VODs", text)  # " VODs": inte ett halvt tal i slutet
+            if found and on_progress and found[-1] != last:
+                last = found[-1]
+                on_progress(int(last[0]), int(last[1]))
+    except BaseException:  # till exempel Avbryt i appen: twitch-dl ska inte hämta vidare i bakgrunden
+        proc.kill()
+        proc.wait()
+        raise
     code = proc.wait()
     if code != 0:
         log.error("twitch-dl misslyckades:\n%s", text[-1500:])

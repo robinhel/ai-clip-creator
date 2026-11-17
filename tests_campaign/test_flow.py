@@ -111,6 +111,33 @@ def test_finished_clip_keeps_claudes_score_and_reason(settings) -> None:
     assert clip["subscores"] == {"hook": 24, "engagement": 22, "value": 20, "shareability": 21}
 
 
+@needs_ffmpeg
+def test_signals_mode_title_is_the_first_words_said_in_the_clip(settings) -> None:
+    """Snabbläget har ingen rubrik från Claude. Platshållaren "Moment 0:00:20" gjorde varje klipp underkänt."""
+    from campaign.profile import load_profile
+    from campaign.workflow import finish_vod
+
+    shutil.copy(PAKET / "config.timmy.yaml", settings.root / "config.timmy.yaml")
+    make_clip(settings.out_dir / "123" / "clip_01_moment.mp4")
+    work = settings.work_dir / "123"
+    work.mkdir(parents=True)
+    (work / "picks.json").write_text(json.dumps([{"candidate": {"sources": ["chat"]}, "pick": {
+        "start_offset_s": 10, "end_offset_s": 30, "title": "Moment 0:00:20",
+        "reason": "Signals mode, no LLM: chat."}}]))
+    said = [(9.0, "okay"), (10.5, "no"), (10.8, "way,"), (12.0, "he"), (12.3, "actually"), (12.8, "hit"),
+            (13.0, "that"), (13.2, "shot"), (13.5, "from"), (13.8, "across"), (31.0, "later")]
+    words = [{"start": t, "end": t + 0.2, "word": f" {w}", "probability": 1.0} for t, w in said]
+    (work / "transcript.json").write_text(json.dumps({"video_id": "123", "language": "en", "segments": [
+        {"start": 9.0, "end": 11.0, "text": " okay no way,", "words": words[:3]},
+        {"start": 12.0, "end": 31.2, "text": " he actually hit that shot from across later", "words": words[3:]}]}))
+    log = ClipLog(settings.data_dir / "klipp.db")
+    finish_vod("123", load_profile("skiimasktimmy", settings.profiles_dir), settings, log, review=False)
+    clip = log.list()[0]
+    assert clip["title"] == "No way, he actually hit that shot from…"  # okay sägs före klippet
+    assert clip["caption"].startswith("No way, he actually hit that shot from…")
+    assert not [p for p in clip["problems"] if "platshållaren" in p]
+
+
 # ---------- leta efter och längd ----------
 
 
@@ -644,6 +671,39 @@ def test_retry_needs_the_key_and_waits_for_a_running_run(client, settings, start
     assert response.status_code == 429
     assert started == []
     assert len(ClipLog(settings.data_dir / "klipp.db").runs()) == 1
+
+
+OWN_FILE = "WOW_Camelot_v19"  # python -m campaign local: VOD-id är filens namn, inga siffror
+
+
+def test_retry_of_a_run_from_an_own_file_runs_the_file_again(client, settings, started, monkeypatch) -> None:  # noqa: F811
+    run_id = _run_with_events(settings, ["download"], "failed", vod=OWN_FILE)
+    mp4 = settings.work_dir / OWN_FILE / f"{OWN_FILE}.mp4"
+    mp4.parent.mkdir(parents=True)
+    mp4.write_bytes(b"video")
+    monkeypatch.setattr(api, "_facts", lambda *a, **k: pytest.fail("en egen fil frågar inte Twitch"))
+    assert client.get(f"/campaign/runs/{run_id}").json()["retry_problem"] is None
+
+    response = client.post(f"/campaign/runs/{run_id}/retry")
+    assert response.status_code == 201, response.text
+    new = response.json()
+    (args, kwargs), = started
+    assert args[:4] == (new["id"], OWN_FILE, "skiimasktimmy", "Bodycam")
+    assert kwargs["local"] is True
+    assert mp4.read_bytes() == b"video"  # filen är kvar: den tas inte bort som en halv video
+    run = client.get(f"/campaign/runs/{new['id']}").json()
+    assert (run["vod_id"], run["title"], run["duration_s"], run["status"]) == (OWN_FILE, "T", 13950, "pending")
+
+
+def test_retry_of_a_run_from_an_own_file_that_is_gone_says_why(client, settings, started) -> None:  # noqa: F811
+    run_id = _run_with_events(settings, ["download"], "failed", vod=OWN_FILE)
+    response = client.post(f"/campaign/runs/{run_id}/retry")
+    assert response.status_code == 409
+    assert "Källfilen" in response.json()["detail"]
+    assert started == []
+    assert client.get(f"/campaign/runs/{run_id}").json()["retry_problem"] == response.json()["detail"]
+    twitch = _run_with_events(settings, ["download"], "failed")
+    assert client.get(f"/campaign/runs/{twitch}").json()["retry_problem"] is None
 
 
 def test_the_cost_is_split_into_berget_and_claude_and_berget_follows_the_price_list(client, settings,  # noqa: F811

@@ -180,6 +180,8 @@ export interface CampaignRunDetail extends CampaignRunInfo {
   eta_s: number | null;
   cost_estimate_usd: number | null;
   cost_estimate?: CostParts | null;
+  /** Varför Kör igen inte går, till exempel att källfilen till en egen fil är borta. null när det går. */
+  retry_problem?: string | null;
 }
 
 export interface ClipTranscript {
@@ -328,6 +330,8 @@ export interface ClipPost {
   estimate_usd: number | null;
   /** open_id eller channel_id. null: loggat för hand utan konto. Saknas hos äldre servrar. */
   account?: string | null;
+  /** Statusen före den senaste, så att Ångra på Betald går tillbaka dit. Saknas hos äldre servrar. */
+  prev_status?: PostStatus | null;
 }
 
 export type ClipAccountState = "free" | "scheduled" | "posted";
@@ -892,4 +896,42 @@ export interface YouTubeStatus {
 // Läggs ihop med MaterialItem ovan: senaste projektet med källan. Saknas hos äldre servrar.
 export interface MaterialItem {
   run_id?: number;
+}
+
+// --- Hem, Projekt och Egna videor (flode-hem). Fält som äldre servrar saknar, därför valfria. ---
+
+export interface CampaignRunInfo {
+  /** Bilden från projektets första klipp, för projekt utan Twitch-bild (egna filer). */
+  poster_url?: string | null;
+  /** Robin avbröt hämtningen av klipp. */
+  cancelled?: boolean;
+  /** Projektet hämtar klipp i servern just nu, och det går att avbryta. */
+  cancellable?: boolean;
+}
+
+export interface CampaignRunDetail {
+  /** Snabbläget: signalerna väljer klippen, utan Claude. */
+  fast?: boolean;
+}
+
+export interface VodInfo {
+  /** Kampanjer i snabbläget: ingen Claude-kostnad och inget fält Leta efter. */
+  fast_campaigns?: string[];
+}
+
+export interface StreamInfo {
+  /** Robin avbröt streamens senaste projekt. Kortet säger då Avbruten, inte Misslyckades. */
+  run_cancelled?: boolean;
+}
+
+export interface UploadOptions {
+  /** Kampanjens regel för material, till exempel att bara streamerns egna streams får användas. */
+  source_allowed?: string | null;
+}
+
+// --- Klippen: menyn, flikarna och Publicera (flode-klippen) ---
+
+export interface ScheduledPost {
+  /** TikTok utan direktpostning: appen påminner på Macen och Robin postar själv. Saknas hos äldre servrar. */
+  reminder?: boolean;
 }

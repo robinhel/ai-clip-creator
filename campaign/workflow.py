@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 from clipsmith.llm.base import SUBSCORES
@@ -24,6 +25,10 @@ from .subtitles import load_words
 from .timemap import prepare
 
 FORCED_REASON = "Claude valde inte klippet. Det togs med för att nå min_picks."
+
+
+class RunCancelled(Exception):
+    """Robin tryckte Avbryt. Körningen stoppar mellan två steg, så att inga halva filer blir kvar."""
 
 
 def load_picks(path: Path) -> list[dict]:
@@ -53,6 +58,28 @@ def load_picks(path: Path) -> list[dict]:
     return picks
 
 
+TITLE_WORDS = 8
+
+
+def spoken_title(transcript: Path, start: float | None, end: float | None) -> str:
+    """Snabbläget har ingen rubrik från Claude. De första orden som sägs i klippet blir rubriken, så att klippet
+    går att granska. Tomt när inget sägs eller transkriptet saknas."""
+    if start is None or end is None or not transcript.exists():
+        return ""
+    try:
+        segments = json.loads(transcript.read_text(encoding="utf-8")).get("segments", [])
+    except ValueError:
+        return ""
+    said = [w["word"].strip() for s in segments for w in s.get("words") or []
+            if start <= w["start"] < end and w["word"].strip()]
+    if not said:
+        return ""
+    title = " ".join(said[:TITLE_WORDS])
+    if len(said) > TITLE_WORDS:
+        title = title.rstrip(",;:") + "…"
+    return title[0].upper() + title[1:]
+
+
 def title_from_name(path: Path) -> str:
     """clip_03_too_close_call.mp4 blir 'Too close call'."""
     words = re.sub(r"^clip_\d+_?", "", path.stem).replace("_", " ").strip()
@@ -75,6 +102,16 @@ def _save(log: ClipLog, redo: dict | None, common: dict, **fields) -> int | None
     return redo["id"]
 
 
+def _raw_clips(vod_id: str, settings: Settings, subdir: str | None) -> tuple[Path, list[Path], list[dict]]:
+    """Mappen med råklippen, råklippen och valen från clipsmith."""
+    clip_dir = settings.out_dir / vod_id / subdir if subdir else settings.out_dir / vod_id
+    files = sorted(clip_dir.glob("clip_*.mp4"))
+    if not files:
+        raise SystemExit(f"Hittar inga klipp i {clip_dir}. Kör clipsmith först.")
+    own = clip_dir / "picks.json"  # en körning i out/<vod>/run_<id>/ har sina egna val
+    return clip_dir, files, load_picks(own if own.exists() else settings.work_dir / vod_id / "picks.json")
+
+
 def finish_vod(
     vod_id: str,
     profile: Profile,
@@ -84,26 +121,23 @@ def finish_vod(
     game: str | None = None,
     review: bool = True,
     subdir: str | None = None,
+    stop: Callable[[], None] = lambda: None,  # kastar RunCancelled när Robin har avbrutit
 ) -> list[dict]:
     """Gå igenom out/<vod_id>/clip_*.mp4 och gör varje klipp kampanjklart."""
-    clip_dir = settings.out_dir / vod_id
-    if subdir:
-        clip_dir = clip_dir / subdir
-    files = sorted(clip_dir.glob("clip_*.mp4"))
-    if not files:
-        raise SystemExit(f"Hittar inga klipp i {clip_dir}. Kör clipsmith först.")
-    own = clip_dir / "picks.json"  # en körning i out/<vod>/run_<id>/ har sina egna val
-    picks = load_picks(own if own.exists() else settings.work_dir / vod_id / "picks.json")
+    clip_dir, files, picks = _raw_clips(vod_id, settings, subdir)
     existing = {clip["file"]: clip for clip in log.list()}
 
     results: list[dict] = []
     for src in files:
+        stop()  # före varje klipp: klara klipp är sparade, och inget nytt klipp eller anrop till Claude börjar
         index = int(re.match(r"clip_(\d+)", src.name).group(1))
         pick = picks[index - 1] if 0 < index <= len(picks) else {}
         title = pick.get("title") or title_from_name(src)
         hook = pick.get("title") or ""  # filnamnet blir ingen hook-text
         hook = "" if PLACEHOLDER.search(hook) else hook  # snabblägets "Moment h:mm:ss" blir ingen hook-text
         start, end = pick.get("start"), pick.get("end")
+        if PLACEHOLDER.search(title):  # rubrik och caption utan platshållaren, men ingen hook-text av talet
+            title = spoken_title(settings.work_dir / vod_id / "transcript.json", start, end) or title
         out = clip_dir / "klara" / src.name
 
         before = existing.get(str(out)) or existing.get(str(src))

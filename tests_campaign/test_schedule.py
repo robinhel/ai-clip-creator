@@ -120,7 +120,7 @@ def test_post_runs_after_its_time_and_only_once(client, settings, clip_id, notes
     message, url = notes[0]
     assert re.fullmatch(r"Timmy lands it är uppe på YouTube\. Skicka in länken i Content Rewards före kl\. "
                         r"\d\d:\d\d\.", message), message
-    assert url == "http://localhost:3000/queue"
+    assert url == "http://localhost:3000/queue?tab=skicka-in"
 
 
 def test_status_is_running_before_the_upload(client, settings, clip_id, notes, monkeypatch):
@@ -151,7 +151,7 @@ def test_rejected_or_broken_clip_fails_at_the_time(client, settings, clip_id, no
     row = _row(settings, post_id)
     assert row["status"] == "failed" and row["error"]
     assert FakeYouTube.calls == []
-    assert notes == [(f"Timmy lands it laddades inte upp: {row['error']}", "http://localhost:3000/queue")]
+    assert notes == [(f"Timmy lands it laddades inte upp: {row['error']}", "http://localhost:3000/queue?tab=posta")]
 
 
 def test_late_under_six_hours_runs_and_says_late(client, settings, clip_id, notes):
@@ -172,7 +172,7 @@ def test_late_over_six_hours_fails(client, settings, clip_id, notes):
     assert row["status"] == "failed" and row["error"] == "Missad: Macen var avstängd vid tiden."
     assert FakeYouTube.calls == []
     assert notes == [("Timmy lands it laddades inte upp: Missad: Macen var avstängd vid tiden.",
-                      "http://localhost:3000/queue")]
+                      "http://localhost:3000/queue?tab=posta")]
 
 
 def test_youtube_daily_limit_is_checked_at_the_time(client, settings, clip_id, notes):
@@ -198,7 +198,7 @@ def test_tiktok_without_direct_post_becomes_a_reminder(client, settings, clip_id
     _run(settings, at, timedelta(seconds=1))
     assert _row(settings, post_id)["status"] == "reminded"
     assert FakeTikTok.calls == []
-    assert notes == [("Dags att posta Timmy lands it på TikTok", "http://localhost:3000/queue")]
+    assert notes == [("Dags att posta Timmy lands it på TikTok", "http://localhost:3000/queue?tab=posta")]
 
 
 def test_tiktok_with_direct_post_posts_with_saved_fields(client, settings, clip_id, notes):
@@ -267,7 +267,7 @@ def test_button_upload_after_scheduling_stops_the_scheduled_upload(client, setti
     assert row["status"] == "failed" and row["error"] == "Klippet finns redan på kanalen."
     assert FakeYouTube.calls == []
     assert notes == [("Timmy lands it laddades inte upp: Klippet finns redan på kanalen.",
-                      "http://localhost:3000/queue")]
+                      "http://localhost:3000/queue?tab=posta")]
 
 
 def test_clip_already_direct_posted_to_the_tiktok_account_is_stopped(client, settings, clip_id, notes):
@@ -348,8 +348,42 @@ def test_list_waiting_first_then_finished(client, settings, clip_id, notes):
     listed = client.get("/campaign/schedule").json()
     assert [p["id"] for p in listed] == [waiting, done]
     assert set(listed[0]) == {"id", "clip_id", "clip_title", "profile", "platform", "account", "at", "fields",
-                              "status", "error", "result", "late", "warning"}
+                              "status", "error", "result", "late", "warning", "reminder"}
     assert listed[0]["fields"]["privacy"] == "public" and listed[1]["result"]["video_id"] == "v1"
+
+
+def test_the_list_says_which_tiktok_posts_are_reminders(client, settings, clip_id, notes):
+    youtube = _post(client, clip_id).json()
+    reminder = _post(client, clip_id, "tiktok", fields={}, account="open1").json()
+    assert youtube["reminder"] is False and reminder["reminder"] is True
+    at = _at(timedelta(hours=1))
+    _run(settings, at, timedelta(hours=1))
+    listed = {p["id"]: p for p in client.get("/campaign/schedule").json()}
+    assert listed[reminder["id"]]["status"] == "reminded" and listed[reminder["id"]]["reminder"] is True
+    assert listed[youtube["id"]]["status"] == "done" and listed[youtube["id"]]["reminder"] is False
+
+
+def test_a_direct_tiktok_post_becomes_a_reminder_when_the_account_cannot_publish(client, settings, clip_id, notes):
+    FakeTikTok.publish = True
+    fields = {"title": "Big play #ad", "privacy_level": "PUBLIC_TO_EVERYONE", "allow_comment": True}
+    post = _post(client, clip_id, "tiktok", fields=fields, account="open1").json()
+    assert post["reminder"] is False
+    FakeTikTok.publish = False  # som vid tiden: kontot har tappat video.publish, så det blir en påminnelse
+    assert client.get("/campaign/schedule").json()[0]["reminder"] is True
+
+
+def test_finished_posts_are_sorted_by_the_time_that_is_shown(client, settings, clip_id, notes):
+    schedule.Schedule(settings)  # skapar tabellen
+    now = datetime.now(UTC)
+    rows = [("failed", -3, 5), ("done", -1, 10), ("cancelled", 2, 20)]  # status, tid i timmar, ändrad minuter sedan
+    with sqlite3.connect(settings.data_dir / "klipp.db") as db:
+        ids = [db.execute("INSERT INTO scheduled_posts (clip_id, platform, account, at, fields, status, created, updated) "
+                          "VALUES (?, 'youtube', 'UC1', ?, '{}', ?, ?, ?)",
+                          (clip_id, (now + timedelta(hours=hours)).isoformat(timespec="seconds"), status,
+                           (now - timedelta(minutes=minutes)).isoformat(timespec="seconds"),
+                           (now - timedelta(minutes=minutes)).isoformat(timespec="seconds"))).lastrowid
+               for status, hours, minutes in rows]
+    assert [p["id"] for p in client.get("/campaign/schedule").json()] == [ids[2], ids[1], ids[0]]
 
 
 def test_list_shows_finished_posts_from_the_last_24_hours_only(client, settings, clip_id, notes):
@@ -396,7 +430,7 @@ def test_with_the_helper_the_notice_says_the_time_in_swedish_time(client, settin
     monkeypatch.setattr(schedule, "_now", lambda: datetime(2026, 11, 20, 16, 53, 10, tzinfo=UTC))  # 17:53 i Sverige
     _run(settings, at, timedelta(seconds=1))
     assert notes == [("Timmy lands it är uppe på YouTube. Skicka in länken i Content Rewards före kl. 18:23.",
-                      "http://localhost:3000/queue")]
+                      "http://localhost:3000/queue?tab=skicka-in")]
 
 
 def test_without_the_helper_the_notice_is_as_before(client, settings, clip_id, notes):
@@ -412,7 +446,7 @@ def test_a_reminder_notice_does_not_change_with_the_helper(client, settings, cli
     at = _at(timedelta(hours=1))
     _post(client, clip_id, "tiktok", at=at, fields={}, account="open1")
     _run(settings, at, timedelta(seconds=1))
-    assert notes == [("Dags att posta Timmy lands it på TikTok", "http://localhost:3000/queue")]
+    assert notes == [("Dags att posta Timmy lands it på TikTok", "http://localhost:3000/queue?tab=posta")]
 
 
 @pytest.mark.parametrize(("platforms", "platform", "text"), [
@@ -513,6 +547,16 @@ def test_the_campaign_account_can_be_named_by_its_handle(client, settings, clip_
                         lambda self: {"UC1": {"handle": "@vicecitywatchers", "title": "ViceCityWatchers"}})
     set_profile(settings, accounts={"youtube_shorts": ["@ViceCityWatchers"]})
     assert _post(client, clip_id, account="UC1").status_code == 201
+
+
+def test_the_refusal_names_the_campaign_account_and_not_its_id(client, settings, clip_id, monkeypatch):
+    # Blizzards profil anger TikTok-kontot med sitt open_id. Robin ska läsa kontots namn, inte id:t.
+    monkeypatch.setattr(FakeYouTube, "accounts",
+                        lambda self: {"UC1": {"title": "Fel kanal"}, "UC2": {"title": "Timmy Clips"}})
+    set_profile(settings, accounts={"youtube_shorts": ["UC2"]})
+    detail = _post(client, clip_id, account="UC1").json()["detail"]
+    assert "Timmy Clips" in detail
+    assert "UC2" not in detail
 
 
 def test_a_tiktok_reminder_without_account_is_allowed_with_campaign_accounts(client, settings, clip_id):
@@ -628,6 +672,39 @@ def test_undoing_the_approval_also_cancels_the_waiting_upload(client, settings, 
     assert _row(settings, post_id)["status"] == "cancelled"
     _run(settings, at, timedelta(seconds=10))
     assert FakeYouTube.calls == []
+
+
+def test_a_new_caption_on_an_approved_clip_cancels_the_waiting_upload(client, settings, clip_id, notes):
+    """Ett ja gäller den caption som fanns. Den gamla texten får inte laddas upp vid tiden."""
+    at = _at(timedelta(hours=1))
+    post_id = _post(client, clip_id, at=at).json()["id"]
+    answer = client.patch(f"/campaign/clips/{clip_id}", json={"caption": "Ny text"})
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["status"] in ("renderad", "underkand")
+    assert _row(settings, post_id)["status"] == "cancelled"
+    _run(settings, at, timedelta(seconds=10))
+    assert FakeYouTube.calls == []
+
+
+def test_a_new_caption_is_refused_while_the_clip_uploads(client, settings, clip_id, notes):
+    post_id = _post(client, clip_id).json()["id"]
+    with sqlite3.connect(settings.data_dir / "klipp.db") as db:
+        db.execute("UPDATE scheduled_posts SET status = 'running' WHERE id = ?", (post_id,))
+    answer = client.patch(f"/campaign/clips/{clip_id}", json={"caption": "Ny text"})
+    assert answer.status_code == 409 and "laddas upp" in answer.json()["detail"]
+    clip = ClipLog(settings.data_dir / "klipp.db").get(clip_id)
+    assert (clip["status"], clip["caption"]) == ("godkand", "c")
+
+
+def test_every_way_out_of_approved_cancels_the_waiting_uploads(client, settings, clip_id, notes):
+    """Kontrollen ligger i klipploggen, så en ny väg som ändrar status kan inte glömma den."""
+    youtube = _post(client, clip_id, "youtube").json()["id"]
+    tiktok = _post(client, clip_id, "tiktok", fields={"title": "x"}, account="open1").json()["id"]
+    log = ClipLog(settings.data_dir / "klipp.db")
+    log.update(clip_id, status="postad")  # postad räknas som godkänt: posterna väntar kvar
+    assert _row(settings, youtube)["status"] == "waiting"
+    log.update(clip_id, status="underkand")
+    assert (_row(settings, youtube)["status"], _row(settings, tiktok)["status"]) == ("cancelled", "cancelled")
 
 
 def test_undoing_the_approval_is_refused_while_the_clip_uploads(client, settings, clip_id, notes):

@@ -187,7 +187,7 @@ def test_finish_again_is_refused_for_a_failed_run(client, settings, started) -> 
     run_id = _run("failed")
     ClipLog(settings.data_dir / "klipp.db").add_run(run_id, VOD, "skiimasktimmy", "Bodycam")
     response = client.post(f"/campaign/runs/{run_id}/finish")
-    assert (response.status_code, response.json()["detail"]) == (400, "Körningen misslyckades. Tryck Kör igen.")
+    assert (response.status_code, response.json()["detail"]) == (400, "Projektet misslyckades. Tryck Kör igen.")
     assert client.app.state.active_run_id is None
 
 
@@ -197,9 +197,9 @@ def test_finish_summary_tells_what_was_done_and_why_clips_were_skipped() -> None
                {"file": "b", "skipped": "finns redan i klipploggen"},
                {"file": "c", "skipped": "finns redan i klipploggen"}]
     assert pipeline.finish_summary(results) == (
-        "2 klipp gjordes om. 3 hoppades över (finns redan i klipploggen: 2, du har nekat klippet: 1).")
+        "2 klipp gjordes om. 3 klipp rördes inte: 2 är redan granskade eller postade, 1 är nekat.")
     assert pipeline.finish_summary(results[2:3]) == (
-        "Inga klipp gjordes om. 1 hoppades över (du har nekat klippet: 1).")
+        "Inga klipp gjordes om. 1 klipp rördes inte: 1 är nekat.")
     assert pipeline.finish_summary([{"id": 1}]) == "1 klipp gjordes om."
     assert pipeline.finish_summary([]) == "Inga klipp gjordes om."
 
@@ -211,7 +211,7 @@ def test_finish_run_puts_the_summary_in_the_runs_message(client, settings, monke
     pipeline.finish_run(run_id, VOD, "skiimasktimmy", "Bodycam", settings)
     run = client.get(f"/campaign/runs/{run_id}").json()
     assert (run["status"], run["message"]) == (
-        "done", "1 klipp gjordes om. 1 hoppades över (du har nekat klippet: 1).")
+        "done", "1 klipp gjordes om. 1 klipp rördes inte: 1 är nekat.")
 
 
 # ---------- 4. budget ----------
@@ -224,7 +224,7 @@ def test_a_run_does_not_start_when_the_budget_is_used(client, settings, vod, sta
     budget_from_settings(settings).record("okänd-modell", "granska", 2_000_000, 0)  # 16 dollar
     response = client.post("/campaign/runs", json=BODY)
     assert response.status_code == 400
-    assert words in response.json()["detail"] and "Körningen startar inte" in response.json()["detail"]
+    assert words in response.json()["detail"] and "Projektet startar inte" in response.json()["detail"]
     assert started == []
 
 

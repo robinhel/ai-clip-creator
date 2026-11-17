@@ -14,14 +14,14 @@ STATUSES = [
     "nekad",  # du sa nej
     "postad",  # uppe på TikTok, Shorts eller Reels
     "inskickad",  # länken är inskickad till Content Rewards
-    "analytics_inskickad",  # skärminspelningen av statistiken är inskickad
+    "analytics_inskickad",  # Analytics inskickad: skärminspelningen av inläggets analytics är inskickad
     "betald",
 ]
 
 # Ett inlägg är klippet på en plattform. Varje inlägg skickas in, följs och betalas för sig.
 POST_STATUSES = ["postad", "inskickad", "analytics_inskickad", "betald"]
 POST_COLUMNS = ("id, clip_id, platform, account, url, status, views, likes, comments, shares, paid_usd, created, "
-                "updated")
+                "updated, prev_status")
 # Ett inlägg per klipp, plattform och konto. Ett inlägg loggat för hand har inget konto (NULL), och räknas som
 # ett eget konto: två utan konto på samma plattform går inte.
 POSTS_TABLE = """CREATE TABLE IF NOT EXISTS {name} (
@@ -45,11 +45,30 @@ NEW_COLUMNS = {
     "runs": {"focus": "TEXT", "min_s": "INTEGER", "max_s": "INTEGER", "title": "TEXT",
              "channel_name": "TEXT", "thumbnail_url": "TEXT", "duration_s": "INTEGER", "created": "TEXT",
              "start_s": "REAL", "end_s": "REAL"},
+    "posts": {"prev_status": "TEXT"},  # statusen före den senaste, så att Ångra på Betald går tillbaka dit
 }
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+class UploadRunning(Exception):
+    """Ett godkänt klipp laddas upp just nu. Det får inte lämna godkänt förrän uppladdningen är klar. Ger 409."""
+
+
+def _cancel_uploads(db: sqlite3.Connection, clip_id: int) -> None:
+    """Klippet lämnar godkänt, så ett ja gäller inte längre: väntande schemalagda uppladdningar avbryts.
+    Tabellen hör till schedule.py och finns först när något har schemalagts."""
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'scheduled_posts'").fetchone():
+        return
+    running = db.execute("SELECT platform FROM scheduled_posts WHERE clip_id = ? AND status = 'running'",
+                         (clip_id,)).fetchone()
+    if running:
+        name = "YouTube" if running[0] == "youtube" else "TikTok"
+        raise UploadRunning(f"Klippet laddas upp nu på {name}. Vänta tills uppladdningen är klar.")
+    db.execute("UPDATE scheduled_posts SET status = 'cancelled', updated = ? WHERE clip_id = ? AND status = 'waiting'",
+               (_now(), clip_id))
 
 
 class ClipLog:
@@ -225,11 +244,18 @@ class ClipLog:
                 fields[key] = json.dumps(fields[key], ensure_ascii=False) if fields[key] is not None else None
         self.get(clip_id)
         sets = ", ".join(f"{key} = ?" for key in fields)
-        with self._db() as db:
-            db.execute(
-                f"UPDATE clips SET {sets}, updated = ? WHERE id = ?",
-                (*fields.values(), _now(), clip_id),
-            )
+        # En transaktion med skrivlås: schemaläggaren hinner inte starta en uppladdning mellan kollen och bytet.
+        db = sqlite3.connect(self.db_path, isolation_level=None)
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            if "status" in fields and fields["status"] not in ("godkand", *POST_STATUSES):
+                _cancel_uploads(db, clip_id)  # här, så att ingen väg som ändrar status glömmer det
+            db.execute(f"UPDATE clips SET {sets}, updated = ? WHERE id = ?", (*fields.values(), _now(), clip_id))
+            db.execute("COMMIT")
+        finally:
+            if db.in_transaction:
+                db.execute("ROLLBACK")
+            db.close()
 
     # ---------- inlägg ----------
 
@@ -265,13 +291,19 @@ class ClipLog:
         self._sync(clip_id)
         return post_id
 
-    def update_post(self, post_id: int, **fields) -> None:
+    @staticmethod
+    def _check_post_fields(fields: dict) -> None:
         if "status" in fields and fields["status"] not in POST_STATUSES:
             raise ValueError(f"Okänd status för ett inlägg: {fields['status']}")
         unknown = set(fields) - {"status", "url", "platform", "paid_usd", *STAT_KEYS}
         if unknown:
             raise ValueError(f"Fält som inte får ändras: {sorted(unknown)}")
+
+    def update_post(self, post_id: int, **fields) -> None:
+        self._check_post_fields(fields)
         post = self.get_post(post_id)
+        if fields.get("status", post["status"]) != post["status"]:
+            fields["prev_status"] = post["status"]
         if fields:
             sets = ", ".join(f"{key} = ?" for key in fields)
             with self._db() as db:
@@ -345,7 +377,7 @@ class ClipLog:
                 elif post["status"] == "inskickad" and post["views"] >= min_views:
                     items.append(
                         f"{where}: har {post['views']} visningar. Skicka skärminspelningen av "
-                        "inläggets statistik i kampanjens formulär."
+                        "inläggets analytics i analytics-formuläret."
                     )
         return items
 

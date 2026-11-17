@@ -5,6 +5,9 @@ from __future__ import annotations
 from .caption import check_caption
 from .profile import Profile
 
+# Varningen gäller bara tills formatet är valt. Webben visar den inte för ett klipp som har ett format.
+NO_FORMAT = "Klippet har inget format ännu. Välj ett när du godkänner."
+
 
 def check_source(info: dict) -> list[str]:
     """Kontroll av klippet från clipsmith innan vi lägger tid på att göra det klart."""
@@ -31,14 +34,13 @@ def check_clip(
     problems: list[str] = list(check_source(info))
     warnings: list[str] = []
 
+    length = f"{info['duration']:.1f}".replace(".", ",")  # svenskt talformat: 4,6 s
     if info["duration"] < profile.min_seconds:
-        problems.append(
-            f"Klippet är {info['duration']:.1f} s. Kampanjen kräver minst {profile.min_seconds:g} s."
-        )
+        low = f"{profile.min_seconds:g}".replace(".", ",")
+        problems.append(f"Klippet är {length} s. Kampanjen kräver minst {low} s.")
     if info["duration"] > profile.max_seconds:
-        problems.append(
-            f"Klippet är {info['duration']:.1f} s. Profilens tak är {profile.max_seconds:g} s."
-        )
+        high = f"{profile.max_seconds:g}".replace(".", ",")
+        problems.append(f"Klippet är {length} s. Profilens tak är {high} s.")
     if not info["has_audio"]:
         problems.append("Klippet saknar ljud. Streamens ljud måste höras.")
     if profile.text_required and not manifest.get("text_applied"):
@@ -49,7 +51,7 @@ def check_clip(
 
     if profile.formats:
         if clip_format is None:
-            warnings.append("Klippet har inget format ännu. Välj ett när du godkänner.")
+            warnings.append(NO_FORMAT)
         elif clip_format not in profile.format_ids:
             problems.append(f"Formatet {clip_format!r} finns inte i kampanjens lista.")
     if review is None:
