@@ -544,6 +544,7 @@ export default function RunDetailPage() {
                 formats={formats}
                 active={clip.id === activeId}
                 onUpdate={handleUpdate}
+                onReload={fetchClips}
               />
             ))
           )}
