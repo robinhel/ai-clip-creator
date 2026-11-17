@@ -75,6 +75,27 @@ def test_each_post_is_sent_in_and_followed_on_its_own(client, settings) -> None:
     assert client.patch("/campaign/posts/999", json={"views": 1}).status_code == 404
 
 
+def test_a_post_remembers_its_status_before_paid_so_undo_goes_back_there(client, settings) -> None:  # noqa: F811
+    """Ångra på Betald i Statistik går tillbaka till statusen före Betald: Analytics inskickad eller Inskickad."""
+    clip_id = _clip(settings, status="godkand", clip_format="funny")
+    post_id = _post(client, clip_id, "tiktok", TIKTOK).json()["posts"][0]["id"]
+
+    def step(status: str, **fields) -> dict:
+        response = client.patch(f"/campaign/posts/{post_id}", json={"status": status, **fields})
+        assert response.status_code == 200, response.text
+        return next(p for p in response.json()["posts"] if p["id"] == post_id)
+
+    step("inskickad")
+    step("analytics_inskickad", views=2500)
+    assert step("betald")["prev_status"] == "analytics_inskickad"
+    assert step("analytics_inskickad")["prev_status"] == "betald"
+    step("inskickad")
+    assert step("betald")["prev_status"] == "inskickad"
+    # Siffror utan nytt steg ändrar inte vad som var före.
+    assert client.patch(f"/campaign/posts/{post_id}", json={"views": 2600}).json()["posts"][0]["prev_status"] == \
+        "inskickad"
+
+
 def test_removing_the_last_post_makes_the_clip_approved_again(client, settings) -> None:  # noqa: F811
     clip_id = _clip(settings, status="godkand", clip_format="funny")
     post_id = _post(client, clip_id, "tiktok", TIKTOK).json()["posts"][0]["id"]
