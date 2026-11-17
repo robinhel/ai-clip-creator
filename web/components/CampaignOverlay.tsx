@@ -14,9 +14,11 @@ const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 // Textstorleken i klippet (font_size i profilen, standard 46) i en bild som är 1080 bred.
 const FONT_PX = 46;
 
-export function overlayRequirement(mode: OverlayMode): string {
+export function overlayRequirement(mode: OverlayMode, camera = true): string {
   return mode === "full"
-    ? "PNG i 1080 x 1920 px som täcker hela klippet, genomskinlig där videon ska synas. En banner går också. Den läggs i skarven mellan kameran och spelet."
+    ? `PNG i 1080 x 1920 px som täcker hela klippet, genomskinlig där videon ska synas. En banner går också.${
+        camera ? " Den läggs i skarven mellan kameran och spelet." : ""
+      }`
     : `PNG som är 1080 px bred. Den läggs ${mode === "top" ? "överst" : "nederst"} i klippet.`;
 }
 
@@ -106,7 +108,7 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
       <div className="space-y-4">
-        <p className="text-sm text-muted-foreground">{overlayRequirement(overlay.mode)}</p>
+        <p className="text-sm text-muted-foreground">{overlayRequirement(overlay.mode, camera)}</p>
         <label
           onDragOver={(e) => {
             e.preventDefault();

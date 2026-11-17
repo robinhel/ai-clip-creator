@@ -260,7 +260,11 @@ export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat,
             ))}
           </div>
           {part === "oversikt" && (
-            <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
+            // Reglerna står bredvid formuläret bara när båda får plats. Annars överst, så att formulärets fält är breda.
+            <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_340px] 2xl:gap-8">
+              <div className="max-w-[760px] 2xl:sticky 2xl:top-20 2xl:order-last 2xl:max-w-none 2xl:self-start">
+                <CampaignRules profile={profile} />
+              </div>
               <CampaignSettingsForm
                 profile={profile}
                 accounts={accounts}
@@ -268,9 +272,6 @@ export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat,
                 onSaved={setProfile}
                 onDirty={setDirty}
               />
-              <div className="lg:sticky lg:top-20 lg:self-start">
-                <CampaignRules profile={profile} />
-              </div>
             </div>
           )}
           {part === "overlay" && <CampaignOverlay profile={profile} onUpdate={setProfile} />}

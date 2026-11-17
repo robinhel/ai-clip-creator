@@ -556,9 +556,9 @@ def new_profile_text(profile_id: str, body: dict, config_name: str) -> str:
     if body.get("scout_ref"):
         data["scout_ref"] = body["scout_ref"]
     streamer = " ".join(str(body["streamer"]).split())  # en radbrytning här skulle lämna kommentaren
-    header = (f"# Kampanjprofil: {streamer}. Skapad i appen {date.today().isoformat()}.\n"
+    header = (f"# Kampanj: {streamer}. Skapad i appen {date.today().isoformat()}.\n"
               + ("# Bara egna videor, ingen Twitch-kanal.\n" if local else "")
-              + "# Ändra den under Kampanjer i appen eller här. Kontrollera reglerna mot kampanjsidan.\n\n")
+              + "# Ändra den under Ställ in i appen eller här. Kontrollera reglerna mot kampanjsidan.\n\n")
     return header + yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
 
 
