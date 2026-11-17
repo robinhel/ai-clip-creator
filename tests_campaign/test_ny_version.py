@@ -110,6 +110,26 @@ def test_finish_takes_the_versions_font_overlay_and_sticker(tmp_path, monkeypatc
     assert (manifest["overlay_applied"], manifest["sticker_applied"]) == (True, True)
 
 
+
+def test_mirror_and_filter_go_before_the_subtitles_and_speed_goes_last() -> None:
+    profile = Profile(name="x", streamer="y", hook_text=False)
+    graph = finish.build_filter(profile, True, True, None, subtitles=Path("/tmp/a.ass"),
+                                look=",hflip,eq=brightness=0.04", speed=1.1)
+    assert "[0:v]setsar=1,hflip,eq=brightness=0.04,subtitles=" in graph  # texten speglas inte
+    assert "format=yuv420p,setpts=PTS/1.1[vout]" in graph
+    assert "LRA=11,atempo=1.1[aout]" in graph
+    assert finish.build_filter(profile, True, True, None) == finish.build_filter(profile, True, True, None,
+                                                                                look="", speed=1.0)
+
+
+def test_the_look_is_built_from_mirror_filter_brightness_and_saturation() -> None:
+    from campaign import versions
+
+    assert versions.look() == ""
+    assert versions.look(mirror=True, filter="fresh") == (
+        ",hflip,eq=brightness=0.04:saturation=1.08:contrast=1.03")
+    assert versions.look(brightness=0.1, saturation=-0.2) == ",eq=brightness=0.100:saturation=0.800"
+
 def _profile(**changes) -> Profile:
     return Profile(name="x", streamer="y", safe_top=0.07, safe_bottom=0.20, **changes)
 
@@ -309,6 +329,10 @@ def test_a_version_cuts_the_start_shifts_the_words_and_changes_only_its_own_font
     ({"sticker": {"file": "fire.png", "position": "center", "start_s": 0, "duration_s": 11}}, "0,5–10"),
     ({"sticker": {"file": "fire.png", "position": "center", "start_s": 20, "duration_s": 2}}, "inom klippet"),
     ({"sticker": {"file": "tall.png", "position": "center", "start_s": 0, "duration_s": 2}}, "säkra zon"),
+    ({"speed": 1.33}, "Hastigheten"),
+    ({"filter": "nope"}, "Filtret"),
+    ({"brightness": 0.5}, "Ljusstyrkan"),
+    ({"saturation": -0.9}, "Mättnaden"),
 ])
 def test_bad_choices_are_refused_and_nothing_is_made(vclip, settings, body, text) -> None:
     client, log, clip_id = vclip
@@ -317,6 +341,31 @@ def test_bad_choices_are_refused_and_nothing_is_made(vclip, settings, body, text
     answer = _make(client, clip_id, **body)
     assert answer.status_code == 400 and text in answer.json()["detail"], answer.text
     assert len(log.list()) == count
+
+
+@needs_subtitles
+def test_a_version_can_be_mirrored_filtered_and_sped_up(vclip, settings, monkeypatch) -> None:
+    client, _, clip_id = vclip
+    seen = _spy(monkeypatch)
+    answer = _make(client, clip_id, mirror=True, speed=1.2, filter="warm", brightness=0.05)
+    assert answer.status_code == 201, answer.text
+    (call,) = seen
+    assert call["look"].startswith(",hflip,eq=") and call["speed"] == 1.2
+    out = settings.out_dir / "123" / "klara" / "clip_01_no_way.v1.mp4"
+    length = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
+                                   "csv=p=0", str(out)], capture_output=True, text=True, check=True).stdout)
+    assert length == pytest.approx(10.0 / 1.2, abs=0.15)
+    options = _options(client, clip_id)
+    assert options["speeds"] == [1.0, 1.05, 1.1, 1.15, 1.2]
+    assert options["filters"] == ["none", "fresh", "warm", "cool", "punch"]
+
+
+@needs_ffmpeg
+def test_a_version_too_short_after_the_speed_up_is_refused(vclip, settings) -> None:
+    client, _, clip_id = vclip
+    set_profile(settings, clip={"min_seconds": 9, "max_seconds": 60})
+    answer = _make(client, clip_id, speed=1.2)  # 10 s / 1,2 = 8,3 s
+    assert answer.status_code == 400 and "minst 9" in answer.json()["detail"]
 
 
 @needs_ffmpeg
