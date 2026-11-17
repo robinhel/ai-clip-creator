@@ -115,8 +115,8 @@ def upload(file: UploadFile = File(...), profile: str = Form(...), title: str = 
     finally:
         source.unlink(missing_ok=True)
 
-    title = hook or name.stem
-    caption = build_caption(title, campaign)
+    title = hook or name.stem  # namnet syns bara i listan
+    caption = build_caption(hook, campaign)  # utan rubrik: bara kampanjens text, aldrig filens namn
     problems, warnings = check_clip(probe(done), manifest, campaign, caption)
     log = _log(settings)
     clip_id = log.add(vod_id=UPLOAD, profile=profile, file=str(done), title=title, caption=caption,
