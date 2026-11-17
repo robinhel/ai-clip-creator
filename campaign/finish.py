@@ -83,16 +83,18 @@ def _pieces(pieces: list[tuple[float, float]], has_audio: bool, cold_open: bool)
 def build_filter(
     profile: Profile, has_overlay: bool, has_audio: bool, font: str | None, title: str = "",
     subtitles: Path | None = None, pieces: list[tuple[float, float]] | None = None, cold_open: bool = False,
-    sticker: dict | None = None,
+    sticker: dict | None = None, look: str = "", speed: float = 1.0,
 ) -> str:
     """Filtergrafen. Ingång 0 är klippet, sedan hooken (cold_open), overlay-bilden och klistermärket om de finns.
     Med bitar (tidskartan) sätts de ihop först. Undertexten bränns in sedan, så att overlayen ligger ovanpå den.
-    sticker: {w, h, x, y, start_s, end_s}, en ny versions klistermärke ovanpå overlayen under en stund."""
+    sticker: {w, h, x, y, start_s, end_s}, en ny versions klistermärke ovanpå overlayen under en stund.
+    look: filter (",hflip,eq=...") på bilden före undertexten, så att texten inte speglas. speed: hela klippet
+    snabbare sist, så att undertexten och hooken följer med."""
     burn = f",subtitles=filename='{_esc(str(subtitles))}'" if subtitles else ""
     parts = _pieces(pieces, has_audio, cold_open) if pieces else []
     ov = 2 if pieces and cold_open else 1
     video, audio = ("cv", "ca") if pieces else ("0:v", "0:a")
-    parts.append(f"[{video}]setsar=1{burn}[base]")
+    parts.append(f"[{video}]setsar=1{look}{burn}[base]")
     last = "base"
     if has_overlay:
         if profile.overlay_mode == "full":
@@ -127,16 +129,17 @@ def build_filter(
         text_on_top = bool(profile.text) and not has_overlay and profile.text_position == "top"
         parts += _hook(profile, title, font, last, text_on_top)
         last = "withhook"
-    parts.append(f"[{last}]format=yuv420p[vout]")
+    fast = (f",setpts=PTS/{speed:g}", f",atempo={speed:g}") if speed != 1.0 else ("", "")
+    parts.append(f"[{last}]format=yuv420p{fast[0]}[vout]")
     if has_audio:
-        parts.append(f"[{audio}]loudnorm=I={profile.lufs}:TP=-1.5:LRA=11[aout]")
+        parts.append(f"[{audio}]loudnorm=I={profile.lufs}:TP=-1.5:LRA=11{fast[1]}[aout]")
     return ";".join(parts)
 
 
 def finish_clip(
     src: Path, out: Path, profile: Profile, root: Path, encoder: str = "libx264", title: str = "",
     subtitles: Path | None = None, plan: dict | None = None, overlay: Path | None = None,
-    font_file: str | None = None, sticker: dict | None = None,
+    font_file: str | None = None, sticker: dict | None = None, look: str = "", speed: float = 1.0,
 ) -> dict:
     """Rendera den kampanjklara versionen. plan är tidskartan (campaign.timemap). En ny version kan ge en egen
     overlay, en fontfil till texten på skärmen och ett klistermärke (med path). Returnerar ett manifest om vad
@@ -159,7 +162,7 @@ def finish_clip(
     cmd += [
         "-filter_complex",
         build_filter(profile, has_overlay, info["has_audio"], font, title, subtitles,
-                     plan["pieces"] if plan else None, cold_open, sticker),
+                     plan["pieces"] if plan else None, cold_open, sticker, look, speed),
         "-map",
         "[vout]",
     ]

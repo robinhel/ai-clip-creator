@@ -283,3 +283,6 @@ def test_a_new_version_for_another_account(app):
     assert (request.method, request.url.path, json.loads(request.content)) == (
         "POST", "/campaign/clips/5/versions",
         {"platform": "tiktok", "account": "openB", "font": "Impact", "start_cut_s": 2, "sticker": sticker})
+    _call("make_version", {"clip_id": 5, "platform": "tiktok", "account": "openB", "mirror": True, "speed": 1.1})
+    assert json.loads(app.requests[-1].content) == {"platform": "tiktok", "account": "openB", "mirror": True,
+                                                    "speed": 1.1}

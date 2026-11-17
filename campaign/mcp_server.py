@@ -352,13 +352,17 @@ def version_options(clip_id: int, platform: Literal["tiktok", "youtube"], accoun
 
 @server.tool(annotations=WRITE)
 def make_version(clip_id: int, platform: Literal["tiktok", "youtube"], account: str, font: str | None = None,
-                 start_cut_s: float | None = None, overlay: str | None = None, sticker: dict | None = None) -> str:
+                 start_cut_s: float | None = None, overlay: str | None = None, sticker: dict | None = None,
+                 mirror: bool | None = None, speed: float | None = None, filter: str | None = None,
+                 brightness: float | None = None, saturation: float | None = None) -> str:
     """Gör en ny version av ett godkänt klipp för ett annat konto i kampanjen: annan font, klipp i början
-    (start_cut_s, 0–5 s), egen overlay och klistermärke ({file, position, start_s, duration_s}). Versionen blir
-    ett eget klipp som Robin godkänner. Inget publiceras. Läs version_options först."""
+    (start_cut_s, 0–5 s), egen overlay och klistermärke ({file, position, start_s, duration_s}), spegling,
+    hastighet (speeds i version_options), färgfilter (filters), ljusstyrka (-0,3–0,3) och mättnad (-0,5–0,5).
+    Versionen blir ett eget klipp som Robin godkänner. Inget publiceras. Läs version_options först."""
     return _send("POST", f"/campaign/clips/{clip_id}/versions",
                  {"platform": platform, "account": account, "font": font, "start_cut_s": start_cut_s,
-                  "overlay": overlay, "sticker": sticker})
+                  "overlay": overlay, "sticker": sticker, "mirror": mirror, "speed": speed, "filter": filter,
+                  "brightness": brightness, "saturation": saturation})
 
 
 @server.tool(annotations=PAID)
