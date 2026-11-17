@@ -23,7 +23,7 @@ def _fail_interrupted_runs() -> None:
     db = get_session()
     try:
         db.query(Run).filter(Run.status.in_([RunStatus.pending, RunStatus.running])).update(
-            {"status": RunStatus.failed, "error": "Servern startades om mitt i körningen. Tryck Kör igen."},
+            {"status": RunStatus.failed, "error": "Servern startades om mitt i projektet. Tryck Kör igen."},
             synchronize_session=False,
         )
         db.commit()
