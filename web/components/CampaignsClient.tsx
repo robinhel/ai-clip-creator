@@ -215,67 +215,70 @@ export function CampaignsClient({ tab = "mina" }: { tab?: "mina" | "nya" }) {
             </p>
           )}
           <div className="mt-6 grid gap-4 lg:grid-cols-2">
-            {profiles?.map((p) => {
-              const problems = ownProblems(p);
-              return (
-                // Hela kortet är en länk via h2-länkens ::after. Knappen ligger ovanpå, inte i länken.
-                <div
-                  key={p.name}
-                  data-campaign={p.name}
-                  className={cn(
-                    "relative rounded-2xl border border-line bg-panel p-5 transition-colors hover:border-[#3a3a44] has-[a:focus-visible]:outline-2 has-[a:focus-visible]:outline-brand",
-                    !p.active && "self-start border-dashed bg-transparent"
-                  )}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className={cn("min-w-0", !p.active && "opacity-60")}>
-                      <h2 className="text-lg font-semibold">
-                        <Link href={`/campaigns/${p.name}`} className="outline-none after:absolute after:inset-0 after:rounded-2xl">
-                          {p.streamer || p.name}
-                        </Link>
-                      </h2>
-                      <p className="text-sm break-words text-muted-foreground">{p.campaign}</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {p.active && <ReadyBadge profile={p} />}
-                      <ActiveSwitch profile={p} busy={busy === p.name} onChange={() => toggle(p)} />
-                    </div>
-                  </div>
-                  {!p.active ? (
-                    <p className="mt-3 text-sm text-muted-foreground">Avstängd. Kampanjen döljs på Hem, Projekt, Klippen och Statistik.</p>
-                  ) : (
-                    <>
-                      <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
-                        <dt className="text-muted-foreground">Källa</dt>
-                        <dd>{sourceText(p)}</dd>
-                        <dt className="text-muted-foreground">Språk</dt>
-                        <dd>{p.language}</dd>
-                        <dt className="text-muted-foreground">Klipplängd</dt>
-                        <dd className="tabular-nums">{lengthText(p)}</dd>
-                        <dt className="text-muted-foreground">Format</dt>
-                        <dd>{p.formats.length ? p.formats.map((f) => f.name).join(", ") : "inga"}</dd>
-                      </dl>
-                      {problems.length > 0 && (
-                        <ul className="mt-4 space-y-1.5 text-sm">
-                          {problems.map((problem) => (
-                            <li key={problem} className="flex gap-2 rounded-lg border border-[#5a4416] bg-[#1b160b] px-3 py-2 text-warn">
-                              <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-                              <span>
-                                {problem}
-                                <ProblemFix id={p.name} problem={problem} />
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </>
-                  )}
-                </div>
-              );
-            })}
+            {profiles?.map((p) => (
+              <CampaignCard key={p.name} profile={p} busy={busy === p.name} onToggle={() => toggle(p)} />
+            ))}
           </div>
         </>
       )}
     </main>
+  );
+}
+
+function CampaignCard({ profile: p, busy, onToggle }: { profile: CampaignProfile; busy: boolean; onToggle: () => void }) {
+  const problems = ownProblems(p);
+  return (
+    // Hela kortet är en länk via h2-länkens ::after. Knappen ligger ovanpå, inte i länken.
+    <div
+      data-campaign={p.name}
+      className={cn(
+        "relative rounded-2xl border border-line bg-panel p-5 transition-colors hover:border-[#3a3a44] has-[a:focus-visible]:outline-2 has-[a:focus-visible]:outline-brand",
+        !p.active && "self-start border-dashed bg-transparent"
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className={cn("min-w-0", !p.active && "opacity-60")}>
+          <h2 className="text-lg font-semibold">
+            <Link href={`/campaigns/${p.name}`} className="outline-none after:absolute after:inset-0 after:rounded-2xl">
+              {p.streamer || p.name}
+            </Link>
+          </h2>
+          <p className="text-sm break-words text-muted-foreground">{p.campaign}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {p.active && <ReadyBadge profile={p} />}
+          <ActiveSwitch profile={p} busy={busy} onChange={onToggle} />
+        </div>
+      </div>
+      {!p.active ? (
+        <p className="mt-3 text-sm text-muted-foreground">Avstängd. Kampanjen döljs på Hem, Projekt, Klippen och Statistik.</p>
+      ) : (
+        <>
+          <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
+            <dt className="text-muted-foreground">Källa</dt>
+            <dd>{sourceText(p)}</dd>
+            <dt className="text-muted-foreground">Språk</dt>
+            <dd>{p.language}</dd>
+            <dt className="text-muted-foreground">Klipplängd</dt>
+            <dd className="tabular-nums">{lengthText(p)}</dd>
+            <dt className="text-muted-foreground">Format</dt>
+            <dd>{p.formats.length ? p.formats.map((f) => f.name).join(", ") : "inga"}</dd>
+          </dl>
+          {problems.length > 0 && (
+            <ul className="mt-4 space-y-1.5 text-sm">
+              {problems.map((problem) => (
+                <li key={problem} className="flex gap-2 rounded-lg border border-[#5a4416] bg-[#1b160b] px-3 py-2 text-warn">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
+                  <span>
+                    {problem}
+                    <ProblemFix id={p.name} problem={problem} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </div>
   );
 }
