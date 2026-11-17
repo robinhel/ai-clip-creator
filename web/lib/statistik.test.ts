@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildPatch, draftFrom, matches, parseFilter, POSTED, sortRows, todoItems, undoStatus } from "./statistik";
-import type { CampaignClip, ClipPost } from "./types";
+import type { CampaignClip, ClipPost, PostStatus } from "./types";
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
 const daysAgo = (days: number) => new Date(NOW - days * 86_400_000).toISOString();
@@ -131,7 +131,7 @@ describe("filtret i adressen", () => {
 });
 
 describe("undoStatus", () => {
-  const paid = (prev?: string) => ({ ...post({ status: "betald" }), prev_status: prev }) as ClipPost;
+  const paid = (prev?: PostStatus) => post({ status: "betald", prev_status: prev });
 
   it("Ångra på Betald går tillbaka till statusen före Betald", () => {
     const c = clip({ status: "betald" });

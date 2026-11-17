@@ -1,10 +1,6 @@
 import type { CampaignClip, CampaignStatus, ClipPost, PostStatus } from "./types";
 import { serverTime } from "./utils";
 
-/** Statusen före den senaste. Servern skickar den från och med flode-statistik (campaign/cliplog.py). */
-export const prevStatus = (post: ClipPost): PostStatus | null =>
-  (post as ClipPost & { prev_status?: PostStatus | null }).prev_status ?? null;
-
 /** Siffrorna som fylls i per inlägg, med orden som Statistik visar. */
 export const STATS = [
   { key: "views", label: "Visningar" },
@@ -114,7 +110,7 @@ const BEFORE_PAID: PostStatus[] = ["inskickad", "analytics_inskickad"];
 
 /** Statusen som Ångra går tillbaka till. Betald går tillbaka till statusen före Betald. null: inget Ångra. */
 export function undoStatus({ clip, post }: Row): CampaignStatus | null {
-  const prev = post?.status === "betald" ? prevStatus(post) : null;
+  const prev = post?.status === "betald" ? post.prev_status : null;
   if (prev && BEFORE_PAID.includes(prev)) return prev;
   return BACK[post?.status ?? clip.status] ?? null;
 }
