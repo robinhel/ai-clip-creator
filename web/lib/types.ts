@@ -787,3 +787,10 @@ export interface CampaignChat {
   messages: ChatMessage[];
   hits: ChatHit[];
 }
+
+// --- Klippen: menyn, flikarna och Publicera (flode-klippen) ---
+
+export interface ScheduledPost {
+  /** TikTok utan direktpostning: appen påminner på Macen och Robin postar själv. Saknas hos äldre servrar. */
+  reminder?: boolean;
+}

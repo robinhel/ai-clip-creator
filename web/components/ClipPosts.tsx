@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, Clock, Copy, ExternalLink, Plus, Send } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, Clock, Copy, ExternalLink, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { NativeSelect } from "@/components/ui/native-select";
 import { CampaignStatusBadge, PLATFORM_LABEL } from "@/components/CampaignStatusBadge";
 import { useClipAccounts } from "@/components/ClipAccounts";
 import { api } from "@/lib/api";
@@ -22,17 +22,14 @@ const BACK: Partial<Record<PostStatus, PostStatus>> = {
 const WINDOW_MS = 30 * 60_000;
 const stockholm = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit" });
 
-/** Klippets inlägg, ett per plattform, och ett formulär för att lägga till fler. */
-export function ClipPosts({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (clip: CampaignClip) => void }) {
+/** Klippets inlägg, ett per plattform. Fler plattformar läggs till med Publicera i klippraden.
+ * readOnly: utanför Klippen visas bara inläggen; inskicket görs i Klippen. */
+export function ClipPosts({ clip, onUpdate, readOnly = false }: { clip: CampaignClip; onUpdate: (clip: CampaignClip) => void; readOnly?: boolean }) {
   const posts = clip.posts ?? [];
-  const free = (Object.keys(PLATFORM_LABEL) as Platform[]).filter((p) => !posts.some((post) => post.platform === p));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [editUrl, setEditUrl] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [platform, setPlatform] = useState<Platform | "">("");
-  const [url, setUrl] = useState("");
   // Hjälpen att skicka in. Av tills servern har svarat, och av hos äldre servrar: då är allt som förut.
   const [helper, setHelper] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -153,15 +150,18 @@ export function ClipPosts({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (c
                 <ExternalLink className="size-3.5 shrink-0" aria-hidden />
               </a>
             )}
-            {helper && post.status === "postad" && editing !== post.id && (() => {
+            {!readOnly && helper && post.status === "postad" && editing !== post.id && (() => {
               const deadline = Date.parse(post.created) + WINDOW_MS;
               const left = Math.ceil((deadline - now) / 60_000);
               return (
                 <div data-submit-help className="space-y-2 rounded-lg border border-line bg-background p-2.5">
                   {left > 0 ? (
-                    <p className="flex items-center gap-1.5 text-[13px] tabular-nums">
-                      <Clock className="size-3.5 shrink-0 text-brand" aria-hidden />
-                      Skicka in före kl. {stockholm.format(deadline)} ({left} min kvar)
+                    <p className="flex items-start gap-1.5 text-[13px] tabular-nums">
+                      <Clock className="mt-0.5 size-3.5 shrink-0 text-brand" aria-hidden />
+                      <span>
+                        Skicka in före kl. {stockholm.format(deadline)} ({left} min kvar).{" "}
+                        <span className="text-muted-foreground">Appen räknar 30 minuter från att länken sparades.</span>
+                      </span>
                     </p>
                   ) : (
                     <p className="flex items-start gap-1.5 rounded-lg border border-[#3a3018] px-2.5 py-1.5 text-[13px] text-warn/80">
@@ -170,12 +170,18 @@ export function ClipPosts({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (c
                     </p>
                   )}
                   {clip.content_rewards_url ? (
-                    <Button size="sm" disabled={busy} onClick={() => openRewards(post, clip.content_rewards_url!)}>
+                    <Button size="sm" className="h-auto min-h-7 py-1.5 whitespace-normal" disabled={busy} onClick={() => openRewards(post, clip.content_rewards_url!)}>
                       <Copy aria-hidden />
                       Kopiera länken och öppna Content Rewards
                     </Button>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Länken till kampanjen i Content Rewards saknas.</p>
+                    <p className="text-xs text-muted-foreground">
+                      Länken till kampanjen i Content Rewards saknas.{" "}
+                      <Link href={`/campaigns/${clip.profile}?tab=installningar`} className="underline underline-offset-4 hover:text-foreground">
+                        Lägg in den under kampanjens Inställningar
+                      </Link>
+                      .
+                    </p>
                   )}
                   {asked === post.id && (
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
@@ -189,9 +195,10 @@ export function ClipPosts({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (c
                 </div>
               );
             })()}
-            {editing !== post.id && (
+            {!readOnly && editing !== post.id && (
               <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                {post.status === "postad" && (
+                {/* Efter Kopiera länken och öppna Content Rewards frågar hjälpen själv; en knapp räcker. */}
+                {post.status === "postad" && asked !== post.id && (
                   <Button size="sm" variant={helper ? "outline" : "default"} disabled={busy} onClick={() => run(() => api.campaign.posts.patch(post.id, { status: "inskickad" }))}>
                     <Send aria-hidden />
                     Inskickad i Content Rewards
@@ -230,53 +237,6 @@ export function ClipPosts({ clip, onUpdate }: { clip: CampaignClip; onUpdate: (c
           </li>
         ))}
       </ul>
-
-      {free.length > 0 &&
-        (adding ? (
-          <div className="space-y-2 rounded-[10px] border border-line bg-panel p-3">
-            <NativeSelect aria-label="Plattform för det nya inlägget" value={platform} onChange={(e) => setPlatform(e.target.value as Platform | "")} disabled={busy}>
-              <option value="" disabled>
-                Plattform…
-              </option>
-              {free.map((p) => (
-                <option key={p} value={p}>
-                  {PLATFORM_LABEL[p]}
-                </option>
-              ))}
-            </NativeSelect>
-            <Input
-              aria-label="Länk till det nya inlägget"
-              type="url"
-              placeholder="https://…"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              disabled={busy}
-            />
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                disabled={busy || !platform || !url.trim()}
-                onClick={async () => {
-                  if (await run(() => api.campaign.posts.add(clip.id, { platform: platform as Platform, url: url.trim() }))) {
-                    setAdding(false);
-                    setPlatform("");
-                    setUrl("");
-                  }
-                }}
-              >
-                Spara inlägget
-              </Button>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => setAdding(false)}>
-                Avbryt
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => setAdding(true)}>
-            <Plus aria-hidden />
-            Postat på fler plattformar
-          </Button>
-        ))}
 
       {error && (
         <p role="alert" className="rounded-lg border border-[#4d1d1d] bg-[#1c0f10] p-2.5 text-sm text-[#fca5a5]">
