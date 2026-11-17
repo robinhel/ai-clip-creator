@@ -15,6 +15,7 @@ import { CopyButton } from "@/components/CopyButton";
 import { TikTokSend } from "@/components/TikTokSend";
 import { YouTubeSend } from "@/components/YouTubeSend";
 import { api } from "@/lib/api";
+import { VersionButton } from "@/components/VersionDialog";
 import { allows, clock, cn, SUMMARY_CHANGED } from "@/lib/utils";
 import type { CampaignClip, CampaignClipPatch, CampaignFormat, ClipEditInfo, ClipSubscores, ClipTranscript, Platform } from "@/lib/types";
 
@@ -167,10 +168,12 @@ interface Props {
   /** Raden som tangenterna Y, N, E och C gäller. */
   active?: boolean;
   onUpdate: (clip: CampaignClip) => void;
+  /** Läs om listan, till exempel när en ny version har blivit ett eget klipp. */
+  onReload?: () => void;
 }
 
 /** Ett klipp per rad: betyg, video, Claudes motivering, caption, regelkontroll och knappar. */
-export function ClipResultRow({ clip, number, formats, runId, active = false, onUpdate }: Props) {
+export function ClipResultRow({ clip, number, formats, runId, active = false, onUpdate, onReload }: Props) {
   const [caption, setCaption] = useState(clip.caption ?? "");
   const [editing, setEditing] = useState(false);
   const [platform, setPlatform] = useState<Platform | "">(clip.platform ?? "");
@@ -306,6 +309,7 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
           {clip.title || <em className="text-muted-foreground">utan titel</em>}
         </h3>
         <CampaignStatusBadge status={clip.status} />
+        {clip.version_of != null && <Badge variant="outline">Version av #{clip.version_of}</Badge>}
         {clip.format && <Badge variant="outline">{formatName}</Badge>}
         {/* Utanför projektsidan, till exempel i Att posta, går det att öppna projektet klippet kommer från. */}
         {runId && (
@@ -606,6 +610,7 @@ export function ClipResultRow({ clip, number, formats, runId, active = false, on
         {clip.status === "godkand" && allows(clip, "youtube_shorts") && (
           <YouTubeSend clip={clip} captionDirty={captionDirty} hasProblems={hasProblems} onUpdate={onUpdate} />
         )}
+        {clip.status === "godkand" && <VersionButton clip={clip} onCreated={onReload} />}
         {clip.status === "godkand" && (
           <div className="mt-1 space-y-2 border-t border-line pt-3">
             <NativeSelect

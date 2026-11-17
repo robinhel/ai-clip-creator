@@ -209,6 +209,7 @@ export function QueueClient() {
                       formats={profiles.find((p) => p.name === clip.profile)?.formats ?? []}
                       runId={runIdFor(clip)}
                       onUpdate={handleUpdate}
+                      onReload={load}
                     />
                   </Fragment>
                 ))

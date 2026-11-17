@@ -230,6 +230,44 @@ export interface CampaignClip {
   content_rewards_url?: string | null;
   /** Plattformarna kampanjen postar på. Saknas hos äldre servrar: alla. */
   platforms?: Platform[];
+  /** Id för klippet som den här versionen gjordes av. null eller saknas: inte en version. */
+  version_of?: number | null;
+}
+
+export type StickerPosition = "top_left" | "top_right" | "center" | "bottom_left" | "bottom_right";
+
+/** Klistermärket i en ny version: en PNG ur stickers/, var och när den syns. */
+export interface VersionSticker {
+  file: string;
+  position: StickerPosition;
+  start_s: number;
+  duration_s: number;
+}
+
+/** GET /campaign/clips/{id}/versions/options. defaults är kontots fasta stil eller kampanjens standard. */
+export interface VersionOptions {
+  allowed: boolean;
+  reason: string | null;
+  fonts: { name: string; label: string }[];
+  stickers: { file: string; url: string }[];
+  overlays: { file: string; url: string }[];
+  /** Kampanjen kräver sin egen overlay; den går inte att byta. */
+  overlay_locked: boolean;
+  max_start_cut_s: number;
+  /** font null: originalets. overlay null: kampanjens overlay (eller ingen, om kampanjen inte har någon). */
+  defaults: { font: string | null; overlay: string | null; sticker: VersionSticker | null; start_cut_s: number };
+}
+
+/** POST /campaign/clips/{id}/versions. Bara de här valen; inga filter, ingen spegling, ingen ändrad hastighet. */
+export interface VersionCreate {
+  platform: "tiktok" | "youtube";
+  account: string;
+  /** null: samma font som originalet. */
+  font: string | null;
+  start_cut_s: number;
+  /** null: kampanjens overlay. */
+  overlay: string | null;
+  sticker: VersionSticker | null;
 }
 
 /** GET och PUT /campaign/preferences. */
