@@ -111,6 +111,33 @@ def test_finished_clip_keeps_claudes_score_and_reason(settings) -> None:
     assert clip["subscores"] == {"hook": 24, "engagement": 22, "value": 20, "shareability": 21}
 
 
+@needs_ffmpeg
+def test_signals_mode_title_is_the_first_words_said_in_the_clip(settings) -> None:
+    """Snabbläget har ingen rubrik från Claude. Platshållaren "Moment 0:00:20" gjorde varje klipp underkänt."""
+    from campaign.profile import load_profile
+    from campaign.workflow import finish_vod
+
+    shutil.copy(PAKET / "config.timmy.yaml", settings.root / "config.timmy.yaml")
+    make_clip(settings.out_dir / "123" / "clip_01_moment.mp4")
+    work = settings.work_dir / "123"
+    work.mkdir(parents=True)
+    (work / "picks.json").write_text(json.dumps([{"candidate": {"sources": ["chat"]}, "pick": {
+        "start_offset_s": 10, "end_offset_s": 30, "title": "Moment 0:00:20",
+        "reason": "Signals mode, no LLM: chat."}}]))
+    said = [(9.0, "okay"), (10.5, "no"), (10.8, "way,"), (12.0, "he"), (12.3, "actually"), (12.8, "hit"),
+            (13.0, "that"), (13.2, "shot"), (13.5, "from"), (13.8, "across"), (31.0, "later")]
+    words = [{"start": t, "end": t + 0.2, "word": f" {w}", "probability": 1.0} for t, w in said]
+    (work / "transcript.json").write_text(json.dumps({"video_id": "123", "language": "en", "segments": [
+        {"start": 9.0, "end": 11.0, "text": " okay no way,", "words": words[:3]},
+        {"start": 12.0, "end": 31.2, "text": " he actually hit that shot from across later", "words": words[3:]}]}))
+    log = ClipLog(settings.data_dir / "klipp.db")
+    finish_vod("123", load_profile("skiimasktimmy", settings.profiles_dir), settings, log, review=False)
+    clip = log.list()[0]
+    assert clip["title"] == "No way, he actually hit that shot from…"  # okay sägs före klippet
+    assert clip["caption"].startswith("No way, he actually hit that shot from…")
+    assert not [p for p in clip["problems"] if "platshållaren" in p]
+
+
 # ---------- leta efter och längd ----------
 
 
