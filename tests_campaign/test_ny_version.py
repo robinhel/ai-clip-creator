@@ -151,6 +151,29 @@ def test_a_sticker_that_reaches_into_a_safe_zone_is_refused() -> None:
         versions.sticker_box("upp", 320, 200, _profile())
 
 
+def test_a_sticker_at_the_top_goes_below_the_text_up_there() -> None:
+    from campaign import versions
+
+    assert versions.sticker_box("top_right", 320, 200, _profile(), text_end=214) == (720, 234)  # 20 px under
+    assert versions.sticker_box("bottom_left", 320, 200, _profile(), text_end=214) == (40, 1336)  # nere: som förut
+    with pytest.raises(versions.VersionError, match="täcker"):
+        versions.sticker_box("center", 320, 1152, _profile(), text_end=500)  # börjar vid 384, texten slutar 500
+
+
+def test_the_text_at_the_top_ends_below_the_hook_and_the_campaigns_text(tmp_path) -> None:
+    # 0,07 × 1920 = 134. En rad hook är 64 × 1,25 = 80 px. Kampanjens text uppe tar 46 × 1,6 = 73 px.
+    hook = _profile(hook_text=True)
+    assert finish.top_text_end(hook, tmp_path, "Galet skott") == 134 + 80
+    assert finish.top_text_end(hook, tmp_path, "Ett galet skott från andra sidan banan") == 134 + 160  # två rader
+    text = _profile(hook_text=True, text="twitch.tv/x")
+    assert finish.top_text_end(text, tmp_path, "Galet skott") == 134 + 73 + 80
+    assert finish.top_text_end(text, tmp_path, "") == 134 + 73
+    overlay = make_overlay(tmp_path / "ov.png")
+    assert finish.top_text_end(text, tmp_path, "Galet skott", overlay) == 134 + 80  # overlayen har kanalens text
+    assert finish.top_text_end(_profile(hook_text=False), tmp_path, "Galet skott") == 0
+    assert "y=207:" in finish.build_filter(text, False, True, None, title="Galet skott")  # där hooken ritas
+
+
 @pytest.mark.parametrize("name", ["../overlays/x.png", "fire.jpg", "saknas.png", "/etc/passwd"])
 def test_only_png_files_in_the_sticker_folder_can_be_used(tmp_path, name) -> None:
     from campaign import versions
@@ -341,6 +364,19 @@ def test_bad_choices_are_refused_and_nothing_is_made(vclip, settings, body, text
     answer = _make(client, clip_id, **body)
     assert answer.status_code == 400 and text in answer.json()["detail"], answer.text
     assert len(log.list()) == count
+
+
+@needs_subtitles
+def test_a_versions_sticker_at_the_top_goes_below_the_burned_in_title(vclip, settings, monkeypatch) -> None:
+    client, _, clip_id = vclip
+    set_profile(settings, on_screen_text={"text": "twitch.tv/skiimasktimmy", "required": True, "hook_text": True})
+    seen = _spy(monkeypatch)
+    answer = _make(client, clip_id, sticker={"file": "fire.png", "position": "top_right", "start_s": 0,
+                                             "duration_s": 3})
+    assert answer.status_code == 201, answer.text
+    (call,) = seen
+    assert call["title"] == "No way"  # en rad, och overlayen har kanalens text
+    assert (call["sticker"]["x"], call["sticker"]["y"]) == (720, 134 + 80 + 20)
 
 
 @needs_subtitles

@@ -247,3 +247,15 @@ def test_without_a_title_the_caption_gets_no_file_name_and_can_be_posted(client,
     assert "IMG_4821" not in clip["caption"], clip["caption"]
     assert clip["caption"].startswith("👉 Catch him live: twitch.tv/skiimasktimmy"), clip["caption"]
     assert (clip["title"], clip["status"], clip["problems"]) == ("IMG_4821", "renderad", [])  # namnet bara i listan
+
+
+@needs_ffmpeg
+def test_a_sticker_at_the_top_goes_below_the_burned_in_title(client, extras, tmp_path, monkeypatch) -> None:
+    set_profile(extras, clip={"min_seconds": 3, "max_seconds": 60}, active=True,
+                on_screen_text={"text": "", "hook_text": True}, overlay={"file": None, "required": False})
+    seen = _spy(monkeypatch)
+    answer = _upload(client, make_clip(tmp_path / "a.mp4", seconds=4), title="Galet skott", sticker="fire.png",
+                     sticker_position="top_left")
+    assert answer.status_code == 201, answer.text
+    (call,) = seen
+    assert (call["sticker"]["x"], call["sticker"]["y"]) == (40, 134 + 80 + 20)  # rubriken: en rad, 80 px
