@@ -176,7 +176,9 @@ def test_a_local_file_without_transcript_fails_on_the_transcribe_step(client, se
 
     run = client.get(f"/campaign/runs/{run_id}").json()
     assert [s["status"] for s in run["steps"][:3]] == ["done", "failed", "waiting"]
-    assert "BERGET_API_KEY" in run["error"]
+    # Samma ord som Kampanjer: nyckeln läggs in under Inställningar, inte i .env.
+    assert run["error"] == ("Berget-nyckeln (BERGET_API_KEY) saknas. Lägg in den under Inställningar. "
+                            "Den behövs för transkriberingen.")
 
 
 def test_signals_mode_shows_no_claude_step_and_no_claude_cost(client, settings) -> None:  # noqa: F811
