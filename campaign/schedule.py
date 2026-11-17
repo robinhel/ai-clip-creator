@@ -267,8 +267,11 @@ class Schedule:
 
     def _uses(self, clip_id: int, platform: str, skip: int | None = None) -> dict[str | None, dict]:
         """Kontona där klippet ligger eller är schemalagt på plattformen: konto -> state (posted eller
-        scheduled), tid och texter. None är ett inlägg loggat för hand, eller en påminnelse."""
+        scheduled), tid och texter. None är ett inlägg loggat för hand, eller en påminnelse. Originalet och
+        dess versioner räknas som samma klipp."""
         uses: dict[str | None, dict] = {}
+        family = self.clips.family(clip_id)
+        same = f"clip_id IN ({', '.join('?' * len(family))})"
 
         def use(account: str | None, state: str, at: str | None, texts: list) -> None:
             found = uses.setdefault(account, {"state": state, "at": at, "texts": []})
@@ -277,22 +280,23 @@ class Schedule:
             found["texts"] += [t for t in texts if t]
 
         with self._db() as db:
-            rows = db.execute("SELECT account, at, fields FROM scheduled_posts WHERE clip_id = ? AND platform = ? "
-                              "AND id IS NOT ? AND status IN ('waiting', 'running')", (clip_id, platform, skip)).fetchall()
+            rows = db.execute(f"SELECT account, at, fields FROM scheduled_posts WHERE {same} AND platform = ? "
+                              "AND id IS NOT ? AND status IN ('waiting', 'running')",
+                              (*family, platform, skip)).fetchall()
         for row in rows:
             use(row["account"], "scheduled", row["at"], _texts(json.loads(row["fields"] or "{}")))
-        for post in self.clips.posts(clip_id):
+        for post in (post for member in family for post in self.clips.posts(member)):
             if post["platform"] == NAMES[platform][0]:
                 use(post["account"], "posted", post["created"], [])
         if platform == "youtube":
             with YouTube(self.settings)._db() as db:
-                rows = db.execute("SELECT channel_id, created, title, description FROM youtube_uploads "
-                                  "WHERE clip_id = ? AND status != 'failed'", (clip_id,)).fetchall()
+                rows = db.execute(f"SELECT channel_id, created, title, description FROM youtube_uploads "
+                                  f"WHERE {same} AND status != 'failed'", family).fetchall()
         else:
             with TikTok(self.settings)._db() as db:
-                rows = db.execute(f"SELECT open_id, created, title FROM tiktok_uploads WHERE clip_id = ? AND "
+                rows = db.execute(f"SELECT open_id, created, title FROM tiktok_uploads WHERE {same} AND "
                                   f"mode = 'direct' AND status IN ({', '.join('?' * len(TIKTOK_LIVE))})",
-                                  (clip_id, *TIKTOK_LIVE)).fetchall()
+                                  (*family, *TIKTOK_LIVE)).fetchall()
         for row in rows:
             use(row[0], "posted", row[1], list(row[2:]))
         return uses
@@ -326,7 +330,7 @@ class Schedule:
         accounts = []
         for entry in profile.accounts.get(key, []) if profile else []:
             account = next((a for a in connected if entry.lstrip("@").lower() in self._names(platform, a)), None)
-            use = uses.get(account) if account else None
+            use = uses.get(account or entry)  # ett konto som inte är kopplat: profilens id
             accounts.append({"account": account or entry, "name": self.label(platform, account) if account else None,
                              "state": use["state"] if use else "free", "at": use["at"] if use else None,
                              "text": use["texts"][0] if use and use["texts"] else None})
