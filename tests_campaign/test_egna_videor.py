@@ -239,3 +239,11 @@ def test_the_options_follow_the_campaign(client, extras) -> None:
         "framings": ["fill", "fit"],
     }
     assert client.get("/campaign/uploads/options", params={"profile": "finns-inte"}).status_code == 400
+
+
+@needs_ffmpeg
+def test_without_a_title_the_caption_gets_no_file_name_and_can_be_posted(client, settings, tmp_path) -> None:
+    clip = _upload(client, make_clip(tmp_path / "IMG_4821.mov", seconds=4)).json()
+    assert "IMG_4821" not in clip["caption"], clip["caption"]
+    assert clip["caption"].startswith("👉 Catch him live: twitch.tv/skiimasktimmy"), clip["caption"]
+    assert (clip["title"], clip["status"], clip["problems"]) == ("IMG_4821", "renderad", [])  # namnet bara i listan
