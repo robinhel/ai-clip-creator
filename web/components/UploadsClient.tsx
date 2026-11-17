@@ -194,7 +194,7 @@ export function UploadsClient() {
             <ul className="space-y-2">
               {items.map((item) => (
                 <li key={item.key} className="flex flex-wrap items-center gap-3 rounded-xl border border-line px-3 py-2 text-sm">
-                  <span className="min-w-0 flex-1 truncate font-medium" title={item.file.name}>
+                  <span className="min-w-24 flex-1 truncate font-medium" title={item.file.name}>
                     {item.file.name}
                   </span>
                   <input
