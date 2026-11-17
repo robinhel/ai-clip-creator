@@ -55,6 +55,7 @@ class Profile:
     # Kontots fasta stil för en ny version: konto (id eller namn som i accounts) -> font, overlay, sticker,
     # start_cut_s. Saknas kontot: standardvärden.
     accounts_style: dict[str, dict] = field(default_factory=dict)
+    search_default_scope: str = "latest"  # chatten letar i: latest = senaste materialet, all = allt
     raw: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -163,6 +164,16 @@ def _accounts_style(data: dict) -> dict[str, dict]:
     return styles
 
 
+def _search_scope(data: dict) -> str:
+    search = data.get("search") or {}
+    if not isinstance(search, dict):
+        raise SystemExit("search måste vara en karta, till exempel search: {default_scope: all}.")
+    scope = search.get("default_scope", "latest")
+    if scope not in ("latest", "all"):
+        raise SystemExit(f"search.default_scope måste vara latest eller all, inte {scope!r}.")
+    return scope
+
+
 def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
     """Läs en profil. Ange namnet (skiimasktimmy) eller en sökväg till YAML-filen."""
     path = Path(name_or_path)
@@ -216,5 +227,6 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
         min_gap_minutes=_number(data.get("posting") or {}, "min_gap_minutes", 120, "posting.min_gap_minutes", int),
         **_edit(data),
         accounts_style=_accounts_style(data),
+        search_default_scope=_search_scope(data),
         raw=data,
     )

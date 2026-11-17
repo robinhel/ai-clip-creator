@@ -109,3 +109,7 @@ other_rules:
 links:
   content_rewards: "https://contentrewards.com/c/campaigns/c21c887c-5a8a-4891-a5b9-c094f7f1a689"
   analytics_form: null
+
+# Chatten på kampanjsidan letar i allt kampanjens material när Robin inte säger var.
+search:
+  default_scope: all

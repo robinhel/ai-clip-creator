@@ -127,6 +127,7 @@ def _detail(profile_id: str, settings: Settings) -> dict:
                  "must_include": profile.caption_must_include},
         payment={key: profile.payment.get(key) for key in ("cpm_usd", "min_views", "max_payout_per_clip_usd")},
         clipsmith_config=profile.clipsmith_config,
+        search_default_scope=profile.search_default_scope,
         rules=[r for r in profile.raw.get("other_rules") or [] if isinstance(r, str)],
         approval=profile.raw.get("approval") if isinstance(profile.raw.get("approval"), str) else None,
         links={key: _https(links.get(key)) for key in ("content_rewards", "analytics_form")},
