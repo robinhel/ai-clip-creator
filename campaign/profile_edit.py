@@ -303,19 +303,29 @@ def _literal(value: object) -> str:
     raise ValueError(UNSAVED)
 
 
+def _quote_starts(line: str, i: int) -> bool:
+    return line[i] in "\"'" and line[:i].rstrip()[-1:] in ("", ":", "[", "{", ",", "-")
+
+
+def _comment_starts(line: str, i: int) -> bool:
+    return line[i] == "#" and line[i - 1:i] in (" ", "\t")
+
+
+def _closing_quote(line: str, i: int) -> int:
+    """Platsen för citattecknet som stänger det på plats i. Inom "..." hoppar \\ över nästa tecken."""
+    quote, i = line[i], i + 1
+    while i < len(line) and line[i] != quote:
+        i += 2 if quote == '"' and line[i] == "\\" else 1
+    return i
+
+
 def _comment(line: str) -> str:
     """Kommentaren sist på raden, med blanktecknen före, annars tom text. # inom citattecken räknas inte."""
-    quote, i = None, 0
+    i = 0
     while i < len(line):
-        ch = line[i]
-        if quote:
-            if quote == '"' and ch == "\\":
-                i += 1
-            elif ch == quote:
-                quote = None
-        elif ch in "\"'" and line[:i].rstrip()[-1:] in ("", ":", "[", "{", ",", "-"):
-            quote = ch
-        elif ch == "#" and line[i - 1:i] in (" ", "\t"):
+        if _quote_starts(line, i):
+            i = _closing_quote(line, i)
+        elif _comment_starts(line, i):
             return line[len(line[:i].rstrip(" \t")):].rstrip("\r\n")
         i += 1
     return ""
@@ -325,107 +335,170 @@ def _indent(line: str) -> int:
     return len(line) - len(line.lstrip(" \t"))
 
 
+def _skipped(line: str) -> bool:
+    """Tomma rader och kommentarer."""
+    stripped = line.strip()
+    return not stripped or stripped.startswith("#")
+
+
+def _list_item(line: str) -> bool:
+    stripped = line.strip()
+    return stripped == "-" or stripped.startswith("- ")
+
+
+def _continues(line: str, ind: int) -> bool:
+    """Raden hör till fältet med indraget ind: större indrag, eller en listrad med samma indrag."""
+    level = _indent(line)
+    return level > ind or (level == ind and _list_item(line))
+
+
 def _end(lines: list[str], head: int) -> int:
-    """Raden efter fältets sista rad: rader med större indrag, och listrader med samma indrag.
-    Kommentarer och tomma rader efter fältet hör till nästa fält."""
+    """Raden efter fältets sista rad. Kommentarer och tomma rader efter fältet hör till nästa fält."""
     ind, last = _indent(lines[head]), head
     for i in range(head + 1, len(lines)):
-        stripped = lines[i].strip()
-        if not stripped or stripped.startswith("#"):
+        if _skipped(lines[i]):
             continue
-        if _indent(lines[i]) > ind or (_indent(lines[i]) == ind and (stripped == "-" or stripped.startswith("- "))):
-            last = i
-        else:
+        if not _continues(lines[i], ind):
             break
+        last = i
     return last + 1
 
 
-def _find(lines: list[str], key: str, start: int, end: int, ind: int) -> int | None:
+def _find(lines: list[str], key: str, rows: range, ind: int) -> int | None:
     pattern = re.compile(rf"[ \t]{{{ind}}}{re.escape(key)}:(\s|$)")
-    return next((i for i in range(start, end) if pattern.match(lines[i]) and _indent(lines[i]) == ind), None)
+    return next((i for i in rows if pattern.match(lines[i]) and _indent(lines[i]) == ind), None)
+
+
+def _is_formats(value: object) -> bool:
+    """En lista med kartor, som formats."""
+    return isinstance(value, list) and bool(value) and all(isinstance(v, dict) for v in value)
+
+
+def _render_items(items: list[dict], ind: str) -> list[str]:
+    return [f"{ind}  {'- ' if n == 0 else '  '}{k}: {_literal(v)}\n"
+            for item in items for n, (k, v) in enumerate(item.items())]
 
 
 def _render(key: str, value: object, ind: str) -> list[str]:
-    if isinstance(value, dict):
-        if not value:
-            return [f"{ind}{key}: {{}}\n"]
+    if isinstance(value, dict) and value:
         return [f"{ind}{key}:\n", *(line for k, v in value.items() for line in _render(k, v, ind + "  "))]
-    if isinstance(value, list) and value and all(isinstance(v, dict) for v in value):  # formats
-        out = [f"{ind}{key}:\n"]
-        for item in value:
-            out += [f"{ind}  {'- ' if n == 0 else '  '}{k}: {_literal(v)}\n" for n, (k, v) in enumerate(item.items())]
-        return out
+    if isinstance(value, dict):
+        return [f"{ind}{key}: {{}}\n"]
+    if _is_formats(value):
+        return [f"{ind}{key}:\n", *_render_items(value, ind)]  # type: ignore[arg-type]
     return [f"{ind}{key}: {_literal(value)}\n"]
 
 
-def _replace_field(lines: list[str], head: int, key: str, value: object, ind: str) -> list[str]:
-    """Byt fältet på raden head. En kommentar på en enradig rad står kvar."""
+def _with_comment(old: str, new: list[str]) -> list[str]:
+    """En kommentar på den gamla raden står kvar när fältet är en rad."""
+    comment = _comment(old)
+    return [new[0].rstrip("\n") + comment + "\n"] if comment and len(new) == 1 else new
+
+
+def _replace_field(lines: list[str], head: int, key: str, value: object) -> list[str]:
+    """Byt fältet på raden head, med samma indrag."""
     end = _end(lines, head)
     if value is DELETE:
         return lines[:head] + lines[end:]
-    new = _render(key, value, ind)
-    if end == head + 1 and len(new) == 1 and (comment := _comment(lines[head])):
-        new = [new[0].rstrip("\n") + comment + "\n"]
+    new = _render(key, value, lines[head][:_indent(lines[head])])
+    if end == head + 1:
+        new = _with_comment(lines[head], new)
     return lines[:head] + new + lines[end:]
+
+
+def _added(lines: list[str], key: str, value: object) -> list[str]:
+    """Ett nytt fält sist i filen."""
+    return lines if value is DELETE else [*lines, "\n", *_render(key, value, "")]
+
+
+def _one_line(line: str) -> bool:
+    """Delen står på en rad, till exempel caption: {a: 1}."""
+    after_colon = line.split(":", 1)[1].strip()
+    return bool(after_colon) and not after_colon.startswith("#")
+
+
+def _child_indent(lines: list[str]) -> str:
+    children = [line for line in lines if not _skipped(line)]
+    return children[0][:_indent(children[0])] if children else "  "
+
+
+def _set_child(lines: list[str], rows: range, key: str, value: object) -> list[str]:
+    """Ändra fältet key bland raderna rows, som är en dels fält."""
+    ind = _child_indent([lines[i] for i in rows])
+    found = _find(lines, key, rows, len(ind))
+    if found is not None:
+        return _replace_field(lines, found, key, value)
+    return lines if value is DELETE else lines[:rows.stop] + _render(key, value, ind) + lines[rows.stop:]
 
 
 def _set(lines: list[str], path: str, value: object, expected: dict) -> list[str]:
     top, _, sub = path.partition(".")
-    head = _find(lines, top, 0, len(lines), 0)
-    if not sub:
-        if head is not None:
-            return _replace_field(lines, head, top, value, "")
-        return lines if value is DELETE else [*lines, "\n", *_render(top, value, "")]
+    head = _find(lines, top, range(len(lines)), 0)
     if head is None:
-        return lines if value is DELETE else [*lines, "\n", *_render(top, {sub: value}, "")]
+        return _added(lines, top, {sub: value} if sub else value)
+    if not sub:
+        return _replace_field(lines, head, top, value)
     end = _end(lines, head)
-    after_colon = lines[head].split(":", 1)[1]
-    if after_colon.strip() and not after_colon.strip().startswith("#"):  # en del på en rad, {a: 1}
+    if _one_line(lines[head]):  # en del på en rad, {a: 1}: skriv om hela delen
         return lines[:head] + _render(top, expected.get(top) or {}, "") + lines[end:]
-    children = [line for line in lines[head + 1:end] if line.strip() and not line.lstrip().startswith("#")]
-    ind = children[0][:_indent(children[0])] if children else "  "
-    found = _find(lines, sub, head + 1, end, len(ind))
-    if found is not None:
-        return _replace_field(lines, found, sub, value, ind)
-    return lines if value is DELETE else lines[:end] + _render(sub, value, ind) + lines[end:]
+    return _set_child(lines, range(head + 1, end), sub, value)
+
+
+def _section(expected: dict, top: str) -> dict:
+    if expected.get(top) is None:
+        expected[top] = {}
+    section = expected[top]
+    if not isinstance(section, dict):
+        raise ValueError(f"{top} måste vara en karta med fält. Ändra den under Avancerat (YAML).")
+    return section
+
+
+def _change(expected: dict, path: str, value: object) -> None:
+    """Gör ändringen i expected, profilen som den ska bli."""
+    top, _, sub = path.partition(".")
+    target, key = (_section(expected, top), sub) if sub else (expected, top)
+    if value is DELETE:
+        target.pop(key, None)
+    else:
+        target[key] = value
+
+
+def _expected(text: str, changes: dict[str, object]) -> dict:
+    """Profilen som den ska bli efter ändringarna."""
+    before = parse_yaml(text)
+    if not isinstance(before, dict):
+        raise ValueError("Kampanjens fil måste vara en YAML-karta med fält som name och streamer.")
+    expected = copy.deepcopy(before)
+    for path, value in changes.items():
+        _change(expected, path, value)
+    return expected
+
+
+def _lines(text: str) -> list[str]:
+    """Filens rader. Den sista raden får en radbrytning."""
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    return lines
+
+
+def _parses_to(text: str, expected: dict) -> bool:
+    try:
+        return parse_yaml(text) == expected
+    except ValueError:
+        return False
 
 
 def update_profile(text: str, changes: dict[str, object]) -> str:
     """Byt fälten i changes, till exempel "campaign", "caption.template" och "formats", och låt resten av
     filen vara. Kommentarer i fält som inte ändras finns kvar. DELETE tar bort fältet. ValueError om
     resultatet inte blir exakt profilen med ändringarna."""
-    before = parse_yaml(text)
-    if not isinstance(before, dict):
-        raise ValueError("Kampanjens fil måste vara en YAML-karta med fält som name och streamer.")
-    expected = copy.deepcopy(before)
-    for path, value in changes.items():
-        top, _, sub = path.partition(".")
-        if not sub:
-            if value is DELETE:
-                expected.pop(top, None)
-            else:
-                expected[top] = value
-            continue
-        section = expected.get(top)
-        if section is None:
-            section = expected[top] = {}
-        if not isinstance(section, dict):
-            raise ValueError(f"{top} måste vara en karta med fält. Ändra den under Avancerat (YAML).")
-        if value is DELETE:
-            section.pop(sub, None)
-        else:
-            section[sub] = value
-    lines = text.splitlines(keepends=True)
-    if lines and not lines[-1].endswith("\n"):
-        lines[-1] += "\n"
+    expected = _expected(text, changes)
+    lines = _lines(text)
     for path, value in changes.items():
         lines = _set(lines, path, value, expected)
     new = "".join(lines)
-    try:
-        same = parse_yaml(new) == expected
-    except ValueError:
-        same = False
-    if not same:
+    if not _parses_to(new, expected):
         raise ValueError(UNSAVED)
     return new
 
@@ -516,12 +589,47 @@ def format_ids(formats: list[dict]) -> list[dict]:
     return out
 
 
+def _given(body: dict, key: str, default: object) -> object:
+    """Värdet i body, eller default när det saknas. En tom lista räknas som given."""
+    return default if body.get(key) is None else body[key]
+
+
+def _new_caption(body: dict, profile_id: str, link: str | None) -> dict:
+    """Captionen. Utan Twitch-länk (egna videor) blir standardvärdena tomma."""
+    return {
+        "must_include": _given(body, "must_include", [link] if link else []),
+        "hashtags": _given(body, "hashtags", [f"#{profile_id}", "#twitchclips"] if link else []),
+        "game_hashtag": True,
+        "template": body.get("caption_template") or (f"{{title}} 👉 {link}" if link else "{title}"),
+    }
+
+
+def _new_extras(body: dict) -> dict:
+    """Fälten som bara skrivs när de är ifyllda, och länkarna."""
+    data: dict = {}
+    if body.get("engagement_min_percent") is not None:
+        data["engagement_min_percent"] = [{"views_up_to": None, "min": body["engagement_min_percent"]}]
+    if body.get("platforms"):
+        data["platforms"] = list(dict.fromkeys(body["platforms"]))
+    data["links"] = {"content_rewards": body.get("content_rewards_url") or None,
+                     "analytics_form": body.get("analytics_form_url") or None}
+    if body.get("scout_ref"):
+        data["scout_ref"] = body["scout_ref"]
+    return data
+
+
+def _new_header(streamer: object, local: bool) -> str:
+    name = " ".join(str(streamer).split())  # en radbrytning här skulle lämna kommentaren
+    return (f"# Kampanj: {name}. Skapad i appen {date.today().isoformat()}.\n"
+            + ("# Bara egna videor, ingen Twitch-kanal.\n" if local else "")
+            + "# Ändra den under Ställ in i appen eller här. Kontrollera reglerna mot kampanjsidan.\n\n")
+
+
 def new_profile_text(profile_id: str, body: dict, config_name: str) -> str:
     """Profilen som YAML. Bara kanal (eller id för egna videor) och streamer krävs; resten får standardvärden."""
     local = body.get("source") == "local"
     link = None if local else f"twitch.tv/{profile_id}"
-    default_text = link or ""
-    text = default_text if body.get("on_screen_text") is None else body["on_screen_text"]
+    text = _given(body, "on_screen_text", link or "")
     payment = {k: body[k] for k in ("cpm_usd", "min_views", "max_payout_per_clip_usd") if body.get(k) is not None}
     data = {
         "name": profile_id,
@@ -537,29 +645,12 @@ def new_profile_text(profile_id: str, body: dict, config_name: str) -> str:
                     "mode": body["overlay_mode"]},
         "facecam": {"required": body["facecam_required"]},
         "safe_zone": {"top": 0.07, "bottom": 0.20},
-        "caption": {
-            "must_include": body["must_include"] if body.get("must_include") is not None else ([link] if link else []),
-            "hashtags": body["hashtags"] if body.get("hashtags") is not None else
-            ([f"#{profile_id}", "#twitchclips"] if link else []),
-            "game_hashtag": True,
-            "template": body.get("caption_template") or (f"{{title}} 👉 {link}" if link else "{title}"),
-        },
+        "caption": _new_caption(body, profile_id, link),
         "audio": {"lufs": -14},
         "payment": payment,
+        **_new_extras(body),
     }
-    if body.get("engagement_min_percent") is not None:
-        data["engagement_min_percent"] = [{"views_up_to": None, "min": body["engagement_min_percent"]}]
-    if body.get("platforms"):
-        data["platforms"] = list(dict.fromkeys(body["platforms"]))
-    data["links"] = {"content_rewards": body.get("content_rewards_url") or None,
-                     "analytics_form": body.get("analytics_form_url") or None}
-    if body.get("scout_ref"):
-        data["scout_ref"] = body["scout_ref"]
-    streamer = " ".join(str(body["streamer"]).split())  # en radbrytning här skulle lämna kommentaren
-    header = (f"# Kampanj: {streamer}. Skapad i appen {date.today().isoformat()}.\n"
-              + ("# Bara egna videor, ingen Twitch-kanal.\n" if local else "")
-              + "# Ändra den under Ställ in i appen eller här. Kontrollera reglerna mot kampanjsidan.\n\n")
-    return header + yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+    return _new_header(body["streamer"], local) + yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
 
 
 NEW_REFRAME_LOCAL = (
@@ -568,7 +659,7 @@ NEW_REFRAME_LOCAL = (
 )
 
 
-def new_config_text(template: str, profile_id: str, min_s: int, max_s: int, local: bool = False) -> str:
+def new_config_text(template: str, profile_id: str, clip: tuple[int, int], local: bool = False) -> str:
     """En kopia av mallen med kanalen utbytt och utan uppmätta rutor. Övriga kommentarer finns kvar.
     local: bara egna videor, så ingen kanal och ingen kamera."""
     lines = template.splitlines(keepends=True)
@@ -582,4 +673,4 @@ def new_config_text(template: str, profile_id: str, min_s: int, max_s: int, loca
             + "".join(lines[start:]))
     text = _replace_block(text, "channels", "channels: []\n" if local else f"channels:\n  - {profile_id}\n")
     text = _replace_block(text, "reframe", NEW_REFRAME_LOCAL if local else NEW_REFRAME)
-    return set_keys(text, "clip", {"min_seconds": str(min_s), "max_seconds": str(max_s)})
+    return set_keys(text, "clip", {"min_seconds": str(clip[0]), "max_seconds": str(clip[1])})

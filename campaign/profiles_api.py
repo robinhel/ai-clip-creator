@@ -10,7 +10,7 @@ import os
 import re
 import threading
 from contextlib import contextmanager
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -113,7 +113,7 @@ def _as_text(value: object) -> str | None:
 
 
 def _only_texts(values: object) -> list[str]:
-    return [v for v in values or [] if isinstance(v, str)]
+    return [v for v in values if isinstance(v, str)] if isinstance(values, list) else []
 
 
 def _overlay_file(profile: Profile, settings: Settings) -> Path | None:
@@ -466,7 +466,7 @@ def _check_links(content_rewards: str | None, analytics_form: str | None) -> Non
         raise ValueError(problem)
 
 
-def _check_platforms(platforms: list[str] | None) -> None:
+def _check_platforms(platforms: Sequence[str] | None) -> None:
     if platforms is not None and not platforms:
         raise ValueError("Välj minst en plattform där kampanjen postas.")
 
@@ -516,7 +516,7 @@ def _write_new(profile_id: str, body: NewCampaign, template: Path, settings: Set
     config_path = settings.root / config_name
     try:
         config_text = edit.new_config_text(template.read_bytes().decode("utf-8"), profile_id,
-                                           body.clip_min_s, body.clip_max_s, local=body.source == "local")
+                                           (body.clip_min_s, body.clip_max_s), local=body.source == "local")
         edit.write_atomic(config_path, config_text.encode("utf-8"), check=_check_config())
         profile_text = edit.new_profile_text(profile_id, body.model_dump(), config_name)
         edit.check_profile_text(profile_text, profile_id, settings.root)
@@ -621,9 +621,9 @@ def _field_changes(body: CampaignSettings, sent: set[str]) -> dict[str, object]:
     return wanted
 
 
-def _account_changes(accounts: dict[str, list[str]], data: dict) -> dict[str, object]:
+def _account_changes(accounts: Mapping[Any, list[str]], data: dict) -> dict[str, object]:
     """Kontona per plattform. En plattform utan konton tas bort, och accounts tas bort när inget är kvar."""
-    old = data.get("accounts") if isinstance(data.get("accounts"), dict) else {}
+    old = _as_dict(data.get("accounts"))
     chosen = {p: list(dict.fromkeys(a.strip() for a in names if a.strip())) for p, names in accounts.items()}
     new = {p: names for p, names in {**old, **chosen}.items() if names}
     if new == old:
@@ -678,7 +678,7 @@ def _check_payment(body: CampaignSettings) -> None:
             raise ValueError(f"{label} får inte vara mindre än 0.")
 
 
-def _pick(value: int | None, fallback: int) -> int:
+def _pick(value: int | None, fallback: float) -> float:
     return fallback if value is None else value
 
 
@@ -709,11 +709,24 @@ def _seconds(value: float) -> str:
     return f"{value:g}".replace(".", ",")
 
 
-def _new_lengths(body: CampaignSettings, cfg: object) -> dict[str, int] | None:
+def _clip_of(config: Path) -> tuple[int, int]:
+    """Appens klipplängd i config-filen."""
+    cfg = edit.read_config(config)
+    return cfg.clip.min_seconds, cfg.clip.max_seconds
+
+
+def _new_lengths(body: CampaignSettings, old: tuple[int, int]) -> dict[str, int] | None:
     """Appens nya klipplängd för config-filen, eller None när den inte ändras."""
-    old = (cfg.clip.min_seconds, cfg.clip.max_seconds)
-    new = (_pick(body.clip_min_s, old[0]), _pick(body.clip_max_s, old[1]))
+    new = (old[0] if body.clip_min_s is None else body.clip_min_s, old[1] if body.clip_max_s is None else body.clip_max_s)
     return None if new == old else {"min_seconds": new[0], "max_seconds": new[1]}
+
+
+def _write_lengths(config: Path, lengths: dict[str, int]) -> bytes:
+    """Skriver klipplängden i config-filen. Svaret är filen som den var, så att den kan skrivas tillbaka."""
+    old = config.read_bytes()
+    text = edit.set_keys(old.decode("utf-8"), "clip", {k: str(v) for k, v in lengths.items()})
+    edit.write_atomic(config, text.encode("utf-8"), check=_check_config())
+    return old
 
 
 def _save_settings(profile_id: str, body: CampaignSettings, profile: Profile, settings: Settings) -> None:
@@ -721,23 +734,20 @@ def _save_settings(profile_id: str, body: CampaignSettings, profile: Profile, se
     path = _profile_path(profile_id, settings)
     text = path.read_bytes().decode("utf-8")
     config = _config_path(profile, settings) if set(_LENGTHS) & body.model_fields_set else None
-    cfg = edit.read_config(config) if config else None
-    _check_settings(body, profile, (cfg.clip.min_seconds, cfg.clip.max_seconds) if cfg else (0, 10**6))
-    changes = _settings_changes(body, edit.parse_yaml(text), body.model_fields_set)
+    old_clip = _clip_of(config) if config else None
+    _check_settings(body, profile, old_clip or (0, 10**6))
+    changes = _settings_changes(body, _as_dict(edit.parse_yaml(text)), body.model_fields_set)
     new_text = edit.update_profile(text, changes) if changes else text
     edit.check_profile_text(new_text, profile_id, settings.root)
-    old_config = config.read_bytes() if config else None
-    lengths = _new_lengths(body, cfg) if cfg else None
-    if lengths:
-        config_text = edit.set_keys(old_config.decode("utf-8"), "clip", {k: str(v) for k, v in lengths.items()})
-        edit.write_atomic(config, config_text.encode("utf-8"), check=_check_config())
+    lengths = _new_lengths(body, old_clip) if old_clip else None
+    restore = (config, _write_lengths(config, lengths)) if config and lengths else None
     if new_text == text:
         return
     try:
         edit.write_atomic(path, new_text.encode("utf-8"), check=_check_answer(profile_id, settings))
     except ValueError:
-        if lengths:
-            edit.write_atomic(config, old_config)  # inget halvt sparat
+        if restore:
+            edit.write_atomic(*restore)  # inget halvt sparat
         raise
     edit.write_atomic(settings.profiles_dir / f".{profile_id}.yaml.bak", text.encode("utf-8"))
 
