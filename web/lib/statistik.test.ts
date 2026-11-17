@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPatch, draftFrom, sortRows, todoItems } from "./statistik";
+import { buildPatch, draftFrom, matches, parseFilter, POSTED, sortRows, todoItems, undoStatus } from "./statistik";
 import type { CampaignClip, ClipPost } from "./types";
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
@@ -112,6 +112,39 @@ describe("todoItems", () => {
       ["visningar", 4, "klipp-4"],
       ["posta", 3, null],
     ]);
+  });
+});
+
+describe("filtret i adressen", () => {
+  it("läser en status ur ?status=, som länken från Hem, och visar postade inlägg annars", () => {
+    expect(parseFilter("inskickad")).toBe("inskickad");
+    expect(parseFilter("alla")).toBe("alla");
+    expect(parseFilter("okänd")).toBe("postade");
+    expect(parseFilter(undefined)).toBe("postade");
+  });
+
+  it("postade inlägg är alla statusar från Postad till Betald", () => {
+    expect(POSTED.filter((s) => matches("postade", s))).toEqual(POSTED);
+    expect(matches("postade", "godkand")).toBe(false);
+    expect(matches("alla", "nekad")).toBe(true);
+  });
+});
+
+describe("undoStatus", () => {
+  const paid = (prev?: string) => ({ ...post({ status: "betald" }), prev_status: prev }) as ClipPost;
+
+  it("Ångra på Betald går tillbaka till statusen före Betald", () => {
+    const c = clip({ status: "betald" });
+    expect(undoStatus({ clip: c, post: paid("analytics_inskickad") })).toBe("analytics_inskickad");
+    expect(undoStatus({ clip: c, post: paid("inskickad") })).toBe("inskickad");
+    // En äldre server skickar inte statusen före: Inskickad, som förut.
+    expect(undoStatus({ clip: c, post: paid() })).toBe("inskickad");
+  });
+
+  it("de andra stegen går ett steg bakåt, och ett klipp som inte är postat har inget Ångra", () => {
+    expect(undoStatus({ clip: clip(), post: post({ status: "analytics_inskickad" }) })).toBe("inskickad");
+    expect(undoStatus({ clip: clip({ status: "inskickad" }) })).toBe("postad");
+    expect(undoStatus({ clip: clip({ status: "godkand" }) })).toBeNull();
   });
 });
 
