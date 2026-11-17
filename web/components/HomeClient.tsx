@@ -893,12 +893,15 @@ export function HomeClient() {
         </section>
       )}
 
-      <div className="mt-9 mb-3 flex items-baseline justify-between gap-4">
-        <h2 className="text-lg font-semibold">Senaste projekten</h2>
-        <Link href="/projects" className="text-sm text-muted-foreground hover:text-foreground">
-          Alla projekt{runs ? ` (${projects.length})` : ""}
-        </Link>
-      </div>
+      {/* Servern svarade inte från början: bara felet ovanför, ingen tom rubrik. */}
+      {(runs !== null || !loadError) && (
+        <div className="mt-9 mb-3 flex items-baseline justify-between gap-4">
+          <h2 className="text-lg font-semibold">Senaste projekten</h2>
+          <Link href="/projects" className="text-sm text-muted-foreground hover:text-foreground">
+            Alla projekt{runs ? ` (${projects.length})` : ""}
+          </Link>
+        </div>
+      )}
       {runs === null && !loadError && <p className="text-sm text-muted-foreground">Hämtar projekten…</p>}
       {runs?.length === 0 && projects.length === 0 && (
         <p className="rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted-foreground">
