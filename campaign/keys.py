@@ -24,10 +24,9 @@ from clipsmith.api.deps import verify_api_key
 from clipsmith.twitch.client import TwitchClient
 
 from . import estimate, streams
-from .api import SSD_MISSING, _profile_names, get_settings, storage
+from .api import SSD_MISSING, _describe_profile, _profile_names, get_settings, storage
 from .budget import BudgetExceeded, budget_from_settings
 from .config import Settings
-from .profile import load_profile
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
 
@@ -168,8 +167,9 @@ def _ffmpeg_filters(ffmpeg: str) -> str:
         return ""
 
 
-def _row(check_id: str, label: str, ok: bool, detail: str) -> dict:
-    return {"id": check_id, "label": label, "ok": ok, "detail": detail}
+def _row(check_id: str, label: str, ok: bool, detail: str, href: str | None = None) -> dict:
+    row = {"id": check_id, "label": label, "ok": ok, "detail": detail}
+    return {**row, "href": href} if href else row
 
 
 def _tools() -> list[dict]:
@@ -188,16 +188,19 @@ def _tools() -> list[dict]:
 
 
 def _campaigns(settings: Settings) -> list[dict]:
+    """Samma kod och samma läge som Kampanjer (_describe_profile). Nycklarna har egna rader här."""
     rows = []
     for name in _profile_names(settings):
+        href = f"/campaigns/{name}"
         try:
-            profile = load_profile(name, settings.profiles_dir)
+            profile = _describe_profile(name, settings)
         except (SystemExit, Exception):  # felets text kan citera filen, så den visas inte
-            rows.append(_row(f"profile:{name}", f"Kampanjen {name}", False, "Profilen går inte att läsa."))
+            rows.append(_row(f"profile:{name}", f"Kampanjen {name}", False, "Kampanjens fil går inte att läsa.", href))
             continue
-        if profile.active:
-            problems = profile.problems(settings.root)
-            rows.append(_row(f"profile:{name}", f"Kampanjen {name}", not problems, " ".join(problems) or "Redo."))
+        if profile["active"]:
+            problems = [p for p in profile["problems"] if p not in profile["key_problems"]]
+            rows.append(_row(f"profile:{name}", f"Kampanjen {profile['streamer']}", profile["state"] == "Redo",
+                             " ".join([f"{profile['state']}.", *problems]), href))
     return rows
 
 
@@ -208,8 +211,12 @@ def _budget(settings: Settings) -> dict:
     except BudgetExceeded as error:
         return _row("budget", "Budget", False, str(error))
     s = budget.summary()
-    return _row("budget", "Budget", True, f"{s['month_usd']:.2f} av {s['month_cap_usd']:.2f} dollar den här "
-                                          f"månaden, {s['today_usd']:.2f} av {s['day_cap_usd']:.2f} i dag.")
+
+    def usd(value: float) -> str:
+        return f"{value:.2f}".replace(".", ",") + " US$"
+
+    return _row("budget", "Budget", True, f"{usd(s['month_usd'])} av {usd(s['month_cap_usd'])} den här månaden, "
+                                          f"{usd(s['today_usd'])} av {usd(s['day_cap_usd'])} i dag.")
 
 
 def _space(disk: dict) -> list[dict]:
@@ -218,7 +225,11 @@ def _space(disk: dict) -> list[dict]:
                 _row("disk", "Ledigt utrymme", False, f"Okänt. {SSD_MISSING}")]
     hours = max(disk["free_gb"] - 1, 0) / 1.1 / estimate.download_gb(3600)  # samma marginal som körningen
     need = estimate.download_gb(HOURS_OK * 3600) * 1.1 + 1
-    detail = (f"{disk['free_gb']:g} GB ledigt av {disk['total_gb']:g} GB. Det räcker för ungefär "
+
+    def gb(value: float) -> str:
+        return f"{value:g}".replace(".", ",")  # svenskt decimalkomma
+
+    detail = (f"{gb(disk['free_gb'])} GB ledigt av {gb(disk['total_gb'])} GB. Det räcker för ungefär "
               f"{int(hours)} timmar VOD.")
     if hours < HOURS_OK:
         detail += f" En stream på {HOURS_OK} timmar behöver ungefär {need:.0f} GB. Ta bort gamla VOD:er i work/."
@@ -229,7 +240,9 @@ def _space(disk: dict) -> list[dict]:
 @router.get("/setup", summary="Kontroll: ffmpeg, nycklar, kampanjer, budget, SSD och ledigt utrymme")
 def get_setup(settings: Settings = Depends(get_settings)) -> dict:
     keys = [_row(check_id, label, bool(_value(name, settings.root)),
-                 "Sparad." if _value(name, settings.root) else "Saknas. Klistra in den under Nycklar.")
-            for check_id, name, label in (("anthropic", "ANTHROPIC_API_KEY", "Claude-nyckeln"),
-                                          ("berget", "BERGET_API_KEY", "Berget-nyckeln (transkribering)"))]
+                 "Sparad." if _value(name, settings.root) else f"Saknas. Klistra in den i rutan {box} längre ner.",
+                 f"#{check_id}")
+            for check_id, name, label, box in (("anthropic", "ANTHROPIC_API_KEY", "Claude-nyckeln", "Claude"),
+                                               ("berget", "BERGET_API_KEY", "Berget-nyckeln (transkribering)",
+                                                "Berget"))]
     return {"checks": [*_tools(), *keys, *_campaigns(settings), _budget(settings), *_space(storage(settings))]}

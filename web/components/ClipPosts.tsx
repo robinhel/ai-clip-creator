@@ -177,8 +177,8 @@ export function ClipPosts({ clip, onUpdate, readOnly = false }: { clip: Campaign
                   ) : (
                     <p className="text-xs text-muted-foreground">
                       Länken till kampanjen i Content Rewards saknas.{" "}
-                      <Link href={`/campaigns/${clip.profile}?tab=installningar`} className="underline underline-offset-4 hover:text-foreground">
-                        Lägg in den under kampanjens Inställningar
+                      <Link href={`/campaigns/${clip.profile}?tab=installningar&del=oversikt#lankar`} className="underline underline-offset-4 hover:text-foreground">
+                        Lägg in den under kampanjens Ställ in
                       </Link>
                       .
                     </p>

@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, ImageUp, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { CheckCircle2, ImageUp, Loader2, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { StackedPreview } from "@/components/StackedPreview";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -12,9 +14,11 @@ const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 // Textstorleken i klippet (font_size i profilen, standard 46) i en bild som är 1080 bred.
 const FONT_PX = 46;
 
-export function overlayRequirement(mode: OverlayMode): string {
+export function overlayRequirement(mode: OverlayMode, camera = true): string {
   return mode === "full"
-    ? "PNG i 1080 x 1920 px som täcker hela klippet, genomskinlig där videon ska synas. En banner går också. Den läggs i skarven mellan kameran och spelet."
+    ? `PNG i 1080 x 1920 px som täcker hela klippet, genomskinlig där videon ska synas. En banner går också.${
+        camera ? " Den läggs i skarven mellan kameran och spelet." : ""
+      }`
     : `PNG som är 1080 px bred. Den läggs ${mode === "top" ? "överst" : "nederst"} i klippet.`;
 }
 
@@ -55,6 +59,7 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
   const [dragging, setDragging] = useState(false);
 
   const { overlay, safe_zone: safe, on_screen_text: text } = profile;
+  const camera = profile.facecam?.camera ?? true;
 
   useEffect(() => {
     api.campaign.profile.reframe(profile.name).then(setReframe).catch(() => setReframe(null));
@@ -81,6 +86,21 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
     }
   }
 
+  async function remove() {
+    if (!window.confirm("Ta bort overlay-bilden? Nya klipp får ingen overlay.")) return;
+    setBusy(true);
+    setError(null);
+    setSaved(false);
+    try {
+      onUpdate(await api.campaign.deleteOverlay(profile.name));
+      setVersion(Date.now());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Det gick inte att ta bort bilden");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Servern sparar en banner som en hel bild, så förhandsvisningen visar alltid serverns bild.
   const shown = overlay.exists ? `${api.campaign.proxied(overlay.url)}?v=${version}` : null;
   const fontSize = `${(FONT_PX / 1080) * 100}cqw`;
@@ -88,7 +108,7 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
       <div className="space-y-4">
-        <p className="text-sm text-muted-foreground">{overlayRequirement(overlay.mode)}</p>
+        <p className="text-sm text-muted-foreground">{overlayRequirement(overlay.mode, camera)}</p>
         <label
           onDragOver={(e) => {
             e.preventDefault();
@@ -131,7 +151,13 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
         {saved && !error && (
           <p role="status" className="flex items-center gap-2 rounded-lg border border-[#174a2a] bg-[#0d1a12] px-3 py-2 text-sm text-good">
             <CheckCircle2 className="size-4 shrink-0" aria-hidden />
-            Overlay-bilden är sparad. Gör klippen kampanjklara igen på projektsidan för att lägga den på gamla klipp.
+            <span>
+              Overlay-bilden är sparad. Nya klipp får den. För gamla klipp: öppna projektet och tryck Gör klippen kampanjklara
+              igen.{" "}
+              <Link href={`/campaigns/${profile.name}?tab=material`} className="font-medium underline underline-offset-4">
+                Kampanjens projekt
+              </Link>
+            </span>
           </p>
         )}
 
@@ -144,6 +170,16 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
                 ? "Saknas. Kampanjen kräver en overlay, annars blir klippen underkända."
                 : "Ingen. Kampanjen kräver ingen overlay."}
           </dd>
+          {text.text && (
+            <>
+              <dt className="text-muted-foreground">Text</dt>
+              <dd>
+                {overlay.exists
+                  ? `”${text.text}” ritas inte när overlay-bilden finns. Bilden har kampanjens text.`
+                  : `”${text.text}” ritas ${text.position === "top" ? "överst" : "nederst"} i klippet.`}
+              </dd>
+            </>
+          )}
           <dt className="text-muted-foreground">Läge</dt>
           <dd>{{ full: "Hela klippet", top: "Överst", bottom: "Nederst" }[overlay.mode]}</dd>
           <dt className="text-muted-foreground">Säkra zoner</dt>
@@ -151,6 +187,12 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
             {Math.round(safe.top * 100)} % överst och {Math.round(safe.bottom * 100)} % nederst döljs av TikTok
           </dd>
         </dl>
+        {overlay.exists && (
+          <Button variant="outline" size="sm" onClick={remove} disabled={busy}>
+            <Trash2 aria-hidden />
+            Ta bort bilden
+          </Button>
+        )}
       </div>
 
       <figure>
@@ -159,6 +201,7 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
           webcam={reframe?.webcam_rect ?? null}
           gameplay={reframe?.gameplay_rect ?? null}
           split={reframe?.split_ratio ?? 0.4}
+          single={!camera}
         >
           {shown && (
             // eslint-disable-next-line @next/next/no-img-element -- overlay-bilden ska visas exakt som den är.
@@ -193,7 +236,7 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
           )}
         </StackedPreview>
         <figcaption className="mt-2 text-xs text-muted-foreground">
-          Förhandsvisning i 9:16. Skuggade band döljs av TikToks knappar och text.
+          Förhandsvisning i 9:16{camera ? "" : ", utan kamera"}. Skuggade band döljs av TikToks knappar och text.
         </figcaption>
       </figure>
     </div>

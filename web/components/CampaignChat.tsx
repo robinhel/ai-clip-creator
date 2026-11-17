@@ -10,7 +10,24 @@ import type { CampaignChat as Chat, CampaignProfileDetail, ChatHit, ChatMessage,
 
 const MAX = 1000;
 const when = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", day: "numeric", month: "short" });
-const IDEAS = ["Clutchar i sista sekunden", "När han dör på ett roligt sätt", "Stora reaktioner", "Fler sådana, men kortare"];
+const GENERAL_IDEAS = ["Stora reaktioner", "De roligaste ögonblicken", "Ögonblick med mest hype i chatten"];
+
+/** Förslag till en tom chatt: kampanjens format först, sedan allmänna förslag. */
+export function chatIdeas(formats: { name: string }[]): string[] {
+  const own = formats.map((f) => f.name.trim()).filter(Boolean).slice(0, 3);
+  return [...own, ...GENERAL_IDEAS].slice(0, 4);
+}
+
+/** Var chattens hinder rättas. Texten kommer från servern (campaign/chat.py, blocker). */
+function blockerFix(problem: string, profile: CampaignProfileDetail): { href: string; label: string } | null {
+  if (problem.startsWith("Claude-nyckeln")) return { href: "/settings#anthropic", label: "Öppna Inställningar" };
+  if (problem.startsWith("Inget material")) {
+    return profile.channel
+      ? { href: `/campaigns/${profile.name}?tab=material`, label: "Visa kanalens streams" }
+      : { href: `/uploads?kampanj=${profile.name}`, label: "Lägg till en egen video" };
+  }
+  return null;
+}
 
 const message = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 
@@ -65,8 +82,9 @@ function Bubble({ msg, last, busy, titleOf, onConfirm }: {
   );
 }
 
-function Hit({ hit, item, picked, playing, onPick, onPlay }: {
+function Hit({ hit, item, picked, playing, clipHref, onPick, onPlay }: {
   hit: ChatHit;
+  clipHref: string;
   item: MaterialItem | undefined;
   picked: boolean;
   playing: boolean;
@@ -113,7 +131,11 @@ function Hit({ hit, item, picked, playing, onPick, onPlay }: {
         )}
         {hit.problem && <p className="text-[13px] text-warn">{hit.problem}</p>}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5 text-xs">
-          {done && hit.clip_id != null && <span className="text-good">Klipp #{hit.clip_id}</span>}
+          {done && hit.clip_id != null && (
+            <Link href={`${clipHref}#klipp-${hit.clip_id}`} className="text-good underline-offset-4 hover:underline">
+              Klipp #{hit.clip_id}
+            </Link>
+          )}
           {hit.status === "vald" && <span className="text-warn">Görs nu</span>}
           {item?.has_video ? (
             <button onClick={onPlay} aria-label={`Spela ${hit.title}`} className="inline-flex items-center gap-1 text-brand hover:underline">
@@ -190,7 +212,11 @@ export function CampaignChat({ profile, material, chatId, onOpen }: {
 
   const text = draft.trim();
   const tooLong = draft.length > MAX;
-  const canSend = !!text && !tooLong && !busy;
+  // Utan nyckel eller transkript svarar servern 400 innan Claude anropas. Rutan är låst tills dess.
+  const blocked = profile.chat_problem ?? null;
+  const fix = blocked ? blockerFix(blocked, profile) : null;
+  const canSend = !!text && !tooLong && !busy && !blocked;
+  const ideas = chatIdeas(profile.formats);
 
   async function send(body: { message: string } | { confirm: true }) {
     const typed = draft;
@@ -274,8 +300,8 @@ export function CampaignChat({ profile, material, chatId, onOpen }: {
                 Claude letar i kampanjens transkript och svarar med träffar. Fortsätt prata för att ändra dem.
               </p>
               <div className="flex flex-wrap justify-center gap-2">
-                {IDEAS.map((idea) => (
-                  <button key={idea} onClick={() => setDraft(idea)} className="rounded-full border border-line px-3 py-1 text-xs text-muted-foreground hover:border-muted-foreground hover:text-foreground">
+                {ideas.map((idea) => (
+                  <button key={idea} onClick={() => setDraft(idea)} disabled={!!blocked} className="rounded-full disabled:opacity-50 border border-line px-3 py-1 text-xs text-muted-foreground hover:border-muted-foreground hover:text-foreground">
                     {idea}
                   </button>
                 ))}
@@ -283,7 +309,7 @@ export function CampaignChat({ profile, material, chatId, onOpen }: {
             </div>
           )}
           {messages.map((msg, i) => (
-            <Bubble key={i} msg={msg} last={i === messages.length - 1} busy={busy} titleOf={titleOf} onConfirm={() => send({ confirm: true })} />
+            <Bubble key={i} msg={msg} last={i === messages.length - 1} busy={busy || !!blocked} titleOf={titleOf} onConfirm={() => send({ confirm: true })} />
           ))}
           {pending && <Bubble msg={{ role: "user", text: pending, created: "" }} last={false} busy titleOf={titleOf} onConfirm={() => {}} />}
           {busy && (
@@ -298,6 +324,19 @@ export function CampaignChat({ profile, material, chatId, onOpen }: {
         </div>
 
         <div className="border-t border-line p-3">
+          {blocked && (
+            <p role="status" className="mb-2 rounded-lg border border-[#5a4416] bg-[#1b160b] px-3 py-2 text-sm text-warn">
+              {blocked}
+              {fix && (
+                <>
+                  {" "}
+                  <Link href={fix.href} className="font-medium underline underline-offset-4">
+                    {fix.label}
+                  </Link>
+                </>
+              )}
+            </p>
+          )}
           <p className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
             <Search className="size-3.5" aria-hidden />
             <span>Letar i: {where}</span>
@@ -307,21 +346,31 @@ export function CampaignChat({ profile, material, chatId, onOpen }: {
               aria-label="Vad vill du ha klipp på?"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              disabled={!!blocked}
               onKeyDown={(e) => {
                 if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+                // På en telefon ger Enter en ny rad. Där skickar knappen.
+                if (window.matchMedia("(pointer: coarse)").matches) return;
                 e.preventDefault();
                 if (canSend) send({ message: text });
               }}
               rows={2}
               placeholder={chat ? "Skriv till exempel ”fler sådana” eller ”kortare”" : "Till exempel: rage-ögonblick i senaste streamen"}
-              className="max-h-40 min-h-11 flex-1 resize-y bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
+              className="max-h-40 min-h-11 flex-1 resize-y bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
             />
             <Button size="icon" aria-label="Skicka" disabled={!canSend} onClick={() => send({ message: text })}>
               <ArrowUp aria-hidden />
             </Button>
           </div>
           <p className={cn("mt-1.5 text-[11px]", tooLong ? "text-bad" : "text-muted-foreground")}>
-            {tooLong ? `Högst 1 000 tecken. Nu ${draft.length}.` : "Enter skickar, Shift+Enter ger ny rad. Säg var Claude ska leta om du vill något annat."}
+            {tooLong ? (
+              `Högst 1 000 tecken. Nu ${draft.length}.`
+            ) : (
+              <>
+                <span className="hidden pointer-fine:inline">Enter skickar, Shift+Enter ger ny rad. </span>
+                Säg var Claude ska leta om du vill något annat.
+              </>
+            )}
           </p>
           {error && (
             <p role="alert" className="mt-2 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">
@@ -365,6 +414,7 @@ export function CampaignChat({ profile, material, chatId, onOpen }: {
                   hit={hit}
                   item={byVod.get(hit.vod_id)}
                   picked={picked.includes(hit.id)}
+                  clipHref={`/campaigns/${profile.name}?tab=klipp`}
                   playing={active?.id === hit.id}
                   onPick={(on) => setPicked((prev) => (on ? [...prev, hit.id] : prev.filter((x) => x !== hit.id)))}
                   onPlay={() => setPlaying(hit.id)}
@@ -380,16 +430,16 @@ export function CampaignChat({ profile, material, chatId, onOpen }: {
                 Klippen görs nu och hamnar under Klipp när de är klara.{" "}
                 {runs.length === 1 ? (
                   <Link href={`/runs/${runs[0]}`} className="text-brand underline-offset-4 hover:underline">
-                    Följ körningen
+                    Följ projektet
                   </Link>
                 ) : (
                   <>
-                    En körning per video:{" "}
+                    Ett projekt per video:{" "}
                     {runs.map((r, i) => (
                       <span key={r}>
                         {i > 0 && ", "}
                         <Link href={`/runs/${r}`} className="text-brand underline-offset-4 hover:underline">
-                          Körning #{r}
+                          Projekt #{r}
                         </Link>
                       </span>
                     ))}

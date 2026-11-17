@@ -85,10 +85,10 @@ def _text(message: str) -> str:
 
 
 def _send(request: Request, settings: Settings, profile: str, **kwargs) -> int:
-    """Ett meddelande till Claude. 409 medan en körning eller en annan sökning pågår, 402 vid budgettaket."""
+    """Ett meddelande till Claude. 409 medan ett projekt eller en annan sökning pågår, 402 vid budgettaket."""
     with _start_lock:
         if getattr(request.app.state, "active_run_id", None) is not None:
-            raise HTTPException(409, "En körning pågår. Vänta tills den är klar.")
+            raise HTTPException(409, "Ett projekt pågår. Vänta tills det är klart.")
         if not chat.lock.acquire(blocking=False):
             raise HTTPException(409, "Claude letar redan. Vänta tills sökningen är klar.")
     try:
@@ -174,7 +174,7 @@ def chat_clips(chat_id: int, body: HitIds, request: Request, background_tasks: B
 
     with _start_lock:
         if request.app.state.active_run_id is not None:
-            raise HTTPException(409, "En körning pågår redan. Vänta tills den är klar.")
+            raise HTTPException(409, "Ett projekt pågår redan. Vänta tills det är klart.")
         if editor.lock.locked() or chat.lock.locked():
             raise HTTPException(409, "Ett klipp redigeras eller Claude letar. Vänta tills det är klart.")
         runs = []
@@ -194,7 +194,7 @@ def chat_clips(chat_id: int, body: HitIds, request: Request, background_tasks: B
         store.set_hits([hit_id for ids in groups.values() for hit_id in ids], status="vald", problem=None)
     except Exception:  # annars står körningen som pågående tills servern startas om
         for run in runs:
-            run.status, run.error = RunStatus.failed, "Körningen kunde inte sparas i klipploggen. Försök igen."
+            run.status, run.error = RunStatus.failed, "Projektet kunde inte sparas i klipploggen. Försök igen."
         db.commit()
         request.app.state.active_run_id = None
         raise

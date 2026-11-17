@@ -127,6 +127,8 @@ export function YouTubeCard({ refresh }: { /** Ändras när YouTube-nycklarna sp
   useEffect(load, [load, refresh]);
 
   const channels = status?.accounts ?? [];
+  // Adressen som servern använder (YOUTUBE_REDIRECT_URI). En äldre server skickar den inte.
+  const redirect = status?.redirect_uri || YOUTUBE_REDIRECT_URI;
 
   return (
     <section ref={ref} aria-label="YouTube-kanaler" className="mt-5 border-t border-line pt-4 text-sm">
@@ -193,12 +195,12 @@ export function YouTubeCard({ refresh }: { /** Ändras när YouTube-nycklarna sp
             <li>
               Lägg in redirect-adressen:
               <span className="mt-1.5 flex flex-wrap items-center gap-2">
-                <code className="rounded-md border border-line bg-background px-2 py-1 text-[13px]">{YOUTUBE_REDIRECT_URI}</code>
-                <CopyButton text={YOUTUBE_REDIRECT_URI} label="Kopiera" />
+                <code className="rounded-md border border-line bg-background px-2 py-1 text-[13px] break-all">{redirect}</code>
+                <CopyButton text={redirect} label="Kopiera" />
               </span>
             </li>
             <li>Lägg till ditt Google-konto under Test users på sidan för inloggningen (OAuth consent screen).</li>
-            <li>Klistra in Client ID och Client secret ovanför och tryck Spara.</li>
+            <li>Klistra in Client ID och Client secret ovanför och tryck Spara. Servern använder dem direkt.</li>
           </ol>
           <p className="mt-2 text-xs text-muted-foreground">
             Medan appen är i läget Testing går inloggningen ut efter 7 dagar. Då står det Logga in igen vid kanalen.

@@ -42,6 +42,8 @@ import type {
 } from "./types";
 // Kampanjen som nav (kontrakt-chatt.md).
 import type { CampaignChat, ChatSummary, MaterialItem } from "./types";
+// Ställ in och konton (flode-kampanjer).
+import type { CampaignSettingsBody, ConnectedAccounts } from "./types";
 // Ta bort VOD-filen på ett projekt (projekt-ta-bort).
 import type { FreedSpace } from "./types";
 
@@ -279,6 +281,17 @@ export const api = {
       makeClips: (chatId: number, hitIds: number[]) =>
         apiFetch<{ run_id: number; run_ids?: number[] }>(`/campaign/chats/${chatId}/clips`, { method: "POST", body: JSON.stringify({ hit_ids: hitIds }) }),
     },
+    // --- Ställ in och konton (flode-kampanjer). ---
+    /** Formuläret Ställ in. Fält som inte skickas rörs inte, och resten av profilen står kvar. */
+    saveSettings: (id: string, body: CampaignSettingsBody) =>
+      apiFetch<CampaignProfileDetail>(`/campaign/profiles/${id}/settings`, { method: "PUT", body: JSON.stringify(body) }),
+    /** Ta bort overlay-bilden. Filens namn står kvar i profilen. */
+    deleteOverlay: (id: string) => apiFetch<CampaignProfileDetail>(`/campaign/profiles/${id}/overlay`, { method: "DELETE" }),
+    /** Kopplade TikTok-konton och YouTube-kanaler, med kampanjerna som har valt dem. */
+    accounts: () => apiFetch<ConnectedAccounts>("/campaign/accounts"),
+    /** Ny kampanj. warning: till exempel att Twitch inte svarade, men kampanjen sparades. */
+    createProfile: (body: CampaignProfileCreate) =>
+      apiFetch<CampaignProfileDetail & { warning?: string | null }>("/campaign/profiles", { method: "POST", body: JSON.stringify(body) }),
   },
 };
 

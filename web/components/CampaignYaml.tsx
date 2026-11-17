@@ -36,7 +36,7 @@ export function CampaignYaml({ id, onUpdate, onDirty }: Props) {
         setSaved(yaml);
         setText(yaml);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte läsa profilen"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte läsa kampanjens fil"));
   }, [id]);
 
   const dirty = saved !== null && text !== saved;
@@ -58,7 +58,7 @@ export function CampaignYaml({ id, onUpdate, onDirty }: Props) {
       setSaved(text);
       setOk(true);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Det gick inte att spara profilen";
+      const message = err instanceof Error ? err.message : "Det gick inte att spara kampanjen";
       // 400: servern nekade texten innan den skrev filen. Texten i rutan ligger kvar.
       setError((err as { status?: number }).status === 400 ? `${message} Inget sparades.` : message);
       // Rulla till raden med felet.
@@ -74,14 +74,14 @@ export function CampaignYaml({ id, onUpdate, onDirty }: Props) {
     return error ? (
       <p role="alert" className="text-sm text-bad">{error}</p>
     ) : (
-      <p className="text-sm text-muted-foreground">Läser profilen…</p>
+      <p className="text-sm text-muted-foreground">Läser kampanjens fil…</p>
     );
   }
 
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        Hela kampanjens profil. Kommentarerna sparas som de är, och servern sparar en kopia av den gamla filen.
+        Hela kampanjens fil, för det som Översikt inte visar. Kommentarerna sparas som de är, och servern sparar en kopia av den gamla filen.
       </p>
       {/* En enda rullningsruta: radnumren och texten rullar alltid tillsammans. */}
       <div
@@ -96,7 +96,7 @@ export function CampaignYaml({ id, onUpdate, onDirty }: Props) {
           ))}
         </div>
         <textarea
-          aria-label="Profilen som YAML"
+          aria-label="Kampanjens fil som YAML"
           value={text}
           spellCheck={false}
           wrap="off"
@@ -116,7 +116,7 @@ export function CampaignYaml({ id, onUpdate, onDirty }: Props) {
       {ok && !dirty && (
         <p role="status" className="flex items-center gap-2 text-sm text-good">
           <CheckCircle2 className="size-4" aria-hidden />
-          Profilen är sparad.
+          Kampanjen är sparad.
         </p>
       )}
       <div className="flex gap-2">

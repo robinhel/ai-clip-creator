@@ -3,13 +3,13 @@ import { cn } from "@/lib/utils";
 import type { CampaignStatus, Platform } from "@/lib/types";
 
 export const STATUS_LABEL: Record<CampaignStatus, string> = {
-  renderad: "Väntar",
+  renderad: "Att granska",
   underkand: "Underkänd",
   godkand: "Godkänd",
   nekad: "Nekad",
   postad: "Postad",
   inskickad: "Inskickad",
-  analytics_inskickad: "Statistik inskickad",
+  analytics_inskickad: "Analytics inskickad",
   betald: "Betald",
 };
 

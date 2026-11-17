@@ -9,7 +9,8 @@ from __future__ import annotations
 import os
 import re
 import threading
-from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -22,12 +23,14 @@ from twitchdl import twitch
 
 from clipsmith.api.deps import verify_api_key
 
-from . import examples
+from . import chat, examples
 from . import profile_edit as edit
-from .api import _describe_profile, _log, get_settings
+from .api import _describe_profile, _log, _profile_names, get_settings
 from .config import Settings
 from .media import need, probe, run
 from .profile import Profile, load_profile
+from .tiktok import TikTok
+from .youtube import YouTube
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
 _write_lock = threading.Lock()  # en ändring av kampanjfilerna i taget
@@ -101,38 +104,124 @@ def _latest_vod(profile_id: str, settings: Settings) -> str | None:
     return vod_id if VOD_ID.fullmatch(vod_id) else None
 
 
+def _as_dict(value: object) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_text(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _only_texts(values: object) -> list[str]:
+    return [v for v in values if isinstance(v, str)] if isinstance(values, list) else []
+
+
+def _overlay_file(profile: Profile, settings: Settings) -> Path | None:
+    """Overlay-bilden om den finns på disken."""
+    try:
+        target = _overlay_target(profile, settings)
+    except ValueError:
+        return None
+    return target if target is not None and target.is_file() else None
+
+
+def _overlay_info(profile: Profile, profile_id: str, settings: Settings) -> dict:
+    target = _overlay_file(profile, settings)
+    size = None
+    if target is not None:
+        with target.open("rb") as file:
+            size = edit.png_size(file.read(24))
+    width, height = size or (None, None)
+    return {"file": profile.overlay_file, "required": profile.overlay_required, "mode": profile.overlay_mode,
+            "exists": target is not None, "url": f"/campaign/profiles/{profile_id}/overlay",
+            "width": width, "height": height}
+
+
 def _detail(profile_id: str, settings: Settings) -> dict:
     profile = _load(profile_id, settings)
     try:
         out = _describe_profile(profile_id, settings)
     except (SystemExit, Exception) as error:
         raise HTTPException(400, f"Kampanjen {profile_id} går inte att läsa: {error}") from error
-    try:
-        target = _overlay_target(profile, settings)
-    except ValueError:
-        target = None
-    exists = target is not None and target.is_file()
-    size = None
-    if target is not None and exists:
-        with target.open("rb") as file:
-            size = edit.png_size(file.read(24))
-    links = profile.raw.get("links") if isinstance(profile.raw.get("links"), dict) else {}
+    links, source = _as_dict(profile.raw.get("links")), _as_dict(profile.raw.get("source"))
+    connected = _connected(settings)
     out.update(
-        overlay={"file": profile.overlay_file, "required": profile.overlay_required, "mode": profile.overlay_mode,
-                 "exists": exists, "url": f"/campaign/profiles/{profile_id}/overlay",
-                 "width": size[0] if size else None, "height": size[1] if size else None},
+        overlay=_overlay_info(profile, profile_id, settings),
         on_screen_text={"text": profile.text, "position": profile.text_position, "required": profile.text_required},
         safe_zone={"top": profile.safe_top, "bottom": profile.safe_bottom},
         caption={"template": profile.caption_template, "hashtags": profile.hashtags,
-                 "must_include": profile.caption_must_include},
+                 "must_include": profile.caption_must_include, "tag_line": profile.caption_tag_line or None,
+                 "max_extra_hashtags": profile.caption_max_extra_hashtags},
         payment={key: profile.payment.get(key) for key in ("cpm_usd", "min_views", "max_payout_per_clip_usd")},
         clipsmith_config=profile.clipsmith_config,
         search_default_scope=profile.search_default_scope,
-        rules=[r for r in profile.raw.get("other_rules") or [] if isinstance(r, str)],
-        approval=profile.raw.get("approval") if isinstance(profile.raw.get("approval"), str) else None,
+        rules=_only_texts(profile.raw.get("other_rules")),
+        approval=_as_text(profile.raw.get("approval")),
         links={key: _https(links.get(key)) for key in ("content_rewards", "analytics_form")},
+        material={"allowed": _as_text(source.get("allowed")), "banned": _only_texts(source.get("banned"))},
+        platforms=profile.platforms,
+        accounts={platform: [_resolve(entry, connected[platform]) for entry in profile.accounts.get(platform, [])]
+                  for platform in ACCOUNT_PLATFORMS},
+        posting={"max_per_day": profile.max_posts_per_day, "min_gap_minutes": profile.min_gap_minutes},
+        engagement=profile.engagement,
+        # Samma kontroll som chatten gör före anropet till Claude.
+        chat_problem=chat.blocker(chat.brain(settings).available, chat.material(profile_id, settings, _log(settings)),
+                                  out["source"] == "twitch"),
     )
     return out
+
+
+# ---------- konton ----------
+
+ACCOUNT_PLATFORMS = ("tiktok", "youtube_shorts")  # plattformar där appen kopplar konton
+
+
+def _connected(settings: Settings) -> dict[str, list[dict]]:
+    """De kopplade kontona per plattform, med namn. names: id och namn som profilen kan använda, små bokstäver."""
+    def entry(account_id: str, name: str, names: tuple, connected: bool) -> dict:
+        return {"id": account_id, "name": name, "connected": connected,
+                "names": {str(n).lstrip("@").lower() for n in (account_id, *names) if n}}
+
+    return {
+        "tiktok": [entry(key, t.get("display_name") or t.get("username") or "TikTok-konto",
+                         (t.get("username"), t.get("display_name")), TikTok.connected(t))
+                   for key, t in TikTok(settings).accounts().items()],
+        "youtube_shorts": [entry(key, a.get("title") or a.get("handle") or "YouTube-kanal",
+                                 (a.get("handle"), a.get("title")), YouTube.connected(a))
+                           for key, a in YouTube(settings).accounts().items()],
+    }
+
+
+def _resolve(entry: str, accounts: list[dict]) -> dict:
+    """Ett konto i profilen (id, användarnamn eller handle) som id och namn. Okänt konto: inget namn."""
+    found = next((a for a in accounts if entry.lstrip("@").lower() in a["names"]), None)
+    return {"id": found["id"], "name": found["name"]} if found else {"id": entry, "name": None}
+
+
+def _readable_profiles(settings: Settings) -> Iterator[tuple[str, Profile]]:
+    for name in _profile_names(settings):
+        try:
+            yield name, load_profile(name, settings.profiles_dir)
+        except (SystemExit, Exception):  # en trasig profil syns redan under Kampanjer
+            continue
+
+
+def _chosen_accounts(profile: Profile) -> Iterator[tuple[str, str]]:
+    """Kontona som profilen har valt, som (plattform, konto)."""
+    return ((platform, entry) for platform in ACCOUNT_PLATFORMS for entry in profile.accounts.get(platform, []))
+
+
+@router.get("/accounts", summary="Kopplade TikTok-konton och YouTube-kanaler, och kampanjerna som postar från dem")
+def get_accounts(settings: Settings = Depends(get_settings)) -> dict:
+    connected = _connected(settings)
+    used: dict[tuple[str, str], list[dict]] = {}
+    for name, profile in _readable_profiles(settings):
+        for platform, entry in _chosen_accounts(profile):
+            account = _resolve(entry, connected[platform])["id"]
+            used.setdefault((platform, account), []).append({"name": name, "streamer": profile.streamer})
+    return {platform: [{"id": a["id"], "name": a["name"], "connected": a["connected"],
+                        "used_by": used.get((platform, a["id"]), [])} for a in accounts]
+            for platform, accounts in connected.items()}
 
 
 def _https(value: object) -> str | None:
@@ -195,6 +284,21 @@ def get_overlay(profile_id: str, settings: Settings = Depends(get_settings)) -> 
     if target is None or not target.is_file():
         raise HTTPException(404, "Kampanjen har ingen overlay-bild än.")
     return FileResponse(target, media_type="image/png")
+
+
+@router.delete("/profiles/{profile_id}/overlay", summary="Ta bort overlay-bilden. Filens namn står kvar i profilen",
+               dependencies=[Depends(verify_api_key)])
+def delete_overlay(profile_id: str, settings: Settings = Depends(get_settings)) -> dict:
+    profile = _load(profile_id, settings)
+    try:
+        target = _overlay_target(profile, settings)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    with _write_lock:
+        if target is None or not target.is_file():
+            raise HTTPException(404, "Kampanjen har ingen overlay-bild.")
+        target.unlink()
+    return _detail(profile_id, settings)
 
 
 # ---------- exempelklipp ----------
@@ -268,19 +372,50 @@ class NewFormat(BaseModel):
     description: str = Field(default="", max_length=1000)
 
 
+def _children(value: object) -> Iterable[object]:
+    if isinstance(value, dict):
+        return value.values()
+    return value if isinstance(value, list | tuple) else ()
+
+
 def _texts(value: object) -> Iterator[str]:
     if isinstance(value, str):
         yield value
-    elif isinstance(value, list | tuple):
-        for item in value:
-            yield from _texts(item)
-    elif isinstance(value, dict):
-        for item in value.values():
-            yield from _texts(item)
+    for item in _children(value):
+        yield from _texts(item)
 
 
-class NewCampaign(BaseModel):
-    channel: str
+PlatformName = Literal["tiktok", "youtube_shorts", "instagram_reels"]
+ACCOUNT_LIMIT = 20
+
+
+def _cr_problem(url: str | None) -> str | None:
+    """Länken till kampanjen i Content Rewards måste vara en https-adress på contentrewards.com."""
+    if _https(url) and urlparse(url).hostname in examples.HOSTS:
+        return None
+    return ("Länken till kampanjen ska börja med https://contentrewards.com/, till exempel "
+            "https://contentrewards.com/c/campaigns/… Kopiera den från kampanjsidan.") if url else None
+
+
+def _form_problem(url: str | None) -> str | None:
+    return "Länken till analytics-formuläret måste vara en hel adress som börjar med https://." \
+        if url and not _https(url) else None
+
+
+class NoControl(BaseModel):
+    @model_validator(mode="after")
+    def _no_control_characters(self) -> NoControl:
+        """En radbrytning kan annars lägga in egna fält i profilens YAML eller i kommentaren överst."""
+        if any(edit.CONTROL.search(text) for text in _texts(self.model_dump())):
+            raise ValueError("Texten får inte ha radbrytningar, tabbar eller andra styrtecken.")
+        return self
+
+
+class NewCampaign(NoControl):
+    # source twitch: kanalen blir kampanjens id. source local: bara egna videor, name blir id:t.
+    source: Literal["twitch", "local"] = "twitch"
+    channel: str = ""
+    name: str = ""
     streamer: str = Field(min_length=1, max_length=100)
     campaign: str | None = None
     language: str = "en"
@@ -299,60 +434,333 @@ class NewCampaign(BaseModel):
     min_views: int | None = None
     max_payout_per_clip_usd: float | None = None
     engagement_min_percent: float | None = None
-
-    @model_validator(mode="after")
-    def _no_control_characters(self) -> NewCampaign:
-        """En radbrytning kan annars lägga in egna fält i profilens YAML eller i kommentaren överst."""
-        if any(edit.CONTROL.search(text) for text in _texts(self.model_dump())):
-            raise ValueError("Texten får inte ha radbrytningar, tabbar eller andra styrtecken.")
-        return self
+    content_rewards_url: str | None = Field(default=None, max_length=500)
+    analytics_form_url: str | None = Field(default=None, max_length=500)
+    platforms: list[PlatformName] | None = None
+    scout_ref: str | None = Field(default=None, max_length=200)  # kampanjen i Bevakning, så att den visas som inlagd
 
 
-def _check_channel(login: str) -> None:
-    """Finns kanalen på Twitch? Via twitch-dl, utan nycklar. login är redan kontrollerat mot edit.ID."""
+def _check_channel(login: str) -> str | None:
+    """Finns kanalen på Twitch? Via twitch-dl, utan nycklar. login är redan kontrollerat mot edit.ID.
+    Svarar inte Twitch blir svaret en varning, och kampanjen sparas ändå."""
     try:
         user = twitch.gql_query(f'{{ user(login: "{login}") {{ id login displayName }} }}')["data"]["user"]
-    except Exception as error:  # twitch-dl kastar olika fel när Twitch inte svarar
-        raise HTTPException(502, "Twitch svarar inte. Försök igen om en stund.") from error
+    except Exception:  # twitch-dl kastar olika fel när Twitch inte svarar
+        return (f"Twitch svarar inte, så appen kunde inte kontrollera att kanalen {login} finns. Kontrollera "
+                f"stavningen på twitch.tv/{login}.")
     if not user:
         raise HTTPException(400, f"Twitch-kanalen {login} finns inte.")
+    return None
+
+
+def _check_template(template: str) -> None:
+    try:
+        template.format(title="x")
+    except (KeyError, IndexError, ValueError) as error:
+        raise ValueError("Captionens mall får bara ha {title} inom klamrar.") from error
+
+
+def _check_links(content_rewards: str | None, analytics_form: str | None) -> None:
+    problem = _cr_problem(content_rewards) or _form_problem(analytics_form)
+    if problem:
+        raise ValueError(problem)
+
+
+def _check_platforms(platforms: Sequence[str] | None) -> None:
+    if platforms is not None and not platforms:
+        raise ValueError("Välj minst en plattform där kampanjen postas.")
+
+
+def _check_new(body: NewCampaign) -> None:
+    """Fälten i Ny kampanj som servern kan kontrollera innan något skrivs."""
+    if not 1 <= body.clip_min_s < body.clip_max_s:
+        raise ValueError("Klippens kortaste längd måste vara minst 1 sekund och kortare än den längsta.")
+    _check_template(body.caption_template or "{title}")
+    _check_links(body.content_rewards_url, body.analytics_form_url)
+    _check_platforms(body.platforms)
+
+
+@contextmanager
+def _bad_request() -> Iterator[None]:
+    """Ett ValueError blir ett svar med 400 och felets text."""
+    try:
+        yield
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+def _no_files(files: tuple[Path, ...], profile_id: str) -> None:
+    if any(f.exists() for f in files):
+        raise HTTPException(409, f"Kampanjen {profile_id} finns redan.")
+
+
+def _template(settings: Settings) -> Path:
+    template = settings.root / TEMPLATE_CONFIG
+    if not template.is_file():
+        raise HTTPException(500, f"Mallen {TEMPLATE_CONFIG} saknas. Den behövs för nya kampanjer.")
+    return template
+
+
+def _new_id(body: NewCampaign) -> str:
+    local = body.source == "local"
+    profile_id = (body.name if local else body.channel).strip().lower()
+    if not edit.ID.fullmatch(profile_id):
+        what = "Kampanjens id" if local else "Kanalens namn"
+        raise HTTPException(400, f"{what} får bara ha bokstäver a–z, siffror och _ (2–40 tecken).")
+    return profile_id
+
+
+def _write_new(profile_id: str, body: NewCampaign, template: Path, settings: Settings) -> None:
+    """Config-filen först och sedan profilen. Går profilen inte att skriva tas config-filen bort."""
+    config_name = f"config.{profile_id}.yaml"
+    config_path = settings.root / config_name
+    try:
+        config_text = edit.new_config_text(template.read_bytes().decode("utf-8"), profile_id,
+                                           (body.clip_min_s, body.clip_max_s), local=body.source == "local")
+        edit.write_atomic(config_path, config_text.encode("utf-8"), check=_check_config())
+        profile_text = edit.new_profile_text(profile_id, body.model_dump(), config_name)
+        edit.check_profile_text(profile_text, profile_id, settings.root)
+        edit.write_atomic(settings.profiles_dir / f"{profile_id}.yaml", profile_text.encode("utf-8"))
+    except ValueError:
+        config_path.unlink(missing_ok=True)
+        raise
 
 
 @router.post("/profiles", status_code=201, summary="Ny kampanj", dependencies=[Depends(verify_api_key)])
 def create_profile(body: NewCampaign, settings: Settings = Depends(get_settings)) -> dict:
-    profile_id = body.channel.strip().lower()
-    if not edit.ID.fullmatch(profile_id):
-        raise HTTPException(400, "Kanalens namn får bara ha bokstäver a–z, siffror och _ (2–40 tecken).")
-    profile_path = settings.profiles_dir / f"{profile_id}.yaml"
-    config_name = f"config.{profile_id}.yaml"
-    config_path = settings.root / config_name
-    exists = HTTPException(409, f"Kampanjen {profile_id} finns redan.")
-    if profile_path.exists() or config_path.exists():
-        raise exists
-    if not 1 <= body.clip_min_s < body.clip_max_s:
-        raise HTTPException(400, "Klippens kortaste längd måste vara minst 1 sekund och kortare än den längsta.")
-    try:
-        (body.caption_template or "{title}").format(title="x")
-    except (KeyError, IndexError, ValueError) as error:
-        raise HTTPException(400, "Captionens mall får bara ha {title} inom klamrar.") from error
-    template = settings.root / TEMPLATE_CONFIG
-    if not template.is_file():
-        raise HTTPException(500, f"Mallen {TEMPLATE_CONFIG} saknas. Den behövs för nya kampanjer.")
-    _check_channel(profile_id)
-
+    profile_id = _new_id(body)
+    files = (settings.profiles_dir / f"{profile_id}.yaml", settings.root / f"config.{profile_id}.yaml")
+    _no_files(files, profile_id)
+    with _bad_request():
+        _check_new(body)
+    template = _template(settings)
+    warning = None if body.source == "local" else _check_channel(profile_id)
     with _write_lock:
-        if profile_path.exists() or config_path.exists():
-            raise exists
-        try:
-            config_text = edit.new_config_text(template.read_bytes().decode("utf-8"), profile_id,
-                                               body.clip_min_s, body.clip_max_s)
-            edit.write_atomic(config_path, config_text.encode("utf-8"), check=_check_config())
-            profile_text = edit.new_profile_text(profile_id, body.model_dump(), config_name)
-            edit.check_profile_text(profile_text, profile_id, settings.root)
-            edit.write_atomic(profile_path, profile_text.encode("utf-8"))
-        except ValueError as error:
-            config_path.unlink(missing_ok=True)
-            raise HTTPException(400, str(error)) from error
+        _no_files(files, profile_id)
+        with _bad_request():
+            _write_new(profile_id, body, template, settings)
+    return {**_detail(profile_id, settings), "warning": warning}
+
+
+# ---------- Ställ in: formuläret för en kampanj som finns ----------
+
+
+class SettingsFormat(BaseModel):
+    id: str | None = Field(default=None, max_length=60)
+    name: str = Field(max_length=100)
+    description: str = Field(default="", max_length=1000)
+
+
+class Links(BaseModel):
+    content_rewards: str | None = Field(default=None, max_length=500)
+    analytics_form: str | None = Field(default=None, max_length=500)
+
+
+class CampaignSettings(NoControl):
+    """Fälten i Ställ in. Fält som inte skickas rörs inte."""
+    streamer: str | None = Field(default=None, max_length=100)
+    campaign: str | None = Field(default=None, max_length=300)
+    language: str | None = Field(default=None, max_length=20)
+    links: Links | None = None
+    caption_template: str | None = Field(default=None, max_length=500)
+    hashtags: list[str] | None = None
+    must_include: list[str] | None = None
+    on_screen_text: str | None = Field(default=None, max_length=200)
+    text_position: Literal["top", "bottom"] | None = None
+    allowed_min_s: int | None = None  # det kampanjen tillåter (profilens clip)
+    allowed_max_s: int | None = None
+    clip_min_s: int | None = None  # det appen klipper (config-filens clip)
+    clip_max_s: int | None = None
+    cpm_usd: float | None = None
+    min_views: int | None = None
+    max_payout_per_clip_usd: float | None = None
+    formats: list[SettingsFormat] | None = None
+    platforms: list[PlatformName] | None = None
+    accounts: dict[Literal["tiktok", "youtube_shorts"], list[str]] | None = None
+
+
+_TEXT_FIELDS = ("streamer", "campaign", "language")
+_PLAIN_FIELDS = (("caption_template", "caption.template"), ("hashtags", "caption.hashtags"),
+                 ("must_include", "caption.must_include"), ("on_screen_text", "on_screen_text.text"),
+                 ("text_position", "on_screen_text.position"), ("allowed_min_s", "clip.min_seconds"),
+                 ("allowed_max_s", "clip.max_seconds"))
+_PAYMENT_FIELDS = ("cpm_usd", "min_views", "max_payout_per_clip_usd")
+
+
+def _clean(value: object) -> object:
+    """Listor utan tomma rader och mellanslag runt texten."""
+    return [v.strip() for v in value if v.strip()] if isinstance(value, list) else value
+
+
+def _text_changes(body: CampaignSettings, sent: set[str]) -> dict[str, object]:
+    blank_streamer = not (body.streamer or "").strip()
+    if "streamer" in sent and blank_streamer:
+        raise ValueError("Skriv streamerns namn.")
+    return {key: (getattr(body, key) or "").strip() or edit.DELETE for key in _TEXT_FIELDS if key in sent}
+
+
+def _payment_changes(body: CampaignSettings, sent: set[str]) -> dict[str, object]:
+    """Ett tomt fält tar bort raden i profilen."""
+    values = {key: getattr(body, key) for key in _PAYMENT_FIELDS if key in sent}
+    return {f"payment.{key}": edit.DELETE if value is None else value for key, value in values.items()}
+
+
+def _link_changes(links: Links) -> dict[str, object]:
+    return {f"links.{key}": (getattr(links, key) or "").strip() or None for key in ("content_rewards", "analytics_form")}
+
+
+def _field_changes(body: CampaignSettings, sent: set[str]) -> dict[str, object]:
+    wanted: dict[str, object] = {path: _clean(getattr(body, key)) for key, path in _PLAIN_FIELDS if key in sent}
+    wanted.update(_payment_changes(body, sent))
+    if body.links is not None:
+        wanted.update(_link_changes(body.links))
+    if body.formats is not None:
+        wanted["formats"] = edit.format_ids([f.model_dump() for f in body.formats])
+    if body.platforms is not None:
+        wanted["platforms"] = list(dict.fromkeys(body.platforms))
+    return wanted
+
+
+def _account_changes(accounts: Mapping[Any, list[str]], data: dict) -> dict[str, object]:
+    """Kontona per plattform. En plattform utan konton tas bort, och accounts tas bort när inget är kvar."""
+    old = _as_dict(data.get("accounts"))
+    chosen = {p: list(dict.fromkeys(a.strip() for a in names if a.strip())) for p, names in accounts.items()}
+    new = {p: names for p, names in {**old, **chosen}.items() if names}
+    if new == old:
+        return {}
+    if not new:
+        return {"accounts": edit.DELETE}
+    return {f"accounts.{platform}": new.get(platform, edit.DELETE) for platform in dict.fromkeys([*old, *new])}
+
+
+def _current(data: dict, path: str) -> object:
+    top, _, sub = path.partition(".")
+    value = data.get(top, edit.DELETE)
+    if not sub:
+        return value
+    return value.get(sub, edit.DELETE) if isinstance(value, dict) else edit.DELETE
+
+
+def _same(a: object, b: object) -> bool:
+    """null och ett fält som saknas betyder samma sak."""
+    missing = (None, edit.DELETE)
+    return a == b or (a in missing and b in missing)
+
+
+def _settings_changes(body: CampaignSettings, data: dict, sent: set[str]) -> dict[str, object]:
+    """Ändringarna i profilen, som sökväg -> värde. Bara värden som skiljer sig från filen."""
+    wanted = {**_text_changes(body, sent), **_field_changes(body, sent)}
+    if body.accounts is not None:
+        wanted.update(_account_changes(body.accounts, data))
+    return {path: value for path, value in wanted.items() if not _same(_current(data, path), value)}
+
+
+def _check_caption(template: str | None) -> None:
+    if template is None:
+        return
+    _check_template(template)
+    if "{title}" not in template:
+        raise ValueError("Captionens mall måste innehålla {title}, där klippets rubrik hamnar.")
+
+
+def _check_lists(body: CampaignSettings) -> None:
+    if body.links is not None:
+        _check_links(body.links.content_rewards, body.links.analytics_form)
+    _check_platforms(body.platforms)
+    if body.formats is not None and any(not f.name.strip() for f in body.formats):
+        raise ValueError("Ge varje format ett namn, eller ta bort raden.")
+
+
+def _check_payment(body: CampaignSettings) -> None:
+    for value, label in ((body.cpm_usd, "Betalningen per 1 000 visningar"), (body.min_views, "Minsta visningar"),
+                         (body.max_payout_per_clip_usd, "Taket per klipp")):
+        if value is not None and value < 0:
+            raise ValueError(f"{label} får inte vara mindre än 0.")
+
+
+def _pick(value: int | None, fallback: float) -> float:
+    return fallback if value is None else value
+
+
+def _check_lengths(body: CampaignSettings, profile: Profile, cfg_clip: tuple[int, int]) -> None:
+    """Appens längd (config-filen) ska ligga inom kampanjens (profilen)."""
+    low, high = _pick(body.allowed_min_s, profile.min_seconds), _pick(body.allowed_max_s, profile.max_seconds)
+    clip_low, clip_high = _pick(body.clip_min_s, cfg_clip[0]), _pick(body.clip_max_s, cfg_clip[1])
+    if not 1 <= low < high:
+        raise ValueError("Kampanjens kortaste längd måste vara minst 1 sekund och kortare än den längsta.")
+    if not 1 <= clip_low < clip_high:
+        raise ValueError("Appens kortaste klipp måste vara minst 1 sekund och kortare än det längsta.")
+    if not (low <= clip_low and clip_high <= high):
+        raise ValueError(f"Appen ska klippa inom det kampanjen tillåter: {_seconds(low)}–{_seconds(high)} s.")
+
+
+_LENGTHS = ("allowed_min_s", "allowed_max_s", "clip_min_s", "clip_max_s")
+
+
+def _check_settings(body: CampaignSettings, profile: Profile, cfg_clip: tuple[int, int]) -> None:
+    _check_lists(body)
+    _check_caption(body.caption_template)
+    _check_payment(body)
+    if any(getattr(body, key) is not None for key in _LENGTHS):
+        _check_lengths(body, profile, cfg_clip)
+
+
+def _seconds(value: float) -> str:
+    return f"{value:g}".replace(".", ",")
+
+
+def _clip_of(config: Path) -> tuple[int, int]:
+    """Appens klipplängd i config-filen."""
+    cfg = edit.read_config(config)
+    return cfg.clip.min_seconds, cfg.clip.max_seconds
+
+
+def _new_lengths(body: CampaignSettings, old: tuple[int, int]) -> dict[str, int] | None:
+    """Appens nya klipplängd för config-filen, eller None när den inte ändras."""
+    new = (old[0] if body.clip_min_s is None else body.clip_min_s, old[1] if body.clip_max_s is None else body.clip_max_s)
+    return None if new == old else {"min_seconds": new[0], "max_seconds": new[1]}
+
+
+def _write_lengths(config: Path, lengths: dict[str, int]) -> bytes:
+    """Skriver klipplängden i config-filen. Svaret är filen som den var, så att den kan skrivas tillbaka."""
+    old = config.read_bytes()
+    text = edit.set_keys(old.decode("utf-8"), "clip", {k: str(v) for k, v in lengths.items()})
+    edit.write_atomic(config, text.encode("utf-8"), check=_check_config())
+    return old
+
+
+def _save_settings(profile_id: str, body: CampaignSettings, profile: Profile, settings: Settings) -> None:
+    """Sparar båda filerna. Går profilen inte att spara skrivs config-filen tillbaka, så att inget blir halvt."""
+    path = _profile_path(profile_id, settings)
+    text = path.read_bytes().decode("utf-8")
+    config = _config_path(profile, settings) if set(_LENGTHS) & body.model_fields_set else None
+    old_clip = _clip_of(config) if config else None
+    _check_settings(body, profile, old_clip or (0, 10**6))
+    changes = _settings_changes(body, _as_dict(edit.parse_yaml(text)), body.model_fields_set)
+    new_text = edit.update_profile(text, changes) if changes else text
+    edit.check_profile_text(new_text, profile_id, settings.root)
+    lengths = _new_lengths(body, old_clip) if old_clip else None
+    restore = (config, _write_lengths(config, lengths)) if config and lengths else None
+    if new_text == text:
+        return
+    try:
+        edit.write_atomic(path, new_text.encode("utf-8"), check=_check_answer(profile_id, settings))
+    except ValueError:
+        if restore:
+            edit.write_atomic(*restore)  # inget halvt sparat
+        raise
+    edit.write_atomic(settings.profiles_dir / f".{profile_id}.yaml.bak", text.encode("utf-8"))
+
+
+@router.put("/profiles/{profile_id}/settings", summary="Spara formuläret Ställ in. Resten av profilen är orörd",
+            dependencies=[Depends(verify_api_key)])
+def put_settings(profile_id: str, body: CampaignSettings, settings: Settings = Depends(get_settings)) -> dict:
+    profile = _load(profile_id, settings)
+    try:
+        with _write_lock:
+            _save_settings(profile_id, body, profile, settings)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
     return _detail(profile_id, settings)
 
 
@@ -483,7 +891,7 @@ def get_frame(profile_id: str, vod_id: str | None = Query(default=None, pattern=
     _load(profile_id, settings)
     vod_id = vod_id or _latest_vod(profile_id, settings)
     if not vod_id:
-        raise HTTPException(404, "Kampanjen har ingen körning än. Ange en VOD.")
+        raise HTTPException(404, "Kampanjen har inget projekt än. Välj en stream eller skriv ett VOD-id.")
     frames = settings.work_dir / "frames"
     from_vod, from_twitch = frames / f"{vod_id}.vod.jpg", frames / f"{vod_id}.twitch.jpg"
     mp4 = settings.work_dir / vod_id / f"{vod_id}.mp4"

@@ -103,6 +103,28 @@ def _turned_off(settings: Settings) -> set[str]:
 
 # ---------- kampanjer ----------
 
+# Nycklarna gäller hela appen. De står i problems, så att en körning stoppas, och i key_problems, så att
+# webben kan visa dem en gång i stället för på varje kampanj.
+KEY_PROBLEMS = (("berget_api_key", "Berget-nyckeln (BERGET_API_KEY) saknas. Lägg in den under Inställningar."),
+                ("anthropic_api_key", "Claude-nyckeln (ANTHROPIC_API_KEY) saknas. Lägg in den under Inställningar."))
+# Profilens problem som gör varje klipp underkänt i regelkontrollen (campaign/rules.py).
+FAILS_CLIPS = ("Overlay-bilden saknas", "on_screen_text.text är tom")
+
+
+def campaign_state(blocking: list[str], problems: list[str]) -> str:
+    """Kampanjens läge i ord, utan nycklarna. Kampanjer, kampanjsidan och Kontroll visar samma text."""
+    if blocking:
+        return "Inte redo"
+    if not problems:
+        return "Redo"
+    if any(problem.startswith(FAILS_CLIPS) for problem in problems):
+        return "Går att köra, men klippen blir underkända tills varningarna är rättade"
+    return "Går att köra, men rätta varningarna i kampanjens inställningar först"
+
+
+def _whole(seconds: float) -> float | int:
+    return int(seconds) if float(seconds).is_integer() else seconds
+
 
 def _describe_profile(name: str, settings: Settings, path: Path | None = None) -> dict:
     """Kampanjen som den visas i appen. `path` läser profilen från en annan fil, till exempel en tmp-fil
@@ -114,35 +136,45 @@ def _describe_profile(name: str, settings: Settings, path: Path | None = None) -
     blocking: list[str] = []
     channel = profile.streamer.lower()
     clip_min_s = clip_max_s = None
+    mode, rects_set = None, False
     if not profile.clipsmith_config:
-        blocking.append("Profilen saknar clipsmith_config.")
+        blocking.append("Kampanjen saknar clipsmith_config, inställningsfilen. Lägg till den under Avancerat (YAML).")
     else:
         try:  # bara en .yaml-fil i projektmappen, och felets text citerar aldrig filen
             cfg = read_config(config_file(settings.root, profile.clipsmith_config))
         except ValueError as error:
             blocking.append(str(error))
         else:
-            channel = cfg.channels[0] if cfg.channels else channel
+            # Ingen kanal i config-filen: kampanjen använder bara egna videor, och Twitch frågas aldrig.
+            channel = cfg.channels[0] if cfg.channels else ""
             clip_min_s, clip_max_s = cfg.clip.min_seconds, cfg.clip.max_seconds
-            if cfg.reframe.mode == "stacked" and not (cfg.reframe.webcam_rect and cfg.reframe.gameplay_rect):
+            mode = cfg.reframe.mode
+            rects_set = bool(cfg.reframe.webcam_rect and cfg.reframe.gameplay_rect)
+            if mode == "stacked" and not rects_set:
                 blocking.append("Facecam- och spelrutan är inte inställda. Dra dem under Facecam.")
-    if not settings.berget_api_key:
-        blocking.append("BERGET_API_KEY saknas i .env.")
-    if not settings.anthropic_api_key:
-        blocking.append("ANTHROPIC_API_KEY saknas i .env.")
+    keys = [text for field, text in KEY_PROBLEMS if not getattr(settings, field)]
     return {
         "name": name,
         "streamer": profile.streamer,
         "campaign": profile.raw.get("campaign") or profile.raw.get("name") or name,
         "language": profile.language,
         "channel": channel,
+        "source": "twitch" if channel else "local",
         "clip_min_s": clip_min_s,
         "clip_max_s": clip_max_s,
+        # Det kampanjen tillåter. Regelkontrollen använder det; clip_min_s och clip_max_s är det appen klipper.
+        "allowed_min_s": _whole(profile.min_seconds),
+        "allowed_max_s": _whole(profile.max_seconds),
         "formats": [{"id": f["id"], "name": f.get("name", f["id"]),
                      "description": f.get("description", "")} for f in profile.formats],
-        "problems": blocking + problems,
-        "ready": not blocking,
+        "problems": blocking + keys + problems,
+        "key_problems": keys,
+        "state": campaign_state(blocking, problems),
+        "ready": not (blocking or keys),
         "active": profile.active,
+        "facecam": {"required": profile.facecam_required, "camera": profile.facecam_required or mode == "stacked",
+                    "rects_set": rects_set},
+        "scout_ref": profile.raw.get("scout_ref") if isinstance(profile.raw.get("scout_ref"), str) else None,
     }
 
 
@@ -155,8 +187,9 @@ def list_profiles(settings: Settings = Depends(get_settings)) -> list[dict]:
         except (SystemExit, Exception) as error:  # en trasig fil ska inte dölja de andra kampanjerna
             result.append({"name": name, "streamer": "", "campaign": name, "language": "",
                            "channel": "", "clip_min_s": None, "clip_max_s": None,
-                           "formats": [], "ready": False, "active": True,
-                           "problems": [f"Profilen går inte att läsa: {error}"]})
+                           "formats": [], "ready": False, "active": True, "source": "twitch",
+                           "problems": [f"Kampanjens fil går inte att läsa: {error}"], "key_problems": [],
+                           "state": "Inte redo"})
     return result
 
 

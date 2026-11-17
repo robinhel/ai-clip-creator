@@ -38,7 +38,7 @@ def clear_cache() -> None:
 def link_problem(url: str | None) -> str | None:
     """Varför länken inte går att använda, annars None."""
     if not url:
-        return "Lägg in kampanjens länk från contentrewards.com under links.content_rewards i Profil (YAML)."
+        return "Länken till kampanjen i Content Rewards saknas. Lägg in den under Ställ in."
     parsed = urlparse(url)
     if parsed.scheme != "https" or parsed.hostname not in HOSTS:
         return "Exempelklipp kräver kampanjens länk från contentrewards.com, till exempel https://contentrewards.com/c/campaigns/…"
@@ -114,7 +114,7 @@ def fetch(url: str) -> dict:
         with http_client() as http:
             response = http.get(url)
     except httpx.HTTPError as error:
-        raise RuntimeError(f"Content Rewards gick inte att nå: {type(error).__name__}.") from error
+        raise RuntimeError("Content Rewards svarar inte. Försök igen om en stund.") from error
     if response.status_code != 200:
         raise RuntimeError(f"Content Rewards svarade {response.status_code}. Försök igen om en stund.")
     try:

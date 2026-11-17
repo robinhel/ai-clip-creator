@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { StackedPreview } from "@/components/StackedPreview";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { CampaignRunInfo, Rect, ReframeInfo } from "@/lib/types";
+import type { CampaignRunInfo, Rect, ReframeInfo, StreamInfo } from "@/lib/types";
 
 const W = 1920;
 const H = 1080;
@@ -14,6 +14,7 @@ const MIN = 50;
 const SPLIT_MIN = 0.25;
 const SPLIT_MAX = 0.6;
 const MAX_CAMS = 4;
+const day = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" });
 
 type Kind = "webcam" | "gameplay";
 /** En kamerarutas plats i listan, eller spelrutan. */
@@ -76,20 +77,20 @@ const STYLE: Record<Kind, { label: string; box: string; handle: string; text: st
 
 interface Props {
   id: string;
+  /** Kampanjens Twitch-kanal. Dess streams går att välja som bild. Tom för egna videor. */
+  channel?: string;
   onSaved: () => void;
   /** true när rutorna har ändringar som inte är sparade. */
   onDirty?: (dirty: boolean) => void;
 }
 
-export function CampaignFacecam({ id, onSaved, onDirty }: Props) {
+export function CampaignFacecam({ id, channel, onSaved, onDirty }: Props) {
   const [server, setServer] = useState<ReframeInfo | null>(null);
   const [split, setSplit] = useState(0.4);
   const [rects, setRects] = useState<Rects | null>(null);
   const [sel, setSel] = useState(0);
   const [saved, setSaved] = useState<string>("");
-  const [runs, setRuns] = useState<CampaignRunInfo[]>([]);
   const [vodChoice, setVodChoice] = useState("");
-  const [vodInput, setVodInput] = useState("");
   const [loaded, setLoaded] = useState<{ src: string; ok: boolean; detail?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,10 +114,6 @@ export function CampaignFacecam({ id, onSaved, onDirty }: Props) {
       .reframe(id)
       .then(apply)
       .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte läsa rutorna"));
-    api.campaign.runs
-      .list()
-      .then((all) => setRuns(all.filter((r) => r.profile === id)))
-      .catch(() => {});
   }, [id]);
 
   const frameSrc = api.campaign.profile.frameUrl(id, vodChoice || undefined);
@@ -131,7 +128,7 @@ export function CampaignFacecam({ id, onSaved, onDirty }: Props) {
     return () => onDirty?.(false);
   }, [dirty, onDirty]);
 
-  /** Bilden kom inte: hämta serverns förklaring, till exempel att kampanjen saknar körning. */
+  /** Bilden kom inte: hämta serverns förklaring, till exempel att kampanjen saknar projekt. */
   function frameFailed(src: string) {
     setLoaded({ src, ok: false });
     fetch(src)
@@ -255,47 +252,7 @@ export function CampaignFacecam({ id, onSaved, onDirty }: Props) {
         </p>
       )}
 
-      <div className="flex flex-wrap items-end gap-3 text-sm">
-        <label className="min-w-0 space-y-1">
-          <span className="block text-[13px] text-muted-foreground">Bild från</span>
-          <select
-            value={runs.some((r) => r.vod_id === vodChoice) || !vodChoice ? vodChoice : "annat"}
-            onChange={(e) => e.target.value !== "annat" && setVodChoice(e.target.value)}
-            // Långa VOD-titlar får inte göra sidan bredare än skärmen.
-            className="h-9 w-full max-w-72 truncate rounded-lg border border-line bg-panel px-2.5 outline-none focus:border-brand"
-          >
-            <option value="">Senaste projektet</option>
-            {runs.map((r) => (
-              <option key={r.run_id} value={r.vod_id}>
-                VOD {r.vod_id}
-                {r.title ? `, ${r.title.slice(0, 40)}` : ""}
-              </option>
-            ))}
-            {vodChoice && !runs.some((r) => r.vod_id === vodChoice) && <option value="annat">VOD {vodChoice}</option>}
-          </select>
-        </label>
-        <form
-          className="flex items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (/^\d{6,15}$/.test(vodInput.trim())) setVodChoice(vodInput.trim());
-          }}
-        >
-          <label className="space-y-1">
-            <span className="block text-[13px] text-muted-foreground">Eller ett VOD-id</span>
-            <input
-              value={vodInput}
-              onChange={(e) => setVodInput(e.target.value)}
-              inputMode="numeric"
-              placeholder="2925991945"
-              className="h-9 w-40 rounded-lg border border-line bg-panel px-2.5 tabular-nums outline-none focus:border-brand"
-            />
-          </label>
-          <Button type="submit" variant="outline" className="h-9" disabled={!/^\d{6,15}$/.test(vodInput.trim())}>
-            Visa bilden
-          </Button>
-        </form>
-      </div>
+      <FramePicker id={id} channel={channel} vodChoice={vodChoice} onChoose={setVodChoice} />
 
       {rects && (
         <div className="flex flex-wrap items-center gap-2 text-sm" aria-label="Kamerapositioner">
@@ -360,7 +317,7 @@ export function CampaignFacecam({ id, onSaved, onDirty }: Props) {
             <p role={image === "error" ? "alert" : "status"} className="text-sm text-muted-foreground">
               {image === "loading"
                 ? "Hämtar en bildruta ur VOD:en…"
-                : (loaded?.detail ?? "Servern hittade ingen bild för VOD:en. Välj ett annat projekt eller skriv ett VOD-id.")}
+                : (loaded?.detail ?? "Servern hittade ingen bild för VOD:en. Välj ett annat projekt eller en stream, eller skriv ett VOD-id.")}
             </p>
           )}
           <div
@@ -458,7 +415,8 @@ export function CampaignFacecam({ id, onSaved, onDirty }: Props) {
           </label>
         </div>
 
-        <figure>
+        {/* Mindre på smal skärm, så att Spara inte hamnar långt ner. */}
+        <figure className="mx-auto w-full max-w-[200px] lg:max-w-none">
           <StackedPreview
             src={image === "ok" ? frameSrc : null}
             webcam={rects?.webcams[sel] ?? null}
@@ -482,8 +440,12 @@ export function CampaignFacecam({ id, onSaved, onDirty }: Props) {
           Rutorna är sparade. Läget sätts till kameran överst och spelet under, och nya klipp använder rutorna.
         </p>
       )}
+      {/* Första gången måste rutorna jämföras med en riktig bild. Annars sparas de förvalda rutorna blint. */}
+      {unsaved && image !== "ok" && (
+        <p className="text-sm text-warn">Välj en bild från streamen först. Då ser du att rutorna ligger rätt innan du sparar.</p>
+      )}
       <div className="flex flex-wrap gap-2">
-        <Button className="h-9" disabled={!(dirty || unsaved) || busy} onClick={save}>
+        <Button className="h-9" disabled={!(dirty || unsaved) || busy || (unsaved && image !== "ok")} onClick={save}>
           {busy && <Loader2 className="animate-spin" aria-hidden />}
           Spara rutorna
         </Button>
@@ -493,4 +455,134 @@ export function CampaignFacecam({ id, onSaved, onDirty }: Props) {
       </div>
     </div>
   );
+}
+
+interface FramePickerProps {
+  id: string;
+  channel?: string;
+  vodChoice: string;
+  onChoose: (vod: string) => void;
+}
+
+/** Var bilden kommer från: ett projekt, en av kanalens streams eller ett VOD-id. */
+/** Kampanjens projekt (null medan de hämtas) och kanalens senaste streams. */
+function useFrameSources(id: string, channel?: string) {
+  const [runs, setRuns] = useState<CampaignRunInfo[] | null>(null);
+  const [streams, setStreams] = useState<StreamInfo[]>([]);
+  useEffect(() => {
+    api.campaign.runs
+      .list()
+      .then((all) => setRuns(all.filter((r) => r.profile === id)))
+      .catch(() => setRuns([]));
+    // Kanalens streams, så att Robin inte behöver leta upp ett VOD-id på Twitch.
+    if (channel) {
+      api.campaign
+        .streams()
+        .then((all) => setStreams(latestStreams(all, id)))
+        .catch(() => {});
+    }
+  }, [id, channel]);
+  return { runs, streams };
+}
+
+function FramePicker({ id, channel, vodChoice, onChoose }: FramePickerProps) {
+  const { runs, streams } = useFrameSources(id, channel);
+  // Utan projekt: visa bilden från kanalens senaste stream direkt.
+  const firstStream = runs?.length === 0 ? streams[0]?.vod_id : undefined;
+  useEffect(() => {
+    if (firstStream && !vodChoice) onChoose(firstStream);
+  }, [firstStream, vodChoice, onChoose]);
+  const projects = runs ?? [];
+  const otherStreams = streams.filter((s) => !projects.some((r) => r.vod_id === s.vod_id));
+  const known = [...projects, ...otherStreams].some((x) => x.vod_id === vodChoice);
+
+  return (
+    <div className="flex flex-wrap items-end gap-3 text-sm">
+      <label className="min-w-0 space-y-1">
+        <span className="block text-[13px] text-muted-foreground">Bild från</span>
+        <select
+          value={known || !vodChoice ? vodChoice : "annat"}
+          onChange={(e) => e.target.value !== "annat" && onChoose(e.target.value)}
+          // Långa VOD-titlar får inte göra sidan bredare än skärmen.
+          className="h-9 w-full max-w-72 truncate rounded-lg border border-line bg-panel px-2.5 outline-none focus:border-brand"
+        >
+          <FrameOptions projects={projects} streams={otherStreams} other={known ? "" : vodChoice} />
+        </select>
+      </label>
+      <VodIdForm onChoose={onChoose} />
+    </div>
+  );
+}
+
+interface FrameOptionsProps {
+  projects: CampaignRunInfo[];
+  streams: StreamInfo[];
+  /** Ett VOD-id som Robin skrev, som inte finns i listorna. */
+  other: string;
+}
+
+function FrameOptions({ projects, streams, other }: FrameOptionsProps) {
+  return (
+    <>
+      {projects.length > 0 && <option value="">Senaste projektet</option>}
+      {projects.length === 0 && streams.length === 0 && <option value="">Inget projekt än</option>}
+      {projects.length > 0 && (
+        <optgroup label="Projekt">
+          {projects.map((r) => (
+            <option key={r.run_id} value={r.vod_id}>
+              Projekt #{r.run_id}
+              {r.title ? `, ${r.title.slice(0, 40)}` : `, VOD ${r.vod_id}`}
+            </option>
+          ))}
+        </optgroup>
+      )}
+      {streams.length > 0 && (
+        <optgroup label="Kanalens streams">
+          {streams.map((s) => (
+            <option key={s.vod_id} value={s.vod_id}>
+              {s.created_at ? `${day.format(new Date(s.created_at))}, ` : ""}
+              {s.title.slice(0, 40)}
+            </option>
+          ))}
+        </optgroup>
+      )}
+      {other && <option value="annat">VOD {other}</option>}
+    </>
+  );
+}
+
+/** Ett VOD-id som Robin skriver själv. */
+function VodIdForm({ onChoose }: { onChoose: (vod: string) => void }) {
+  const [vodInput, setVodInput] = useState("");
+  return (
+    <form
+      className="flex items-end gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (/^\d{6,15}$/.test(vodInput.trim())) onChoose(vodInput.trim());
+      }}
+    >
+      <label className="space-y-1">
+        <span className="block text-[13px] text-muted-foreground">Eller ett VOD-id från Twitch</span>
+        <input
+          value={vodInput}
+          onChange={(e) => setVodInput(e.target.value)}
+          inputMode="numeric"
+          placeholder="2925991945"
+          className="h-9 w-40 rounded-lg border border-line bg-panel px-2.5 tabular-nums outline-none focus:border-brand"
+        />
+      </label>
+      <Button type="submit" variant="outline" className="h-9" disabled={!/^\d{6,15}$/.test(vodInput.trim())}>
+        Visa bilden
+      </Button>
+    </form>
+  );
+}
+
+/** Kampanjens 8 senaste streams, nyast först. */
+function latestStreams(all: StreamInfo[], id: string): StreamInfo[] {
+  return all
+    .filter((s) => s.campaigns.includes(id))
+    .sort((x, y) => (y.created_at ?? "").localeCompare(x.created_at ?? ""))
+    .slice(0, 8);
 }

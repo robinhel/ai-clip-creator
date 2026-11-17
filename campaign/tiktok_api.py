@@ -42,15 +42,16 @@ def _only_local(request: Request) -> None:
 
 @router.get("/tiktok/status", summary="Är TikTok kopplat, och hur många utkast väntar")
 def tiktok_status(settings: Settings = Depends(get_settings)) -> dict:
-    return TikTok(settings).status()
+    # Adressen som servern använder, så att webben visar samma som ska stå i utvecklarportalen.
+    return {**TikTok(settings).status(), "redirect_uri": settings.tiktok_redirect_uri}
 
 
 @router.get("/tiktok/connect", summary="Logga in på TikTok (öppnas direkt mot :8000)",
             dependencies=[Depends(_only_local)])
 def tiktok_connect(settings: Settings = Depends(get_settings)) -> RedirectResponse:
     if not TikTok(settings).configured:
-        raise HTTPException(400, "TikTok är inte inställt. Lägg in TIKTOK_CLIENT_KEY och "
-                                 "TIKTOK_CLIENT_SECRET i .env och starta om servern.")
+        raise HTTPException(400, "TikTok är inte inställt. Lägg in Client key och Client secret "
+                                 "under Inställningar.")
     now = monotonic()
     for state in [s for s, (at, _) in _pending.items() if now - at > STATE_S]:
         del _pending[state]

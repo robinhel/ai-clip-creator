@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { CheckCircle2, ExternalLink, Eye, EyeOff, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TikTokCard } from "@/components/TikTokCard";
 import { YouTubeCard } from "@/components/YouTubeCard";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { KeyGroup, KeyTest, SetupCheck } from "@/lib/types";
+import type { ConnectedAccount, ConnectedAccounts, KeyGroup, KeyTest, SetupCheck } from "@/lib/types";
 
 function KeyField({ name, label, set, value, onChange, disabled }: {
   name: string;
@@ -122,7 +123,8 @@ function GroupCard({ group, onSaved, children }: { group: KeyGroup; onSaved: (gr
   }
 
   return (
-    <section aria-label={group.label} className="rounded-2xl border border-line bg-panel p-5">
+    // id: Kontroll och kampanjsidan länkar hit, till exempel /settings#anthropic.
+    <section id={group.id} aria-label={group.label} className="scroll-mt-24 rounded-2xl border border-line bg-panel p-5">
       <h2 className="text-lg font-semibold">{group.label}</h2>
       {twitch && (
         <div className="mt-2 text-sm text-muted-foreground">
@@ -193,7 +195,7 @@ function SetupCard({ checks, error, loading, onRun }: {
 }) {
   const failing = checks?.filter((c) => !c.ok).length ?? 0;
   return (
-    <section aria-label="Kontroll" className="mt-7 rounded-2xl border border-line bg-panel p-5">
+    <section aria-label="Kontroll" className="mt-4 rounded-2xl border border-line bg-panel p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Kontroll</h2>
@@ -203,7 +205,7 @@ function SetupCard({ checks, error, loading, onRun }: {
                 ? "Kontrollerar…"
                 : "Kontrollen kunde inte köras."
               : failing === 0
-                ? "Allt är klart för en körning."
+                ? "Allt är klart. Du kan hämta klipp."
                 : `${failing} ${failing === 1 ? "sak behöver" : "saker behöver"} rättas.`}
           </p>
         </div>
@@ -227,7 +229,9 @@ function SetupCard({ checks, error, loading, onRun }: {
                 <XCircle className="mt-0.5 size-4 shrink-0 text-bad" aria-label="Behöver rättas" />
               )}
               <div className="min-w-0">
-                <p className="text-sm font-medium">{c.label}</p>
+                <p className="text-sm font-medium">
+                  <CheckLabel check={c} />
+                </p>
                 <p className={cn("text-[13px] break-words", c.ok ? "text-muted-foreground" : "text-[#fca5a5]")}>{c.detail}</p>
               </div>
             </li>
@@ -235,6 +239,110 @@ function SetupCard({ checks, error, loading, onRun }: {
         </ul>
       )}
     </section>
+  );
+}
+
+/** Raden länkar till stället där den rättas: en kampanj eller ett kort längre ner. */
+function CheckLabel({ check }: { check: SetupCheck }) {
+  if (!check.href) return <>{check.label}</>;
+  return (
+    <Link href={check.href} className="underline underline-offset-4 hover:text-brand">
+      {check.label}
+    </Link>
+  );
+}
+
+const ACCOUNT_GROUPS = [
+  { id: "tiktok", label: "TikTok", empty: "Inga TikTok-konton är kopplade." },
+  { id: "youtube_shorts", label: "YouTube", empty: "Inga YouTube-kanaler är kopplade.", anchor: "youtube" },
+] as const;
+
+/** Alla kopplade konton på ett ställe: vilka som måste logga in igen och vilka kampanjer som har valt dem. */
+function AccountsCard({ refresh }: { refresh: string }) {
+  const [accounts, setAccounts] = useState<ConnectedAccounts | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api.campaign
+      .accounts()
+      .then(setAccounts)
+      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte läsa kontona"));
+  }, [refresh]);
+
+  const expired = accounts ? [...accounts.tiktok, ...accounts.youtube_shorts].filter((a) => !a.connected).length : 0;
+  return (
+    <section id="konton" aria-label="Konton" className="mt-7 scroll-mt-24 rounded-2xl border border-line bg-panel p-5">
+      <h2 className="text-lg font-semibold">Konton</h2>
+      <p className="mt-0.5 max-w-[640px] text-sm text-muted-foreground">
+        Kontona som appen postar från. Vilka konton en kampanj får använda väljer du under kampanjens Ställ in.
+      </p>
+      {error && <p role="alert" className="mt-3 text-sm text-bad">{error}</p>}
+      {!accounts && !error && <p className="mt-3 text-sm text-muted-foreground">Läser kontona…</p>}
+      {expired > 0 && (
+        <p className="mt-3 text-sm text-warn">
+          {expired === 1 ? "Ett konto" : `${expired} konton`} måste logga in igen.
+        </p>
+      )}
+      {accounts && (
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          {ACCOUNT_GROUPS.map((g) => (
+            <AccountGroup key={g.id} group={g} list={accounts[g.id]} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AccountGroup({ group, list }: { group: (typeof ACCOUNT_GROUPS)[number]; list: ConnectedAccount[] }) {
+  const anchor = "anchor" in group ? group.anchor : group.id;
+  return (
+    <div data-accounts={group.id}>
+      <h3 className="text-[13px] text-muted-foreground">{group.label}</h3>
+      {list.length === 0 ? (
+        <p className="mt-1 text-sm text-muted-foreground">
+          {group.empty}{" "}
+          <a href={`#${anchor}`} className="font-medium text-foreground underline underline-offset-4">
+            Koppla ett längre ner
+          </a>
+        </p>
+      ) : (
+        <ul className="mt-1 divide-y divide-line">
+          {list.map((a) => (
+            <AccountRow key={a.id} account={a} anchor={anchor} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function AccountRow({ account: a, anchor }: { account: ConnectedAccount; anchor: string }) {
+  return (
+    <li data-account={a.id} className="py-2 text-sm">
+      <p className="flex flex-wrap items-baseline justify-between gap-x-3">
+        <span className="font-medium">{a.name}</span>
+        {a.connected ? (
+          <span className="text-xs text-good">Inloggad</span>
+        ) : (
+          <a href={`#${anchor}`} className="text-xs font-medium text-bad underline underline-offset-4">
+            Logga in igen
+          </a>
+        )}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Används av:{" "}
+        {a.used_by.length === 0
+          ? "alla kampanjer som inte har valt egna konton"
+          : a.used_by.map((c, i) => (
+              <span key={c.name}>
+                {i > 0 && ", "}
+                <Link href={`/campaigns/${c.name}?tab=installningar&del=oversikt#konton`} className="underline underline-offset-4 hover:text-foreground">
+                  {c.streamer || c.name}
+                </Link>
+              </span>
+            ))}
+      </p>
+    </li>
   );
 }
 
@@ -331,6 +439,7 @@ export function SettingsClient({ tiktokResult, tiktokReason }: { tiktokResult?: 
         Klistra in nycklarna här. Servern sparar dem i .env och använder dem direkt. De visas aldrig igen, bara om de är
         sparade.
       </p>
+      <AccountsCard refresh={groups?.map((g) => g.keys.map((k) => k.set).join()).join() ?? ""} />
       <SetupCard checks={checks} error={setupError} loading={setupLoading} onRun={runSetup} />
       <SubmitHelperCard />
       {error && (

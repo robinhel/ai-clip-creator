@@ -285,7 +285,8 @@ def test_connect_without_keys_gives_400(client, settings) -> None:
     settings.tiktok_client_key = ""
     response = client.get("/campaign/tiktok/connect")
     assert response.status_code == 400
-    assert "TIKTOK_CLIENT_KEY" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert "Client key" in detail and "Inställningar" in detail and "starta om" not in detail
 
 
 def test_connect_redirects_to_tiktok_with_pkce(client, settings) -> None:

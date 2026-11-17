@@ -39,12 +39,14 @@ interface Props {
   className?: string;
   /** Lager ovanpå, till exempel overlay-bilden och de säkra zonerna. */
   children?: React.ReactNode;
+  /** Kampanjen har ingen kamera: en panel med videon i stället för kamera och spel. */
+  single?: boolean;
 }
 
 /** Klippet i 9:16: kameran överst och spelet under, som clipsmiths läge stacked. */
-export function StackedPreview({ src, webcam, gameplay, split, className, children }: Props) {
+export function StackedPreview({ src, webcam, gameplay, split, className, children, single }: Props) {
   const [failed, setFailed] = useState<string | null>(null);
-  const ok = src && failed !== src && webcam && gameplay;
+  const ok = !single && src && failed !== src && webcam && gameplay;
   return (
     <div
       className={cn("relative aspect-[9/16] w-full overflow-hidden rounded-xl bg-[#1f1f26] [container-type:inline-size]", className)}
@@ -54,6 +56,8 @@ export function StackedPreview({ src, webcam, gameplay, split, className, childr
           <Panel src={src} rect={webcam} heightPct={split * 100} onError={() => setFailed(src)} />
           <Panel src={src} rect={gameplay} heightPct={(1 - split) * 100} onError={() => setFailed(src)} />
         </>
+      ) : single ? (
+        <div className="grid h-full place-items-center text-xs text-muted-foreground">Video</div>
       ) : (
         <div className="flex h-full flex-col">
           <div className="grid place-items-center border-b border-dashed border-line text-xs text-muted-foreground" style={{ height: `${split * 100}%` }}>

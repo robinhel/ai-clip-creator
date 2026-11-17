@@ -389,7 +389,7 @@ def _checks(settings) -> dict:
     response = _client(settings, host="192.168.1.20").get("/campaign/setup")  # bara läsning: från alla datorer
     assert response.status_code == 200
     checks = response.json()["checks"]
-    assert all(set(c) == {"id", "label", "ok", "detail"} for c in checks)
+    assert all(set(c) - {"href"} == {"id", "label", "ok", "detail"} for c in checks)
     return {c["id"]: c for c in checks}
 
 
@@ -415,6 +415,7 @@ def test_setup_tells_what_is_missing(settings, env, tools, tmp_path, monkeypatch
     del tools["found"]["ffprobe"]
     checks = _checks(settings)
     assert (checks["ffmpeg"]["ok"], checks["ffprobe"]["ok"], checks["disk"]["ok"]) == (False, False, False)
+    assert checks["disk"]["detail"].startswith("9,7 GB ledigt av 228 GB")  # svenskt decimalkomma
     assert "subtitles" in checks["ffmpeg"]["detail"] and "drawtext" not in checks["ffmpeg"]["detail"]
 
     del tools["found"]["ffmpeg"]
@@ -427,3 +428,32 @@ def test_setup_tells_what_is_missing(settings, env, tools, tmp_path, monkeypatch
 
     budget_from_settings(settings).record("okänd-modell", "granska", 2_000_000, 0)
     assert _checks(settings)["budget"]["ok"] is False
+
+
+def test_setup_and_the_campaigns_page_give_the_same_answer(settings, env, tools, monkeypatch) -> None:  # noqa: F811
+    """Kontrollen använder samma kod som Kampanjer: samma läge, kampanjens namn och en länk dit."""
+    import shutil
+
+    from .conftest import PAKET
+
+    monkeypatch.setattr(api.estimate, "disk_gb", lambda path: (100.0, 228.0))
+    shutil.copy(PAKET / "config.timmy.yaml", settings.root)
+    config = (PAKET / "config.timmy.yaml").read_text()
+    (settings.root / "config.testkanal.yaml").write_text(  # kameraläget utan rutor: inte redo
+        config.replace("  - skiimasktimmy\n", "  - testkanal\n").replace("gameplay_rect:", "# gameplay_rect:"))
+    (settings.profiles_dir / "testkanal.yaml").write_text(
+        (settings.profiles_dir / "skiimasktimmy.yaml").read_text().replace(
+            "clipsmith_config: config.timmy.yaml", "clipsmith_config: config.testkanal.yaml").replace(
+            "streamer: SkiiMaskTimmy", "streamer: Testkanal"))
+    checks = _checks(settings)
+    pages = {p["name"]: p for p in api.list_profiles(settings)}
+    for name, label in (("skiimasktimmy", "SkiiMaskTimmy"), ("testkanal", "Testkanal")):
+        row, page = checks[f"profile:{name}"], pages[name]
+        assert row["label"] == f"Kampanjen {label}" and row["href"] == f"/campaigns/{name}"
+        assert row["ok"] is (page["state"] == "Redo")
+        assert row["detail"].startswith(page["state"])
+        assert "nyckeln" not in row["detail"]  # nycklarna har egna rader
+    assert checks["profile:testkanal"]["ok"] is False and "Facecam" in checks["profile:testkanal"]["detail"]
+    assert "Inte redo" in checks["profile:testkanal"]["detail"]
+    assert "Nycklar" not in checks["berget"]["detail"]
+    assert "dollar" not in checks["budget"]["detail"] and "US$" in checks["budget"]["detail"]

@@ -98,7 +98,7 @@ def _set_link(settings, link: str) -> None:
 def test_examples_need_a_content_rewards_link(client, settings) -> None:
     http, calls = client
     body = http.get("/campaign/profiles/skiimasktimmy/examples").json()
-    assert body["clips"] == [] and "Lägg in kampanjens länk" in body["problem"]
+    assert body["clips"] == [] and "Ställ in" in body["problem"]
     _set_link(settings, "https://whop.com/x/")
     body = http.get("/campaign/profiles/skiimasktimmy/examples").json()
     assert body["clips"] == [] and "contentrewards.com" in body["problem"]
@@ -122,6 +122,21 @@ def test_examples_report_when_the_page_cannot_be_read(client, settings) -> None:
     response = http.get("/campaign/profiles/skiimasktimmy/examples")
     assert response.status_code == 502
     assert "Content Rewards svarade 503" in response.json()["detail"]
+
+
+def test_examples_say_in_plain_words_when_content_rewards_does_not_answer(settings, monkeypatch) -> None:
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("nere", request=request)
+
+    monkeypatch.setattr(examples, "http_client", lambda: httpx.Client(transport=httpx.MockTransport(down)))
+    examples.clear_cache()
+    app = FastAPI()
+    app.include_router(profiles_api.router)
+    app.dependency_overrides[api.get_settings] = lambda: settings
+    _set_link(settings, PAGE_URL)
+    response = TestClient(app).get("/campaign/profiles/skiimasktimmy/examples")
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Content Rewards svarar inte. Försök igen om en stund."
 
 
 def test_the_real_client_can_build_a_request() -> None:
