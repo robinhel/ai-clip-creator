@@ -3,24 +3,36 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Bell, Check, Keyboard, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
+import { Bell, Check, Keyboard, Loader2, RotateCcw, Sparkles, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClipResultRow, ignoreKey } from "@/components/ClipResultRow";
 import { clipTotal } from "@/components/ProjectCard";
-import { api } from "@/lib/api";
+import { api, cancelRun } from "@/lib/api";
 import { clock, cn, duration, serverTime, usd } from "@/lib/utils";
 import type { CampaignClip, CampaignProfile, CampaignRunDetail, CampaignStatus, Run, RunStep } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 3000;
 const day = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" });
 
-const FILTERS: { id: string; label: string; status?: CampaignStatus }[] = [
+const FILTERS: { id: string; label: string; statuses?: CampaignStatus[] }[] = [
   { id: "alla", label: "Alla" },
-  { id: "granska", label: "Att granska", status: "renderad" },
-  { id: "godkanda", label: "Godkända", status: "godkand" },
-  { id: "nekade", label: "Nekade", status: "nekad" },
-  { id: "underkanda", label: "Underkända", status: "underkand" },
+  { id: "granska", label: "Att granska", statuses: ["renderad"] },
+  { id: "godkanda", label: "Godkända", statuses: ["godkand"] },
+  // Allt efter Markera som postad, så att ett postat klipp inte försvinner ur flikarna.
+  { id: "postade", label: "Postade", statuses: ["postad", "inskickad", "analytics_inskickad", "betald"] },
+  { id: "nekade", label: "Nekade", statuses: ["nekad"] },
+  { id: "underkanda", label: "Underkända", statuses: ["underkand"] },
 ];
+
+/** Nycklar läggs in under Inställningar. Texten kommer från servern, till exempel "BERGET_API_KEY saknas i .env." */
+function KeyFix({ text }: { text?: string | null }) {
+  if (!text || !/API_KEY|nyckel/i.test(text)) return null;
+  return (
+    <Link href="/settings" className="mt-1 inline-block text-sm font-medium text-foreground underline underline-offset-4">
+      Lägg in nyckeln i Inställningar
+    </Link>
+  );
+}
 
 type Sort = "score" | "time";
 
@@ -80,7 +92,7 @@ function notifyPermission(): NotificationPermission | null {
   return typeof window !== "undefined" && "Notification" in window ? Notification.permission : null;
 }
 
-function Steps({ steps }: { steps: RunStep[] }) {
+function Steps({ steps, cancelled }: { steps: RunStep[]; cancelled?: boolean }) {
   const now = Date.now();
   return (
     <ol className="max-w-[640px]">
@@ -100,7 +112,7 @@ function Steps({ steps }: { steps: RunStep[] }) {
           <div className="min-w-0">
             <p className={cn("font-semibold", step.status === "waiting" && "text-muted-foreground")}>{step.label}</p>
             <p className="text-[13px] text-muted-foreground">
-              {{ waiting: "Väntar", running: "Pågår", done: "Klart", failed: "Misslyckades" }[step.status]}
+              {{ waiting: "Väntar", running: "Pågår", done: "Klart", failed: cancelled ? "Avbröts här" : "Misslyckades" }[step.status]}
               {step.status === "running" && step.message ? `: ${step.message}` : ""}
             </p>
             {step.status === "running" && <PartBar message={step.message} />}
@@ -135,6 +147,9 @@ export default function RunDetailPage() {
   const wasActive = useRef(false);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  // Avbryt: först en fråga, sedan väntar sidan på att servern stoppar vid nästa steg.
+  const [cancelStep, setCancelStep] = useState<"idle" | "ask" | "sent">("idle");
+  const [cancelError, setCancelError] = useState<string | null>(null);
   // Räknas upp efter varje omläsning, så att nästa startar också när anropet misslyckades.
   const [pollTick, setPollTick] = useState(0);
 
@@ -194,7 +209,8 @@ export default function RunDetailPage() {
         fetchRun(),
         finishStartedAt !== null ? api.runs.get(runId).then(setLegacyRun).catch(() => {}) : null,
       ]);
-      if (data && data.status !== "pending" && data.status !== "running") await fetchClips();
+      // Klippen läses om också medan projektet pågår, så att de syns när de blir klara.
+      if (data) await fetchClips();
       setPollTick((t) => t + 1);
     }, POLL_INTERVAL_MS);
     return () => clearTimeout(timer);
@@ -259,7 +275,7 @@ export default function RunDetailPage() {
     const previous = document.title;
     document.title = title;
     if (notifyPermission() === "granted") {
-      new Notification(title, { body: done ? `${name}: ${clipTotal(run)} klipp att granska.` : `${name}: körningen stoppade. Öppna projektet för att se felet.` });
+      new Notification(title, { body: done ? `${name}: ${clipTotal(run)} klipp att granska.` : `${name}: projektet stoppade. Öppna projektet för att se varför.` });
     }
     // Fliktiteln visar resultatet tills du tittar på sidan igen.
     function restore() {
@@ -285,8 +301,20 @@ export default function RunDetailPage() {
       const { id } = await api.campaign.runs.retry(runId);
       router.push(`/runs/${id}`);
     } catch (err) {
-      setRetryError(err instanceof Error ? err.message : "Kunde inte starta körningen igen");
+      setRetryError(err instanceof Error ? err.message : "Kunde inte köra igen");
       setRetrying(false);
+    }
+  }
+
+  async function handleCancel() {
+    setCancelError(null);
+    setCancelStep("sent");
+    try {
+      await cancelRun(runId);
+      await fetchRun(); // sidan läser om tills projektet har stoppat
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : "Kunde inte avbryta");
+      setCancelStep("idle");
     }
   }
 
@@ -296,7 +324,7 @@ export default function RunDetailPage() {
 
   const sorted = useMemo(() => sortClips(clips ?? [], sort), [clips, sort]);
   const active = FILTERS.find((f) => f.id === filter) ?? FILTERS[0];
-  const visible = sorted.filter((c) => !active.status || c.status === active.status);
+  const visible = sorted.filter((c) => !active.statuses || active.statuses.includes(c.status));
   const formats = profiles.find((p) => p.name === run?.profile)?.formats ?? [];
 
   // J och K flyttar mellan klippen i listan som den visas, rullar dit och markerar raden.
@@ -351,19 +379,25 @@ export default function RunDetailPage() {
   // end_s 0 betyder till slutet av VOD:en.
   const part = start || end ? `${hms(start)}–${end ? hms(end) : run.duration_s ? hms(run.duration_s) : "slutet"}` : null;
   const failedStep = run.steps.find((s) => s.status === "failed")?.id ?? run.stage;
+  // Gör klippen kampanjklara igen gör bara om underkända klipp. Ett fel i captionen rättas på raden, inte här.
+  const canRedo = (clips ?? []).some((c) => c.status === "underkand" && c.problems.some((p) => !p.startsWith("Captionen ")));
+  const fastCost = run.fast && run.cost_estimate;
 
   return (
     <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
+      <Link href="/projects" className="text-sm text-muted-foreground hover:text-foreground">
+        ← Alla projekt
+      </Link>
       {superseded && (
-        <p role="status" className="mb-5 rounded-lg border border-line bg-panel px-3 py-2 text-sm text-muted-foreground">
-          Det här är en äldre körning. Projektet har en nyare körning.{" "}
+        <p role="status" className="mt-3 mb-5 rounded-lg border border-line bg-panel px-3 py-2 text-sm text-muted-foreground">
+          Det här är ett äldre försök. Projektet har körts igen.{" "}
           <Link href={`/runs/${latestRunId}`} className="font-medium text-foreground underline underline-offset-4">
-            Öppna den senaste körningen
+            Öppna det senaste försöket
           </Link>
           .
         </p>
       )}
-      <div className="flex flex-wrap items-start gap-4">
+      <div className="mt-2 flex flex-wrap items-start gap-4">
         {/* basis 20rem: på en smal skärm hamnar knappen under rubriken i stället för att trycka ihop den. */}
         <div className="min-w-0 flex-[1_1_20rem]">
           <h1 className="text-3xl font-bold tracking-tight break-words">
@@ -379,8 +413,8 @@ export default function RunDetailPage() {
           {part && <p className="text-sm text-muted-foreground tabular-nums">Del av VOD:en: {part}</p>}
           {run.focus && <p className="mt-1 text-sm text-muted-foreground">Letade efter: {run.focus}</p>}
         </div>
-        {/* En misslyckad körning har inga klipp att göra om; servern svarar 400. */}
-        {run.status !== "failed" && (
+        {/* Bara när knappen kan rätta något. Ett misslyckat projekt har inga klipp att göra om; servern svarar 400. */}
+        {run.status !== "failed" && (canRedo || finishing) && (
           <Button
             variant="outline"
             className="h-9"
@@ -421,26 +455,56 @@ export default function RunDetailPage() {
           {isActive && (
             <p className="mb-2 text-sm text-muted-foreground">
               {run.eta_s != null ? `Cirka ${duration(run.eta_s)} kvar. ` : ""}
-              {run.cost_estimate_usd != null
-                ? `Kostar cirka ${usd.format(run.cost_estimate_usd)}${
-                    run.cost_estimate
-                      ? ` (Berget ${usd.format(run.cost_estimate.berget_usd)}, Claude ${usd.format(run.cost_estimate.claude_usd)})`
-                      : ""
-                  }. `
-                : ""}
-              Du kan stänga sidan. Klippen dyker upp här när de är klara.
+              {fastCost
+                ? `Kostar cirka ${usd.format(fastCost.berget_usd)} hos Berget. Signalerna väljer, utan Claude. `
+                : run.cost_estimate_usd != null
+                  ? `Kostar cirka ${usd.format(run.cost_estimate_usd)}${
+                      run.cost_estimate
+                        ? ` (Berget ${usd.format(run.cost_estimate.berget_usd)}, Claude ${usd.format(run.cost_estimate.claude_usd)})`
+                        : ""
+                    }. `
+                  : ""}
+              Du kan stänga sidan. Klippen dyker upp nedanför när de är klara.
             </p>
+          )}
+          {isActive && run.cancellable && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+              {cancelStep === "idle" && (
+                <Button variant="outline" className="h-8" onClick={() => setCancelStep("ask")}>
+                  <Square aria-hidden />
+                  Avbryt
+                </Button>
+              )}
+              {cancelStep === "ask" && (
+                <>
+                  <span>Avbryta? Klipp som redan är klara sparas. En halv nedladdning tas bort.</span>
+                  <Button variant="destructive" className="h-8" onClick={handleCancel}>
+                    Ja, avbryt
+                  </Button>
+                  <Button variant="outline" className="h-8" onClick={() => setCancelStep("idle")}>
+                    Nej, fortsätt
+                  </Button>
+                </>
+              )}
+              {cancelStep === "sent" && (
+                <span role="status" className="inline-flex items-center gap-1.5 text-muted-foreground">
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  Avbryter. Det stoppar vid nästa steg, före nästa anrop till Claude.
+                </span>
+              )}
+              {cancelError && <span className="text-[#fca5a5]">{cancelError}</span>}
+            </div>
           )}
           {isActive && permission === "default" && (
             <Button variant="outline" className="mb-3 h-8" onClick={askPermission}>
               <Bell aria-hidden />
-              Få en notis när körningen är klar
+              Få en notis när projektet är klart
             </Button>
           )}
           {isActive && permission === "granted" && (
             <p className="mb-3 flex items-center gap-1.5 text-[13px] text-muted-foreground">
               <Bell className="size-3.5" aria-hidden />
-              Du får en notis när körningen är klar, om sidan är öppen.
+              Du får en notis när projektet är klart, om sidan är öppen.
             </p>
           )}
           {isActive && permission === "denied" && (
@@ -448,37 +512,61 @@ export default function RunDetailPage() {
           )}
           {run.status === "failed" && superseded && (
             <p className="mb-4 max-w-[640px] text-sm text-muted-foreground">
-              Körningen misslyckades{run.error ? `: ${run.error.replace(/\.?$/, ".")}` : "."} En nyare körning finns, så den behöver inte köras igen.
+              {run.cancelled ? "Du avbröt försöket." : `Försöket misslyckades${run.error ? `: ${run.error.replace(/\.?$/, ".")}` : "."}`} Projektet har
+              körts igen, så det behöver inte köras igen.
             </p>
           )}
-          {run.status === "failed" && !superseded && (
-            <div role="alert" className="mb-4 max-w-[640px] rounded-lg border border-[#4d1d1d] bg-[#1c0f10] p-4">
-              <p className="font-medium text-[#fca5a5]">Körningen misslyckades</p>
-              {run.error && <p className="mt-1 font-mono text-[13px] break-words text-[#f2c4c4]">{run.error}</p>}
-              <p className="mt-3 text-sm text-muted-foreground">
-                {run.retry_problem
-                  ? run.retry_problem
-                  : failedStep === "transcribe"
-                    ? "Klara delar är sparade. Kör igen fortsätter där körningen stoppade."
-                    : "Kör igen startar om körningen med samma val."}
+          {run.status === "failed" && !superseded && run.cancelled && (
+            <div role="status" className="mb-4 max-w-[640px] rounded-lg border border-line bg-panel p-4">
+              <p className="font-medium">Du avbröt</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Klipp som hann bli klara finns kvar nedanför. Kör igen startar om med samma val
+                {failedStep === "transcribe" ? ", och klara delar av transkriberingen används igen" : ""}.
               </p>
               <Button className="mt-3 h-9" onClick={handleRetry} disabled={retrying || !!run.retry_problem}>
                 {retrying ? <Loader2 className="animate-spin" aria-hidden /> : <RotateCcw aria-hidden />}
                 {retrying ? "Startar…" : "Kör igen"}
               </Button>
               {retryError && <p className="mt-2 text-sm text-[#fca5a5]">{retryError}</p>}
+              <KeyFix text={retryError} />
             </div>
           )}
-          <Steps steps={run.steps} />
+          {run.status === "failed" && !superseded && !run.cancelled && (
+            <div role="alert" className="mb-4 max-w-[640px] rounded-lg border border-[#4d1d1d] bg-[#1c0f10] p-4">
+              <p className="font-medium text-[#fca5a5]">Projektet misslyckades</p>
+              {run.error && <p className="mt-1 font-mono text-[13px] break-words text-[#f2c4c4]">{run.error}</p>}
+              <p className="mt-3 text-sm text-muted-foreground">
+                {run.retry_problem
+                  ? run.retry_problem
+                  : failedStep === "transcribe"
+                    ? "Klara delar är sparade. Kör igen fortsätter där det stoppade."
+                    : "Kör igen startar om med samma val."}
+              </p>
+              <Button className="mt-3 h-9" onClick={handleRetry} disabled={retrying || !!run.retry_problem}>
+                {retrying ? <Loader2 className="animate-spin" aria-hidden /> : <RotateCcw aria-hidden />}
+                {retrying ? "Startar…" : "Kör igen"}
+              </Button>
+              {retryError && <p className="mt-2 text-sm text-[#fca5a5]">{retryError}</p>}
+              <KeyFix text={retryError || run.error} />
+            </div>
+          )}
+          <Steps steps={run.steps} cancelled={run.cancelled} />
         </section>
       )}
 
-      {!isActive && clips && (clips.length > 0 || run.status === "done") && (
+      {/* Klippen syns medan projektet pågår: de kommer ett i taget i sista steget. */}
+      {clips && (clips.length > 0 || run.status === "done") && (
         <section className="mt-8">
+          {isActive && (
+            <p className="mb-3 text-sm text-muted-foreground">
+              {clips.length === 1 ? "1 klipp är klart." : `${clips.length} klipp är klara.`} Fler kan komma medan projektet pågår.
+            </p>
+          )}
           {clips.length > 0 && <div className="mb-2 flex flex-wrap items-center gap-3 text-[13px]">
-            <div role="tablist" aria-label="Visa klipp" className="flex max-w-full overflow-x-auto rounded-[9px] border border-line">
+            {/* flex-wrap: på en smal skärm går flikarna på två rader i stället för att skäras av. */}
+            <div role="tablist" aria-label="Visa klipp" className="flex max-w-full flex-wrap overflow-hidden rounded-[9px] border border-line">
               {FILTERS.map((f) => {
-                const count = f.status ? clips.filter((c) => c.status === f.status).length : clips.length;
+                const count = f.statuses ? clips.filter((c) => f.statuses?.includes(c.status)).length : clips.length;
                 return (
                   <button
                     key={f.id}

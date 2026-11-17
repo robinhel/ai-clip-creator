@@ -777,7 +777,7 @@ export function HomeClient() {
             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line px-3 text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-brand"
           >
             <FolderOpen className="size-4" aria-hidden />
-            Alla projekt{runs ? ` (${runs.length})` : ""}
+            Alla projekt{runs ? ` (${projects.length})` : ""}
           </Link>
           <Link
             href="/uploads"
@@ -895,7 +895,7 @@ export function HomeClient() {
       <div className="mt-9 mb-3 flex items-baseline justify-between gap-4">
         <h2 className="text-lg font-semibold">Senaste projekten</h2>
         <Link href="/projects" className="text-sm text-muted-foreground hover:text-foreground">
-          Alla projekt{runs ? ` (${runs.length})` : ""}
+          Alla projekt{runs ? ` (${projects.length})` : ""}
         </Link>
       </div>
       {runs === null && !loadError && <p className="text-sm text-muted-foreground">Hämtar projekten…</p>}
