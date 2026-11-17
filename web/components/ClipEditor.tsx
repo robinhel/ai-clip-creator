@@ -417,7 +417,7 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
         )}
 
         {clip.status === "godkand" && (
-          <p className="text-sm text-warn">Klippet är godkänt. Efter ändringen behöver det ett nytt ja.</p>
+          <p className="text-sm text-warn">Klippet är godkänt. Efter ändringen behöver det ett nytt ja, och schemalagda uppladdningar avbryts.</p>
         )}
         {(error || block) && (
           <p
