@@ -16,7 +16,6 @@ import {
   contentRewardsProblem,
   field,
   httpsProblem,
-  numberText,
   parseNumber,
   previewCaption,
   type FormatRow,
@@ -61,6 +60,8 @@ export interface NewCampaignStart {
   maxPayout?: string;
   platforms?: Platform[];
   scoutRef?: string;
+  /** Länken till kampanjen i Content Rewards, från Bevakning. */
+  link?: string;
 }
 
 type Key =
@@ -79,7 +80,7 @@ export function NewCampaignClient(start: NewCampaignStart) {
   const [nameTouched, setNameTouched] = useState(false);
   const [campaign, setCampaign] = useState(start.campaign ?? "");
   const [language, setLanguage] = useState("en");
-  const [contentRewards, setContentRewards] = useState("");
+  const [contentRewards, setContentRewards] = useState(start.link ?? "");
   const [analytics, setAnalytics] = useState("");
   const [minS, setMinS] = useState("15");
   const [maxS, setMaxS] = useState("45");
@@ -465,5 +466,3 @@ export function NewCampaignClient(start: NewCampaignStart) {
   );
 }
 
-/** Tal från adressen, med komma som i resten av appen. */
-export const fromQuery = (value: string | undefined) => (value && /^\d+(\.\d+)?$/.test(value) ? numberText(Number(value)) : undefined);

@@ -52,6 +52,8 @@ export function newCampaignHref(c: ScoutCampaign): string {
   if (c.rate_usd != null) query.cpm = String(c.rate_usd);
   if (c.min_views != null) query.min_views = String(c.min_views);
   if (c.max_payout_usd != null) query.max_payout = String(c.max_payout_usd);
+  // Kampanjsidan i Content Rewards är länken som Exempelklipp och inskicket behöver.
+  if (c.page_url && /^https:\/\/(www\.)?contentrewards\.com\//.test(c.page_url)) query.link = c.page_url;
   const platforms = c.platforms.map((p) => PLATFORM_ID[p]).filter(Boolean);
   if (platforms.length) query.platforms = platforms.join(",");
   return `/campaigns/new?${new URLSearchParams(query)}`;

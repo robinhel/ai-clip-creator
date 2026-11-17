@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
-import { NewCampaignClient, fromQuery } from "@/components/NewCampaignClient";
+import { NewCampaignClient } from "@/components/NewCampaignClient";
 import type { Platform } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Ny kampanj · Klipp" };
 
 type Query = string | string[] | undefined;
-type Keys = "channel" | "streamer" | "campaign" | "source" | "cpm" | "min_views" | "max_payout" | "platforms" | "scout";
+type Keys = "channel" | "streamer" | "campaign" | "source" | "cpm" | "min_views" | "max_payout" | "platforms" | "scout" | "link";
 type Props = { searchParams: Promise<Partial<Record<Keys, Query>>> };
 
 const one = (value: Query) => (typeof value === "string" ? value : undefined);
 const PLATFORMS: Platform[] = ["tiktok", "youtube_shorts", "instagram_reels"];
+
+/** Ett tal ur adressen (1.5) som text för fältet (1,5). Annat än ett tal ignoreras. Här, eftersom sidan körs på servern. */
+const fromQuery = (value: string | undefined) => (value && /^\d+(\.\d+)?$/.test(value) ? value.replace(".", ",") : undefined);
 
 /** Hem fyller i ?channel= och ?streamer=. Bevakning fyller i namn, betalning, plattformar och ?scout=. */
 export default async function NewCampaignPage({ searchParams }: Props) {
@@ -26,6 +29,7 @@ export default async function NewCampaignPage({ searchParams }: Props) {
       maxPayout={fromQuery(one(q.max_payout))}
       platforms={platforms}
       scoutRef={one(q.scout)}
+      link={one(q.link)?.startsWith("https://") ? one(q.link) : undefined}
     />
   );
 }
