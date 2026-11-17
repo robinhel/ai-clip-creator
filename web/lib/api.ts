@@ -1,6 +1,7 @@
 import type {
   CampaignClip,
   CampaignClipPatch,
+  CampaignExamples,
   CampaignProfile,
   CampaignProfileCreate,
   CampaignProfileDetail,
@@ -124,6 +125,7 @@ export const api = {
           method: "PUT",
           body: JSON.stringify({ yaml }),
         }),
+      examples: (id: string) => apiFetch<CampaignExamples>(`/campaign/profiles/${id}/examples`),
       reframe: (id: string) => apiFetch<ReframeInfo>(`/campaign/profiles/${id}/reframe`),
       saveReframe: (id: string, body: { webcam_rects: Rect[]; gameplay_rect: Rect; split_ratio: number }) =>
         apiFetch<ReframeInfo>(`/campaign/profiles/${id}/reframe`, { method: "PUT", body: JSON.stringify(body) }),

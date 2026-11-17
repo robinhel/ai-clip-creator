@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
+import { CampaignExampleClips } from "@/components/CampaignExampleClips";
 import { CampaignFacecam } from "@/components/CampaignFacecam";
 import { CampaignOverlay } from "@/components/CampaignOverlay";
 import { CampaignYaml } from "@/components/CampaignYaml";
@@ -17,6 +18,7 @@ const TABS = [
   { id: "overlay", label: "Overlay" },
   { id: "facecam", label: "Facecam" },
   { id: "profil", label: "Profil (YAML)" },
+  { id: "exempel", label: "Exempelklipp" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
@@ -87,6 +89,12 @@ export function CampaignDetailClient({ id, tab: initialTab }: { id: string; tab?
   // Profil (YAML) och Facecam säger till när de har osparade ändringar.
   const [dirty, setDirty] = useState(false);
   const tab: Tab = TABS.some((t) => t.id === initialTab) ? (initialTab as Tab) : "oversikt";
+  const tabs = useRef<HTMLDivElement>(null);
+
+  // På en smal skärm kan vald flik ligga utanför den rullbara raden. Rulla fram den.
+  useEffect(() => {
+    tabs.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [tab, profile]);
 
   // Fråga innan osparade ändringar försvinner: när fliken stängs eller laddas om och vid klick på en länk.
   useEffect(() => {
@@ -169,7 +177,13 @@ export function CampaignDetailClient({ id, tab: initialTab }: { id: string; tab?
         </ul>
       )}
 
-      <div role="tablist" aria-label="Kampanjens delar" className="mt-7 mb-6 flex gap-1 border-b border-line">
+      <div
+        ref={tabs}
+        role="tablist"
+        aria-label="Kampanjens delar"
+        // Rullbar på smala skärmar, så att fem flikar inte gör sidan bredare. Linjen är en skugga inuti,
+        // eftersom en ram under en rullbar rad skulle klippa flikens understrykning.
+        className="mt-7 mb-6 flex gap-1 overflow-x-auto shadow-[inset_0_-1px_0_var(--color-line)]">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -178,7 +192,7 @@ export function CampaignDetailClient({ id, tab: initialTab }: { id: string; tab?
             // Fliken står i adressen, så att länkar kan öppna rätt flik.
             onClick={() => openTab(t.id)}
             className={cn(
-              "-mb-px border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground hover:text-foreground",
+              "shrink-0 border-b-2 border-transparent px-3 py-2 text-sm whitespace-nowrap text-muted-foreground hover:text-foreground",
               "aria-selected:border-brand aria-selected:text-foreground"
             )}
           >
@@ -191,6 +205,7 @@ export function CampaignDetailClient({ id, tab: initialTab }: { id: string; tab?
       {tab === "overlay" && <CampaignOverlay profile={profile} onUpdate={setProfile} />}
       {tab === "facecam" && <CampaignFacecam id={profile.name} onSaved={load} onDirty={setDirty} />}
       {tab === "profil" && <CampaignYaml id={profile.name} onUpdate={setProfile} onDirty={setDirty} />}
+      {tab === "exempel" && <CampaignExampleClips id={profile.name} />}
     </main>
   );
 }

@@ -605,6 +605,27 @@ export interface CampaignProfileDetail extends CampaignProfile {
   clipsmith_config: string | null;
 }
 
+/** GET /campaign/profiles/{id}/examples: kampanjens bästa klipp och klippare från Content Rewards. */
+export interface CampaignExamples {
+  /** Länken till kampanjen i Content Rewards, eller null. */
+  source: string | null;
+  /** Varför inget kan visas, till exempel att länken saknas. */
+  problem: string | null;
+  clips: {
+    rank: number;
+    platform: string;
+    views: number;
+    name: string | null;
+    /** Klipparens plats bland de tre som tjänat mest, annars null. */
+    earner_rank: number | null;
+    post_url: string | null;
+    video_url: string | null;
+    thumbnail_url: string | null;
+    title: string;
+  }[];
+  earners: { rank: number; name: string; earned_usd: number; views: number; approved: number }[];
+}
+
 /** [x, y, bredd, höjd] i källbildens pixlar (1920x1080). */
 export type Rect = [number, number, number, number];
 
