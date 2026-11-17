@@ -352,6 +352,23 @@ def test_list_waiting_first_then_finished(client, settings, clip_id, notes):
     assert listed[0]["fields"]["privacy"] == "public" and listed[1]["result"]["video_id"] == "v1"
 
 
+def test_list_shows_finished_posts_from_the_last_24_hours_only(client, settings, clip_id, notes):
+    schedule.Schedule(settings)  # skapar tabellen
+    now = datetime.now(UTC)
+    rows = [("waiting", 72), ("cancelled", 25), ("failed", 23), ("done", 1)]  # status, timmar sedan senaste ändring
+    with sqlite3.connect(settings.data_dir / "klipp.db") as db:
+        ids = [db.execute("INSERT INTO scheduled_posts (clip_id, platform, account, at, fields, status, created, updated) "
+                          "VALUES (?, 'youtube', 'UC1', ?, '{}', ?, ?, ?)",
+                          (clip_id, (now + timedelta(hours=1)).isoformat(timespec="seconds"), status,
+                           (now - timedelta(hours=hours)).isoformat(timespec="seconds"),
+                           (now - timedelta(hours=hours)).isoformat(timespec="seconds"))).lastrowid
+               for status, hours in rows]
+    listed = [p["id"] for p in client.get("/campaign/schedule").json()]
+    # En väntande post visas alltid. Den avbrutna från för 25 timmar sedan visas inte.
+    assert listed == [ids[0], ids[3], ids[2]]
+    assert _row(settings, ids[1])["status"] == "cancelled"  # den finns kvar i databasen
+
+
 def test_thread_does_not_start_in_tests_or_when_turned_off(settings, monkeypatch):
     assert schedule.start(settings) is None
     monkeypatch.delenv("PYTEST_CURRENT_TEST")
