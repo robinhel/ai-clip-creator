@@ -9,6 +9,7 @@ import { ProjectCard, UploadsCard, groupTime, groupUploads, isActive, runTime } 
 import { ScoutMiniCard } from "@/components/ScoutCard";
 import { api } from "@/lib/api";
 import { handOverFiles } from "@/lib/handoff";
+import { stepCount } from "@/lib/steps";
 import { parseTwitchLink } from "@/lib/twitchLink";
 import { clock, cn, duration, parseClock, serverTime, usd } from "@/lib/utils";
 import type { CampaignClip, CampaignProfile, CampaignRunInfo, CampaignSummary, ScoutCampaign, StreamInfo, VodInfo } from "@/lib/types";
@@ -55,7 +56,20 @@ function Chip({ label, children, warn }: { label: string; children: React.ReactN
 const chipField =
   "rounded-full bg-transparent px-1.5 py-0.5 font-medium text-foreground outline-none hover:bg-white/5 focus:bg-white/5";
 
-function TodoCard({ count, label, href, cta }: { count: number; label: string; href: string; cta: string }) {
+function TodoCard({
+  count,
+  label,
+  note,
+  href,
+  cta,
+}: {
+  count: number;
+  label: string;
+  /** En del av siffran, till exempel underkända klipp i Att granska. */
+  note?: string;
+  href: string;
+  cta: string;
+}) {
   return (
     <Link
       href={href}
@@ -63,6 +77,7 @@ function TodoCard({ count, label, href, cta }: { count: number; label: string; h
     >
       <p className={cn("text-3xl font-bold tabular-nums", count === 0 && "text-muted-foreground")}>{count}</p>
       <p className="text-[13px] text-muted-foreground">{label}</p>
+      {note && <p className="text-[13px] text-warn">{note}</p>}
       <p className="mt-2 text-[13px] text-brand">{cta}</p>
     </Link>
   );
@@ -476,6 +491,7 @@ export function HomeClient() {
   }
 
   const counts = summary?.counts ?? {};
+  const underkand = counts.underkand ?? 0;
   const projects = useMemo(() => {
     const groups = groupUploads(uploads, profiles);
     return [
@@ -868,10 +884,16 @@ export function HomeClient() {
         <section aria-label="Det här väntar på dig">
           <h2 className="mt-12 mb-3 text-lg font-semibold">Det här väntar på dig</h2>
           {(counts.postad ?? 0) > 0 && <WhopCard count={counts.postad ?? 0} />}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <TodoCard count={counts.renderad ?? 0} label="klipp att granska" href="/queue?tab=granska" cta="Granska" />
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+            {/* Samma siffra som menyn och fliken Att granska: underkända klipp ingår, de ska rättas eller nekas. */}
+            <TodoCard
+              count={stepCount(counts, "granska")}
+              label="klipp att granska"
+              note={underkand > 0 ? `varav ${underkand} ${underkand === 1 ? "underkänt" : "underkända"} att rätta` : undefined}
+              href="/queue?tab=granska"
+              cta="Granska"
+            />
             <TodoCard count={counts.godkand ?? 0} label="godkända klipp att posta" href="/queue?tab=posta" cta="Posta" />
-            <TodoCard count={counts.underkand ?? 0} label="underkända klipp att rätta" href="/queue?tab=granska" cta="Rätta" />
             <TodoCard count={counts.inskickad ?? 0} label="inskickade, fyll i statistik" href="/log?status=inskickad" cta="Fyll i visningar" />
           </div>
         </section>
