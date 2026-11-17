@@ -92,7 +92,7 @@ def test_runs_that_were_going_when_the_server_starts_become_failed(tmp_path, mon
             pass
 
     asyncio.run(start())
-    stopped = ("failed", "Servern startades om mitt i körningen. Tryck Kör igen.")
+    stopped = ("failed", "Servern startades om mitt i projektet. Tryck Kör igen.")
     assert (_status(running), _status(pending)) == (stopped, stopped)
     assert _status(done) == ("done", None)
     assert _status(failed) == ("failed", None)
