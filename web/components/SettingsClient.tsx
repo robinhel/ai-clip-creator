@@ -246,7 +246,7 @@ function SetupCard({ checks, error, loading, onRun }: {
 function CheckLabel({ check }: { check: SetupCheck }) {
   if (!check.href) return <>{check.label}</>;
   return (
-    <Link href={check.href} className="underline-offset-4 hover:underline">
+    <Link href={check.href} className="underline underline-offset-4 hover:text-brand">
       {check.label}
     </Link>
   );
