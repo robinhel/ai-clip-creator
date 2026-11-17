@@ -76,6 +76,11 @@ def _reason(exc: Exception) -> str:
     return f"fel {status}, {message[:150]}" if message else f"fel {status}"
 
 
+# Newer models (Sonnet 5.5) think first in their own block, about 800 tokens before a JSON answer of
+# about 150. 1024 cut the JSON. Only the tokens used are paid for.
+MAX_TOKENS = 4096
+
+
 class AnthropicProvider:
     def __init__(
         self,
@@ -147,7 +152,7 @@ class AnthropicProvider:
             with attempt:
                 response = self._client.messages.create(
                     model=self._model,
-                    max_tokens=1024,
+                    max_tokens=MAX_TOKENS,
                     system=[
                         {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
                     ],
