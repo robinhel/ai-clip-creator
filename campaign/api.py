@@ -255,7 +255,7 @@ def _estimate(facts: dict, settings: Settings, disk: dict) -> dict:
                                           _berget_price(settings), transcribed)}
 
 
-@router.get("/vod/{vod_id}", summary="Fakta om en Twitch-VOD före körningen")
+@router.get("/vod/{vod_id}", summary="Fakta om en Twitch-VOD innan projektet startar")
 def vod_info(vod_id: str = PathParam(pattern=r"^\d{6,15}$"),
              settings: Settings = Depends(get_settings)) -> dict:
     facts = _facts(vod_id)
@@ -312,7 +312,7 @@ class CampaignRunCreate(BaseModel):
     max_s: int | None = None
 
 
-@router.post("/runs", status_code=201, summary="Starta en körning för en kampanj",
+@router.post("/runs", status_code=201, summary="Starta ett projekt för en kampanj",
              dependencies=[Depends(verify_api_key)])
 def create_run(
     body: CampaignRunCreate,
@@ -404,7 +404,7 @@ def _create_run(body: CampaignRunCreate, request: Request, background_tasks: Bac
     return run.to_dict()
 
 
-@router.post("/runs/{run_id}/retry", status_code=201, summary="Försök igen med en misslyckad körning",
+@router.post("/runs/{run_id}/retry", status_code=201, summary="Kör ett projekt som misslyckades igen",
              dependencies=[Depends(verify_api_key)])
 def retry_run(
     run_id: int,
@@ -455,7 +455,7 @@ def list_runs(db: Session = Depends(get_db), settings: Settings = Depends(get_se
             for meta in sorted(latest.values(), key=lambda m: m["run_id"], reverse=True)]
 
 
-@router.get("/runs/{run_id}", summary="En körning med förloppet per steg")
+@router.get("/runs/{run_id}", summary="Ett projekt med förloppet per steg")
 def get_run(run_id: int, db: Session = Depends(get_db),
             settings: Settings = Depends(get_settings)) -> dict:
     log = _log(settings)
@@ -470,7 +470,7 @@ def get_run(run_id: int, db: Session = Depends(get_db),
     return out
 
 
-@router.post("/runs/{run_id}/cancel", status_code=202, summary="Avbryt en körning som pågår",
+@router.post("/runs/{run_id}/cancel", status_code=202, summary="Avbryt ett projekt som pågår",
              dependencies=[Depends(verify_api_key)])
 def cancel_run(run_id: int, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> dict:
     """Körningen stoppar vid nästa steg: före nästa anrop till Claude, före nästa klipp, och hämtningen direkt.

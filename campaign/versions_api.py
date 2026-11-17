@@ -50,7 +50,7 @@ def make_version(clip_id: int, body: VersionBody, request: Request, settings: Se
     try:
         with _start_lock:
             if getattr(request.app.state, "active_run_id", None) is not None:
-                raise HTTPException(409, "En körning pågår. Vänta tills den är klar.")
+                raise HTTPException(409, "Ett projekt pågår. Vänta tills det är klart.")
         clip = _get(log, clip_id)
         new_id = versions.make(settings, log, clip, body.platform, body.account, body.font, body.start_cut_s,
                                body.overlay, body.sticker, body.mirror, body.speed, body.filter,

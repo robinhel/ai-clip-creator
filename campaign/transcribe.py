@@ -168,7 +168,7 @@ def transcribe_vod(
             except Exception as exc:
                 raise RuntimeError(
                     f"Del {number} av {parts} misslyckades: {exc}\n"
-                    f"Klara delar är sparade i {saved}. En ny körning fortsätter där den slutade."
+                    f"Klara delar är sparade i {saved}. Kör projektet igen, så fortsätter det där det slutade."
                 ) from exc
             _save_json(part_file, answer)
             if budget is not None:  # bara skickade delar kostar; sparade delar är redan betalda

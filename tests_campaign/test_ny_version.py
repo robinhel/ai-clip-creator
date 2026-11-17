@@ -461,7 +461,8 @@ def test_a_version_waits_for_a_running_edit_or_run(vclip) -> None:
     finally:
         editor.lock.release()
     client.app.state.active_run_id = 7
-    assert _make(client, clip_id).status_code == 409
+    answer = _make(client, clip_id)
+    assert (answer.status_code, answer.json()["detail"]) == (409, "Ett projekt pågår. Vänta tills det är klart.")
 
 
 def test_stickers_are_served_but_nothing_outside_the_folder(settings) -> None:
