@@ -1,5 +1,9 @@
-import type { CampaignClip, CampaignStatus, ClipPost } from "./types";
+import type { CampaignClip, CampaignStatus, ClipPost, PostStatus } from "./types";
 import { serverTime } from "./utils";
+
+/** Statusen före den senaste. Servern skickar den från och med flode-statistik (campaign/cliplog.py). */
+export const prevStatus = (post: ClipPost): PostStatus | null =>
+  (post as ClipPost & { prev_status?: PostStatus | null }).prev_status ?? null;
 
 /** Siffrorna som fylls i per inlägg, med orden som Statistik visar. */
 export const STATS = [
