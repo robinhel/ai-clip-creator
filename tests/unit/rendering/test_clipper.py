@@ -186,3 +186,19 @@ def test_ffmpeg_cmd_stacked_maps_audio(tmp_path: Path) -> None:
     cmd = _build_ffmpeg_cmd(mp4, 10.0, 40.0, None, _stacked_cfg(), out)
     assert "0:a" in cmd
     assert cmd.count("-map") >= 2
+
+
+def test_video_filter_fit_shows_the_whole_picture_on_a_blurred_background(tmp_path: object) -> None:
+    # fit: the whole 16:9 picture, 1080 wide, centred over a blurred copy that fills 9:16. No centre crop.
+    ass = Path(str(tmp_path)) / "sub.ass"  # type: ignore[arg-type]
+    vf = _video_filter(ReframeConfig(mode="fit"), ass)
+    assert "crop=ih*9/16:ih" not in vf
+    assert "boxblur" in vf
+    assert "scale=1080:-2" in vf
+    assert "overlay=(W-w)/2:(H-h)/2" in vf
+    assert vf.index("overlay") < vf.index("subtitles=")  # captions on top of the finished frame
+
+
+def test_video_filter_fit_without_captions() -> None:
+    vf = _video_filter(ReframeConfig(mode="fit"), None)
+    assert "subtitles" not in vf and "overlay=(W-w)/2:(H-h)/2" in vf
