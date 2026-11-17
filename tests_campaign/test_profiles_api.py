@@ -852,6 +852,14 @@ def test_yaml_errors_are_in_plain_swedish(client, settings) -> None:
     assert "expected" not in detail and "but got" not in detail
 
 
+def test_errors_say_campaign_not_profile(client, settings) -> None:
+    detail = client.put("/campaign/profiles/skiimasktimmy/yaml", json={"yaml": "- a\n- b\n"}).json()["detail"]
+    assert detail.startswith("Kampanjens fil") and "rofil" not in detail
+    (settings.profiles_dir / "trasig.yaml").write_text("name: trasig\n", encoding="utf-8")
+    broken = next(p for p in client.get("/campaign/profiles").json() if p["name"] == "trasig")
+    assert broken["problems"][0].startswith("Kampanjens fil går inte att läsa") and "rofil" not in broken["problems"][0]
+
+
 def test_the_frame_without_a_project_says_project(client) -> None:
     detail = client.get("/campaign/profiles/skiimasktimmy/frame").json()["detail"]
     assert "projekt" in detail and "körning" not in detail

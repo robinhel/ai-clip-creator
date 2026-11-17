@@ -297,10 +297,12 @@ def test_two_channels_are_kept_in_order_and_the_same_one_is_replaced(client, set
 
 
 def test_status_lists_the_channels_without_tokens(client, settings, fake) -> None:
-    assert client.get("/campaign/youtube/status").json() == {"configured": True, "accounts": [], "uploads_today": 0}
+    uri = settings.youtube_redirect_uri
+    assert client.get("/campaign/youtube/status").json() == {
+        "configured": True, "accounts": [], "uploads_today": 0, "redirect_uri": uri}
     _connect(settings)
     status = client.get("/campaign/youtube/status")
-    assert status.json() == {"configured": True, "uploads_today": 0, "accounts": [{
+    assert status.json() == {"configured": True, "uploads_today": 0, "redirect_uri": uri, "accounts": [{
         "channel_id": "UC1", "title": "Clip Vault", "handle": "@clipvault", "avatar_url": "https://yt3/a.jpg",
         "connected": True, "needs_login": False}]}
     for secret in ("ya29.", "1//r", *KEYS):
