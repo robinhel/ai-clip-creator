@@ -182,7 +182,8 @@ def vclip(settings, monkeypatch):
     fonts.mkdir()
     (fonts / "Impact.ttf").write_bytes(b"ttf")
     monkeypatch.setattr(versions, "FONT_DIRS", (fonts,))
-    set_profile(settings, clip={"min_seconds": 3, "max_seconds": 60}, accounts={"tiktok": ["openA", "openB"]})
+    set_profile(settings, clip={"min_seconds": 3, "max_seconds": 60}, accounts={"tiktok": ["openA", "openB"]},
+                active=True)  # kopian i testmappen; Robins active: false döljer annars klippen i listan
     make_overlay(settings.root / "overlays" / "skiimasktimmy.png")
     _png(settings.root / "stickers" / "fire.png")
     raw = make_clip(settings.out_dir / "123" / RAW, seconds=10)
