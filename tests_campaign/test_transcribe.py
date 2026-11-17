@@ -72,7 +72,8 @@ def test_transcribe_vod_sends_each_part_and_writes_clipsmiths_transcript(setting
     transcribe_vod(mp4, "123", out, post=fake_post, model="KBLab/kb-whisper-large", language="en", chunk_s=3)
 
     # Whisper dropped the first 7 s of speech in a file that talks from 0.1 s; with silence first it did not.
-    assert lengths == [pytest.approx(3 + LEAD_S, abs=0.1), pytest.approx(2 + LEAD_S, abs=0.1)]
+    # mp3 adds some padding, and how much depends on the ffmpeg build (CI: +0.10 s), so 0.25 s slack.
+    assert lengths == [pytest.approx(3 + LEAD_S, abs=0.25), pytest.approx(2 + LEAD_S, abs=0.25)]
     assert len(sent) == 2
     assert sent[0]["model"] == "KBLab/kb-whisper-large"
     assert sent[0]["language"] == "en"
