@@ -646,6 +646,39 @@ def test_retry_needs_the_key_and_waits_for_a_running_run(client, settings, start
     assert len(ClipLog(settings.data_dir / "klipp.db").runs()) == 1
 
 
+OWN_FILE = "WOW_Camelot_v19"  # python -m campaign local: VOD-id är filens namn, inga siffror
+
+
+def test_retry_of_a_run_from_an_own_file_runs_the_file_again(client, settings, started, monkeypatch) -> None:  # noqa: F811
+    run_id = _run_with_events(settings, ["download"], "failed", vod=OWN_FILE)
+    mp4 = settings.work_dir / OWN_FILE / f"{OWN_FILE}.mp4"
+    mp4.parent.mkdir(parents=True)
+    mp4.write_bytes(b"video")
+    monkeypatch.setattr(api, "_facts", lambda *a, **k: pytest.fail("en egen fil frågar inte Twitch"))
+    assert client.get(f"/campaign/runs/{run_id}").json()["retry_problem"] is None
+
+    response = client.post(f"/campaign/runs/{run_id}/retry")
+    assert response.status_code == 201, response.text
+    new = response.json()
+    (args, kwargs), = started
+    assert args[:4] == (new["id"], OWN_FILE, "skiimasktimmy", "Bodycam")
+    assert kwargs["local"] is True
+    assert mp4.read_bytes() == b"video"  # filen är kvar: den tas inte bort som en halv video
+    run = client.get(f"/campaign/runs/{new['id']}").json()
+    assert (run["vod_id"], run["title"], run["duration_s"], run["status"]) == (OWN_FILE, "T", 13950, "pending")
+
+
+def test_retry_of_a_run_from_an_own_file_that_is_gone_says_why(client, settings, started) -> None:  # noqa: F811
+    run_id = _run_with_events(settings, ["download"], "failed", vod=OWN_FILE)
+    response = client.post(f"/campaign/runs/{run_id}/retry")
+    assert response.status_code == 409
+    assert "Källfilen" in response.json()["detail"]
+    assert started == []
+    assert client.get(f"/campaign/runs/{run_id}").json()["retry_problem"] == response.json()["detail"]
+    twitch = _run_with_events(settings, ["download"], "failed")
+    assert client.get(f"/campaign/runs/{twitch}").json()["retry_problem"] is None
+
+
 def test_the_cost_is_split_into_berget_and_claude_and_berget_follows_the_price_list(client, settings,  # noqa: F811
                                                                                     fake_twitch, monkeypatch) -> None:
     """13 950 s är 232,5 minuter. Berget kostar 0,0022 dollar per minut i priser.yaml, alltså 0,51.
