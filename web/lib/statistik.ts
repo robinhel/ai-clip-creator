@@ -80,6 +80,45 @@ export function buildPatch(draft: Draft, saved: Saved, status?: CampaignStatus):
   return { body };
 }
 
+/** Statusar där klippet har minst ett inlägg. */
+export const POSTED: CampaignStatus[] = ["postad", "inskickad", "analytics_inskickad", "betald"];
+const STATUSES: CampaignStatus[] = ["renderad", "underkand", "godkand", "nekad", ...POSTED];
+
+/** Filtret i Statistik: postade inlägg (standard), alla eller en status. Står i adressen som ?status=. */
+export type Filter = CampaignStatus | "postade" | "alla";
+export const DEFAULT_FILTER: Filter = "postade";
+
+/** ?status= ur adressen. Okänt eller tomt ger standard, så att en gammal länk ändå visar något. */
+export function parseFilter(text?: string | null): Filter {
+  return text === "alla" || STATUSES.includes(text as CampaignStatus) ? (text as Filter) : DEFAULT_FILTER;
+}
+
+export const matches = (filter: Filter, status: CampaignStatus) =>
+  filter === "alla" || (filter === "postade" ? POSTED.includes(status) : filter === status);
+
+/** Raden hör till vald kampanj och passar sökningen på titel eller VOD. */
+export function inScope({ clip }: Row, campaign: string, search: string): boolean {
+  if (campaign && clip.profile !== campaign) return false;
+  const needle = search.trim().toLowerCase();
+  return !needle || clip.title.toLowerCase().includes(needle) || clip.vod_id.includes(needle);
+}
+
+// Ett steg bakåt, så att ett felklick går att ångra. Samma steg som servern tillåter (NEXT_STATUS i campaign/api.py).
+const BACK: Partial<Record<CampaignStatus, CampaignStatus>> = {
+  postad: "godkand",
+  inskickad: "postad",
+  analytics_inskickad: "inskickad",
+  betald: "inskickad",
+};
+const BEFORE_PAID: PostStatus[] = ["inskickad", "analytics_inskickad"];
+
+/** Statusen som Ångra går tillbaka till. Betald går tillbaka till statusen före Betald. null: inget Ångra. */
+export function undoStatus({ clip, post }: Row): CampaignStatus | null {
+  const prev = post?.status === "betald" ? prevStatus(post) : null;
+  if (prev && BEFORE_PAID.includes(prev)) return prev;
+  return BACK[post?.status ?? clip.status] ?? null;
+}
+
 /** Efter så många dagar utan ändring påminner Att göra om visningarna igen. */
 export const REFRESH_DAYS = 3;
 const DAY_MS = 86_400_000;
