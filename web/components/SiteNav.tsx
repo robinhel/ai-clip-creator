@@ -37,8 +37,9 @@ function Meter({ label, pct, tone, detail, className }: {
 }) {
   return (
     <div className={cn("min-w-0 text-xs text-muted-foreground", className)}>
-      <span className="block truncate">{label}</span>
-      {detail && <span className="mt-0.5 block truncate text-[11px] tabular-nums opacity-80">{detail}</span>}
+      {/* Smal skärm: en rad med … Bred skärm: hela texten, radbruten. */}
+      <span className="block truncate md:overflow-visible md:whitespace-normal">{label}</span>
+      {detail && <span className="mt-0.5 block text-[11px] tabular-nums opacity-80">{detail}</span>}
       <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-line">
         <div
           className={cn("h-full rounded-full", { good: "bg-good", warn: "bg-warn", bad: "bg-bad" }[tone])}
@@ -206,7 +207,7 @@ export function SiteNav() {
               {disk?.problem || "SSD:n är inte ansluten."}
             </p>
           ) : disk && (
-            <Meter className="flex-1" label={`Disk ledigt: ${gb.format(disk.free_gb)} GB`} pct={diskFreePct} tone={diskTone} />
+            <Meter className="shrink-0" label={`Disk ledigt: ${gb.format(disk.free_gb)} GB`} pct={diskFreePct} tone={diskTone} />
           )}
         </div>
       )}
