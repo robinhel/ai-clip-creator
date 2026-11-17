@@ -35,7 +35,7 @@ export function UploadsClient() {
   const [profile, setProfile] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [dragging, setDragging] = useState(false);
-  const [mirror, setMirror] = useState(true);
+  const [mirror, setMirror] = useState(false);
   const [speed, setSpeed] = useState(1.1);
   const [filter, setFilter] = useState("fresh");
   const [brightness, setBrightness] = useState(0);
