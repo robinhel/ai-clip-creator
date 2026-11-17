@@ -191,7 +191,8 @@ def test_select_clips_keeps_the_clip_inside_the_video(mode: str) -> None:
     )
     assert len(picks) == 1
     assert picks[0].pick.end_offset_s == pytest.approx(15.0)
-    assert picks[0].pick.start_offset_s == pytest.approx(4.0)
+    assert 11.0 <= picks[0].pick.duration_s  # v2 may snap the start back to a sentence, legacy to 4.0
+    assert picks[0].pick.start_offset_s <= 4.0
 
 
 def test_build_stream_context_contains_channel() -> None:

@@ -68,15 +68,17 @@ def select_clips(
     *,
     max_candidates: int = 20,
     min_picks: int | None = None,
+    video_end_s: float = 0.0,
 ) -> list[PickResult]:
     """Run the LLM over the top candidates and return accepted picks.
 
     Only passes the top max_candidates by score to avoid excessive API calls.
     If the LLM accepts fewer than min_picks, the top-scored remaining candidates
     are force-accepted. min_picks defaults to config.min_picks (0 = never force).
+    video_end_s: the video's length; a clip that ends after it moves back inside (0 = unknown).
     """
     if config.select == "signals":
-        return _signal_picks(candidates, config)
+        return _inside_video(_signal_picks(candidates, config), video_end_s, config)
     assert picker is not None, "select: llm needs a picker"
     if min_picks is None:
         min_picks = config.min_picks
@@ -149,6 +151,20 @@ def select_clips(
         _calibrate(picks, transcript, picker, stream_context)
 
     _force_accept(picks, top, picked_centers, min_picks, config)
+    return _inside_video(picks, video_end_s, config)
+
+
+def _inside_video(picks: list[PickResult], video_end_s: float, config: ClipConfig) -> list[PickResult]:
+    """End each clip at the video's end at the latest. The start moves back so the clip keeps
+    min_seconds, otherwise the cut stops at the file's end and the clip is too short."""
+    if video_end_s <= 0:
+        return picks
+    for result in picks:
+        pick = result.pick
+        if pick.end_offset_s > video_end_s:
+            pick.end_offset_s = video_end_s
+            if pick.end_offset_s - pick.start_offset_s < config.min_seconds:
+                pick.start_offset_s = max(0.0, video_end_s - config.min_seconds)
     return picks
 
 

@@ -30,6 +30,7 @@ from .budget import budget_from_settings
 from .cliplog import ClipLog
 from .config import Settings
 from .download import download_vod
+from .media import probe
 from .memory import selection_memory
 from .profile import Profile, load_profile
 from .subtitles import pick_words, save_words
@@ -189,8 +190,10 @@ def make_clips(
         context = build_stream_context(
             channel, title, duration, focus=_with_memory(focus, profile, settings), clip_range=(cfg.clip.min_seconds, cfg.clip.max_seconds),
             game=game or "", language=profile.language, formats=profile.formats, mode=cfg.clip.selection_mode)
+        # Filens längd: Claudes slut efter filens slut gav ett för kort klipp. Egen fil: exakt från ffprobe.
+        video_end_s = probe(mp4)["duration"] if local else float(meta.get("duration_s") or 0)
         picks = select_clips(candidates, transcript, SimpleNamespace(pick=ask, rank=getattr(picker, "rank", None)),
-                             context, cfg.clip)
+                             context, cfg.clip, video_end_s=video_end_s)
         for result in picks:
             if result.pick.format not in profile.format_ids:
                 result.pick.format = None  # ett id som kampanjen inte har blir inget format
