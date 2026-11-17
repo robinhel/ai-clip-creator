@@ -131,6 +131,8 @@ export function UploadsClient() {
   const approved = clips.filter((c) => c.status === "godkand").length;
   const formats = profiles.find((p) => p.name === profile)?.formats ?? [];
   const waiting = items.filter((i) => i.state === "waiting" || i.state === "error").length;
+  // Utan valen ännu: som förut. Kräver kampanjen sin text bränns rubriken inte in.
+  const burnsTitle = opts?.hook_text ?? true;
   const startS = Number(stickerStart.replace(",", "."));
   const lengthS = Number(stickerLength.replace(",", "."));
   const stickerProblem = !sticker
@@ -190,6 +192,11 @@ export function UploadsClient() {
             />
           </label>
 
+          {items.length > 0 && !burnsTitle && (
+            <p className="text-xs text-muted-foreground">
+              Kampanjen bränner inte in rubriken i videon. Rubriken hamnar bara först i captionen.
+            </p>
+          )}
           {items.length > 0 && (
             <ul className="space-y-2">
               {items.map((item) => (
@@ -199,7 +206,7 @@ export function UploadsClient() {
                   </span>
                   <input
                     aria-label={`Rubrik för ${item.file.name}`}
-                    placeholder="Rubrik (bränns in i början, valfri)"
+                    placeholder={burnsTitle ? "Rubrik (bränns in i början, valfri)" : "Rubrik till captionen (valfri)"}
                     value={item.title}
                     onChange={(e) => update(item.key, { title: e.target.value })}
                     disabled={item.state === "busy" || item.state === "done"}
