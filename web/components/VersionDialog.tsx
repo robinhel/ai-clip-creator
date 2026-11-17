@@ -15,7 +15,7 @@ const PLATFORMS: [Platform, "tiktok" | "youtube_shorts", string][] = [
   ["youtube", "youtube_shorts", "YouTube"],
 ];
 
-const POSITIONS: [StickerPosition, string][] = [
+export const POSITIONS: [StickerPosition, string][] = [
   ["top_left", "Uppe till vänster"],
   ["top_right", "Uppe till höger"],
   ["center", "Mitten"],

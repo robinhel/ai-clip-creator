@@ -21,6 +21,7 @@ HOOK_SECONDS = 3
 HOOK_FONT_SIZE = 64
 HOOK_LINE_CHARS = 22  # ryms i 1080 px vid HOOK_FONT_SIZE
 HOOK_GAP = 24  # zoom: luft mellan hookens sista rad och bilden
+HOOK_LINE_H = int(HOOK_FONT_SIZE * 1.25)  # en rad hook, med kant och luft
 
 ENCODER_ARGS = {
     "libx264": ["-c:v", "libx264", "-preset", "medium", "-crf", "19"],
@@ -45,15 +46,49 @@ def _hook_esc(value: str) -> str:
     return value
 
 
+def _clean(title: str) -> str:
+    return re.sub(r"[\x00-\x1f]", " ", title).strip()  # ett styrtecken (NUL) stoppar ffmpeg-anropet
+
+
+def _text_on_top(profile: Profile, has_overlay: bool) -> bool:
+    """Kampanjens vita text ritas uppe. Overlayen har redan kanalens text, så den ritas bara utan overlay."""
+    return bool(profile.text) and not has_overlay and profile.text_position == "top"
+
+
+def _hook_lines(profile: Profile, title: str) -> list[str]:
+    title = _clean(title)
+    return textwrap.wrap(title, HOOK_LINE_CHARS, max_lines=3, placeholder="…") if profile.hook_text and title else []
+
+
+def _hook_top(profile: Profile, text_on_top: bool) -> int:
+    return int(HEIGHT * profile.safe_top) + (int(profile.text_font_size * 1.6) if text_on_top else 0)
+
+
+def _overlay_used(profile: Profile, root: Path, overlay: Path | None) -> Path | None:
+    """Overlayen klippet får: en egen eller kampanjens, om filen finns."""
+    overlay = overlay or profile.overlay_path(root)
+    return overlay if overlay is not None and overlay.exists() else None
+
+
+def top_text_end(profile: Profile, root: Path, title: str, overlay: Path | None = None) -> int:
+    """Raden i bilden där texten uppe slutar: kampanjens text och hooken. 0 när ingen text ritas uppe.
+    Samma läge som build_filter ritar dem på, så att ett klistermärke kan läggas under."""
+    on_top = _text_on_top(profile, _overlay_used(profile, root, overlay) is not None)
+    lines = _hook_lines(profile, title)
+    if lines:
+        return _hook_top(profile, on_top) + len(lines) * HOOK_LINE_H
+    return _hook_top(profile, on_top) if on_top else 0
+
+
 def _hook(
     profile: Profile, title: str, font: str | None, last: str, text_on_top: bool, frame: str = ""
 ) -> list[str]:
     """Titeln centrerad i övre säkra zonen de första sekunderna, på upp till tre rader. I bildläget zoom
     står den på det svarta precis ovanför bilden, men aldrig i den övre säkra zonen."""
-    lines = textwrap.wrap(title, HOOK_LINE_CHARS, max_lines=3, placeholder="…")
-    top = int(HEIGHT * profile.safe_top) + (int(profile.text_font_size * 1.6) if text_on_top else 0)
+    lines = _hook_lines(profile, title)
+    top = _hook_top(profile, text_on_top)
     if frame == "zoom":
-        above = ZOOM_TOP - HOOK_GAP - HOOK_FONT_SIZE - (len(lines) - 1) * int(HOOK_FONT_SIZE * 1.25)
+        above = ZOOM_TOP - HOOK_GAP - HOOK_FONT_SIZE - (len(lines) - 1) * HOOK_LINE_H
         top = max(top, above)
     font_part = f"fontfile='{_esc(font)}':" if font else ""
     parts = []
@@ -62,7 +97,7 @@ def _hook(
         parts.append(
             f"[{last}]drawtext={font_part}expansion=none:text={_hook_esc(line)}:"
             f"fontsize={HOOK_FONT_SIZE}:fontcolor=white:borderw=5:bordercolor=black@0.9:"
-            f"x=(w-text_w)/2:y={top + i * int(HOOK_FONT_SIZE * 1.25)}:"
+            f"x=(w-text_w)/2:y={top + i * HOOK_LINE_H}:"
             f"enable='lt(t,{HOOK_SECONDS})'[{out}]"
         )
         last = out
@@ -132,10 +167,8 @@ def build_filter(
             f"borderw=4:bordercolor=black@0.85:x=(w-text_w)/2:y={y}[withtext]"
         )
         last = "withtext"
-    title = re.sub(r"[\x00-\x1f]", " ", title).strip()  # ett styrtecken (NUL) stoppar ffmpeg-anropet
-    if profile.hook_text and title:
-        text_on_top = bool(profile.text) and not has_overlay and profile.text_position == "top"
-        parts += _hook(profile, title, font, last, text_on_top, frame)
+    if _hook_lines(profile, title):
+        parts += _hook(profile, title, font, last, _text_on_top(profile, has_overlay), frame)
         last = "withhook"
     fast = (f",setpts=PTS/{speed:g}", f",atempo={speed:g}") if speed != 1.0 else ("", "")
     parts.append(f"[{last}]format=yuv420p{fast[0]}[vout]")
@@ -154,8 +187,8 @@ def finish_clip(
     overlay, en fontfil till texten på skärmen och ett klistermärke (med path). Returnerar ett manifest om vad
     som gjordes."""
     info = probe(src)
-    overlay = overlay or profile.overlay_path(root)
-    has_overlay = overlay is not None and overlay.exists()
+    overlay = _overlay_used(profile, root, overlay)
+    has_overlay = overlay is not None
     font = font_file or find_font(profile.text_font_file)
     out.parent.mkdir(parents=True, exist_ok=True)
 
