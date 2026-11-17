@@ -111,7 +111,7 @@ class CaptionConfig(BaseModel):
 
 
 class ReframeConfig(BaseModel):
-    mode: Literal["center", "webcam", "face", "none", "stacked"] = "center"
+    mode: Literal["center", "webcam", "face", "none", "stacked", "fit"] = "center"  # fit: whole frame, blurred fill
     webcam_rect: list[int] | None = None
     # Several camera positions: each clip uses the one where faces are found. The first is the default.
     webcam_rects: list[list[int]] | None = None

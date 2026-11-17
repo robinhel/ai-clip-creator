@@ -89,4 +89,4 @@ caption:
   enabled: true
 
 reframe:
-  mode: center          # mitten av 16:9-bilden blir 9:16, ingen facecam
+  mode: fit             # hela 16:9-bilden i mitten, på en suddig kopia av sig själv (inte inzoomad)

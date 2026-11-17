@@ -142,7 +142,17 @@ def _build_ffmpeg_cmd(
 def _video_filter(reframe: ReframeConfig, ass_path: Path | None) -> str:
     parts: list[str] = []
 
-    if reframe.mode == "webcam" and reframe.webcam_rect:
+    if reframe.mode == "fit":
+        # The whole picture, 1080 wide and centred, over a blurred copy of itself that fills 9:16.
+        # The copy is blurred at a quarter size, which is much faster and looks the same.
+        parts.append(
+            "split[fit_bg][fit_fg];"
+            "[fit_bg]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,"
+            "boxblur=10:2,scale=1080:1920:flags=bilinear[fit_blur];"
+            "[fit_fg]scale=1080:-2:flags=lanczos[fit_pic];"
+            "[fit_blur][fit_pic]overlay=(W-w)/2:(H-h)/2"
+        )
+    elif reframe.mode == "webcam" and reframe.webcam_rect:
         x, y, w, h = reframe.webcam_rect
         parts.append(f"crop={w}:{h}:{x}:{y},scale=1080:1920:flags=lanczos")
     elif reframe.mode != "none":
