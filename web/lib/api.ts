@@ -39,6 +39,8 @@ import type {
   YouTubeStatus,
   YouTubeUpload,
 } from "./types";
+// Kampanjen som nav (kontrakt-chatt.md).
+import type { CampaignChat, ChatSummary, MaterialItem } from "./types";
 
 // JSON API calls go through the Next.js rewrite proxy (/api/* → FastAPI).
 // This avoids CORS and removes the need for NEXT_PUBLIC_API_BASE in the browser.
@@ -254,5 +256,22 @@ export const api = {
     // video_url kan redan ha en fråga (?v=… efter en redigering).
     downloadUrl: (clip: CampaignClip) =>
       `${PROXY}${clip.video_url}${clip.video_url.includes("?") ? "&" : "?"}download=1`,
+    // --- Kampanjen som nav (kontrakt-chatt.md): material, kampanjens klipp och chatten. ---
+    material: (id: string) => apiFetch<MaterialItem[]>(`/campaign/profiles/${id}/material`),
+    /** Källans video med Range-stöd, för att spela en träff. */
+    materialVideoUrl: (vodId: string) => `${PROXY}/campaign/material/${encodeURIComponent(vodId)}/video`,
+    profileClips: (id: string) => apiFetch<CampaignClip[]>(`/campaign/clips?profile=${encodeURIComponent(id)}`),
+    chats: {
+      list: (id: string) => apiFetch<ChatSummary[]>(`/campaign/profiles/${id}/chats`),
+      /** 201 med hela chatten. 402 när budgeten är slut, 409 medan en körning eller sökning pågår. */
+      create: (id: string, message: string) =>
+        apiFetch<CampaignChat>(`/campaign/profiles/${id}/chats`, { method: "POST", body: JSON.stringify({ message }) }),
+      get: (chatId: number) => apiFetch<CampaignChat>(`/campaign/chats/${chatId}`),
+      send: (chatId: number, body: { message: string } | { confirm: true }) =>
+        apiFetch<CampaignChat>(`/campaign/chats/${chatId}/messages`, { method: "POST", body: JSON.stringify(body) }),
+      /** 202: klippen görs i bakgrunden, en körning per video. run_ids saknas hos äldre servrar. */
+      makeClips: (chatId: number, hitIds: number[]) =>
+        apiFetch<{ run_id: number; run_ids?: number[] }>(`/campaign/chats/${chatId}/clips`, { method: "POST", body: JSON.stringify({ hit_ids: hitIds }) }),
+    },
   },
 };
