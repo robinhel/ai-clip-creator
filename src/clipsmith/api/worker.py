@@ -95,6 +95,9 @@ def _emit(
     if run:
         run.stage = stage
         run.status = status
+        if status != RunStatus.failed:
+            # A run marked failed by a server restart can still finish in its CLI process.
+            run.error = None
         run.updated_at = datetime.now(timezone.utc)
     ev = PipelineEvent(run_id=run_id, stage=stage, pct=pct, message=message)
     db.add(ev)
