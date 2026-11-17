@@ -128,7 +128,8 @@ export function ScheduledList({ posts, youtube, tiktok, onChange }: Props) {
         </ul>
       )}
       {finished.length > 0 && (
-        <details className="mt-3 border-t border-line pt-3" open>
+        // Stängd från början: de avslutade är bara historik. Servern skickar de senaste 24 timmarna.
+        <details className="mt-3 border-t border-line pt-3">
           <summary className="cursor-pointer text-sm text-muted-foreground hover:text-foreground">Senast avslutade ({finished.length})</summary>
           <ul className="mt-1">
             {finished.map((p) => (
