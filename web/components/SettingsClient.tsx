@@ -8,7 +8,7 @@ import { TikTokCard } from "@/components/TikTokCard";
 import { YouTubeCard } from "@/components/YouTubeCard";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { ConnectedAccounts, KeyGroup, KeyTest, SetupCheck } from "@/lib/types";
+import type { ConnectedAccount, ConnectedAccounts, KeyGroup, KeyTest, SetupCheck } from "@/lib/types";
 
 function KeyField({ name, label, set, value, onChange, disabled }: {
   name: string;
@@ -230,14 +230,7 @@ function SetupCard({ checks, error, loading, onRun }: {
               )}
               <div className="min-w-0">
                 <p className="text-sm font-medium">
-                  {/* Raden länkar till stället där den rättas: en kampanj eller ett kort längre ner. */}
-                  {c.href ? (
-                    <Link href={c.href} className="underline-offset-4 hover:underline">
-                      {c.label}
-                    </Link>
-                  ) : (
-                    c.label
-                  )}
+                  <CheckLabel check={c} />
                 </p>
                 <p className={cn("text-[13px] break-words", c.ok ? "text-muted-foreground" : "text-[#fca5a5]")}>{c.detail}</p>
               </div>
@@ -246,6 +239,16 @@ function SetupCard({ checks, error, loading, onRun }: {
         </ul>
       )}
     </section>
+  );
+}
+
+/** Raden länkar till stället där den rättas: en kampanj eller ett kort längre ner. */
+function CheckLabel({ check }: { check: SetupCheck }) {
+  if (!check.href) return <>{check.label}</>;
+  return (
+    <Link href={check.href} className="underline-offset-4 hover:underline">
+      {check.label}
+    </Link>
   );
 }
 
@@ -281,56 +284,65 @@ function AccountsCard({ refresh }: { refresh: string }) {
       )}
       {accounts && (
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          {ACCOUNT_GROUPS.map((g) => {
-            const list = accounts[g.id];
-            const anchor = "anchor" in g ? g.anchor : g.id;
-            return (
-              <div key={g.id} data-accounts={g.id}>
-                <h3 className="text-[13px] text-muted-foreground">{g.label}</h3>
-                {list.length === 0 ? (
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {g.empty}{" "}
-                    <a href={`#${anchor}`} className="font-medium text-foreground underline underline-offset-4">
-                      Koppla ett längre ner
-                    </a>
-                  </p>
-                ) : (
-                  <ul className="mt-1 divide-y divide-line">
-                    {list.map((a) => (
-                      <li key={a.id} data-account={a.id} className="py-2 text-sm">
-                        <p className="flex flex-wrap items-baseline justify-between gap-x-3">
-                          <span className="font-medium">{a.name}</span>
-                          {a.connected ? (
-                            <span className="text-xs text-good">Inloggad</span>
-                          ) : (
-                            <a href={`#${anchor}`} className="text-xs font-medium text-bad underline underline-offset-4">
-                              Logga in igen
-                            </a>
-                          )}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Används av:{" "}
-                          {a.used_by.length === 0
-                            ? "alla kampanjer som inte har valt egna konton"
-                            : a.used_by.map((c, i) => (
-                                <span key={c.name}>
-                                  {i > 0 && ", "}
-                                  <Link href={`/campaigns/${c.name}?tab=installningar&del=oversikt#konton`} className="underline underline-offset-4 hover:text-foreground">
-                                    {c.streamer || c.name}
-                                  </Link>
-                                </span>
-                              ))}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            );
-          })}
+          {ACCOUNT_GROUPS.map((g) => (
+            <AccountGroup key={g.id} group={g} list={accounts[g.id]} />
+          ))}
         </div>
       )}
     </section>
+  );
+}
+
+function AccountGroup({ group, list }: { group: (typeof ACCOUNT_GROUPS)[number]; list: ConnectedAccount[] }) {
+  const anchor = "anchor" in group ? group.anchor : group.id;
+  return (
+    <div data-accounts={group.id}>
+      <h3 className="text-[13px] text-muted-foreground">{group.label}</h3>
+      {list.length === 0 ? (
+        <p className="mt-1 text-sm text-muted-foreground">
+          {group.empty}{" "}
+          <a href={`#${anchor}`} className="font-medium text-foreground underline underline-offset-4">
+            Koppla ett längre ner
+          </a>
+        </p>
+      ) : (
+        <ul className="mt-1 divide-y divide-line">
+          {list.map((a) => (
+            <AccountRow key={a.id} account={a} anchor={anchor} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function AccountRow({ account: a, anchor }: { account: ConnectedAccount; anchor: string }) {
+  return (
+    <li data-account={a.id} className="py-2 text-sm">
+      <p className="flex flex-wrap items-baseline justify-between gap-x-3">
+        <span className="font-medium">{a.name}</span>
+        {a.connected ? (
+          <span className="text-xs text-good">Inloggad</span>
+        ) : (
+          <a href={`#${anchor}`} className="text-xs font-medium text-bad underline underline-offset-4">
+            Logga in igen
+          </a>
+        )}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Används av:{" "}
+        {a.used_by.length === 0
+          ? "alla kampanjer som inte har valt egna konton"
+          : a.used_by.map((c, i) => (
+              <span key={c.name}>
+                {i > 0 && ", "}
+                <Link href={`/campaigns/${c.name}?tab=installningar&del=oversikt#konton`} className="underline underline-offset-4 hover:text-foreground">
+                  {c.streamer || c.name}
+                </Link>
+              </span>
+            ))}
+      </p>
+    </li>
   );
 }
 
