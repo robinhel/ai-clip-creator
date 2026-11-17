@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultStep, stepCount, stepOf, stepOrder, submitDeadline } from "./steps";
+import { bySubmitTime, defaultStep, stepCount, stepOf, stepOrder, submitDeadline } from "./steps";
 import type { CampaignClip, ClipPost } from "./types";
 
 const MIN = 60_000;
@@ -41,5 +41,15 @@ describe("submitDeadline", () => {
     expect(submitDeadline([clip([post("postad", 45), post("postad", 2)])], NOW)).toBe(NOW + 28 * MIN);
     expect(submitDeadline([clip([post("postad", 31)])], NOW)).toBeNull();
     expect(submitDeadline([clip([post("inskickad", 1)])], NOW)).toBeNull();
+  });
+
+  it("Skicka in visar först klippen som hinner skickas in, minst tid kvar överst, och sist de där tiden har gått ut", () => {
+    const late = { ...clip([post("postad", 40)]), id: 1 };
+    const twentyLeft = { ...clip([post("postad", 10)]), id: 2 };
+    const fiveLeft = { ...clip([post("postad", 25)]), id: 3 };
+    // Ett gammalt inlägg har gått ut, men ett nytt på en annan plattform hinner: det nya räknas.
+    const newPost = { ...clip([post("postad", 35), post("postad", 2)]), id: 4 };
+    const order = [late, twentyLeft, fiveLeft, newPost].sort(bySubmitTime(NOW)).map((c) => c.id);
+    expect(order).toEqual([3, 2, 4, 1]);
   });
 });
