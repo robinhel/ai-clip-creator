@@ -7,10 +7,11 @@ import shutil
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 
 import pytest
 
-from campaign import download, pipeline
+from campaign import download, pipeline, streams
 from campaign.cliplog import ClipLog
 from campaign.profile import load_profile
 from campaign.workflow import RunCancelled, finish_vod
@@ -217,3 +218,25 @@ def test_finish_summary_says_in_plain_words_why_clips_were_left() -> None:
         "2 klipp gjordes om. 3 klipp rördes inte: 2 är redan granskade eller postade, 1 är nekat.")
     assert pipeline.finish_summary(results[3:4]) == (
         "Inga klipp gjordes om. 1 klipp rördes inte: 1 är redan granskat eller postat.")
+
+
+def test_a_cancelled_project_is_cancelled_on_the_stream_card_too(client, settings, monkeypatch) -> None:  # noqa: F811
+    """Streamkortet på Hem säger Avbruten som projektkortet, inte Misslyckades."""
+    from clipsmith.db.models import Run, RunStatus
+    from clipsmith.db.session import get_session
+
+    from .test_omgang5 import FakeStreams
+
+    fake = FakeStreams()
+    monkeypatch.setattr(streams, "_cache", {})
+    monkeypatch.setattr(streams.twitch, "gql_query", fake.gql)
+    monkeypatch.setattr(streams, "load_secrets", lambda: SimpleNamespace(twitch_client_id="", twitch_client_secret=""))
+    db = get_session()
+    for vod_id, error in ((VOD, pipeline.CANCELLED), ("2925070238", "twitch-dl gav upp")):
+        run = Run(vod_id=vod_id, channel="skiimasktimmy", status=RunStatus.failed, error=error)
+        db.add(run)
+        db.commit()
+        ClipLog(settings.data_dir / "klipp.db").add_run(run.id, vod_id, "skiimasktimmy", "Bodycam")
+    db.close()
+    cards = {s["vod_id"]: (s["run_status"], s["run_cancelled"]) for s in client.get("/campaign/streams").json()}
+    assert cards == {VOD: ("failed", True), "2925070238": ("failed", False)}
