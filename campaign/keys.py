@@ -225,7 +225,11 @@ def _space(disk: dict) -> list[dict]:
                 _row("disk", "Ledigt utrymme", False, f"Okänt. {SSD_MISSING}")]
     hours = max(disk["free_gb"] - 1, 0) / 1.1 / estimate.download_gb(3600)  # samma marginal som körningen
     need = estimate.download_gb(HOURS_OK * 3600) * 1.1 + 1
-    detail = (f"{disk['free_gb']:g} GB ledigt av {disk['total_gb']:g} GB. Det räcker för ungefär "
+
+    def gb(value: float) -> str:
+        return f"{value:g}".replace(".", ",")  # svenskt decimalkomma
+
+    detail = (f"{gb(disk['free_gb'])} GB ledigt av {gb(disk['total_gb'])} GB. Det räcker för ungefär "
               f"{int(hours)} timmar VOD.")
     if hours < HOURS_OK:
         detail += f" En stream på {HOURS_OK} timmar behöver ungefär {need:.0f} GB. Ta bort gamla VOD:er i work/."
