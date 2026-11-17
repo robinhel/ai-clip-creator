@@ -600,3 +600,23 @@ def test_removing_can_be_undone_but_the_rules_still_apply(client, settings, clip
     log.update(clip_id, status="nekad", problems=["Captionen saknar twitch.tv/skiimasktimmy"])
     answer = client.patch(f"/campaign/clips/{clip_id}", json={"status": "godkand"})
     assert answer.status_code == 400 and "problem" in answer.json()["detail"]
+
+
+def test_undoing_the_approval_also_cancels_the_waiting_upload(client, settings, clip_id, notes):
+    at = _at(timedelta(hours=1))
+    post_id = _post(client, clip_id, at=at).json()["id"]
+    answer = client.patch(f"/campaign/clips/{clip_id}", json={"status": "renderad"})
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["status"] == "renderad"
+    assert _row(settings, post_id)["status"] == "cancelled"
+    _run(settings, at, timedelta(seconds=10))
+    assert FakeYouTube.calls == []
+
+
+def test_undoing_the_approval_is_refused_while_the_clip_uploads(client, settings, clip_id, notes):
+    post_id = _post(client, clip_id).json()["id"]
+    with sqlite3.connect(settings.data_dir / "klipp.db") as db:
+        db.execute("UPDATE scheduled_posts SET status = 'running' WHERE id = ?", (post_id,))
+    answer = client.patch(f"/campaign/clips/{clip_id}", json={"status": "renderad"})
+    assert answer.status_code == 409 and "laddas upp" in answer.json()["detail"]
+    assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["status"] == "godkand"
