@@ -25,6 +25,9 @@ from .media import need, probe
 BERGET_URL = "https://api.berget.ai/v1/audio/transcriptions"
 EUR_PER_MINUTE = 1.98 / 1000  # docs.berget.ai/models/overview, november 2026
 PAUSES_S = (10, 30, 60)  # paus före omförsök 1, 2 och 3
+# Tystnad före varje bit. Whisper tappade talet i början av en fil som pratar från 0,1 s: texten började
+# först vid 7,1 s. Med en sekunds tystnad först kom allt med (provat mot Berget 17 november 2026).
+LEAD_S = 1.0
 
 Post = Callable[[bytes, dict], dict]
 
@@ -40,8 +43,8 @@ def to_segments(answer: dict, offset_s: float) -> list[Segment]:
     for seg in answer["segments"]:
         mine = [
             Word(
-                start=w["start"] + offset_s,
-                end=w["end"] + offset_s,
+                start=round(w["start"] + offset_s, 3),
+                end=round(w["end"] + offset_s, 3),
                 word=w["word"],
                 probability=w.get("score", 1.0),
             )
@@ -49,16 +52,17 @@ def to_segments(answer: dict, offset_s: float) -> list[Segment]:
             if seg["start"] <= w["start"] < seg["end"]
         ]
         segments.append(
-            Segment(start=seg["start"] + offset_s, end=seg["end"] + offset_s, text=seg["text"], words=mine)
+            Segment(start=round(seg["start"] + offset_s, 3), end=round(seg["end"] + offset_s, 3), text=seg["text"], words=mine)
         )
     return segments
 
 
 def _audio_part(mp4: Path, start_s: float, length_s: float) -> bytes:
-    """En bit av ljudet som mp3, mono, 16 kHz (cirka 11 MB per 30 minuter)."""
+    """En bit av ljudet som mp3, mono, 16 kHz (cirka 11 MB per 30 minuter), med LEAD_S tystnad först."""
     result = subprocess.run(
         [need("ffmpeg"), "-v", "error", "-ss", str(start_s), "-t", str(length_s), "-i", str(mp4),
-         "-vn", "-ac", "1", "-ar", "16000", "-b:a", "48k", "-f", "mp3", "pipe:1"],
+         "-vn", "-ac", "1", "-ar", "16000", "-af", f"adelay={int(LEAD_S * 1000)}:all=1",
+         "-b:a", "48k", "-f", "mp3", "pipe:1"],
         capture_output=True,
         check=False,
     )
@@ -138,7 +142,7 @@ def transcribe_vod(
     duration = probe(mp4)["duration"]
     fields = {"model": model, "language": language, "response_format": "verbose_json", "align": "true"}
     saved = out_path.parent / "berget"
-    settings = {"model": model, "language": language, "chunk_s": chunk_s}
+    settings = {"model": model, "language": language, "chunk_s": chunk_s, "lead_s": LEAD_S}  # sparade delar utan tystnad gäller inte
     meta = saved / "inställningar.json"
     if saved.exists() and (not meta.exists() or json.loads(meta.read_text(encoding="utf-8")) != settings):
         shutil.rmtree(saved)
@@ -169,7 +173,7 @@ def transcribe_vod(
             _save_json(part_file, answer)
             if budget is not None:  # bara skickade delar kostar; sparade delar är redan betalda
                 budget.record_audio(model, length / 60)
-        segments += to_segments(answer, offset_s=start)
+        segments += to_segments(answer, offset_s=start - LEAD_S)  # svarets tider räknar med tystnaden
     transcript = Transcript(video_id=video_id, language=language, segments=segments)
     out_path.write_text(transcript.to_json(), encoding="utf-8")
     shutil.rmtree(saved)
