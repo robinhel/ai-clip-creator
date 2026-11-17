@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from clipsmith.rendering.clipper import (
+    ZOOM_TOP,
     _build_ffmpeg_cmd,
     _stacked_filter_complex,
     _title_slug,
@@ -202,3 +203,18 @@ def test_video_filter_fit_shows_the_whole_picture_on_a_blurred_background(tmp_pa
 def test_video_filter_fit_without_captions() -> None:
     vf = _video_filter(ReframeConfig(mode="fit"), None)
     assert "subtitles" not in vf and "overlay=(W-w)/2:(H-h)/2" in vf
+
+
+def test_video_filter_zoom_crops_a_1000_high_picture_onto_black() -> None:
+    # zoom: the picture 1000 px high with the sides cut to 1080, on black, with room for the
+    # title above it and the captions below it. Any aspect ratio fills 1080x1000 (no too-narrow crop).
+    vf = _video_filter(ReframeConfig(mode="zoom"), None)
+    assert "scale=1080:1000:force_original_aspect_ratio=increase" in vf
+    assert "crop=1080:1000" in vf
+    assert f"pad=1080:1920:0:{ZOOM_TOP}:black" in vf
+    assert "boxblur" not in vf and "crop=ih*9/16:ih" not in vf
+
+
+def test_zoom_leaves_the_bottom_safe_zone_for_the_captions() -> None:
+    # The captions stand on the black under the picture, above TikTok's bottom 20 %.
+    assert 1920 * 0.07 < ZOOM_TOP and ZOOM_TOP + 1000 + 100 <= 1920 * 0.80
