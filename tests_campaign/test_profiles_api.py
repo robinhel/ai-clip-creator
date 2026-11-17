@@ -3,6 +3,7 @@ Allt körs mot en kopia i tmp_path. Inga riktiga Twitch-anrop."""
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -348,8 +349,6 @@ def test_new_campaign_is_refused_when_it_exists_or_the_channel_is_wrong(client, 
     twitch.channels["nykanal2"] = "NyKanal2"
     assert client.post("/campaign/profiles", json={**bad, "clip_min_s": 40, "clip_max_s": 20}).status_code == 400
     assert client.post("/campaign/profiles", json={**bad, "caption_template": "{nope}"}).status_code == 400
-    twitch.error = OSError("nere")
-    assert client.post("/campaign/profiles", json=bad).status_code == 502
     names = sorted(p.name for p in settings.profiles_dir.iterdir())
     assert names == ["nykanal.yaml", "skiimasktimmy.yaml"]
     assert sorted(p.name for p in settings.root.glob("config.*.yaml")) == ["config.nykanal.yaml", "config.timmy.yaml"]
@@ -666,3 +665,193 @@ def test_too_big_or_strange_twitch_pictures_are_refused(client, settings, twitch
     assert client.get(url, params={"vod_id": VOD}).status_code in (500, 502)
     frames = settings.work_dir / "frames"
     assert not frames.exists() or list(frames.iterdir()) == []
+
+
+# ---------- 5. Ställ in: kampanjen ställs in i appen ----------
+
+CR_LINK = "https://contentrewards.com/c/campaigns/abc-123"
+OPEN_ID = "-000Rx8cN3gSEx6rd87rIUKOXqgBCm52XDAc"
+LATER = "2099-01-01T00:00:00+00:00"
+
+
+def _connect_accounts(settings) -> None:
+    """Två kopplade TikTok-konton och en YouTube-kanal, som appen sparar dem. Inga riktiga inloggningar."""
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    (settings.data_dir / "tiktok_accounts.json").write_text(json.dumps({
+        OPEN_ID: {"display_name": "clipvault.hq26", "username": "clipvault.hq26", "refresh_expires_at": LATER},
+        "-000other": {"display_name": "Timmy Clips", "username": "timmyclips", "refresh_expires_at": "2000-01-01T00:00:00+00:00"},
+    }))
+    (settings.data_dir / "youtube_accounts.json").write_text(json.dumps({
+        "UC123": {"title": "Klippkanalen", "handle": "@klipp", "refresh_token": "x"}}))
+
+
+def _data(settings, name="skiimasktimmy") -> dict:
+    return yaml.safe_load(_profile_text(settings, name))
+
+
+def test_the_settings_form_saves_its_fields_and_keeps_everything_else(client, settings) -> None:
+    before_text = _profile_text(settings)
+    before = _data(settings)
+    config_before = (settings.root / "config.timmy.yaml").read_text()
+    detail = client.get("/campaign/profiles/skiimasktimmy").json()
+    formats = [{**f} for f in detail["formats"]]
+    formats[0]["name"] = "Clutch plays, edited"
+    response = client.put("/campaign/profiles/skiimasktimmy/settings", json={
+        "streamer": "SkiiMaskTimmy",
+        "campaign": "Timmy (ny)",
+        "links": {"content_rewards": CR_LINK, "analytics_form": "https://forms.gle/abc"},
+        "caption_template": "{title} | twitch.tv/skiimasktimmy",
+        "hashtags": ["#skiimasktimmy", "#clips"],
+        "must_include": ["twitch.tv/skiimasktimmy"],
+        "allowed_min_s": 8, "allowed_max_s": 55, "clip_min_s": 12, "clip_max_s": 40,
+        "cpm_usd": 1.25, "min_views": 2500, "max_payout_per_clip_usd": None,
+        "formats": [*formats[:2], {"name": "Brand new", "description": "New format"}],
+        "platforms": ["tiktok", "youtube_shorts"],
+        "accounts": {"tiktok": [OPEN_ID], "youtube_shorts": []},
+    })
+    assert response.status_code == 200, response.text
+    out = response.json()
+    assert out["links"] == {"content_rewards": CR_LINK, "analytics_form": "https://forms.gle/abc"}
+    assert (out["clip_min_s"], out["clip_max_s"], out["allowed_min_s"], out["allowed_max_s"]) == (12, 40, 8, 55)
+    assert [f["id"] for f in out["formats"]] == ["clutch", "extraction", "brand_new"]  # gamla id:n står kvar
+    assert out["formats"][0]["name"] == "Clutch plays, edited"
+    assert out["platforms"] == ["tiktok", "youtube_shorts"]
+    assert out["payment"] == {"cpm_usd": 1.25, "min_views": 2500, "max_payout_per_clip_usd": None}
+
+    after = _data(settings)
+    changed = {"campaign", "links", "caption", "clip", "payment", "formats", "platforms", "accounts"}
+    assert {k: v for k, v in after.items() if k not in changed} == {k: v for k, v in before.items() if k not in changed}
+    assert after["caption"]["game_hashtag"] is True  # fält i delen som formuläret inte visar
+    assert after["accounts"] == {"tiktok": [OPEN_ID]}
+    assert "max_payout_per_clip_usd" not in after["payment"] and after["payment"]["campaign_budget_usd"] == 2500
+    text = _profile_text(settings)
+    for comment in ("# Reglerna är avskrivna", "# Spel som ger extra poäng", "# kampanjens krav",
+                    "# Lägsta engagemang i procent"):
+        assert comment in before_text and comment in text
+    profile = load_profile("skiimasktimmy", settings.profiles_dir)
+    assert (profile.min_seconds, profile.max_seconds, profile.content_rewards_url) == (8, 55, CR_LINK)
+    config_after = (settings.root / "config.timmy.yaml").read_text()
+    cfg = load_config(settings.root / "config.timmy.yaml")
+    assert (cfg.clip.min_seconds, cfg.clip.max_seconds, cfg.clip.preroll_s) == (12, 40, 20)
+    assert config_after.replace("min_seconds: 12", "min_seconds: 15").replace(
+        "max_seconds: 40", "max_seconds: 45") == config_before  # bara de två raderna ändras
+
+    # Fält som inte skickas rörs inte.
+    assert client.put("/campaign/profiles/skiimasktimmy/settings", json={"min_views": 3000}).status_code == 200
+    assert _data(settings)["links"]["content_rewards"] == CR_LINK and _data(settings)["payment"]["min_views"] == 3000
+
+
+@pytest.mark.parametrize("body, words", [
+    ({"links": {"content_rewards": "https://whop.com/x", "analytics_form": None}}, "contentrewards.com"),
+    ({"links": {"content_rewards": None, "analytics_form": "javascript:alert(1)"}}, "https://"),
+    ({"platforms": []}, "plattform"),
+    ({"clip_min_s": 5, "clip_max_s": 45}, "kampanjen tillåter"),
+    ({"allowed_min_s": 30, "allowed_max_s": 20}, "kortaste"),
+    ({"formats": [{"name": " ", "description": "x"}]}, "namn"),
+    ({"caption_template": "{nope}"}, "{title}"),
+    ({"campaign": "två\nrader"}, "radbrytningar"),
+])
+def test_the_settings_form_refuses_bad_values_and_changes_nothing(client, settings, body, words) -> None:
+    before = _profile_text(settings)
+    config = (settings.root / "config.timmy.yaml").read_text()
+    response = client.put("/campaign/profiles/skiimasktimmy/settings", json=body)
+    assert response.status_code in (400, 422), response.text
+    if response.status_code == 400:
+        assert words in response.json()["detail"]
+    assert _profile_text(settings) == before
+    assert (settings.root / "config.timmy.yaml").read_text() == config
+
+
+def test_the_settings_form_needs_the_api_key(client, monkeypatch) -> None:
+    monkeypatch.setenv("CLIPSMITH_API_KEY", "hemlig")
+    assert client.put("/campaign/profiles/skiimasktimmy/settings", json={"min_views": 1}).status_code == 401
+
+
+def test_accounts_are_shown_by_name_with_the_campaigns_that_use_them(client, settings) -> None:
+    _connect_accounts(settings)
+    text = _profile_text(settings) + f'\naccounts:\n  tiktok: ["timmyclips", "{OPEN_ID}"]\n'
+    (settings.profiles_dir / "skiimasktimmy.yaml").write_text(text)
+    accounts = client.get("/campaign/accounts").json()
+    assert accounts["tiktok"] == [
+        {"id": OPEN_ID, "name": "clipvault.hq26", "connected": True,
+         "used_by": [{"name": "skiimasktimmy", "streamer": "SkiiMaskTimmy"}]},
+        {"id": "-000other", "name": "Timmy Clips", "connected": False,
+         "used_by": [{"name": "skiimasktimmy", "streamer": "SkiiMaskTimmy"}]}]
+    assert accounts["youtube_shorts"] == [{"id": "UC123", "name": "Klippkanalen", "connected": True, "used_by": []}]
+    detail = client.get("/campaign/profiles/skiimasktimmy").json()
+    # Användarnamnet i profilen blir kontots id, och namnet visas. Ett okänt konto får inget namn.
+    assert detail["accounts"]["tiktok"] == [{"id": "-000other", "name": "Timmy Clips"},
+                                            {"id": OPEN_ID, "name": "clipvault.hq26"}]
+    assert detail["accounts"]["youtube_shorts"] == []
+
+
+def test_a_campaign_with_only_own_videos_has_no_twitch_channel(client, settings) -> None:
+    shutil.copy(PAKET / "profiles" / "blizzard_nordics.yaml", settings.profiles_dir)
+    shutil.copy(PAKET / "config.blizzard_nordics.yaml", settings.root)
+    profiles = {p["name"]: p for p in client.get("/campaign/profiles").json()}
+    assert (profiles["blizzard_nordics"]["source"], profiles["blizzard_nordics"]["channel"]) == ("local", "")
+    assert (profiles["skiimasktimmy"]["source"], profiles["skiimasktimmy"]["channel"]) == ("twitch", "skiimasktimmy")
+    detail = client.get("/campaign/profiles/blizzard_nordics").json()
+    assert detail["facecam"] == {"required": False, "camera": False, "rects_set": False}
+    assert client.get("/campaign/profiles/skiimasktimmy").json()["facecam"] == {
+        "required": True, "camera": True, "rects_set": True}
+
+
+def test_keys_are_their_own_problems_and_the_state_is_the_same_text_everywhere(client, settings) -> None:
+    settings.anthropic_api_key = settings.berget_api_key = ""
+    timmy = client.get("/campaign/profiles").json()[0]
+    assert timmy["ready"] is False  # körningen kräver nycklarna
+    assert len(timmy["key_problems"]) == 2 and set(timmy["key_problems"]) <= set(timmy["problems"])
+    assert all("Inställningar" in p for p in timmy["key_problems"])
+    assert timmy["state"].startswith("Går att köra, men klippen blir underkända")  # overlay-bilden saknas
+    assert (timmy["allowed_min_s"], timmy["allowed_max_s"]) == (7, 60)
+
+
+def test_new_campaign_with_own_videos_needs_no_twitch(client, settings, twitch) -> None:
+    response = client.post("/campaign/profiles", json={
+        "source": "local", "name": "egen_kampanj", "streamer": "Blizzard", "facecam_required": False,
+        "overlay_required": False, "on_screen_text": "", "content_rewards_url": CR_LINK,
+        "platforms": ["tiktok"], "scout_ref": "blizzard/wow", "cpm_usd": 4})
+    assert response.status_code == 201, response.text
+    detail = response.json()
+    assert (detail["name"], detail["source"], detail["channel"]) == ("egen_kampanj", "local", "")
+    assert detail["links"]["content_rewards"] == CR_LINK and detail["platforms"] == ["tiktok"]
+    assert detail["scout_ref"] == "blizzard/wow" and detail["ready"] is True
+    cfg = load_config(settings.root / "config.egen_kampanj.yaml")
+    assert cfg.channels == [] and cfg.reframe.mode == "zoom"
+    assert twitch.queries == []
+    assert client.post("/campaign/profiles", json={"source": "local", "streamer": "x"}).status_code == 400
+
+
+def test_new_campaign_is_saved_with_a_warning_when_twitch_does_not_answer(client, settings, twitch) -> None:
+    twitch.error = OSError("nere")
+    response = client.post("/campaign/profiles", json={"channel": "nykanal", "streamer": "Ny"})
+    assert response.status_code == 201, response.text
+    assert "Twitch svarar inte" in response.json()["warning"]
+    assert (settings.profiles_dir / "nykanal.yaml").exists()
+    twitch.error = None
+    twitch.channels["nykanal2"] = "NyKanal2"
+    assert client.post("/campaign/profiles", json={"channel": "nykanal2", "streamer": "x"}).json()["warning"] is None
+
+
+def test_the_overlay_picture_can_be_removed(client, settings) -> None:
+    assert client.put("/campaign/profiles/skiimasktimmy/overlay", content=_png(1080, 1920)).status_code == 200
+    response = client.delete("/campaign/profiles/skiimasktimmy/overlay")
+    assert response.status_code == 200
+    assert response.json()["overlay"]["exists"] is False
+    assert not (settings.root / "overlays" / "skiimasktimmy.png").exists()
+    assert "overlays/skiimasktimmy.png" in _profile_text(settings)  # filens namn står kvar i profilen
+    assert client.delete("/campaign/profiles/skiimasktimmy/overlay").status_code == 404
+
+
+def test_yaml_errors_are_in_plain_swedish(client, settings) -> None:
+    text = _profile_text(settings).replace("platforms: [tiktok, instagram_reels, youtube_shorts]",
+                                           "platforms: [tiktok, instagram_reels: youtube_shorts]")
+    detail = client.put("/campaign/profiles/skiimasktimmy/yaml", json={"yaml": text}).json()["detail"]
+    assert detail.startswith("Fel på rad ")
+    assert "expected" not in detail and "but got" not in detail
+
+
+def test_the_frame_without_a_project_says_project(client) -> None:
+    detail = client.get("/campaign/profiles/skiimasktimmy/frame").json()["detail"]
+    assert "projekt" in detail and "körning" not in detail

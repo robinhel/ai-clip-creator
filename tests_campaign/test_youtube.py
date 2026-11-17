@@ -770,3 +770,20 @@ def test_the_upload_keeps_its_title_and_description_for_the_text_rule(client, se
     with youtube.YouTube(settings)._db() as db:
         row = db.execute("SELECT title, description FROM youtube_uploads").fetchone()
     assert tuple(row) == ("No way", "No way #fps #shorts")
+
+
+def test_status_has_the_redirect_address_from_the_server(settings) -> None:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from campaign import api, tiktok_api, youtube_api
+
+    settings.youtube_redirect_uri = "http://127.0.0.1:9000/campaign/youtube/callback/"
+    settings.tiktok_redirect_uri = "http://127.0.0.1:9000/campaign/tiktok/callback/"
+    app = FastAPI()
+    app.include_router(youtube_api.router)
+    app.include_router(tiktok_api.router)
+    app.dependency_overrides[api.get_settings] = lambda: settings
+    client = TestClient(app)
+    assert client.get("/campaign/youtube/status").json()["redirect_uri"] == settings.youtube_redirect_uri
+    assert client.get("/campaign/tiktok/status").json()["redirect_uri"] == settings.tiktok_redirect_uri

@@ -450,3 +450,28 @@ def test_claude_down_gives_502_and_saves_nothing(client, chatapp) -> None:  # no
     assert answer.status_code == 502 and "Claude" in answer.json()["detail"]
     assert client.get("/campaign/profiles/skiimasktimmy/chats").json() == []
     assert not chat.lock.locked()
+
+
+# ---------- nyckeln och materialet kontrolleras före Claude ----------
+
+
+def test_without_the_claude_key_the_chat_says_so_and_asks_nothing(client, settings, monkeypatch) -> None:  # noqa: F811
+    _write_transcript(settings, "vodA")
+    ClipLog(settings.data_dir / "klipp.db").add_run(1, "vodA", "skiimasktimmy", None, title="Titel", duration_s=60)
+    settings.anthropic_api_key = ""
+    calls = []
+    monkeypatch.setattr(Brain, "ask", lambda self, **kw: calls.append(kw))
+    response = client.post("/campaign/profiles/skiimasktimmy/chats", json={"message": "roliga dödsfall"})
+    assert response.status_code == 400
+    assert "Claude-nyckeln saknas" in response.json()["detail"] and "Inställningar" in response.json()["detail"]
+    assert calls == []
+    assert client.get("/campaign/profiles/skiimasktimmy/chats").json() == []
+
+
+def test_without_material_with_a_transcript_the_chat_says_so_and_asks_nothing(client, chatapp, settings) -> None:  # noqa: F811
+    for vod in ("vodA", "vodB"):
+        (settings.work_dir / vod / "transcript.json").unlink()
+    response = _new_chat(client, chatapp, _search())
+    assert response.status_code == 400
+    assert "transkript" in response.json()["detail"]
+    assert chatapp.script.calls == []
