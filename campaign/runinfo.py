@@ -15,7 +15,7 @@ from .profile import load_profile
 
 FIELDS = ("run_id", "vod_id", "profile", "game", "focus", "min_s", "max_s",
           "title", "channel_name", "thumbnail_url", "duration_s")
-MISSING = "Körningen saknas i clipsmiths databas."
+MISSING = "Projektet saknas i clipsmiths databas."
 SIGNALS_STEP = "Signalerna väljer, utan Claude"
 
 

@@ -318,7 +318,7 @@ def _create_run(body: CampaignRunCreate, request: Request, background_tasks: Bac
     try:
         budget_from_settings(settings).check()  # dags- och månadstaket, innan 15 GB hämtas
     except BudgetExceeded as error:
-        raise HTTPException(400, f"{error} Körningen startar inte. Vänta tills taket går över, "
+        raise HTTPException(400, f"{error} Projektet startar inte. Vänta tills taket går över, "
                                  "eller höj det i .env.") from error
     if own_file is not None:
         problem = _own_file_missing(body.vod_id, settings)
@@ -343,7 +343,7 @@ def _create_run(body: CampaignRunCreate, request: Request, background_tasks: Bac
     game = (body.game or "").strip() or None
     with _start_lock:
         if request.app.state.active_run_id is not None:
-            raise HTTPException(429, "En körning pågår redan. Vänta tills den är klar.")
+            raise HTTPException(429, "Ett projekt hämtar redan klipp. Vänta tills det är klart.")
         if editor.lock.locked():  # redigeraren kollar active_run_id under samma lås
             raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
         # Kollas igen här, där ingen annan körning kan skriva filen: en halv video används aldrig.
@@ -360,7 +360,7 @@ def _create_run(body: CampaignRunCreate, request: Request, background_tasks: Bac
                                channel_name=facts["channel_name"], thumbnail_url=facts["thumbnail_url"],
                                duration_s=facts["duration_s"], start_s=body.start_s, end_s=body.end_s)
     except Exception:  # annars står körningen som pågående, och appen säger 429 tills servern startas om
-        run.status, run.error = RunStatus.failed, "Körningen kunde inte sparas i klipploggen. Försök igen."
+        run.status, run.error = RunStatus.failed, "Projektet kunde inte sparas i klipploggen. Försök igen."
         db.commit()
         request.app.state.active_run_id = None
         raise
@@ -382,10 +382,10 @@ def retry_run(
     """En ny körning med samma kampanj, VOD och val. Samma kontroller som en ny körning."""
     meta = _log(settings).run(run_id)
     if meta is None:
-        raise HTTPException(404, "Körningen finns inte.")
+        raise HTTPException(404, "Projektet finns inte.")
     run = db.get(Run, run_id)
     if run is not None and run.status != RunStatus.failed:  # saknas den i clipsmiths databas visas den som failed
-        raise HTTPException(400, "Bara en misslyckad körning kan köras igen.")
+        raise HTTPException(400, "Bara ett projekt som misslyckades eller avbröts kan köras igen.")
     values = dict(profile=meta["profile"], vod_id=meta["vod_id"], game=meta["game"],
                   start_s=meta.get("start_s") or 0.0, end_s=meta.get("end_s") or 0.0,
                   focus=meta["focus"] or "", min_s=meta["min_s"], max_s=meta["max_s"])
@@ -427,7 +427,7 @@ def get_run(run_id: int, db: Session = Depends(get_db),
     log = _log(settings)
     meta = log.run(run_id)
     if meta is None:
-        raise HTTPException(404, "Körningen finns inte.")
+        raise HTTPException(404, "Projektet finns inte.")
     meta = _with_facts(meta, log)
     out, progress = runinfo.describe(meta, db, log.list())
     out.update(runinfo.steps_and_cost(progress, meta["duration_s"], _berget_price(settings),
@@ -461,13 +461,13 @@ def refinish_run(
 ) -> dict:
     meta = _log(settings).run(run_id)
     if meta is None:
-        raise HTTPException(404, "Körningen hör inte till någon kampanj.")
+        raise HTTPException(404, "Projektet hör inte till någon kampanj.")
     run = db.get(Run, run_id)
     if run is not None and run.status == RunStatus.failed:
-        raise HTTPException(400, "Körningen misslyckades. Tryck Kör igen.")
+        raise HTTPException(400, "Projektet misslyckades. Tryck Kör igen.")
     with _start_lock:
         if request.app.state.active_run_id is not None:
-            raise HTTPException(429, "En körning pågår redan. Vänta tills den är klar.")
+            raise HTTPException(429, "Ett projekt hämtar redan klipp. Vänta tills det är klart.")
         if editor.lock.locked():  # redigeraren kollar active_run_id under samma lås
             raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
         request.app.state.active_run_id = run_id
