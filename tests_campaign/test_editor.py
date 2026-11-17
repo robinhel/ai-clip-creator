@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sqlite3
 
 import pytest
 from fastapi import FastAPI
@@ -152,6 +153,45 @@ def test_approved_clip_must_be_approved_again(setup, settings) -> None:
     response = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0})
     assert response.json()["status"] == "renderad"
     assert response.json()["problems"] == []
+
+
+def _scheduled(settings, clip_id, status: str) -> int:
+    """En schemalagd uppladdning för klippet, som om Robin hade lagt den på Att posta."""
+    from campaign.schedule import Schedule
+
+    Schedule(settings)  # skapar tabellen
+    with sqlite3.connect(settings.data_dir / "klipp.db") as db:
+        return db.execute("INSERT INTO scheduled_posts (clip_id, platform, account, at, fields, status, created, "
+                          "updated) VALUES (?, 'youtube', 'UC1', '2030-01-01T10:00:00+00:00', '{}', ?, '', '')",
+                          (clip_id, status)).lastrowid
+
+
+def _scheduled_status(settings, post_id: int) -> str:
+    with sqlite3.connect(settings.data_dir / "klipp.db") as db:
+        return db.execute("SELECT status FROM scheduled_posts WHERE id = ?", (post_id,)).fetchone()[0]
+
+
+def test_editing_an_approved_clip_cancels_the_waiting_upload(setup, settings) -> None:
+    client, log, clip_id = setup
+    log.update(clip_id, status="godkand")
+    post_id = _scheduled(settings, clip_id, "waiting")
+    response = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0})
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "renderad"
+    assert _scheduled_status(settings, post_id) == "cancelled"
+
+
+def test_editing_is_refused_while_the_approved_clip_uploads(setup, settings) -> None:
+    client, log, clip_id = setup
+    log.update(clip_id, status="godkand")
+    post_id = _scheduled(settings, clip_id, "running")
+    _, done, _ = _paths(settings)
+    before = done.read_bytes()
+    response = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0})
+    assert response.status_code == 409 and "laddas upp" in response.json()["detail"]
+    assert (log.get(clip_id)["status"], done.read_bytes()) == ("godkand", before)  # filen byts inte under uppladdningen
+    assert _scheduled_status(settings, post_id) == "running"
+    assert not [p for p in settings.out_dir.rglob(".*")]
 
 
 def test_problems_after_the_check_fail_the_clip_and_the_old_review_is_kept(setup, settings) -> None:
