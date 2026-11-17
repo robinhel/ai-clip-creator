@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from .budget import Budget
 from .config import Settings
 
@@ -13,6 +15,7 @@ class Brain:
         self.settings = settings
         self.budget = budget
         self._client = client
+        self.last_usd = 0.0  # vad det senaste anropet kostade
 
     @property
     def available(self) -> bool:
@@ -34,9 +37,12 @@ class Brain:
         content,
         schema: dict,
         max_tokens: int = 1024,
+        force_tool: bool = True,
     ) -> dict:
         """Skicka text eller bilder till Claude. Svaret följer `schema`.
 
+        force_tool=False låter modellen välja verktyget själv (tool_choice auto), för modeller som inte tar ett
+        tvingat verktyg, som Sonnet 5.5. Svarar den med text läses det första JSON-objektet i texten.
         Kastar BudgetExceeded före anropet om ett tak är nått.
         """
         self.budget.check()
@@ -52,10 +58,10 @@ class Brain:
                     "input_schema": schema,
                 }
             ],
-            tool_choice={"type": "tool", "name": "svar"},
+            tool_choice={"type": "tool", "name": "svar"} if force_tool else {"type": "auto"},
         )
         usage = response.usage
-        self.budget.record(
+        self.last_usd = self.budget.record(
             model,
             purpose,
             input_tokens=usage.input_tokens,
@@ -66,4 +72,10 @@ class Brain:
         for block in response.content:
             if getattr(block, "type", "") == "tool_use":
                 return dict(block.input)
+        text = "".join(getattr(block, "text", "") for block in response.content)
+        if not force_tool and "{" in text:
+            try:
+                return dict(json.JSONDecoder().raw_decode(text[text.index("{"):])[0])
+            except ValueError:
+                pass
         raise RuntimeError("Claude svarade utan strukturerat svar.")

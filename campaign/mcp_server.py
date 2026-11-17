@@ -373,6 +373,26 @@ def suggest_variant(clip_id: int, platform: Literal["tiktok", "youtube"], accoun
     return _send("POST", f"/campaign/clips/{clip_id}/variant", {"platform": platform, "account": account})
 
 
+@server.tool(annotations=PAID)
+def chat_send(profile_id: str, message: str = "", chat_id: int | None = None, confirm: bool = False) -> str:
+    """Kostar pengar (Claude). Fråga Robin först.
+    Skriv i kampanjens chatt: vad Robin vill ha klipp på ("när de visar nya raser", "fler sådana", "kortare").
+    Claude letar i kampanjens transkript och svarar med träffar. Utan chat_id startar en ny chatt. Svarar chatten
+    med confirm (en dyr sökning), skicka confirm=True med samma chat_id när Robin har sagt ja. Svaret är hela
+    chatten med meddelanden och träffar (hits)."""
+    if chat_id is None:
+        return _send("POST", f"/campaign/profiles/{_seg(profile_id)}/chats", {"message": message})
+    return _send("POST", f"/campaign/chats/{chat_id}/messages", {"confirm": True} if confirm else {"message": message})
+
+
+@server.tool(annotations=PAID)
+def chat_make_clips(chat_id: int, hit_ids: list[int]) -> str:
+    """Kostar pengar (bildgranskning med Claude, och hämtning från Twitch när videon saknas). Fråga Robin först.
+    Gör klipp av valda träffar ur chatten. Klippen blir vanliga klipp att granska (status renderad). Svarar med
+    körningens id; följ den med get_project."""
+    return _send("POST", f"/campaign/chats/{chat_id}/clips", {"hit_ids": hit_ids})
+
+
 @server.tool(annotations=OUT)
 def schedule_upload(clip_id: int, platform: Literal["youtube", "tiktok"], at: str, fields: dict,
                     account: str | None = None) -> str:

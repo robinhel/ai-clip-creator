@@ -525,15 +525,17 @@ def _get(log: ClipLog, clip_id: int) -> dict:
 
 @router.get("/clips", summary="Klipp i klipploggen")
 def list_clips(status: str | None = None, vod_id: str | None = None, run_id: int | None = None,
-               settings: Settings = Depends(get_settings)) -> list[dict]:
+               profile: str | None = None, settings: Settings = Depends(get_settings)) -> list[dict]:
     log = _log(settings)
     clips = log.list(status or None)
     if vod_id:
         clips = [c for c in clips if c["vod_id"] == vod_id]
+    if profile:  # kampanjsidan visar sina klipp även när kampanjen är avstängd
+        clips = [c for c in clips if c["profile"] == profile]
     if run_id is not None:
         meta = log.run(run_id)
         clips = _run_clips(meta, clips) if meta else []
-    else:  # en direktlänk till ett projekt visar dess klipp även när kampanjen är avstängd
+    elif not profile:  # en direktlänk till ett projekt visar dess klipp även när kampanjen är avstängd
         off = _turned_off(settings)
         clips = [c for c in clips if c["profile"] not in off]
     return [_public(c, settings) for c in clips]
@@ -806,4 +808,4 @@ def _earnings(clips: list[dict], settings: Settings, posts: list[dict]) -> dict:
 
 
 # Vägarna för inlägg ligger i posts_api.py och registreras på samma router.
-from . import posts_api, uploads_api, versions_api  # noqa: E402, F401
+from . import chat_api, posts_api, uploads_api, versions_api  # noqa: E402, F401

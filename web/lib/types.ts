@@ -711,3 +711,77 @@ export interface CostParts {
   claude_usd: number;
   usd: number;
 }
+
+// --- Kampanjen som nav (kontrakt-chatt.md): material, chatten och träffarna. Eget block, så att sammanslagningar blir enkla. ---
+
+/** Var chatten letar när Robin inte säger något: senaste materialet med transkript, eller allt. */
+export type SearchScope = "latest" | "all";
+
+// Läggs ihop med CampaignProfileDetail ovan. Saknas hos äldre servrar: latest.
+export interface CampaignProfileDetail {
+  search_default_scope?: SearchScope;
+}
+
+/** GET /campaign/profiles/{id}/material: kampanjens källor, nyast först. */
+export interface MaterialItem {
+  vod_id: string;
+  title: string | null;
+  /** twitch när vod_id är bara siffror, annars en egen video. */
+  kind: "twitch" | "local";
+  created: string | null;
+  duration_s: number | null;
+  has_video: boolean;
+  has_transcript: boolean;
+  /** Antal klipp i klipploggen från källan. */
+  clips: number;
+}
+
+/** GET /campaign/profiles/{id}/chats. title: början på första meddelandet. */
+export interface ChatSummary {
+  id: number;
+  title: string;
+  created: string;
+  updated: string;
+  hits: number;
+}
+
+/** En sökning över 0,25 dollar väntar på {confirm: true}. */
+export interface ChatConfirm {
+  cost_usd: number;
+  sources: string[];
+  minutes: number;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  text: string;
+  created: string;
+  sources?: string[];
+  cost_usd?: number | null;
+  confirm?: ChatConfirm | null;
+}
+
+export interface ChatHit {
+  id: number;
+  vod_id: string;
+  source_title: string | null;
+  start_s: number;
+  end_s: number;
+  title: string;
+  reason: string;
+  /** 1–10. */
+  grade: number;
+  quote: string;
+  status: "ny" | "vald" | "gjord";
+  clip_id: number | null;
+  problem: string | null;
+}
+
+/** GET /campaign/chats/{id}, och svaret på varje POST i chatten. */
+export interface CampaignChat {
+  id: number;
+  profile: string;
+  default_scope: SearchScope;
+  messages: ChatMessage[];
+  hits: ChatHit[];
+}

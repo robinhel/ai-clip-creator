@@ -4,23 +4,36 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
+import { CampaignChat } from "@/components/CampaignChat";
+import { CampaignClips } from "@/components/CampaignClips";
 import { CampaignExampleClips } from "@/components/CampaignExampleClips";
 import { CampaignFacecam } from "@/components/CampaignFacecam";
 import { CampaignOverlay } from "@/components/CampaignOverlay";
+import { CampaignMaterial } from "@/components/CampaignMaterial";
 import { CampaignYaml } from "@/components/CampaignYaml";
 import { ProblemFix, ReadyBadge } from "@/components/CampaignsClient";
 import { api } from "@/lib/api";
 import { cn, usd } from "@/lib/utils";
-import type { CampaignProfileDetail } from "@/lib/types";
+import type { CampaignProfileDetail, MaterialItem } from "@/lib/types";
 
 const TABS = [
+  { id: "skapa", label: "Skapa klipp" },
+  { id: "klipp", label: "Klipp" },
+  { id: "material", label: "Material" },
+  { id: "installningar", label: "Inställningar" },
+] as const;
+type Tab = (typeof TABS)[number]["id"];
+
+/** Underflikarna i Inställningar: kampanjsidans flikar före kampanjen blev ett nav. */
+const PARTS = [
   { id: "oversikt", label: "Översikt" },
   { id: "overlay", label: "Overlay" },
   { id: "facecam", label: "Facecam" },
   { id: "profil", label: "Profil (YAML)" },
   { id: "exempel", label: "Exempelklipp" },
 ] as const;
-type Tab = (typeof TABS)[number]["id"];
+type Part = (typeof PARTS)[number]["id"];
+const isPart = (value?: string): value is Part => PARTS.some((p) => p.id === value);
 
 const num = new Intl.NumberFormat("sv-SE");
 const LEAVE = "Du har ändringar som inte är sparade. Vill du lämna dem?";
@@ -81,15 +94,26 @@ function Overview({ profile: p }: { profile: CampaignProfileDetail }) {
   );
 }
 
-export function CampaignDetailClient({ id, tab: initialTab }: { id: string; tab?: string }) {
+export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat }: { id: string; tab?: string; part?: string; chat?: number }) {
   const router = useRouter();
   const pathname = usePathname();
   const [profile, setProfile] = useState<CampaignProfileDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Profil (YAML) och Facecam säger till när de har osparade ändringar.
   const [dirty, setDirty] = useState(false);
-  const tab: Tab = TABS.some((t) => t.id === initialTab) ? (initialTab as Tab) : "oversikt";
+  // Gamla länkar (?tab=facecam) öppnar Inställningar med den underfliken.
+  const tab: Tab = TABS.some((t) => t.id === tabParam) ? (tabParam as Tab) : isPart(tabParam) ? "installningar" : "skapa";
+  const part: Part = isPart(tabParam) ? tabParam : isPart(partParam) ? partParam : "oversikt";
   const tabs = useRef<HTMLDivElement>(null);
+  // Materialet används av Skapa klipp, Klipp och Material, så det hämtas en gång.
+  const [material, setMaterial] = useState<MaterialItem[] | null>(null);
+  const [materialError, setMaterialError] = useState<string | null>(null);
+  useEffect(() => {
+    api.campaign
+      .material(id)
+      .then(setMaterial)
+      .catch((err) => setMaterialError(err instanceof Error ? err.message : "Kunde inte hämta materialet"));
+  }, [id]);
 
   // På en smal skärm kan vald flik ligga utanför den rullbara raden. Rulla fram den.
   useEffect(() => {
@@ -122,9 +146,13 @@ export function CampaignDetailClient({ id, tab: initialTab }: { id: string; tab?
     };
   }, [dirty]);
 
-  function openTab(next: Tab) {
-    if (next === tab || (dirty && !window.confirm(LEAVE))) return;
-    router.replace(`${pathname}?tab=${next}`, { scroll: false });
+  function openTab(next: Tab, nextPart: Part = "oversikt") {
+    if ((next === tab && (next !== "installningar" || nextPart === part)) || (dirty && !window.confirm(LEAVE))) return;
+    router.replace(`${pathname}?tab=${next}${next === "installningar" ? `&del=${nextPart}` : ""}`, { scroll: false });
+  }
+
+  function openChat(chatId?: number) {
+    router.replace(`${pathname}?tab=skapa${chatId ? `&chatt=${chatId}` : ""}`, { scroll: false });
   }
 
   function load() {
@@ -181,7 +209,7 @@ export function CampaignDetailClient({ id, tab: initialTab }: { id: string; tab?
         ref={tabs}
         role="tablist"
         aria-label="Kampanjens delar"
-        // Rullbar på smala skärmar, så att fem flikar inte gör sidan bredare. Linjen är en skugga inuti,
+        // Rullbar på smala skärmar, så att flikarna inte gör sidan bredare. Linjen är en skugga inuti,
         // eftersom en ram under en rullbar rad skulle klippa flikens understrykning.
         className="mt-7 mb-6 flex gap-1 overflow-x-auto shadow-[inset_0_-1px_0_var(--color-line)]">
         {TABS.map((t) => (
@@ -201,11 +229,31 @@ export function CampaignDetailClient({ id, tab: initialTab }: { id: string; tab?
         ))}
       </div>
 
-      {tab === "oversikt" && <Overview profile={profile} />}
-      {tab === "overlay" && <CampaignOverlay profile={profile} onUpdate={setProfile} />}
-      {tab === "facecam" && <CampaignFacecam id={profile.name} onSaved={load} onDirty={setDirty} />}
-      {tab === "profil" && <CampaignYaml id={profile.name} onUpdate={setProfile} onDirty={setDirty} />}
-      {tab === "exempel" && <CampaignExampleClips id={profile.name} />}
+      {tab === "skapa" && <CampaignChat profile={profile} material={material} chatId={chat} onOpen={openChat} />}
+      {tab === "klipp" && <CampaignClips profile={profile} material={material} />}
+      {tab === "material" && <CampaignMaterial material={material} error={materialError} />}
+      {tab === "installningar" && (
+        <>
+          <div role="tablist" aria-label="Inställningar" className="mb-6 flex max-w-full overflow-x-auto rounded-[9px] border border-line text-sm sm:w-fit">
+            {PARTS.map((p) => (
+              <button
+                key={p.id}
+                role="tab"
+                aria-selected={part === p.id}
+                onClick={() => openTab("installningar", p.id)}
+                className="shrink-0 px-3 py-1.5 whitespace-nowrap text-muted-foreground hover:text-foreground aria-selected:bg-panel aria-selected:text-foreground"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {part === "oversikt" && <Overview profile={profile} />}
+          {part === "overlay" && <CampaignOverlay profile={profile} onUpdate={setProfile} />}
+          {part === "facecam" && <CampaignFacecam id={profile.name} onSaved={load} onDirty={setDirty} />}
+          {part === "profil" && <CampaignYaml id={profile.name} onUpdate={setProfile} onDirty={setDirty} />}
+          {part === "exempel" && <CampaignExampleClips id={profile.name} />}
+        </>
+      )}
     </main>
   );
 }
