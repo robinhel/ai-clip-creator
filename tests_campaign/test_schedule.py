@@ -559,3 +559,43 @@ def test_a_post_close_to_another_on_the_same_account_gets_a_warning(client, sett
     assert _post(client, far, at=_stockholm(1, 16)).json()["warning"] is None
     listed = {post["id"]: post["warning"] for post in client.get("/campaign/schedule").json()}
     assert listed[first["id"]] is not None  # den första ligger nu också för nära
+
+
+# ---------- ta bort ett godkänt klipp från Att posta ----------
+
+
+def test_removing_an_approved_clip_cancels_its_waiting_upload(client, settings, clip_id, notes):
+    at = _at(timedelta(hours=1))
+    post_id = _post(client, clip_id, at=at).json()["id"]
+    answer = client.patch(f"/campaign/clips/{clip_id}", json={"status": "nekad"})
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["status"] == "nekad"
+    assert _row(settings, post_id)["status"] == "cancelled"
+    _run(settings, at, timedelta(seconds=10))
+    assert FakeYouTube.calls == []  # inget laddas upp för ett borttaget klipp
+
+
+def test_a_clip_that_is_uploading_now_cannot_be_removed(client, settings, clip_id, notes):
+    waiting = _post(client, clip_id, "youtube").json()["id"]
+    running = _post(client, clip_id, "tiktok", fields={"title": "x"}, account="open1").json()["id"]
+    with sqlite3.connect(settings.data_dir / "klipp.db") as db:
+        db.execute("UPDATE scheduled_posts SET status = 'running' WHERE id = ?", (running,))
+    answer = client.patch(f"/campaign/clips/{clip_id}", json={"status": "nekad"})
+    assert answer.status_code == 409
+    assert "laddas upp" in answer.json()["detail"]
+    assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["status"] == "godkand"
+    assert _row(settings, waiting)["status"] == "waiting"  # inget ändras när svaret är nej
+
+
+def test_removing_can_be_undone_but_the_rules_still_apply(client, settings, clip_id, notes):
+    post_id = _post(client, clip_id).json()["id"]
+    client.patch(f"/campaign/clips/{clip_id}", json={"status": "nekad"})
+    answer = client.patch(f"/campaign/clips/{clip_id}", json={"status": "godkand"})
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["status"] == "godkand"
+    assert _row(settings, post_id)["status"] == "cancelled"  # den avbrutna uppladdningen startar inte igen
+
+    log = ClipLog(settings.data_dir / "klipp.db")
+    log.update(clip_id, status="nekad", problems=["Captionen saknar twitch.tv/skiimasktimmy"])
+    answer = client.patch(f"/campaign/clips/{clip_id}", json={"status": "godkand"})
+    assert answer.status_code == 400 and "problem" in answer.json()["detail"]
