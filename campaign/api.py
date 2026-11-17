@@ -24,7 +24,7 @@ from clipsmith.db.models import PipelineEvent, Run, RunStatus
 from . import editor, estimate, preferences, streams
 from .budget import BudgetExceeded, budget_from_settings
 from .caption import check_caption
-from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog
+from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog, UploadRunning
 from .config import Settings, load_settings
 from .media import need, probe, run
 from .pipeline import finish_run, run_campaign_vod
@@ -691,13 +691,6 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
                 raise HTTPException(400, "Klippet har problem. Rätta dem innan du godkänner.")
             if profile.formats and not (fields.get("format") or clip["format"]):
                 raise HTTPException(400, "Välj ett format innan du godkänner.")
-        if status == "godkand" and new in ("nekad", "renderad"):  # Ta bort eller Ångra godkännande: inget laddas upp efteråt
-            from .schedule import Schedule, ScheduleError  # schedule läser klipploggen; importen hålls här
-
-            try:
-                Schedule(settings).cancel_for_clip(clip_id)
-            except ScheduleError as error:
-                raise HTTPException(error.status, str(error)) from error
         if new == "renderad" and problems:
             fields["status"] = "underkand"
         if new == "postad":
@@ -712,7 +705,10 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
 
     _apply_to_posts(log, clip, fields)
     if fields:
-        log.update(clip_id, **fields)
+        try:  # ett klipp som lämnar godkänt får sina väntande uppladdningar avbrutna i klipploggen
+            log.update(clip_id, **fields)
+        except UploadRunning as error:
+            raise HTTPException(409, str(error)) from error
     return _public(log.get(clip_id), settings)
 
 

@@ -52,6 +52,24 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+class UploadRunning(Exception):
+    """Ett godkänt klipp laddas upp just nu. Det får inte lämna godkänt förrän uppladdningen är klar. Ger 409."""
+
+
+def _cancel_uploads(db: sqlite3.Connection, clip_id: int) -> None:
+    """Klippet lämnar godkänt, så ett ja gäller inte längre: väntande schemalagda uppladdningar avbryts.
+    Tabellen hör till schedule.py och finns först när något har schemalagts."""
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'scheduled_posts'").fetchone():
+        return
+    running = db.execute("SELECT platform FROM scheduled_posts WHERE clip_id = ? AND status = 'running'",
+                         (clip_id,)).fetchone()
+    if running:
+        name = "YouTube" if running[0] == "youtube" else "TikTok"
+        raise UploadRunning(f"Klippet laddas upp nu på {name}. Vänta tills uppladdningen är klar.")
+    db.execute("UPDATE scheduled_posts SET status = 'cancelled', updated = ? WHERE clip_id = ? AND status = 'waiting'",
+               (_now(), clip_id))
+
+
 class ClipLog:
     def __init__(self, db_path: Path):
         self.db_path = Path(db_path)
@@ -225,11 +243,18 @@ class ClipLog:
                 fields[key] = json.dumps(fields[key], ensure_ascii=False) if fields[key] is not None else None
         self.get(clip_id)
         sets = ", ".join(f"{key} = ?" for key in fields)
-        with self._db() as db:
-            db.execute(
-                f"UPDATE clips SET {sets}, updated = ? WHERE id = ?",
-                (*fields.values(), _now(), clip_id),
-            )
+        # En transaktion med skrivlås: schemaläggaren hinner inte starta en uppladdning mellan kollen och bytet.
+        db = sqlite3.connect(self.db_path, isolation_level=None)
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            if "status" in fields and fields["status"] not in ("godkand", *POST_STATUSES):
+                _cancel_uploads(db, clip_id)  # här, så att ingen väg som ändrar status glömmer det
+            db.execute(f"UPDATE clips SET {sets}, updated = ? WHERE id = ?", (*fields.values(), _now(), clip_id))
+            db.execute("COMMIT")
+        finally:
+            if db.in_transaction:
+                db.execute("ROLLBACK")
+            db.close()
 
     # ---------- inlägg ----------
 

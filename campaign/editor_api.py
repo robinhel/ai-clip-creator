@@ -10,6 +10,7 @@ from clipsmith.api.deps import verify_api_key
 
 from . import editor
 from .api import _get, _log, _profile, _public, _start_lock, get_settings
+from .cliplog import UploadRunning
 from .config import Settings
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
@@ -60,7 +61,7 @@ def post_edit(clip_id: int, body: EditBody, request: Request, settings: Settings
                          words=words)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
-    except editor.EditConflict as error:
+    except (editor.EditConflict, UploadRunning) as error:
         raise HTTPException(409, str(error)) from error
     except RuntimeError as error:  # ffmpeg misslyckades
         raise HTTPException(500, f"Klippet gick inte att göra om: {error}") from error
