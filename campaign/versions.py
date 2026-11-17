@@ -193,8 +193,9 @@ def _overlay(settings: Settings, profile: Profile, overlay: str | None) -> Path 
 
 
 def _sticker(settings: Settings, profile: Profile, sticker: dict | None, length: float, title: str = "",
-             overlay: Path | None = None) -> dict | None:
-    """Klistermärket kontrollerat och placerat. title och overlay är klippets: texten uppe ska synas."""
+             overlay: Path | None = None, frame: str = "") -> dict | None:
+    """Klistermärket kontrollerat och placerat. title, overlay och frame (bildläget) är klippets: texten uppe
+    ska synas."""
     if sticker is None:
         return None
     path = sticker_path(settings.root, sticker.get("file"))
@@ -211,7 +212,7 @@ def _sticker(settings: Settings, profile: Profile, sticker: dict | None, length:
     except RuntimeError as error:
         raise VersionError(f"Klistermärket {path.name} går inte att läsa.") from error
     height = round(STICKER_W * info["height"] / info["width"])
-    text_end = top_text_end(profile, settings.root, title, overlay)
+    text_end = top_text_end(profile, settings.root, title, overlay, frame)
     x, y = sticker_box(str(sticker.get("position")), STICKER_W, height, profile, text_end)
     return {"path": path, "w": STICKER_W, "h": height, "x": x, "y": y, "start_s": start, "end_s": start + duration}
 
@@ -237,7 +238,7 @@ def make(settings: Settings, log: ClipLog, clip: dict, platform: str, account: s
     own = _overlay(settings, profile, overlay)
     title = root["title"] or ""
     hook = "" if PLACEHOLDER.search(title) else title
-    placed = _sticker(settings, profile, sticker, length, hook, own)
+    placed = _sticker(settings, profile, sticker, length, hook, own, data["reframe"]["mode"])
 
     done = raw.parent / "klara" / raw.name
     number = 1

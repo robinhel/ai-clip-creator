@@ -60,8 +60,13 @@ def _hook_lines(profile: Profile, title: str) -> list[str]:
     return textwrap.wrap(title, HOOK_LINE_CHARS, max_lines=3, placeholder="…") if profile.hook_text and title else []
 
 
-def _hook_top(profile: Profile, text_on_top: bool) -> int:
-    return int(HEIGHT * profile.safe_top) + (int(profile.text_font_size * 1.6) if text_on_top else 0)
+def _hook_top(profile: Profile, text_on_top: bool, lines: int = 1, frame: str = "") -> int:
+    """Hookens första rad. I bildläget zoom står den på det svarta precis ovanför bilden, men aldrig i den
+    övre säkra zonen."""
+    top = int(HEIGHT * profile.safe_top) + (int(profile.text_font_size * 1.6) if text_on_top else 0)
+    if frame == "zoom":
+        top = max(top, ZOOM_TOP - HOOK_GAP - HOOK_FONT_SIZE - (lines - 1) * HOOK_LINE_H)
+    return top
 
 
 def _overlay_used(profile: Profile, root: Path, overlay: Path | None) -> Path | None:
@@ -70,26 +75,22 @@ def _overlay_used(profile: Profile, root: Path, overlay: Path | None) -> Path | 
     return overlay if overlay is not None and overlay.exists() else None
 
 
-def top_text_end(profile: Profile, root: Path, title: str, overlay: Path | None = None) -> int:
+def top_text_end(profile: Profile, root: Path, title: str, overlay: Path | None = None, frame: str = "") -> int:
     """Raden i bilden där texten uppe slutar: kampanjens text och hooken. 0 när ingen text ritas uppe.
     Samma läge som build_filter ritar dem på, så att ett klistermärke kan läggas under."""
     on_top = _text_on_top(profile, _overlay_used(profile, root, overlay) is not None)
     lines = _hook_lines(profile, title)
     if lines:
-        return _hook_top(profile, on_top) + len(lines) * HOOK_LINE_H
+        return _hook_top(profile, on_top, len(lines), frame) + len(lines) * HOOK_LINE_H
     return _hook_top(profile, on_top) if on_top else 0
 
 
 def _hook(
     profile: Profile, title: str, font: str | None, last: str, text_on_top: bool, frame: str = ""
 ) -> list[str]:
-    """Titeln centrerad i övre säkra zonen de första sekunderna, på upp till tre rader. I bildläget zoom
-    står den på det svarta precis ovanför bilden, men aldrig i den övre säkra zonen."""
+    """Titeln centrerad i övre säkra zonen de första sekunderna, på upp till tre rader (_hook_top)."""
     lines = _hook_lines(profile, title)
-    top = _hook_top(profile, text_on_top)
-    if frame == "zoom":
-        above = ZOOM_TOP - HOOK_GAP - HOOK_FONT_SIZE - (len(lines) - 1) * HOOK_LINE_H
-        top = max(top, above)
+    top = _hook_top(profile, text_on_top, len(lines), frame)
     font_part = f"fontfile='{_esc(font)}':" if font else ""
     parts = []
     for i, line in enumerate(lines):
