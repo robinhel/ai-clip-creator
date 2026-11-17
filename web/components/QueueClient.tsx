@@ -5,9 +5,11 @@ import Link from "next/link";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClipResultRow } from "@/components/ClipResultRow";
+import { RemoveFromQueue } from "@/components/RemoveFromQueue";
 import { ScheduleBar } from "@/components/ScheduleDialog";
 import { ScheduledList } from "@/components/ScheduledList";
 import { api } from "@/lib/api";
+import { SUMMARY_CHANGED } from "@/lib/utils";
 import type {
   CampaignClip,
   CampaignProfile,
@@ -129,6 +131,34 @@ export function QueueClient() {
     setClips((prev) => prev?.map((c) => (c.id === updated.id ? updated : c)) ?? null);
   }
 
+  // Senast borttagna klippet, så att det går att ångra. Klippet är nekat och finns kvar i klipploggen.
+  const [removed, setRemoved] = useState<{ clip: CampaignClip; cancelled: number } | null>(null);
+  const [undoError, setUndoError] = useState<string | null>(null);
+  const [undoing, setUndoing] = useState(false);
+
+  function handleRemoved(clip: CampaignClip, cancelled: number) {
+    handleUpdate(clip);
+    window.dispatchEvent(new Event(SUMMARY_CHANGED)); // siffran vid Att posta i sidomenyn
+    setRemoved({ clip, cancelled });
+    setUndoError(null);
+    if (cancelled > 0) loadSchedule();
+  }
+
+  async function undoRemove() {
+    if (!removed) return;
+    setUndoing(true);
+    try {
+      handleUpdate(await api.campaign.clips.patch(removed.clip.id, { status: "godkand" }));
+      window.dispatchEvent(new Event(SUMMARY_CHANGED));
+      setRemoved(null);
+      setUndoError(null);
+    } catch (err) {
+      setUndoError(err instanceof Error ? err.message : "Det gick inte att ångra");
+    } finally {
+      setUndoing(false);
+    }
+  }
+
   function runIdFor(clip: CampaignClip): number | undefined {
     // Senaste projektet för samma VOD och kampanj.
     return runs
@@ -186,6 +216,27 @@ export function QueueClient() {
                 {section.title} <span className="font-normal text-muted-foreground">({items.length})</span>
               </h2>
               <p className="text-sm text-muted-foreground">{section.description}</p>
+              {section.status === "godkand" && removed && (
+                <div role="status" className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-panel px-3 py-2 text-sm">
+                  <span className="min-w-0 flex-1">
+                    {removed.clip.title ?? `Klipp #${removed.clip.id}`} är borttaget från Att posta.
+                    {removed.cancelled > 0 && " Den schemalagda uppladdningen är avbruten och startar inte igen vid Ångra."}
+                  </span>
+                  <span className="flex shrink-0 gap-2">
+                    <Button size="sm" variant="outline" disabled={undoing} onClick={undoRemove}>
+                      Ångra
+                    </Button>
+                    <Button size="sm" variant="ghost" disabled={undoing} onClick={() => setRemoved(null)}>
+                      Stäng
+                    </Button>
+                  </span>
+                  {undoError && (
+                    <p role="alert" className="w-full text-bad">
+                      {undoError}
+                    </p>
+                  )}
+                </div>
+              )}
               {items.length === 0 ? (
                 <p className="mt-4 rounded-2xl border border-dashed border-line px-4 py-8 text-center text-sm text-muted-foreground">
                   {section.empty}
@@ -210,6 +261,17 @@ export function QueueClient() {
                       runId={runIdFor(clip)}
                       onUpdate={handleUpdate}
                       onReload={load}
+                      approvedAction={
+                        clip.status === "godkand" ? (
+                          <RemoveFromQueue
+                            clip={clip}
+                            pending={(schedule ?? []).filter(
+                              (p) => p.clip_id === clip.id && (p.status === "waiting" || p.status === "running")
+                            )}
+                            onRemoved={handleRemoved}
+                          />
+                        ) : undefined
+                      }
                     />
                   </Fragment>
                 ))
