@@ -77,9 +77,17 @@ class FakeTwitchDl:
     """Gör som twitch-dl download --no-join: spellistan i playlist.m3u8, delarna i start-slut som
     00002.ts osv., redan hämtade delar hämtas inte igen, och playlist_downloaded.m3u8 med dem."""
 
-    def __init__(self, segment_files: Path, segments: int, code: int = 0, output: str = "") -> None:
+    def __init__(
+        self,
+        segment_files: Path,
+        segments: int,
+        code: int = 0,
+        output: str = "",
+        ended: bool = False,
+    ) -> None:
         self.segment_files = segment_files
         self.segments = segments
+        self.ended = ended  # streamen är slut: spellistan har #EXT-X-ENDLIST
         self.code = code
         self.output = output
         self.commands: list[list[str]] = []
@@ -90,8 +98,10 @@ class FakeTwitchDl:
         cache = Path(cmd[cmd.index("--cache-dir") + 1])
         start, end = _seconds(cmd[cmd.index("--start") + 1]), _seconds(cmd[cmd.index("--end") + 1])
         cache.mkdir(parents=True, exist_ok=True)
-        playlist = "#EXTM3U\n#EXT-X-PLAYLIST-TYPE:EVENT\n" + "".join(
-            f"#EXTINF:{SEGMENT_S:.3f},\n{i}.ts\n" for i in range(self.segments)
+        playlist = (
+            "#EXTM3U\n#EXT-X-PLAYLIST-TYPE:EVENT\n"
+            + "".join(f"#EXTINF:{SEGMENT_S:.3f},\n{i}.ts\n" for i in range(self.segments))
+            + ("#EXT-X-ENDLIST\n" if self.ended else "")
         )
         (cache / "playlist.m3u8").write_text(playlist)
         chosen = [
@@ -133,6 +143,21 @@ def test_part_not_ready_when_playlist_ends_before_end(tmp_path, segment_files, t
         fetch_part("123", 25, 55, folder)
 
     assert list(folder.rglob("*.mp4")) == []
+
+
+@needs_ffmpeg
+def test_a_finished_vod_shorter_than_end_gives_what_there_is(
+    tmp_path, segment_files, twitchdl
+) -> None:
+    """Streamen slutade mindre än 30 s efter toppen: spellistan blir aldrig så lång som slutet."""
+    fake = twitchdl(FakeTwitchDl(segment_files, segments=5, ended=True))  # 50 s, och klar
+    folder = tmp_path / "topp_1"
+
+    start = fetch_part("123", 25, 55, folder)
+
+    assert start == 20.0
+    assert fake.downloaded == [2, 3, 4]
+    assert probe(folder / "topp_1.mp4")["duration"] == pytest.approx(3.0, abs=0.3)
 
 
 @needs_ffmpeg

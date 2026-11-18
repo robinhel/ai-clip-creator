@@ -15,7 +15,7 @@ from campaign.cliplog import ClipLog
 from campaign.live import PeakFinder, chat_for_part, message, part_id, part_window, vod_seconds
 from clipsmith.models.chat import ChatLog
 
-from .conftest import PAKET
+from .conftest import PAKET, set_profile
 
 
 def _calm(finder: PeakFinder, start: float, end: float, every: float = 5.0) -> list[float]:
@@ -224,6 +224,8 @@ class World:
 
     def fetch_part(self, vod_id: str, start_s: float, end_s: float, folder) -> float:
         self.fetches.append((vod_id, start_s, end_s, folder))
+        (folder / "segments").mkdir(parents=True, exist_ok=True)  # som twitch-dl: delarna först
+        (folder / "segments" / "00001.ts").write_bytes(b"ts")
         if self.not_ready:
             self.not_ready -= 1
             raise NotReady("inte inspelat än")
@@ -346,6 +348,8 @@ def test_the_part_chat_has_times_from_the_real_start(world, settings) -> None:
     burst = [m for m in chat["messages"] if m["author"] == "u0"][0]
     # Explosionen började 3000 s in i VOD:en. Tiden räknas från den verkliga starten.
     assert burst["time_in_seconds"] == pytest.approx(3000.0 - (start_s - 4.0))
+    # Chatten efter toppen, fram till delens slut, finns också med.
+    assert max(times) + (start_s - 4.0) >= 3006.0
 
 
 def test_the_run_is_local_with_the_chat_lag_focus_and_holds_the_lock(world, settings) -> None:
@@ -401,6 +405,8 @@ def test_a_part_that_is_not_ready_is_tried_again_for_three_minutes(world, settin
     assert sum(s for s in world.sleeps if s == live.RETRY_S) == pytest.approx(180)
     assert world.runs == []
     assert _peaks(settings)[0]["status"] == "fel"
+    assert not world.fetches[0][3].exists()  # delens mapp har inget klipp och tas bort
+    assert world.fetches[0][3].parent.exists()
 
 
 def test_a_part_that_is_ready_on_the_second_try_is_run(world, settings) -> None:
@@ -415,6 +421,8 @@ def test_a_failed_part_is_an_error_with_its_text(world, settings) -> None:
     peak = _peaks(settings)[0]
     assert (peak["status"], peak["reason"]) == ("fel", "Twitch gav ingen spellista.")
     assert world.runs == []
+    assert not world.fetches[0][3].exists()
+    assert world.fetches[0][3].parent.exists()
 
 
 def test_a_broken_chat_connects_again_with_a_growing_wait(world, settings) -> None:
@@ -492,9 +500,10 @@ def test_a_new_vod_starts_a_new_list_of_peaks(world, settings) -> None:
     assert world.watcher.jobs.get_nowait().part_id == "888_live_1"
 
 
-def test_a_finished_run_notifies_once_per_rendered_clip(world, settings) -> None:
+def test_a_finished_run_notifies_once_per_clip_to_review(world, settings) -> None:
     world.watcher.handle(_one_peak(world, settings))
-    assert len(world.notes) == 2  # två renderade, inte det underkända
+    # Att granska visar både renderade och underkända klipp.
+    assert len(world.notes) == 3
     assert all(url == f"{settings.web_url}/queue?tab=granska" for _, url in world.notes)
 
 
@@ -504,3 +513,152 @@ def test_a_restart_marks_unfinished_peaks_as_errors(world, settings) -> None:
     state = live.LiveState(settings).channel(PROFILE)
     assert state["live"] is False
     assert state["peaks"][0]["status"] == "fel"
+
+
+# ---------- fixrundan: låset, trådarna och läget ----------
+
+
+def test_a_failed_mark_before_the_run_releases_the_lock(world, settings) -> None:
+    """Går live.json inte att skriva när körningen ska börja, får vanliga körningar ändå köra."""
+    from clipsmith.db.models import Run, RunStatus
+    from clipsmith.db.session import get_session
+
+    job = _one_peak(world, settings)
+    mark = world.watcher._mark
+
+    def broken(job: live.Job, status: str, **fields) -> None:
+        if status == "kor":
+            raise OSError("live.json gick inte att skriva")
+        mark(job, status, **fields)
+
+    world.watcher._mark = broken
+    world.watcher.handle(job)
+    assert world.runs == []
+    assert world.watcher.app.state.active_run_id is None
+    db = get_session()
+    assert [run.status for run in db.query(Run).all()] == [RunStatus.failed]
+    db.close()
+
+
+def test_the_chat_stops_before_the_next_message_when_reading_ends(world, settings) -> None:
+    def chat(channel: str, timeout_s: float):
+        yield from exploding_chat()[:120]  # tio minuter lugn chatt
+        world.watcher.reading.pop(PROFILE, None)  # bevakningen slås av
+        yield ("fan", "!clip", sent(3001))
+
+    world.watcher.chat = chat
+    world.watcher.check()
+    assert world.watcher.jobs.qsize() == 0
+
+
+def test_off_and_on_again_stops_the_old_reader(world, settings) -> None:
+    spawned: list[tuple] = []
+    world.watcher.spawn = lambda target, *args: spawned.append((target, args))
+    state = live.LiveState(settings)
+    world.watcher.check()
+    state.set_watching(PROFILE, False)
+    world.watcher.check()
+    state.set_watching(PROFILE, True)
+    world.watcher.check()
+    assert len(spawned) == 2
+    world.chats = [exploding_chat()]
+    old, args = spawned[0]
+    old(*args)  # den gamla läsaren slutar direkt
+    assert world.connects == 0 and world.watcher.jobs.qsize() == 0
+    assert PROFILE in world.watcher.reading  # den nya läsaren gäller fortfarande
+
+
+class Stop(BaseException):
+    pass
+
+
+def test_the_clip_thread_goes_on_after_an_error(world, settings) -> None:
+    job = _one_peak(world, settings)
+    handled = []
+
+    def handle(job: live.Job) -> None:
+        handled.append(job)
+        if len(handled) == 1:
+            raise OSError("live.json gick inte att skriva")
+        raise Stop
+
+    world.watcher.handle = handle
+    world.watcher.jobs.put(job)
+    world.watcher.jobs.put(job)
+    with pytest.raises(Stop):
+        world.watcher.work()
+    assert len(handled) == 2
+
+
+def test_a_late_peak_from_the_old_vod_keeps_the_new_peaks(settings) -> None:
+    state = live.LiveState(settings)
+    state.set_channel(PROFILE, vod_id="888")
+    assert state.add_peak(PROFILE, "888", 100.0, "2026-11-18T19:00:00+00:00") == 1
+    # Den gamla streamens läsare hann hitta en topp efter att den nya VOD:en började.
+    assert state.add_peak(PROFILE, "777", 3000.0, "2026-11-18T18:50:00+00:00") is None
+    channel = state.channel(PROFILE)
+    assert channel["vod_id"] == "888"
+    assert [p["vod_s"] for p in channel["peaks"]] == [100.0]
+
+
+def test_start_goes_on_when_live_json_cannot_be_written(settings, monkeypatch) -> None:
+    class Quiet:
+        def __init__(self, settings, app) -> None:
+            pass
+
+        def loop(self) -> None:
+            pass
+
+        def work(self) -> None:
+            pass
+
+    def broken(self) -> None:
+        raise OSError("skrivskyddad")
+
+    monkeypatch.setattr(live, "Watcher", Quiet)
+    monkeypatch.setattr(live.LiveState, "after_restart", broken)
+    monkeypatch.setattr(live, "_thread", [])
+    monkeypatch.delenv("PYTEST_CURRENT_TEST")
+    monkeypatch.delenv("KLIPP_LIVE", raising=False)
+    assert live.start(SimpleNamespace(), settings) is not None
+
+
+def test_a_broken_campaign_file_gives_a_readable_reason(world, settings) -> None:
+    job = _one_peak(world, settings)
+    (settings.profiles_dir / "skiimasktimmy.yaml").write_text("streamer: [", encoding="utf-8")
+    world.watcher.handle(job)
+    assert _peaks(settings)[0]["reason"] == "Kampanjen skiimasktimmy går inte att läsa."
+
+
+@pytest.mark.parametrize("why", ["avstängd", "inte redo"])
+def test_a_campaign_that_is_off_or_not_ready_is_not_watched(world, settings, why) -> None:
+    if why == "avstängd":
+        set_profile(settings, active=False)
+    else:
+        settings.berget_api_key = None
+    world.watcher.latest = lambda channel: pytest.fail("Twitch frågades")
+    world.watcher.check()
+    state = live.LiveState(settings).channel(PROFILE)
+    assert (state["live"], state["error"]) == (False, live.NOT_WATCHABLE)
+    assert world.connects == 0
+
+
+@pytest.mark.parametrize("lock", [live.editor_lock, live.chat_lock], ids=["redigering", "chatt"])
+def test_a_peak_waits_while_the_editor_or_the_chat_search_runs(world, settings, lock) -> None:
+    job = _one_peak(world, settings)
+    seen = []
+
+    def free(seconds: float) -> None:
+        if seconds == live.QUEUE_S:
+            seen.append(_peaks(settings)[0]["status"])
+            lock.release()
+
+    lock.acquire()
+    world.on_sleep = free
+    try:
+        world.watcher.handle(job)
+    finally:
+        if lock.locked() and not seen:
+            lock.release()
+    assert seen == ["ko"]
+    assert len(world.runs) == 1
