@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import sqlite3
+from collections.abc import Callable, Hashable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -64,7 +66,7 @@ def own_file(vod_id: str) -> bool:
     return not vod_id.isdigit()
 
 
-def card_runs(runs: list[dict], key) -> dict:
+def card_runs(runs: list[dict], key: Callable[[dict], Hashable]) -> dict:
     """Körningen som visas per nyckel, till exempel (vod_id, kampanj): den senaste, men inte en från chatten om
     det finns en annan."""
     # Chattens körningar först och de andra sist, var för sig i ordning efter run_id: den sista vinner.
@@ -520,7 +522,7 @@ class ClipLog:
         with self._db() as db:
             return _project_id(db, profile, streamer)
 
-    def projects(self) -> list[dict]:
+    def projects(self) -> builtins.list[dict]:  # builtins: list är också en metod i klassen
         with self._db() as db:
             return [dict(r) for r in db.execute("SELECT * FROM projects ORDER BY id").fetchall()]
 
