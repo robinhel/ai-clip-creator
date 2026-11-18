@@ -11,9 +11,9 @@ const views = new Intl.NumberFormat("sv-SE");
 
 const PLATFORM: Record<string, string> = { tiktok: "TikTok", youtube: "YouTube", instagram: "Instagram" };
 
-/** 70 eller mer är en extra bra kampanj, samma gräns som notisen på Macen. */
+/** 65 eller mer är en extra bra kampanj, samma gräns som notisen på Macen. */
 export function scoutTone(score: number): string {
-  if (score >= 70) return "text-good";
+  if (score >= 65) return "text-good";
   if (score >= 50) return "text-warn";
   return "text-muted-foreground";
 }
