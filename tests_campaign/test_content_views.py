@@ -7,6 +7,7 @@ irubyana-twitch/clipping och johndoe-twitch-stream/streaming, och /go/11045701.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -132,11 +133,33 @@ def test_the_campaign_clip_views_come_from_the_examples(monkeypatch) -> None:
 
     def fetch(url: str) -> dict:
         urls.append(url)
-        return {"clips": [{"views": 23000, "rank": 1}, {"views": 900, "rank": 2}], "earners": []}
+        return {"clips": [{"views": 23000, "rank": 1}, {"views": 900, "rank": 2}], "earners": [], "geo": GEO}
 
     monkeypatch.setattr(content_views.examples, "fetch", fetch)
-    assert content_views.campaign_clip_views(CR) == [23000, 900]
+    assert content_views.campaign_clip_views(CR) == {"views": [23000, 900], "geo": GEO}
     assert urls == [CR]
+
+
+GEO = {"priced": True, "rates": {"restOfWorld": [{"platform": "tiktok", "rate": 200}], "tiers": []},
+       "payout_model": [{"platform": "tiktok", "rate": 0}]}
+
+
+def test_a_new_campaign_without_clips_gives_no_views_and_no_warning(monkeypatch, caplog) -> None:
+    page = '<script>self.__next_f.push([1,"4:{\\"campaign\\":{\\"topEarners\\":[],\\"topClips\\":[]}}"])</script>'
+    monkeypatch.setattr(content_views.examples, "http_client", lambda: httpx.Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, text=page))))
+    content_views.examples.clear_cache()
+    assert content_views.campaign_clip_views(CR) == {
+        "views": [], "geo": {"priced": False, "rates": None, "payout_model": []}}
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []  # en ny kampanj utan klipp är inget fel
+
+
+def test_a_page_without_campaign_data_gives_none_and_a_warning(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(content_views.examples, "http_client", lambda: httpx.Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, text="<html>Inloggning krävs</html>"))))
+    content_views.examples.clear_cache()
+    assert content_views.campaign_clip_views(CR) is None
+    assert "hittade inga klipp" in caplog.text
 
 
 def test_a_page_that_cannot_be_read_gives_none(monkeypatch) -> None:

@@ -21,8 +21,10 @@ CDN = "https://cdn.contentrewards.com/downloaded-videos/abc"
 
 def _page(clips: list[dict], earners: list[dict]) -> str:
     """En sida som Next.js skickar den: datan ligger som JSON-text i self.__next_f.push([1,"..."])."""
-    data = json.dumps({"campaign": {"creatorCount": 26, "topEarners": earners, "topClips": clips}})
-    flight = "4:" + data
+    return _flight_page("4:" + json.dumps({"campaign": {"creatorCount": 26, "topEarners": earners, "topClips": clips}}))
+
+
+def _flight_page(flight: str) -> str:
     half = len(flight) // 2  # datan kan vara delad på flera push-anrop
     pushes = "".join(
         f"<script>self.__next_f.push([1,{json.dumps(part)}])</script>" for part in (flight[:half], flight[half:])
@@ -66,6 +68,64 @@ def test_parse_joins_clips_with_their_clipper_and_keeps_only_safe_links() -> Non
 def test_parse_without_data_raises_a_swedish_error() -> None:
     with pytest.raises(ValueError, match="hittade inga klipp"):
         examples.parse("<html>Inloggning krävs</html>")
+
+
+# ---------- priset per land ----------
+
+# Utdrag ur två riktiga sidor (.amp/in/orb-backup/clippingalpha-views/cr-*.html), som texten i flight-datan.
+# Call of Duty (a1cefc3b-…): restOfWorld har bara tiktok, och instagram har ett fast pris i payoutModel.
+COD = ('"budget":3000000,"geoRates":{"restOfWorld":[{"platform":"tiktok","rate":200}],"tiers":[{"countries":'
+       '["BD","IN","PK"],"label":"Pak, Ind, Ban","platform":"tiktok","rate":0}]},"payoutModel":[{"maxPayout":120000,'
+       '"minPayout":600,"platform":"tiktok","rate":0},{"maxPayout":120000,"minPayout":450,"platform":"instagram",'
+       '"rate":150}]},"type":"cpm","description":"Post to TikTok and Instagram Reels.\\n","geoPriced":true,'
+       '"id":"a1cefc3b-4533-438f-8e70-a7299550f1cf"')
+# WA-CHAA! (eb28f557-…): tiktok och youtube i restOfWorld.
+WACHAA = ('"budget":1050000,"geoRates":{"restOfWorld":[{"platform":"tiktok","rate":200},{"platform":"youtube",'
+          '"rate":200}],"tiers":[{"countries":["IN","PK","BD"],"label":"Pak, Ind, Ban","platform":"tiktok","rate":0},'
+          '{"countries":["IN","PK","BD"],"label":"Pak, Ind, Ban","platform":"youtube","rate":0}]},"payoutModel":'
+          '[{"maxPayout":60000,"minPayout":200,"platform":"tiktok","rate":0},{"maxPayout":60000,"minPayout":150,'
+          '"platform":"instagram","rate":150},{"maxPayout":60000,"minPayout":200,"platform":"youtube","rate":0}]},'
+          '"type":"cpm","description":"Use only footage from the official content folder.\\n","geoPriced":true,'
+          '"id":"eb28f557-df7b-4245-8603-01380c4d84cc"')
+TOP = '"topEarners":[],"topClips":[{"rank":1,"userId":"u1","platform":"tiktok","totalViews":900}]'
+
+
+def _campaign_page(excerpt: str, top: str = TOP) -> str:
+    """Utdraget börjar inne i kampanjens betalningsdel, som på den riktiga sidan."""
+    return _flight_page('5:{"campaign":{"pay":{"requirement":{"preApproval":false},' + excerpt + "," + top + "}}")
+
+
+@pytest.mark.parametrize(("excerpt", "rates", "model"), [
+    (COD, {"restOfWorld": [{"platform": "tiktok", "rate": 200}],
+           "tiers": [{"countries": ["BD", "IN", "PK"], "label": "Pak, Ind, Ban", "platform": "tiktok", "rate": 0}]},
+     [{"maxPayout": 120000, "minPayout": 600, "platform": "tiktok", "rate": 0},
+      {"maxPayout": 120000, "minPayout": 450, "platform": "instagram", "rate": 150}]),
+    (WACHAA, {"restOfWorld": [{"platform": "tiktok", "rate": 200}, {"platform": "youtube", "rate": 200}],
+              "tiers": [{"countries": ["IN", "PK", "BD"], "label": "Pak, Ind, Ban", "platform": "tiktok", "rate": 0},
+                        {"countries": ["IN", "PK", "BD"], "label": "Pak, Ind, Ban", "platform": "youtube", "rate": 0}]},
+     [{"maxPayout": 60000, "minPayout": 200, "platform": "tiktok", "rate": 0},
+      {"maxPayout": 60000, "minPayout": 150, "platform": "instagram", "rate": 150},
+      {"maxPayout": 60000, "minPayout": 200, "platform": "youtube", "rate": 0}])])
+def test_parse_gives_the_price_per_country_from_real_pages(excerpt, rates, model) -> None:
+    out = examples.parse(_campaign_page(excerpt))
+    assert out["geo"] == {"priced": True, "rates": rates, "payout_model": model}
+    assert [c["views"] for c in out["clips"]] == [900]
+
+
+def test_a_page_with_prices_but_no_clips_gives_empty_lists_and_the_prices() -> None:
+    out = examples.parse(_campaign_page(COD, top='"creatorCount":0'))
+    assert (out["clips"], out["earners"], out["geo"]["priced"]) == ([], [], True)
+
+
+def test_a_new_campaign_with_empty_top_clips_is_not_an_error() -> None:
+    out = examples.parse(_page([], []))
+    assert out == {"clips": [], "earners": [], "geo": {"priced": False, "rates": None, "payout_model": []}}
+
+
+def test_a_page_with_price_per_country_turned_off() -> None:
+    out = examples.parse(_campaign_page('"geoRates":null,"payoutModel":[{"platform":"tiktok","rate":150}]},'
+                                        '"geoPriced":false'))
+    assert out["geo"] == {"priced": False, "rates": None, "payout_model": [{"platform": "tiktok", "rate": 150}]}
 
 
 @pytest.fixture
