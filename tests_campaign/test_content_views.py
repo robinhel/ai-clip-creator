@@ -60,6 +60,20 @@ def test_no_valid_twitch_channel_gives_none(assets) -> None:
     assert content_views.channel_from_assets(assets) is None
 
 
+def test_the_first_twitch_vod_gives_the_video_id() -> None:
+    assets = {"videos": [{**JOHNDOE["videos"][0], "platform": "youtube", "url": "https://www.twitch.tv/videos/1"},
+                         *JOHNDOE["videos"], {**JOHNDOE["videos"][0], "url": "https://www.twitch.tv/videos/2"}]}
+    assert content_views.vod_from_assets(assets) == "2919796761"
+
+
+@pytest.mark.parametrize("url", [
+    "https://evil.example/videos/2919796761", "http://www.twitch.tv/videos/2919796761",
+    "https://www.twitch.tv/videos/abc", "https://www.twitch.tv/irubyana/videos?filter=archives", None])
+def test_no_valid_twitch_vod_gives_none(url) -> None:
+    assert content_views.vod_from_assets({"videos": [{**JOHNDOE["videos"][0], "url": url}]}) is None
+    assert content_views.vod_from_assets({}) is None
+
+
 # ---------- /go/-länken ----------
 
 
@@ -136,12 +150,13 @@ def test_a_page_that_cannot_be_read_gives_none(monkeypatch) -> None:
 
 
 class FakeHelix:
-    """Svarar som Twitch på token, /users och /clips."""
+    """Svarar som Twitch på token, /users, /videos och /clips."""
 
     def __init__(self):
         self.requests: list[httpx.Request] = []
         self.users = {"irubyana": "42"}
         self.clips = [{"view_count": 1200}, {"view_count": 300}]
+        self.videos = {"2919796761": "johndoe_100x"}  # video-id och kanalens user_login
         self.down = False
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -153,6 +168,10 @@ class FakeHelix:
         if request.url.path == "/helix/users":
             login = request.url.params["login"]
             return httpx.Response(200, json={"data": [{"id": self.users[login]}] if login in self.users else []})
+        if request.url.path == "/helix/videos":
+            video = request.url.params["id"]
+            return httpx.Response(200, json={"data": [{"id": video, "user_login": self.videos[video]}]
+                                             if video in self.videos else []})
         assert request.url.path == "/helix/clips"
         return httpx.Response(200, json={"data": self.clips, "pagination": {"cursor": "next"}})
 
@@ -205,4 +224,28 @@ def test_without_keys_no_call_and_none(helix, monkeypatch) -> None:
     monkeypatch.setattr(content_views, "load_secrets",
                         lambda: SimpleNamespace(twitch_client_id="", twitch_client_secret=""))
     assert content_views.twitch_clip_views("irubyana", NOW) is None
+    assert content_views.twitch_login_from_vod("2919796761") is None
     assert helix.requests == []
+
+
+# ---------- kanalen via VOD-länken ----------
+
+
+def test_the_vod_gives_the_channel_with_one_call_to_videos(helix) -> None:
+    helix.videos["2919796761"] = "JohnDoe_100x"
+    assert content_views.twitch_login_from_vod("2919796761") == "johndoe_100x"
+    (videos,) = helix.paths("/helix/videos")
+    assert videos.url.params["id"] == "2919796761"
+    assert [r.url.path for r in helix.requests if r.url.host == "api.twitch.tv"] == ["/helix/videos"]
+
+
+@pytest.mark.parametrize("login", ["a!b", "ab", "", None, 42])
+def test_an_invalid_user_login_gives_no_login(helix, login) -> None:
+    helix.videos["2919796761"] = login
+    assert content_views.twitch_login_from_vod("2919796761") is None
+
+
+def test_a_vod_that_does_not_exist_or_twitch_down_gives_none(helix) -> None:
+    assert content_views.twitch_login_from_vod("1") is None
+    helix.down = True
+    assert content_views.twitch_login_from_vod("2919796761") is None
