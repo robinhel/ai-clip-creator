@@ -19,5 +19,6 @@ async function serverGet<T>(path: string): Promise<T | null> {
 
 export const serverApi = {
   summary: () => serverGet<CampaignSummary>("/campaign/summary"),
-  clips: () => serverGet<CampaignClip[]>("/campaign/clips"),
+  /** postedOff: också postade klipp från avstängda kampanjer, för Statistik. */
+  clips: (postedOff = false) => serverGet<CampaignClip[]>(`/campaign/clips${postedOff ? "?posted_off=true" : ""}`),
 };

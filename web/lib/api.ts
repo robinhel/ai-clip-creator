@@ -172,7 +172,10 @@ export const api = {
     uploadOptions: (profile: string) =>
       apiFetch<UploadOptions>(`/campaign/uploads/options?profile=${encodeURIComponent(profile)}`),
     clips: {
-      list: (filter: { status?: CampaignStatus; vod_id?: string; run_id?: number; project_id?: number } = {}) => {
+      /** posted_off: också postade klipp från avstängda kampanjer, för Statistik. */
+      list: (
+        filter: { status?: CampaignStatus; vod_id?: string; run_id?: number; project_id?: number; posted_off?: boolean } = {}
+      ) => {
         const query = new URLSearchParams(
           Object.entries(filter).map(([key, value]) => [key, String(value)])
         ).toString();

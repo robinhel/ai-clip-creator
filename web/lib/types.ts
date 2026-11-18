@@ -242,6 +242,8 @@ export interface CampaignClip {
   length_s?: number | null;
   /** Länderna kampanjen vill nå, i ord, till exempel "Tier 1-länder". Saknas hos äldre servrar. */
   audience_countries?: string | null;
+  /** Kampanjen är avstängd (active: false). Statistik visar då bara klippet om det är postat. Saknas hos äldre servrar. */
+  campaign_off?: boolean;
 }
 
 export type StickerPosition = "top_left" | "top_right" | "center" | "bottom_left" | "bottom_right";

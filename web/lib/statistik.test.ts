@@ -208,6 +208,20 @@ describe("todoItems", () => {
       ["posta", 3, null],
     ]);
   });
+
+  it("en avstängd kampanj ber bara om visningar, inte om att skicka in", () => {
+    const offPosted = post({ status: "postad" });
+    const offSent = post({ status: "inskickad", views: null });
+    const onPosted = post({ status: "postad", clip_id: 10 });
+    const items = todoItems([
+      clip({ campaign_off: true, status: "postad", posts: [offPosted, offSent] }),
+      clip({ id: 10, status: "postad", posts: [onPosted] }),
+    ], NOW);
+    expect(items.map((i) => [i.step, i.post?.id])).toEqual([
+      ["inskickad", onPosted.id],
+      ["visningar", offSent.id],
+    ]);
+  });
 });
 
 describe("filtret i adressen", () => {
