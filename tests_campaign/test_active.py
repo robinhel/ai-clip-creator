@@ -74,3 +74,58 @@ def test_an_off_campaign_is_hidden_everywhere_but_under_campaigns(client, settin
     assert listed == {"annan": False, "skiimasktimmy": True}
     # En direktlänk till den avstängda kampanjens projekt visar fortfarande dess klipp.
     assert len(client.get("/campaign/clips", params={"run_id": other_run}).json()) == 2
+
+
+def _off_campaign_with_posts(settings) -> dict[str, int]:
+    """En påslagen kampanj med ett godkänt klipp och ett postat, och en avstängd med ett postat, ett inskickat och
+    ett godkänt klipp. Det postade klippet i den avstängda kampanjen har 5 000 visningar, över min_views."""
+    _second_campaign(settings, "annan", "annankanal")
+    log = ClipLog(settings.data_dir / "klipp.db")
+    ids = {
+        "on_approved": log.add(vod_id="2925991945", profile="skiimasktimmy", file="a.mp4", title="a", caption="c",
+                               status="godkand"),
+        "on_posted": log.add(vod_id="2925991945", profile="skiimasktimmy", file="b.mp4", title="b", caption="c",
+                             status="postad"),
+        "off_posted": log.add(vod_id="2925999999", profile="annan", file="c.mp4", title="c", caption="c",
+                              status="postad"),
+        "off_sent": log.add(vod_id="2925999999", profile="annan", file="d.mp4", title="d", caption="c",
+                            status="inskickad"),
+        "off_approved": log.add(vod_id="2925999999", profile="annan", file="e.mp4", title="e", caption="c",
+                                status="godkand"),
+    }
+    log.update(ids["off_posted"], views=5000)
+    path = settings.profiles_dir / "annan.yaml"
+    path.write_text(path.read_text() + "active: false\n")
+    return ids
+
+
+def test_statistics_shows_posted_clips_from_an_off_campaign(client, settings) -> None:  # noqa: F811
+    ids = _off_campaign_with_posts(settings)
+    shown = {c["id"]: c["campaign_off"] for c in client.get("/campaign/clips", params={"posted_off": True}).json()}
+    assert shown == {ids["on_approved"]: False, ids["on_posted"]: False,
+                     ids["off_posted"]: True, ids["off_sent"]: True}  # inte det godkända i den avstängda
+
+    # Utan posted_off döljs den avstängda kampanjens klipp som förut.
+    plain = {c["id"]: c["campaign_off"] for c in client.get("/campaign/clips").json()}
+    assert plain == {ids["on_approved"]: False, ids["on_posted"]: False}
+
+
+def test_posted_off_does_not_change_a_run_or_a_campaign(client, settings) -> None:  # noqa: F811
+    _off_campaign_with_posts(settings)
+    run_id = _done_run(settings, "2925999999")
+    ClipLog(settings.data_dir / "klipp.db").add_run(run_id, "2925999999", "annan", "Bodycam")
+    for params in ({"profile": "annan"}, {"profile": "skiimasktimmy"}, {"run_id": run_id}):
+        plain = client.get("/campaign/clips", params=params).json()
+        assert plain
+        assert client.get("/campaign/clips", params={**params, "posted_off": True}).json() == plain
+
+
+def test_summary_earnings_count_posted_clips_from_an_off_campaign(client, settings) -> None:  # noqa: F811
+    ids = _off_campaign_with_posts(settings)
+    summary = client.get("/campaign/summary").json()
+    assert summary["earnings"]["per_clip"] == [{"id": ids["off_posted"], "views": 5000, "usd": 5.0}]
+    assert summary["earnings"]["estimated_usd"] == 5.0
+    # Antalen och Att göra gäller bara påslagna kampanjer, som förut.
+    assert summary["counts"] == {"godkand": 1, "postad": 1}
+    assert len(summary["todo"]) == 2
+    assert not [item for item in summary["todo"] if f"#{ids['off_posted']} " in item or f"#{ids['off_sent']} " in item]
