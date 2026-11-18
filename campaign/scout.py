@@ -63,9 +63,9 @@ MAX_MIN_VIEWS = 10_000
 
 # Delen Visningar (Robins beslut 18 nov 2026): medianen av de 10 bästa klippens visningar, på log-skala.
 VIEWS_MAX = 40
-MIN_CAMPAIGN_CLIPS = 5  # färre klipp på Content Rewards säger för lite
-CAMPAIGN_VIEWS = (2_000, 50_000)  # kampanjens klipp: 0 poäng vid 2 000 eller lägre, 40 vid 50 000 eller högre
-TWITCH_VIEWS = (100, 10_000)  # kanalens Twitch-klipp, 30 dagar: 0 vid 100 eller lägre, 40 vid 10 000 eller högre
+MIN_CLIPS = 5  # färre klipp, på Twitch eller Content Rewards, visar inget mönster (Robins beslut 18 nov 2026)
+CAMPAIGN_VIEWS = (2_000, 1_000_000)  # kampanjens klipp: 0 poäng vid 2 000 eller lägre, 40 vid 1 000 000 eller högre
+TWITCH_VIEWS = (500, 200_000)  # kanalens Twitch-klipp, 30 dagar: 0 vid 500 eller lägre, 40 vid 200 000 eller högre
 TWITCH_MAX_AGE_S = 24 * 3600
 CLIP_VIEWS_PER_RUN = 25  # kampanjens klipp på Content Rewards för kampanjer som syns, högst så många per körning
 
@@ -236,14 +236,14 @@ def _log_points(median: float, low: int, high: int) -> float:
 
 
 def _views_part(data: dict) -> dict:
-    """Hur många visningar kampanjens innehåll brukar få: kanalens Twitch-klipp om det finns minst ett,
+    """Hur många visningar kampanjens innehåll brukar få: kanalens Twitch-klipp om de är minst 5,
     annars kampanjens klipp på Content Rewards om de är minst 5."""
-    twitch, clips = data.get("twitch_views"), data.get("clip_views") or []
-    if twitch:
+    twitch, clips = data.get("twitch_views") or [], data.get("clip_views") or []
+    if len(twitch) >= MIN_CLIPS:
         median, _ = _top_median(twitch)
         return _part("views", "Visningar", _log_points(median, *TWITCH_VIEWS), VIEWS_MAX,
                      f"Twitch: median {_number(median)} visningar för kanalens bästa klipp, 30 dagar")
-    if len(clips) >= MIN_CAMPAIGN_CLIPS:
+    if len(clips) >= MIN_CLIPS:
         median, count = _top_median(clips)
         return _part("views", "Visningar", _log_points(median, *CAMPAIGN_VIEWS), VIEWS_MAX,
                      f"Median {_number(median)} visningar för kampanjens {count} bästa klipp")
