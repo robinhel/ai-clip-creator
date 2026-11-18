@@ -333,7 +333,9 @@ def make(settings: Settings, log: ClipLog, clip: dict, platform: str, account: s
          speed: float = 1.0, filter: str = "none", brightness: float = 0.0, saturation: float = 0.0,
          hook: str | None = None) -> int:
     """Rendera en ny version och spara den som ett eget klipp med version_of. Anroparen håller editor.lock.
-    Råklippet, originalets klara fil och ordfilen ändras inte. hook None: originalets hook, rubrik och caption."""
+    Råklippet, originalets klara fil och ordfilen ändras inte. hook None: originalets hook, rubrik och caption.
+    En versions headline är texten som faktiskt visas i bilden, också när den är originalets titel. I ett vanligt
+    klipp är headline en egen text, där "" betyder titeln."""
     ready = _ready(settings, log, clip, platform, account)
     root, profile, raw, data = ready["root"], ready["profile"], ready["raw"], ready["data"]
     found = fonts()

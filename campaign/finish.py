@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -188,8 +187,8 @@ def hook_fits(
     """Texten ryms i bilden utan "…", med samma radbrytning som build_filter och samma argument som top_text_end.
     Mäts också när kampanjen inte visar hooken (hook_text), eftersom den kan slås på."""
     on_top = _text_on_top(profile, _overlay_used(profile, root, overlay) is not None)
-    every = _hook_wrap(profile, title, font_file is not None, sys.maxsize)
-    return len(every) <= _max_lines(_hook_start(profile, on_top), frame)
+    most = _max_lines(_hook_start(profile, on_top), frame)
+    return len(_hook_wrap(profile, title, font_file is not None, most + 1)) <= most
 
 
 def _hook(

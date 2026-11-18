@@ -194,7 +194,6 @@ def test_edit_clip_in_mcp_sends_the_headline(app) -> None:  # noqa: F811
     assert (request.url.path, json.loads(request.content)) == ("/campaign/clips/7/edit", {"headline": "Big play"})
 
 
-
 # ---------- ny version ----------
 
 
@@ -216,11 +215,7 @@ def test_a_version_places_its_sticker_with_its_font(vclip, settings, monkeypatch
     fonts: list = []
     real = versions.top_text_end
 
-    def spy(profile, root, title, overlay=None, frame="", font_file=None):
-        fonts.append(font_file)
-        return real(profile, root, title, overlay, frame, font_file)
-
-    monkeypatch.setattr(versions, "top_text_end", spy)
+    monkeypatch.setattr(versions, "top_text_end", lambda *a, **k: fonts.append(a[5]) or real(*a, **k))
     answer = _make(client, clip_id, font="Impact", sticker=STICKER_TOP)
     assert answer.status_code == 201, answer.text
     assert fonts == [str(settings.root / "fonts" / "Impact.ttf")]
