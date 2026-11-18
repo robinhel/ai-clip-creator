@@ -178,7 +178,7 @@ class World:
     """Låtsas-Twitch, låtsas-klocka och låtsas-körning. Inget går mot nätverket och inget sover på riktigt."""
 
     def __init__(self, chats: list | None = None) -> None:
-        self.t = STARTED + 3600.0
+        self.t = STARTED + 2000.0  # före toppen, som när chatten läses live
         self.vod = {
             "id": "777",
             "createdAt": CREATED,
@@ -324,7 +324,7 @@ def test_a_burst_in_the_live_chat_fetches_the_part_a_minute_after_the_peak(world
     world.watcher.handle(job)
     vod_id, start_s, end_s, folder = world.fetches[0]
     assert (vod_id, start_s, end_s) == ("777", job.peak_s - 90, job.peak_s + 30)
-    assert folder == settings.root / "work" / "777_live_1"
+    assert folder.resolve() == (settings.root / "work" / "777_live_1").resolve()
     # cirka 60 s efter toppen, räknat i väggtid
     assert abs(world.t - (STARTED + job.peak_s + 60)) < 1
     assert live.LiveState(settings).channel(PROFILE)["live"] is True
@@ -339,8 +339,8 @@ def test_the_part_chat_has_times_from_the_real_start(world, settings) -> None:
     times = [m["time_in_seconds"] for m in chat["messages"]]
     assert times and min(times) >= 0 and max(times) < end_s - (start_s - 4.0)
     burst = [m for m in chat["messages"] if m["author"] == "u0"][0]
-    # Tiden räknas från den verkliga starten.
-    assert abs(burst["time_in_seconds"] - (job.peak_s - (start_s - 4.0))) < 0.01
+    # Explosionen började 3000 s in i VOD:en. Tiden räknas från den verkliga starten.
+    assert burst["time_in_seconds"] == pytest.approx(3000.0 - (start_s - 4.0))
 
 
 def test_the_run_is_local_with_the_chat_lag_focus_and_holds_the_lock(world, settings) -> None:
