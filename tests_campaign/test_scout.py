@@ -20,6 +20,7 @@ from campaign import api, scout, scout_api
 from campaign.cliplog import ClipLog
 
 NOW = datetime(2026, 11, 13, 12, 0, tzinfo=UTC)
+CR = "https://contentrewards.com/c/campaigns/a1cefc3b-4533-438f-8e70-a7299550f1cf"
 LIMIT_BODY = {"jsonrpc": "2.0", "error": {"code": -32001, "message": "Sign in to ClippingAlpha to go on: signed out, "
                                                                      "one network gets 500 calls a day."}, "id": None}
 
@@ -87,43 +88,44 @@ def _parts(data: dict, median: float = 1260, cpm_median: float = 1.05) -> tuple[
 def test_a_fresh_twitch_campaign_with_everything_scores_high() -> None:
     total, parts, excluded = _parts(_data())
     assert excluded is None
-    assert list(parts) == ["fresh", "minimum", "source", "budget", "pay", "proof", "hassle"]
-    assert [parts[key]["max"] for key in parts] == [25, 20, 15, 15, 10, 10, 5]
+    assert list(parts) == ["views", "fresh", "minimum", "source", "budget", "pay", "proof", "hassle"]
+    assert [parts[key]["max"] for key in parts] == [40, 15, 12, 9, 9, 6, 6, 3]
+    assert sum(parts[key]["max"] for key in parts) == 100
     assert {key: parts[key]["points"] for key in parts} == {
-        "fresh": 25, "minimum": 20, "source": 15, "budget": 15, "pay": pytest.approx(8.6, abs=0.05),
-        "proof": 10, "hassle": 5}
-    assert total == round(25 + 20 + 15 + 15 + 5 * 1.8 / 1.05 + 10 + 5)
+        "views": 20, "fresh": 15, "minimum": 12, "source": 9, "budget": 9, "pay": pytest.approx(5.1, abs=0.05),
+        "proof": 6, "hassle": 3}
+    assert total == round(20 + 15 + 12 + 9 + 9 + 3 * 1.8 / 1.05 + 6 + 3)
     assert all(part["label"] and part["fact"] for part in parts.values())
 
 
 @pytest.mark.parametrize(("age_h", "points"), [
-    (47, 25), (24 * 10, 25 - 20 * (10 - 2) / (21 - 2)), (24 * 25, 5 * (30 - 25) / (30 - 21)), (24 * 31, 0)])
+    (47, 15), (24 * 10, 15 - 12 * (10 - 2) / (21 - 2)), (24 * 25, 3 * (30 - 25) / (30 - 21)), (24 * 31, 0)])
 def test_freshness_falls_with_age(age_h, points) -> None:
     assert _parts(_data(age_h=age_h))[1]["fresh"]["points"] == pytest.approx(points, abs=0.05)
 
 
-@pytest.mark.parametrize(("verdict", "drain_days", "minus"), [("Fast", 10, 10), ("Fair", 10, 5), ("Slow", 2, 10),
-                                                               ("Slow", 5, 5), ("Too early", 10, 0)])
+@pytest.mark.parametrize(("verdict", "drain_days", "minus"), [("Fast", 10, 6), ("Fair", 10, 3), ("Slow", 2, 6),
+                                                               ("Slow", 5, 3), ("Too early", 10, 0)])
 def test_freshness_loses_points_when_the_budget_goes_fast(verdict, drain_days, minus) -> None:
     data = _data(drain={"p50": _iso(NOW + timedelta(days=drain_days)), "stalled": False})
     data["analytics"]["alpha"]["verdicts"][0]["verdict"] = verdict
-    assert _parts(data)[1]["fresh"]["points"] == 25 - minus
+    assert _parts(data)[1]["fresh"]["points"] == 15 - minus
 
 
 def test_unknown_age_gives_half_and_okant() -> None:
     data = _data(launchedAt=None)
     data["search"]["launchedAt"] = None
     fresh = _parts(data)[1]["fresh"]
-    assert (fresh["points"], fresh["fact"]) == (12.5, "Okänt")
+    assert (fresh["points"], fresh["fact"]) == (7.5, "Okänt")
 
 
 def test_the_chance_to_reach_the_minimum_is_logarithmic() -> None:
     data = _data()
     data["analytics"]["pay"]["minPayoutUsd"] = 5  # 5 dollar vid 2 dollar per 1 000: 2 500 visningar
     part = _parts(data)[1]["minimum"]
-    assert part["points"] == pytest.approx(20 * (1 - math.log(2500 / 1260) / math.log(5)), abs=0.05)
+    assert part["points"] == pytest.approx(12 * (1 - math.log(2500 / 1260) / math.log(5)), abs=0.05)
     assert "2" in part["fact"] and "500" in part["fact"]
-    assert _parts(data, median=2500)[1]["minimum"]["points"] == 20
+    assert _parts(data, median=2500)[1]["minimum"]["points"] == 12
     assert _parts(data, median=500)[1]["minimum"]["points"] == 0
 
 
@@ -131,16 +133,17 @@ def test_no_details_gives_half_points_and_okant() -> None:
     data = {"search": _item()}  # bara sökträffen: ingen pay, inga regler, ingen organisatör
     _, parts, excluded = _parts(data)
     assert excluded is None
-    assert (parts["minimum"]["points"], parts["minimum"]["fact"]) == (10, "Okänt")
-    assert (parts["proof"]["points"], parts["proof"]["fact"]) == (5, "Okänt")
-    assert parts["fresh"]["points"] == 25  # åldern finns i sökträffen
+    assert (parts["minimum"]["points"], parts["minimum"]["fact"]) == (6, "Okänt")
+    assert (parts["proof"]["points"], parts["proof"]["fact"]) == (3, "Okänt")
+    assert (parts["views"]["points"], parts["views"]["fact"]) == (20, "Okänt")
+    assert parts["fresh"]["points"] == 15  # åldern finns i sökträffen
 
 
 @pytest.mark.parametrize(("title", "about", "niche", "rules", "points"), [
-    ("Clip Twitch streams", "", "film-and-tv", ["Post in English"], 15),
-    ("Clip the streamer", "", "film-and-tv", [], 7),  # stream 4 + inget annat språk 3
-    ("Movie trailer", "Cut the trailer.", "gaming", ["Post in English"], 4),  # spel ger minst 4
-    ("Movie trailer", "Cut the trailer.", "film-and-tv", [], 3)])
+    ("Clip Twitch streams", "", "film-and-tv", ["Post in English"], 9),
+    ("Clip the streamer", "", "film-and-tv", [], 4.2),  # stream 2,4 + inget annat språk 1,8
+    ("Movie trailer", "Cut the trailer.", "gaming", ["Post in English"], 2.4),  # spel ger minst 2,4
+    ("Movie trailer", "Cut the trailer.", "film-and-tv", [], 1.8)])
 def test_the_source_points(title, about, niche, rules, points) -> None:
     data = _data(title=title, about=about, niche=niche,
                  rules={"checklist": [{"kind": "account", "text": text} for text in rules]})
@@ -148,7 +151,7 @@ def test_the_source_points(title, about, niche, rules, points) -> None:
     assert _parts(data)[1]["source"]["points"] == points
 
 
-@pytest.mark.parametrize(("drain", "left", "points"), [(3.5, 5000, 7.5), (8, 5000, 15), (None, 2000, 10)])
+@pytest.mark.parametrize(("drain", "left", "points"), [(3.5, 5000, 4.5), (8, 5000, 9), (None, 2000, 6)])
 def test_the_budget_lasts(drain, left, points) -> None:
     p50 = _iso(NOW + timedelta(days=drain)) if drain else None
     data = _data(drain={"p50": p50, "stalled": False})
@@ -157,7 +160,7 @@ def test_the_budget_lasts(drain, left, points) -> None:
     assert _parts(data)[1]["budget"]["points"] == pytest.approx(points, abs=0.05)
 
 
-@pytest.mark.parametrize(("net", "points"), [(1.575, 7.5), (None, 5 * 1.8 / 1.2), (4.0, 10)])
+@pytest.mark.parametrize(("net", "points"), [(1.575, 4.5), (None, 3 * 1.8 / 1.2), (4.0, 6)])
 def test_the_pay_against_the_market(net, points) -> None:
     data = _data(alpha={"netPer1kUsd": net})
     data["search"]["netPer1kUsd"] = net
@@ -167,15 +170,15 @@ def test_the_pay_against_the_market(net, points) -> None:
 def test_proof_of_payout() -> None:
     data = _data(organizerVerified=False)
     data["analytics"]["alpha"]["adjustments"] = [{"key": "payout", "label": "$50 paid to clippers in 7 days"}]
-    assert _parts(data)[1]["proof"]["points"] == 6
+    assert _parts(data)[1]["proof"]["points"] == 3.6
     data["analytics"]["alpha"]["adjustments"] = []
-    assert _parts(data)[1]["proof"]["points"] == 2
+    assert _parts(data)[1]["proof"]["points"] == 1.2
 
 
 def test_hassle_for_applications_and_many_caption_rules() -> None:
     rules = [{"kind": "caption", "text": f"Tag @x{i}"} for i in range(4)] + [{"kind": "disclosure", "text": "#ad"}]
     data = _data(rules={"checklist": rules})
-    assert _parts(data)[1]["hassle"]["points"] == 3
+    assert _parts(data)[1]["hassle"]["points"] == 1.8
     data["campaign"]["whereToJoin"][0].update(openJoin=False, gateType="application_full")
     assert _parts(data)[1]["hassle"]["points"] == 0
 
@@ -229,13 +232,23 @@ class FakeAlpha:
         self.alpha: list[dict] = []
         self.details: dict[str, tuple[dict, dict]] = {}
         self.broken: set[str] = set()  # get_campaign svarar isError för de här
+        self.broken_assets: set[str] = set()  # get_assets svarar isError för de här
         self.limit_at: str | None = None  # verktyget där ClippingAlphas dygnsgräns slår till
         self.limit_reached = False
         self.lose_session_once = False
         self.down = False
         self.sse = False
+        self.assets: dict[str, dict] = {}  # get_assets per kampanj
+        self.go: list[httpx.Request] = []  # GET /go/<id>
+        self.clip_views: list[int] | None = None  # kampanjens klipp på Content Rewards
+        self.twitch_views: list[int] | None = None
+        self.clip_calls: list[str] = []
+        self.twitch_calls: list[tuple[str, datetime]] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            self.go.append(request)
+            return httpx.Response(302, headers={"Location": f"{CR}?utm_source=clippingalpha&utm_content=direct"})
         self.requests.append(request)
         if self.down:
             return httpx.Response(500, text="nere")
@@ -257,11 +270,14 @@ class FakeAlpha:
         if name == "search_campaigns":
             items = self.newest if args["sort"] == "newest" else self.alpha
             content = {"total": len(items), "cpm": {"medianUsd": 1.2}, "campaigns": items}
-        elif name == "get_campaign" and args["campaign"] in self.broken:
+        elif (name, args.get("campaign")) in {("get_campaign", ref) for ref in self.broken} | {
+                ("get_assets", ref) for ref in self.broken_assets}:
             return httpx.Response(200, json={"jsonrpc": "2.0", "id": msg["id"], "result": {
                 "isError": True, "content": [{"type": "text", "text": "Campaign not found"}]}})
         elif name == "get_campaign":
             content = {"campaign": self.details[args["campaign"]][0]}
+        elif name == "get_assets":
+            content = self.assets.get(args["campaign"], {"videos": []})
         else:
             content = self.details[args["campaign"]][1]
         body = {"jsonrpc": "2.0", "id": msg["id"], "result": {"content": [{"type": "text", "text": "..."}],
@@ -278,6 +294,14 @@ class FakeAlpha:
             if msg["method"] == method and (tool is None or msg["params"]["name"] == tool):
                 out.append(msg)
         return out
+
+    def campaign_clip_views(self, cr_url: str) -> list[int] | None:
+        self.clip_calls.append(cr_url)
+        return self.clip_views
+
+    def twitch_clip_views(self, login: str, now: datetime) -> list[int] | None:
+        self.twitch_calls.append((login, now))
+        return self.twitch_views
 
     def add(self, ref: str, age_h: float = 24, **campaign) -> None:
         self.newest.append(_item(ref, age_h=age_h))
@@ -299,6 +323,8 @@ def fake(monkeypatch) -> FakeAlpha:
     monkeypatch.setattr(scout, "MIN_GAP_S", 0)
     monkeypatch.setattr(scout, "_session", {"id": None})
     monkeypatch.setattr(scout, "_now", lambda: NOW)
+    monkeypatch.setattr(scout, "campaign_clip_views", fake.campaign_clip_views)
+    monkeypatch.setattr(scout, "twitch_clip_views", fake.twitch_clip_views)
     return fake
 
 
@@ -347,9 +373,11 @@ def test_a_run_searches_fetches_details_scores_and_lists(client, settings, fake,
     assert [c["params"]["arguments"] for c in fake.calls("tools/call", "get_campaign")] == [
         {"campaign": "timmy/streams"}, {"campaign": "brand/trailer"}]
     assert len(fake.calls("tools/call", "get_campaign_analytics")) == 2
+    assert len(fake.calls("tools/call", "get_assets")) == 2
+    assert len(fake.go) == 2
 
     answer = client.get("/campaign/scout").json()
-    assert (answer["enabled"], answer["error"], answer["calls_today"], answer["call_limit"]) == (True, None, 8, 300)
+    assert (answer["enabled"], answer["error"], answer["calls_today"], answer["call_limit"]) == (True, None, 12, 300)
     assert (answer["median_views"], answer["median_source"]) == (1260, "standard")
     assert answer["updated_at"]
     assert [c["ref"] for c in answer["campaigns"]] == ["timmy/streams", "brand/trailer"]  # på betyg
@@ -372,7 +400,7 @@ def test_a_run_searches_fetches_details_scores_and_lists(client, settings, fake,
     assert len(fake.calls("initialize")) == 1
     assert len(fake.calls("tools/call", "search_campaigns")) == 3
     assert len(fake.calls("tools/call", "get_campaign")) == 2
-    assert client.get("/campaign/scout").json()["calls_today"] == 9
+    assert client.get("/campaign/scout").json()["calls_today"] == 13
 
     _later(monkeypatch, minutes=61)
     scout.Scout(settings).run_once()
@@ -444,7 +472,7 @@ def test_the_limit_at_clippingalpha_waits_an_hour_not_a_day(client, settings, fa
     assert scout.Scout(settings).wait_s() == 0
     scout.Scout(settings).run_once()
     answer = client.get("/campaign/scout").json()
-    assert (answer["error"], answer["calls_today"]) == (None, 8)
+    assert (answer["error"], answer["calls_today"]) == (None, 10)
     assert [c["ref"] for c in answer["campaigns"]] == ["timmy/streams"]
 
 
@@ -608,6 +636,7 @@ def test_a_campaign_whose_details_fail_still_gets_a_score_and_a_notice(settings,
     fake.add("timmy/streams")
     fake.add("other/streams")
     fake.broken.add("timmy/streams")
+    fake.clip_views = [50_000] * 10
     scout.Scout(settings).run_once()
     overview = scout.Scout(settings).overview()
     assert overview["error"] is None
@@ -712,7 +741,7 @@ def test_the_thread_runs_right_after_midnight_even_if_the_mac_slept(settings, mo
 def test_a_run_saves_what_it_cost(settings, fake, monkeypatch) -> None:
     fake.add("timmy/streams")
     scout.Scout(settings).run_once()
-    assert scout.Scout(settings)._get("last_cost") == "6"
+    assert scout.Scout(settings)._get("last_cost") == "8"  # med get_assets och /go/
     _later(monkeypatch, minutes=10)
     scout.Scout(settings).run_once()
     assert scout.Scout(settings)._get("last_cost") == "1"
@@ -732,3 +761,147 @@ def test_a_pot_split_campaign_is_excluded(join_model, search_model, excluded) ->
         join["payModel"] = join_model
     data = _with(campaign__whereToJoin=[join], search__payModel=search_model, search__ratePer1kUsd=None)
     assert _parts(data)[2] == excluded
+
+
+# ---------- visningarna ----------
+
+
+def _views(**data) -> dict:
+    return _parts({**_data(), **data})[1]["views"]
+
+
+TOP_12 = [12_000, 100, 30_000, 6_000, 25_000, 9_000, 20_000, 50, 8_000, 15_000, 10_000, 7_000]
+
+
+def test_the_views_count_the_median_of_the_ten_best_campaign_clips() -> None:
+    part = _views(clip_views=TOP_12)  # de två sämsta (100 och 50) räknas inte: medianen är 11 000, inte 9 500
+    assert (part["max"], part["label"]) == (40, "Visningar")
+    assert part["points"] == pytest.approx(40 * math.log(11_000 / 2_000) / math.log(50_000 / 2_000), abs=0.05)
+    assert part["fact"] == "Median 11 000 visningar för kampanjens 10 bästa klipp"
+
+
+@pytest.mark.parametrize(("views", "points"), [
+    ([50_000] * 10, 40), ([90_000] * 6, 40), ([2_000] * 10, 0), ([500] * 5, 0), ([0] * 7, 0)])
+def test_the_campaign_scale_runs_from_2000_to_50000(views, points) -> None:
+    assert _views(clip_views=views)["points"] == points
+
+
+def test_twitch_goes_before_the_campaign_clips() -> None:
+    part = _views(twitch_views=[1_200], clip_views=[90_000] * 10)
+    assert part["points"] == pytest.approx(40 * math.log(1_200 / 100) / math.log(10_000 / 100), abs=0.05)
+    assert part["fact"] == "Twitch: median 1 200 visningar för kanalens bästa klipp, 30 dagar"
+
+
+@pytest.mark.parametrize(("views", "points"), [([10_000], 40), ([100, 50], 0), ([20_000] * 12 + [1], 40)])
+def test_the_twitch_scale_runs_from_100_to_10000(views, points) -> None:
+    assert _views(twitch_views=views)["points"] == points
+
+
+@pytest.mark.parametrize("twitch", [[], None])
+def test_no_twitch_clips_gives_the_campaign_clips(twitch) -> None:
+    part = _views(twitch_views=twitch, clip_views=[50_000] * 5)
+    assert (part["points"], part["fact"]) == (40, "Median 50 000 visningar för kampanjens 5 bästa klipp")
+
+
+@pytest.mark.parametrize("data", [{"clip_views": [90_000] * 4}, {"clip_views": None}, {"twitch_views": []}, {}])
+def test_fewer_than_five_campaign_clips_and_no_twitch_is_unknown(data) -> None:
+    part = _views(**data)
+    assert (part["points"], part["max"], part["fact"]) == (20, 40, "Okänt")
+
+
+def test_the_parts_sum_to_100() -> None:
+    _, parts, _ = _parts(_data())
+    assert [(key, part["max"]) for key, part in parts.items()] == [
+        ("views", 40), ("fresh", 15), ("minimum", 12), ("source", 9), ("budget", 9), ("pay", 6), ("proof", 6),
+        ("hassle", 3)]
+    assert sum(part["max"] for part in parts.values()) == 100
+
+
+CHANNEL = {"videos": [{"kind": "channel", "platform": "twitch", "channel": None,
+                       "url": "https://www.twitch.tv/timmy_tv/videos?filter=archives&sort=time"}]}
+
+
+def _saved(settings, ref: str = "timmy/streams") -> dict:
+    with scout.Scout(settings)._db() as db:
+        return json.loads(db.execute("SELECT data FROM scout_campaigns WHERE ref = ?", (ref,)).fetchone()[0])
+
+
+def test_the_details_fetch_the_channel_and_the_campaign_page_once(settings, fake, monkeypatch) -> None:
+    fake.add("timmy/streams")
+    fake.assets["timmy/streams"] = CHANNEL
+    fake.twitch_views = [1_200]
+    fake.clip_views = [90_000] * 10
+    scout.Scout(settings).run_once()
+
+    assert [c["params"]["arguments"] for c in fake.calls("tools/call", "get_assets")] == [{"campaign": "timmy/streams"}]
+    (go,) = fake.go
+    assert str(go.url) == "https://clippingalpha.com/go/1"  # utan ?via=mcp
+    assert scout.Scout(settings).calls_today() == 2 + 1 + 1 + 4  # /go/ räknas i scout_calls
+    data = _saved(settings)
+    assert (data["twitch_login"], data["cr_url"], data["clip_views"], data["twitch_views"]) == (
+        "timmy_tv", CR, [90_000] * 10, [1_200])
+    assert fake.twitch_calls == [("timmy_tv", NOW)] and fake.clip_calls == [CR]
+    (view,) = scout.Scout(settings).overview()["campaigns"]
+    assert next(p for p in view["parts"] if p["key"] == "views")["fact"].startswith("Twitch: median 1 200")
+
+    _later(monkeypatch, hours=7)  # nästa detaljuppdatering: inga nya get_assets eller /go/, Twitch är färskt
+    scout.Scout(settings).run_once()
+    assert len(fake.calls("tools/call", "get_campaign")) == 2
+    assert (len(fake.calls("tools/call", "get_assets")), len(fake.go)) == (1, 1)
+    assert (fake.clip_calls, len(fake.twitch_calls)) == ([CR, CR], 1)
+
+    _later(monkeypatch, hours=25)  # Twitch frågas igen efter ett dygn
+    scout.Scout(settings).run_once()
+    assert (len(fake.calls("tools/call", "get_assets")), len(fake.go)) == (1, 1)
+    assert fake.twitch_calls[1:] == [("timmy_tv", NOW + timedelta(hours=25))]
+
+
+def test_without_a_channel_or_campaign_page_there_is_no_twitch_or_page_call(settings, fake) -> None:
+    fake.add("timmy/streams", whereToJoin=[{**_campaign()["whereToJoin"][0], "joinUrl": "https://other.example/x"}])
+    fake.newest[0]["joinUrl"] = "https://other.example/x"
+    scout.Scout(settings).run_once()
+    assert (fake.go, fake.twitch_calls, fake.clip_calls) == ([], [], [])
+    data = _saved(settings)
+    assert data["twitch_login"] is None and "assets_at" in data and "join_checked_at" not in data
+
+
+def test_failing_views_do_not_stop_the_run_and_keep_what_was_there(settings, fake, monkeypatch) -> None:
+    fake.add("timmy/streams")
+    fake.assets["timmy/streams"] = CHANNEL
+    fake.twitch_views, fake.clip_views = [1_200], [9_000] * 10
+    scout.Scout(settings).run_once()
+    fake.twitch_views = fake.clip_views = None  # Twitch och Content Rewards svarar inte
+    _later(monkeypatch, hours=25)
+    scout.Scout(settings).run_once()
+    assert scout.Scout(settings).overview()["error"] is None
+    data = _saved(settings)
+    assert (data["twitch_views"], data["clip_views"]) == ([1_200], [9_000] * 10)
+
+
+def test_a_failing_get_assets_is_handled_like_the_other_details(settings, fake) -> None:
+    fake.add("timmy/streams")
+    fake.add("other/streams")
+    fake.broken_assets.add("timmy/streams")
+    scout.Scout(settings).run_once()
+    assert len(fake.calls("tools/call", "get_assets")) == 2  # den andra hämtades ändå
+    assert "assets_at" not in _saved(settings)  # provas igen vid nästa detaljuppdatering
+    assert "assets_at" in _saved(settings, "other/streams")
+    assert scout.Scout(settings).overview()["error"] is None
+
+
+def test_the_limit_in_get_assets_stops_the_run(settings, fake) -> None:
+    fake.add("timmy/streams")
+    fake.limit_at = "get_assets"
+    scout.Scout(settings).run_once()
+    assert scout.Scout(settings).overview()["error"].startswith("ClippingAlpha tar inte emot fler anrop just nu.")
+    assert fake.go == []
+
+
+def test_no_get_assets_or_go_when_the_rest_of_the_day_needs_the_calls(settings, fake) -> None:
+    fake.add("timmy/streams")
+    # 4 för initialize och sökningarna, sedan 3 kvar: get_campaign och analytics ryms, men inte get_assets och /go/
+    scout.Scout(settings)._count(300 - scout.reserve(NOW) - 7)
+    scout.Scout(settings).run_once()
+    assert fake.calls("tools/call", "get_assets") == [] and fake.go == []
+    assert fake.calls("tools/call", "get_campaign") == []
+    assert scout.Scout(settings).calls_today() == 300 - scout.reserve(NOW) - 3
