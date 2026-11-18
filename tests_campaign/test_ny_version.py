@@ -299,7 +299,7 @@ def test_the_options_list_fonts_stickers_overlays_and_the_accounts_style(vclip, 
     assert options["overlays"] == [{"file": "overlays/skiimasktimmy.png",
                                     "url": "/campaign/overlays/skiimasktimmy.png"}]
     assert options["overlay_locked"] is True  # Timmys overlay krävs
-    assert options["max_start_cut_s"] == 5.0
+    assert options["max_start_cut_s"] == 7.0  # 10 s - 3 s, ingen spärr på 5 s
     assert options["defaults"] == {"font": "Arial", "overlay": None, "sticker": None, "start_cut_s": 0.0}
     set_profile(settings, accounts_style={"openB": {"font": "Impact", "start_cut_s": 2}})
     assert _options(client, clip_id)["defaults"]["start_cut_s"] == 2.0
@@ -361,8 +361,12 @@ def test_a_version_cuts_the_start_shifts_the_words_and_changes_only_its_own_font
 
 @needs_ffmpeg
 @pytest.mark.parametrize(("body", "text"), [
-    ({"start_cut_s": 5.5}, "0–5"),
-    ({"start_cut_s": -1}, "0–5"),
+    ({"start_cut_s": 7.5}, "minst 3"),  # 10 s - 7,5 s = 2,5 s
+    ({"start_cut_s": -1}, "originalfilen"),  # klippet är inte trimmat: inget finns före
+    ({"hook": "   "}, "Skriv en hook"),
+    ({"hook": "Två\nrader"}, "styrtecken"),
+    ({"hook": "This hook is far too long to fit in three short lines at the top of the clip"},
+     "3 rader med 22 tecken"),  # fyra rader
     ({"font": "Wingdings"}, "Fonten"),
     ({"overlay": "overlays/annan.png"}, "kräver sin egen overlay"),
     ({"sticker": {"file": "../overlays/skiimasktimmy.png", "position": "center", "start_s": 0, "duration_s": 2}},
@@ -535,3 +539,233 @@ def test_the_original_lists_the_account_of_its_version(sched, settings) -> None:
     _schedule(sched, version, "openB", title="Second take")
     accounts = sched.get(f"/campaign/clips/{original}/accounts", params={"platform": "tiktok"}).json()["accounts"]
     assert {a["account"]: a["state"] for a in accounts}["openB"] == "scheduled"
+
+
+# ---------- 5. eget bidrag: ny hook eller ny startpunkt ----------
+
+from campaign import editor_api  # noqa: E402
+from campaign.brain import Brain  # noqa: E402
+from campaign.caption import build_caption  # noqa: E402
+
+NONE_OWN = ("Versionen har ingen ny hook och ingen ny startpunkt. Bara spegling, hastighet, filter eller font kan "
+            "ge strike på YouTube och stoppa klippet från För dig på TikTok.")
+
+
+def _trimmed(client, log, clip_id, in_s=4.0, out_s=10.0) -> None:
+    """Trimma originalet i redigeraren, så att originalfilen är längre än klippet. Godkänt igen efteråt."""
+    client.app.include_router(editor_api.router)
+    answer = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": in_s, "out_s": out_s})
+    assert answer.status_code == 200, answer.text
+    log.update(clip_id, status="godkand", problems=[])
+
+
+def _length(path: Path) -> float:
+    return float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+                                 str(path)], capture_output=True, text=True, check=True).stdout)
+
+
+def _hook_on(settings) -> None:
+    set_profile(settings, on_screen_text={"text": "twitch.tv/skiimasktimmy", "required": True, "hook_text": True})
+
+
+@needs_subtitles
+def test_an_earlier_start_is_cut_from_the_original_file_and_the_words_follow(vclip, settings, monkeypatch) -> None:
+    client, log, clip_id = vclip
+    _trimmed(client, log, clip_id)  # klippet är 4–10 s i originalfilen på 10 s
+    root = log.get(clip_id)
+    seen = _spy(monkeypatch)
+    answer = _make(client, clip_id, start_cut_s=-4)
+    assert answer.status_code == 201, answer.text
+    (call,) = seen
+    assert "Dialogue: 0,0:00:00.50," in call["ass"]  # Bro vid 0,5 s i originalfilen kommer med
+    assert "Dialogue: 0,0:00:02.00," in call["ass"]  # wei vid 2,0 s står kvar på 2,0 s
+    out = settings.out_dir / "123" / "klara" / "clip_01_no_way.v1.mp4"
+    assert _length(out) == pytest.approx(10.0, abs=0.15)
+    version = log.get(answer.json()["id"])
+    assert version["start_s"] == (None if root["start_s"] is None else round(root["start_s"] - 4, 3))
+    assert not [p for p in out.parent.parent.rglob(".*")]  # inga tillfälliga filer kvar
+
+
+@needs_subtitles
+def test_a_later_start_beyond_five_seconds_is_allowed(vclip, settings) -> None:
+    client, _, clip_id = vclip
+    answer = _make(client, clip_id, start_cut_s=6)
+    assert answer.status_code == 201, answer.text
+    assert _length(settings.out_dir / "123" / "klara" / "clip_01_no_way.v1.mp4") == pytest.approx(4.0, abs=0.15)
+
+
+@needs_ffmpeg
+def test_a_start_that_makes_the_version_too_long_is_refused(vclip, settings) -> None:
+    client, log, clip_id = vclip
+    _trimmed(client, log, clip_id)
+    set_profile(settings, clip={"min_seconds": 3, "max_seconds": 8})
+    count = len(log.list())
+    answer = _make(client, clip_id, start_cut_s=-4)  # 6 s + 4 s = 10 s
+    assert answer.status_code == 400 and "högst 8" in answer.json()["detail"], answer.text
+    answer = _make(client, clip_id, start_cut_s=-4.5)  # före originalfilens början
+    assert answer.status_code == 400 and "originalfilen" in answer.json()["detail"], answer.text
+    assert len(log.list()) == count
+
+
+@needs_subtitles
+def test_a_new_start_turns_off_the_cold_open_and_a_small_one_keeps_it(vclip, settings, monkeypatch) -> None:
+    client, _, clip_id = vclip
+    raw = settings.out_dir / "123" / RAW
+    subtitles.save_words(raw, WORDS, CaptionConfig(enabled=True, style="box"), ReframeConfig(mode="center"), raw,
+                         hook=[6.0, 7.5])
+    seen = _spy(monkeypatch)
+    assert _make(client, clip_id, start_cut_s=2).status_code == 201
+    assert seen[-1]["plan"] and seen[-1]["plan"]["cold_open"]  # under 3 s: hooken först, som förut
+    assert _make(client, clip_id, start_cut_s=3).status_code == 201
+    assert not (seen[-1]["plan"] or {}).get("cold_open")
+
+
+@needs_subtitles
+def test_a_new_hook_goes_into_the_picture_the_title_and_the_caption(vclip, settings, monkeypatch) -> None:
+    client, log, clip_id = vclip
+    _hook_on(settings)
+    profile = load_profile("skiimasktimmy", settings.profiles_dir)
+    assert log.get(clip_id)["caption"] == build_caption("No way", profile, "Bodycam")  # mallens caption
+    seen = _spy(monkeypatch)
+    answer = _make(client, clip_id, hook="  Nobody expected that ending ")
+    assert answer.status_code == 201, answer.text
+    version = answer.json()
+    caption = build_caption("Nobody expected that ending", profile, "Bodycam")
+    assert seen[-1]["title"] == "Nobody expected that ending"
+    assert (version["title"], version["caption"]) == ("Nobody expected that ending", caption)
+    txt = settings.out_dir / "123" / "klara" / "clip_01_no_way.v1.txt"
+    assert txt.read_text(encoding="utf-8") == caption + "\n"
+    assert NONE_OWN not in version["warnings"]
+
+
+@needs_subtitles
+def test_a_handwritten_caption_is_kept_with_a_new_hook(vclip, settings) -> None:
+    client, log, clip_id = vclip
+    log.update(clip_id, caption="Min egen text #bodycam")
+    answer = _make(client, clip_id, hook="Nobody expected that ending")
+    assert answer.status_code == 201, answer.text
+    assert (answer.json()["title"], answer.json()["caption"]) == ("Nobody expected that ending",
+                                                                  "Min egen text #bodycam")
+
+
+@needs_ffmpeg
+def test_a_hook_that_does_not_fit_makes_nothing(vclip, settings) -> None:
+    client, log, clip_id = vclip
+    count = len(log.list())
+    answer = _make(client, clip_id, hook="This hook is far too long to fit in three short lines at the top of it",
+                   start_cut_s=4)
+    assert (answer.status_code, answer.json()["detail"]) == (
+        400, "Hooken ryms inte i bilden. Skriv högst 3 rader med 22 tecken.")
+    assert len(log.list()) == count
+    assert not (settings.out_dir / "123" / "klara" / "clip_01_no_way.v1.mp4").exists()
+
+
+@needs_subtitles
+def test_a_version_without_own_contribution_gets_the_warning(vclip, settings) -> None:
+    client, _, clip_id = vclip
+    _hook_on(settings)
+    assert NONE_OWN in _make(client, clip_id, mirror=True, speed=1.1).json()["warnings"]
+    assert NONE_OWN in _make(client, clip_id, start_cut_s=2.9).json()["warnings"]
+    assert NONE_OWN not in _make(client, clip_id, start_cut_s=3).json()["warnings"]
+    assert NONE_OWN not in _make(client, clip_id, hook="Nobody saw that coming").json()["warnings"]
+
+
+@needs_subtitles
+def test_a_new_hook_does_not_count_when_the_campaign_shows_no_hook(vclip, settings) -> None:
+    client, _, clip_id = vclip  # Timmys hook_text är falskt: kanalens text står uppe
+    assert NONE_OWN in _make(client, clip_id, hook="Nobody saw that coming").json()["warnings"]
+    assert NONE_OWN not in _make(client, clip_id, start_cut_s=4).json()["warnings"]
+
+
+@needs_subtitles
+def test_the_same_hook_with_other_case_and_spaces_is_not_new(vclip, settings) -> None:
+    client, _, clip_id = vclip
+    _hook_on(settings)
+    assert NONE_OWN in _make(client, clip_id, hook="no  WAY").json()["warnings"]  # originalets hook
+    assert NONE_OWN not in _make(client, clip_id, hook="Nobody saw that coming").json()["warnings"]
+    again = _make(client, clip_id, hook="nobody saw  THAT coming").json()
+    assert NONE_OWN in again["warnings"]
+
+
+@needs_subtitles
+def test_the_options_tell_the_start_range_and_the_hooks(vclip, settings) -> None:
+    client, log, clip_id = vclip
+    options = _options(client, clip_id)
+    assert {k: options[k] for k in ("min_start_cut_s", "max_start_cut_s", "new_start_s", "hook", "hooks_used",
+                                    "hook_text", "original_url", "in_s")} == {
+        "min_start_cut_s": 0.0, "max_start_cut_s": 7.0, "new_start_s": 3.0, "hook": "No way",
+        "hooks_used": ["No way"], "hook_text": False, "original_url": f"/campaign/clips/{clip_id}/original",
+        "in_s": 0.0}
+    _hook_on(settings)
+    version = _make(client, clip_id, hook="Nobody saw that coming").json()
+    for asked in (clip_id, version["id"]):  # en version visar originalets val
+        options = _options(client, asked)
+        assert options["hooks_used"] == ["No way", "Nobody saw that coming"] and options["hook_text"] is True
+        assert (options["hook"], options["original_url"]) == ("No way", f"/campaign/clips/{clip_id}/original")
+    _trimmed(client, log, clip_id)
+    set_profile(settings, clip={"min_seconds": 3, "max_seconds": 8})
+    options = _options(client, clip_id)
+    assert (options["in_s"], options["min_start_cut_s"], options["max_start_cut_s"]) == (4.0, -2.0, 3.0)
+    log.update(clip_id, title="Moment 0:01:40")  # snabblägets platshållare är ingen hook
+    options = _options(client, clip_id)
+    assert (options["hook"], options["hooks_used"]) == ("", ["Nobody saw that coming"])
+    blocked = _options(client, clip_id, "okänt")
+    assert (blocked["allowed"], blocked["hook"], blocked["hooks_used"], blocked["min_start_cut_s"]) == (
+        False, "", [], 0.0)
+
+
+def _claude_hook(monkeypatch, *hooks):
+    from campaign import variant
+
+    from .conftest import FakeClient
+
+    fake = FakeClient({"hook": hooks[0]})
+    answers = iter(hooks)
+    real = fake.messages.create
+
+    def create(**kwargs):
+        fake.messages.answer = {"hook": next(answers, hooks[-1])}
+        return real(**kwargs)
+
+    fake.messages.create = create
+    monkeypatch.setattr(variant, "Brain", lambda settings, budget: Brain(settings, budget, client=fake))
+    return fake
+
+
+def _suggest(client, clip_id):
+    return client.post(f"/campaign/clips/{clip_id}/versions/hook")
+
+
+@needs_subtitles
+def test_a_suggested_hook_differs_from_the_used_ones_and_fits(vclip, settings, monkeypatch) -> None:
+    client, _, clip_id = vclip
+    _hook_on(settings)
+    version = _make(client, clip_id, hook="Nobody saw that coming").json()
+    fake = _claude_hook(monkeypatch, "nobody SAW that coming", "Bodycam never felt this tense #fyp")
+    answer = _suggest(client, version["id"])  # en version: originalets hookar räknas
+    assert answer.status_code == 200, answer.text
+    assert answer.json() == {"hook": "Bodycam never felt this tense"}
+    assert len(fake.messages.calls) == 2
+    sent = str(fake.messages.calls[0]["messages"])
+    assert "No way" in sent and "Nobody saw that coming" in sent  # hookarna som redan finns skickas med
+    assert fake.messages.calls[0]["max_tokens"] <= 300
+
+
+@needs_ffmpeg
+def test_a_suggested_hook_that_is_taken_or_too_long_twice_is_400(vclip, monkeypatch) -> None:
+    client, _, clip_id = vclip
+    fake = _claude_hook(monkeypatch, "No way")
+    answer = _suggest(client, clip_id)
+    assert answer.status_code == 400 and "Försök igen" in answer.json()["detail"], answer.text
+    assert len(fake.messages.calls) == 2
+    _claude_hook(monkeypatch, "This hook is far too long to fit in three short lines at the top of the clip")
+    assert _suggest(client, clip_id).status_code == 400
+
+
+@needs_ffmpeg
+def test_a_suggested_hook_without_a_key_is_400_in_swedish(vclip, settings) -> None:
+    client, _, clip_id = vclip
+    settings.anthropic_api_key = ""
+    answer = _suggest(client, clip_id)
+    assert answer.status_code == 400 and "nyckel" in answer.json()["detail"].lower()
+    assert _suggest(client, 999).status_code == 404
