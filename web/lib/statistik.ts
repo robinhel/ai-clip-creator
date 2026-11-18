@@ -10,13 +10,15 @@ export const STATS = [
 ] as const;
 export type StatKey = (typeof STATS)[number]["key"];
 
-/** Fler mått per inlägg, ifyllda från TikTok Studio. kind säger vilka tal fältet tar. */
+const PERCENT = { max: 100, hint: "skriv ett tal från 0 till 100, till exempel 45,5." } as const;
+
+/** Fler mått per inlägg, ifyllda från TikTok Studio. Sparningar är ett helt tal, de andra tal med decimaler upp till max. */
 export const METRICS = [
-  { key: "avg_watch_s", label: "Tittartid (s)", kind: "seconds" },
-  { key: "full_pct", label: "Ser klart (%)", kind: "percent" },
-  { key: "fyp_pct", label: "Från För dig (%)", kind: "percent" },
-  { key: "saves", label: "Sparningar", kind: "count" },
-  { key: "countries_pct", label: "Från kampanjens länder (%)", kind: "percent" },
+  { key: "avg_watch_s", label: "Tittartid (s)", max: Infinity, hint: "skriv sekunderna, till exempel 6,4." },
+  { key: "full_pct", label: "Ser klart (%)", ...PERCENT },
+  { key: "fyp_pct", label: "Från För dig (%)", ...PERCENT },
+  { key: "saves", label: "Sparningar", hint: "skriv ett helt tal utan decimaler, till exempel 12." },
+  { key: "countries_pct", label: "Från kampanjens länder (%)", ...PERCENT },
 ] as const;
 export type MetricKey = (typeof METRICS)[number]["key"];
 type Metric = (typeof METRICS)[number];
@@ -68,37 +70,12 @@ export function parseUsd(text: string): number | null | undefined {
   return /^\d+(\.\d{1,2})?$/.test(clean) ? Number(clean) : undefined;
 }
 
-const METRIC_HINT: Record<Metric["kind"], string> = {
-  seconds: "skriv sekunderna, till exempel 6,4.",
-  percent: "skriv ett tal från 0 till 100, till exempel 45,5.",
-  count: "skriv ett helt tal utan decimaler, till exempel 12.",
-};
-
-/** Hur ett fält läses, och felet med fältets namn när texten inte går att läsa. */
-interface FieldCheck {
-  parse: (text: string) => number | null | undefined;
-  error: string;
-}
-
-/** Sekunder och procent med komma eller punkt. Procent högst 100. */
-function metricCheck(metric: Metric): FieldCheck {
-  const error = `${metric.label}: ${METRIC_HINT[metric.kind]}`;
-  if (metric.kind === "count") return { parse: parseCount, error };
-  const max = metric.kind === "percent" ? 100 : Infinity;
-  const parse = (text: string) => {
-    const clean = text.replace(/\s/g, "").replace(",", ".");
-    if (clean === "") return null;
-    return /^\d+(\.\d+)?$/.test(clean) && Number(clean) <= max ? Number(clean) : undefined;
-  };
-  return { parse, error };
-}
-
-function fieldCheck(key: Field): FieldCheck {
-  if (key === "paid") return { parse: parseUsd, error: "Betalt: skriv beloppet i dollar, till exempel 12,50." };
-  const metric = METRICS.find((m) => m.key === key);
-  if (metric) return metricCheck(metric);
-  const label = STATS.find((s) => s.key === key)!.label;
-  return { parse: parseCount, error: `${label}: skriv ett helt tal utan decimaler, till exempel 2500.` };
+/** Talet i ett mått. Sparningar är ett helt tal, de andra tal med komma eller punkt, högst max. undefined: texten går inte att läsa. */
+function parseMetric(metric: Metric, draft: Draft): number | null | undefined {
+  if (metric.key === "saves") return parseCount(draft.saves);
+  const clean = draft[metric.key].replace(/\s/g, "").replace(",", ".");
+  if (clean === "") return null;
+  return /^\d+(\.\d+)?$/.test(clean) && Number(clean) <= metric.max ? Number(clean) : undefined;
 }
 
 /**
@@ -108,13 +85,25 @@ function fieldCheck(key: Field): FieldCheck {
 export function buildPatch(draft: Draft, saved: Saved, status?: CampaignStatus): { body: PatchBody } | { error: string } {
   const body: PatchBody = {};
   for (const key of changed(draft, saved)) {
-    const { parse, error } = fieldCheck(key);
-    const value = parse(draft[key]);
-    if (value === undefined) return { error };
+    const metric = METRICS.find((m) => m.key === key);
+    if (metric) {
+      const value = parseMetric(metric, draft);
+      if (value === undefined) return { error: `${metric.label}: ${metric.hint}` };
+      body[metric.key] = value;
+      continue;
+    }
+    const value = key === "paid" ? parseUsd(draft.paid) : parseCount(draft[key]);
+    if (value === undefined) return { error: errorFor(key) };
     body[key === "paid" ? "paid_usd" : key] = value;
   }
   if (status) body.status = status;
   return { body };
+}
+
+/** Felet när Betalt eller ett av de fyra talen inte går att läsa. */
+function errorFor(key: Field): string {
+  if (key === "paid") return "Betalt: skriv beloppet i dollar, till exempel 12,50.";
+  return `${STATS.find((s) => s.key === key)!.label}: skriv ett helt tal utan decimaler, till exempel 2500.`;
 }
 
 /** Tittartiden i procent av klippets längd, med en decimal. null: längden eller tittartiden saknas. */
@@ -136,7 +125,7 @@ const LENGTHS: { label: string; has: (seconds: number) => boolean }[] = [
   { label: "Över 20 s", has: (s) => s > 20 },
 ];
 
-function lengthGroup({ label, rows }: { label: string; rows: Row[] }): LengthGroup {
+function lengthGroup(label: string, rows: Row[]): LengthGroup {
   const views = rows.map((r) => r.post?.views).filter((v): v is number => v != null);
   const avgViews = views.length ? views.reduce((sum, v) => sum + v, 0) / views.length : null;
   return { label, posts: rows.length, avgViews };
@@ -146,10 +135,10 @@ function lengthGroup({ label, rows }: { label: string; rows: Row[] }): LengthGro
 export function lengthGroups(rows: Row[]): LengthGroup[] {
   const posts = rows.filter((r) => r.post);
   const groups = LENGTHS.map(({ label, has }) =>
-    lengthGroup({ label, rows: posts.filter(({ clip }) => clip.length_s != null && has(clip.length_s)) })
+    lengthGroup(label, posts.filter(({ clip }) => clip.length_s != null && has(clip.length_s)))
   );
   const unknown = posts.filter(({ clip }) => clip.length_s == null);
-  return unknown.length ? [...groups, lengthGroup({ label: "Okänd längd", rows: unknown })] : groups;
+  return unknown.length ? [...groups, lengthGroup("Okänd längd", unknown)] : groups;
 }
 
 /** Statusar där klippet har minst ett inlägg. */

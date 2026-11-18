@@ -480,7 +480,7 @@ function MoreMetrics({ row, draft, setDraft, busy, step, label, onEnter, open, o
                 <span>{metric.label}</span>
                 <Input
                   aria-label={`${metric.label} för klipp ${label}`}
-                  inputMode={metric.kind === "count" ? "numeric" : "decimal"}
+                  inputMode={metric.key === "saves" ? "numeric" : "decimal"}
                   value={draft[metric.key]}
                   data-goto={goto && metric.key === "avg_watch_s" ? "" : undefined}
                   onChange={(e) => setDraft((d) => ({ ...d, [metric.key]: e.target.value }))}
