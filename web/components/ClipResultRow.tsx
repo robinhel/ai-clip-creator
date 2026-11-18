@@ -15,7 +15,7 @@ import { CopyButton } from "@/components/CopyButton";
 import { CampaignRules, type Posting, PublishButton } from "@/components/PublishDialog";
 import { api } from "@/lib/api";
 import { VersionButton } from "@/components/VersionDialog";
-import { rejectedFix, type ClipFix } from "@/lib/steps";
+import { fixHint, rejectedFix } from "@/lib/steps";
 import { clock, cn, SUMMARY_CHANGED } from "@/lib/utils";
 import type { CampaignClip, CampaignClipPatch, CampaignFormat, ClipEditInfo, ClipSubscores, ClipTranscript, Platform } from "@/lib/types";
 
@@ -378,20 +378,6 @@ function MoreMenu({ clip, busy, onUndo, onReload, children }: {
       </div>
     </details>
   );
-}
-
-/** Texten för ett fel som Robin rättar på raden. null: projektsidan. */
-function fixHint(fix: ClipFix): string | null {
-  if (fix.kind === "lang") {
-    const caption = fix.caption ? " Rätta sedan captionen med Ändra rubrik och caption." : "";
-    return `Klippet är för långt. Tryck Redigera och korta det till högst ${fix.max} s.${caption}`;
-  }
-  return {
-    caption: "Felet är bara i captionen. Tryck Ändra rubrik och caption, rätta texten och spara.",
-    // Gör klippen kampanjklara igen gör inte klippet längre, och Redigera trimmar bara inom råklippet.
-    kort: "Klippet är för kort och kan inte bli längre här. Redigera kan bara korta det. Tryck Nej.",
-    projekt: null,
-  }[fix.kind];
 }
 
 /** Vad Robin gör med ett underkänt klipp. Fel i captionen och längden rättas här; en egen video har ingen projektsida. */

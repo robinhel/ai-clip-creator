@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bySubmitTime, defaultStep, rejectedFix, stepCount, stepOf, stepOrder, submitDeadline } from "./steps";
+import { bySubmitTime, defaultStep, fixHint, rejectedFix, stepCount, stepOf, stepOrder, submitDeadline } from "./steps";
 import type { CampaignClip, ClipPost } from "./types";
 
 const MIN = 60_000;
@@ -80,6 +80,14 @@ describe("submitDeadline", () => {
       expect(rejectedFix(failed("v123", [long, caption]))).toEqual({ kind: "lang", max: "60", caption: true });
       // Redigera finns också för en egen video.
       expect(rejectedFix(failed("upload", [long]))).toEqual({ kind: "lang", max: "60", caption: false });
+    });
+
+    it("texten för ett för långt klipp har kampanjens tak ur felet, inte ett fast tal", () => {
+      const hint = (problems: string[]) => fixHint(rejectedFix(failed("v123", problems))!);
+      // blizzard_nordics har max_seconds 45, skiimasktimmy 60.
+      expect(hint(["Klippet är 50,0 s. Profilens tak är 45 s."])).toContain("högst 45 s.");
+      expect(hint(["Klippet är 61.0 s. Profilens tak är 59.5 s."])).toContain("högst 59,5 s.");
+      expect(hint(["Klippet är 50,0 s. Profilens tak är 45 s."])).not.toContain("60");
     });
 
     it("längd och ett annat fel: gör klippen kampanjklara igen på projektsidan, som förut", () => {

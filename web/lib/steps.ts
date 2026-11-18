@@ -84,3 +84,17 @@ export function rejectedFix(clip: Pick<CampaignClip, "status" | "vod_id" | "prob
   // "Ladda upp en längre video eller tryck Nej." Redigera finns för den också.
   return clip.vod_id === "upload" && fix.kind !== "lang" ? null : fix;
 }
+
+/** Texten för ett fel som Robin rättar på raden. Taket kommer från felet, alltså från kampanjen. null: projektsidan. */
+export function fixHint(fix: ClipFix): string | null {
+  if (fix.kind === "lang") {
+    const caption = fix.caption ? " Rätta sedan captionen med Ändra rubrik och caption." : "";
+    return `Klippet är för långt. Tryck Redigera och korta det till högst ${fix.max} s.${caption}`;
+  }
+  return {
+    caption: "Felet är bara i captionen. Tryck Ändra rubrik och caption, rätta texten och spara.",
+    // Gör klippen kampanjklara igen gör inte klippet längre, och Redigera trimmar bara inom råklippet.
+    kort: "Klippet är för kort och kan inte bli längre här. Redigera kan bara korta det. Tryck Nej.",
+    projekt: null,
+  }[fix.kind];
+}
