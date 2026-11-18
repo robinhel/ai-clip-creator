@@ -187,6 +187,7 @@ def test_the_migration_saves_a_copy_first_and_puts_own_files_in_one_project_per_
                   for table in ("clips", "posts", "runs")}
 
     ClipLog(path)
+    before["clips"] = [(*row, None) for row in before["clips"]]  # klippen får kolumnen headline, tom
 
     [copy] = tmp_path.glob("klipp.db.fore-projekt-*")
     with sqlite3.connect(copy) as db:  # kopian är klipploggen före migreringen
