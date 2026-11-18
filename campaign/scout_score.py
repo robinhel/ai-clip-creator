@@ -23,6 +23,9 @@ MAX_MIN_VIEWS = 10_000
 
 # Delen Visningar (Robins beslut 18 nov 2026): medianen av de 10 bästa klippens visningar, på log-skala.
 VIEWS_MAX = 40
+# Okänt ger 10 av 40, inte halva: en kampanj utan klipp att räkna på ska få färre poäng än en med bevisat bra klipp
+# (Robins ja, 18 nov 2026). 10 poäng motsvarar en median på cirka 9 500 för de bästa klippen med skalan 2 000–1 000 000.
+VIEWS_UNKNOWN = 10
 MIN_CLIPS = 5  # färre klipp, på Twitch eller Content Rewards, visar inget mönster (Robins beslut 18 nov 2026)
 CAMPAIGN_VIEWS = (2_000, 1_000_000)  # kampanjens klipp: 0 poäng vid 2 000 eller lägre, 40 vid 1 000 000 eller högre
 TWITCH_VIEWS = (500, 200_000)  # kanalens Twitch-klipp, 30 dagar: 0 vid 500 eller lägre, 40 vid 200 000 eller högre
@@ -258,7 +261,8 @@ def _views_part(data: dict) -> dict:
         return _part("views", "Visningar", _log_points(median, *CAMPAIGN_VIEWS), VIEWS_MAX,
                      f"Median {_number(median)} visningar för kampanjens {count} bästa klipp")
     have = f"{len(twitch)} Twitch-klipp och {len(clips)} kampanjklipp, minst {MIN_CLIPS} behövs"
-    return _unknown("views", "Visningar", VIEWS_MAX, have if twitch or clips else "inga klipp att räkna på ännu")
+    why = have if twitch or clips else "inga klipp att räkna på ännu"
+    return _part("views", "Visningar", VIEWS_UNKNOWN, VIEWS_MAX, f"Okänt: {why}")
 
 
 def _max_payout_part(pay: dict | None) -> dict:
