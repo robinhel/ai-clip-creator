@@ -133,7 +133,7 @@ function Hit({ hit, item, picked, playing, clipHref, onPick, onPlay }: {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5 text-xs">
           {done && hit.clip_id != null && (
             <Link href={`${clipHref}#klipp-${hit.clip_id}`} className="text-good underline-offset-4 hover:underline">
-              Klipp #{hit.clip_id}
+              Klipp {hit.clip_id}
             </Link>
           )}
           {hit.status === "vald" && <span className="text-warn">Görs nu</span>}
