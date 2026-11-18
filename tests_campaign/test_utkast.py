@@ -108,6 +108,11 @@ def test_a_frame_is_the_same_picture_as_that_frame_in_the_finished_clip(client, 
     assert rendered.status_code == 200, rendered.text
     video = tmp_path / "klipp.mp4"
     video.write_bytes(client.get(rendered.json()["video_url"]).content)
+    # Hastigheten kastar inga bildrutor: ruta n i klippet är ruta n i råklippet (5 s × 30). Utan det gjorde
+    # ffmpeg 8 om klippet till 30 bildrutor/s (138 rutor), och bilden blev en annan ruta än klippets (33,7 dB).
+    frames = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-count_packets", "-show_entries",
+                             "stream=nb_read_packets", "-of", "csv=p=0", str(video)], capture_output=True, text=True)
+    assert frames.stdout.strip() == "150"
     # Bildruta 45 har rubriken (råtid 1,5 s), bildruta 93 inte (råtid 3,1 s). Klistermärket syns i båda.
     for n in (45, 93):
         t = n / 30 / 1.1  # tiden i det färdiga klippet
