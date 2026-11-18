@@ -196,6 +196,45 @@ def test_no_title_gives_no_bar() -> None:
     )
 
 
+# ---------- Stacked: rubriken bara de första sekunderna, utan fält ----------
+# I stacked ligger facecam överst. Ett fält hela klippet skulle täcka ansiktena, så rubriken ritas som före
+# fältet: svart kant runt bokstäverna och bara de första 3 sekunderna.
+
+STACKED_TITLE = "Ett galet skott från andra sidan banan"
+
+
+def _hook_options(graph: str) -> list[dict[str, str]]:
+    return [o for o, out in _filters(graph, "drawtext") if out == "withhook" or re.fullmatch(r"hook\d+", out)]
+
+
+@pytest.mark.parametrize("style", ["sans", "serif"])
+def test_in_stacked_the_title_has_a_black_border_for_three_seconds_and_no_bar(tmp_path, style) -> None:
+    profile = _profile(style)
+    graph = build_filter(profile, False, True, None, title=STACKED_TITLE, frame="stacked")
+    assert "drawbox" not in graph
+    options = _hook_options(graph)
+    assert options and len(_hook_texts(graph)) == len(options)
+    for o in options:
+        assert o["enable"] == "'lt(t,3)'"
+        assert (o["borderw"], o["bordercolor"]) == ("5", "black@0.9")
+    rows = [y for _font, _text, y in _hook_texts(graph)]
+    assert rows[0] == int(1920 * profile.safe_top)  # samma plats som i fit
+    assert rows[-1] + HOOK_FONT_SIZE <= top_text_end(profile, tmp_path, STACKED_TITLE, frame="stacked")
+
+
+@pytest.mark.parametrize("frame", ["fit", "center"])
+def test_outside_stacked_and_zoom_the_title_keeps_the_bar_the_whole_clip(frame) -> None:
+    graph = build_filter(_profile(), False, True, None, title=STACKED_TITLE, frame=frame)
+    assert len(_bars(graph)) == 1
+    assert "enable=" not in graph and "borderw=5" not in graph
+
+
+def test_in_stacked_hook_text_false_gives_no_title() -> None:
+    no_hook = Profile(name="x", streamer="y", hook_text=False)
+    graph = build_filter(no_hook, False, True, None, title=STACKED_TITLE, frame="stacked")
+    assert "drawbox" not in graph and "drawtext" not in graph
+
+
 # ---------- R9: rader ----------
 
 
