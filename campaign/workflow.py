@@ -97,7 +97,7 @@ def _save(log: ClipLog, redo: dict | None, common: dict, **fields) -> int | None
         return log.add(**common, **fields)
     if log.get(redo["id"])["status"] != "underkand":
         return None
-    picked = {key: common[key] for key in ("title", "start_s", "end_s", "score", "reason", "subscores")}
+    picked = {key: common[key] for key in ("title", "headline", "start_s", "end_s", "score", "reason", "subscores")}
     if common.get("clip_format"):
         picked["format"] = common["clip_format"]
     log.update(redo["id"], **picked, **fields)
@@ -135,6 +135,7 @@ def finish_vod(
         index = int(re.match(r"clip_(\d+)", src.name).group(1))
         pick = picks[index - 1] if 0 < index <= len(picks) else {}
         title = pick.get("title") or title_from_name(src)
+        headline = headline_text({"headline": pick.get("headline")})  # rensad, "" utan headline
         hook = headline_text(pick)  # captionen byggs av title nedan, aldrig av headline
         start, end = pick.get("start"), pick.get("end")
         if PLACEHOLDER.search(title):  # rubrik och caption utan platshållaren, men ingen hook-text av talet
@@ -150,14 +151,15 @@ def finish_vod(
         if redo and edit_meta(src):
             # Klippet är redigerat i appen: loggens rubrik och tider gäller, inte picks.json. edit_meta kollar
             # råklippets storlek och ändringstid, så ett nytt råklipp från clipsmith får picks.json igen.
-            title, start, end = redo["title"], redo["start_s"], redo["end_s"]
-            hook = "" if title == title_from_name(src) else title  # filnamnsreserven blir ingen hook
+            title, headline, start, end = redo["title"], redo["headline"], redo["start_s"], redo["end_s"]
+            # Filnamnsreserven blir ingen text i bilden, men en headline blir det.
+            hook = headline_text({"headline": headline, "title": "" if title == title_from_name(src) else title})
         if not redo and start is not None and end is not None and log.overlaps(vod_id, start, end):
             results.append({"file": src.name, "skipped": "samma del av VOD:en är redan klippt"})
             continue
 
         common = dict(
-            vod_id=vod_id, profile=profile.name, title=title, start_s=start, end_s=end,
+            vod_id=vod_id, profile=profile.name, title=title, headline=headline, start_s=start, end_s=end,
             clip_format=pick.get("format"), signals=pick.get("signals"),
             score=pick.get("score"), reason=pick.get("reason", ""), subscores=pick.get("subscores"),
         )

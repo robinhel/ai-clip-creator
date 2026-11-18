@@ -23,10 +23,10 @@ from clipsmith.rendering.clipper import _build_ffmpeg_cmd
 from clipsmith.settings import CaptionConfig, ReframeConfig
 
 from . import drafts
-from .caption import build_caption
+from .caption import build_caption, headline_text
 from .cliplog import ClipLog
 from .config import Settings
-from .finish import ENCODER_ARGS, finish_clip
+from .finish import ENCODER_ARGS, finish_clip, hook_clean
 from .media import need, probe, run
 from .profile import Profile
 from .rules import check_clip
@@ -155,8 +155,9 @@ def edit_info(clip: dict, profile: Profile, settings: Settings) -> dict:
         trim = {"in_s": state["in_s"], "out_s": state["out_s"]}
     data, why = _words(raw, profile, settings)
     speed = drafts.EditLook.of(raw).speed if raw is not None else 1.0  # webben räknar längden med den
-    return {"clip_id": clip["id"], "title": clip["title"], "original": original, "trim": trim,
-            "min_s": min_s, "max_s": max_s, "speed": speed, "editable": reason is None, "reason": reason,
+    return {"clip_id": clip["id"], "title": clip["title"], "headline": clip.get("headline") or "",
+            "original": original, "trim": trim, "min_s": min_s, "max_s": max_s, "speed": speed,
+            "editable": reason is None, "reason": reason,
             "subtitles": {"editable": data is not None, "reason": why, "words": data["words"] if data else [],
                           "style": data["caption"].get("style") if data else None}}
 
@@ -223,10 +224,21 @@ def _check_trim(state: dict, trim: tuple[float, float], profile: Profile, look: 
                          f"Kampanjen tillåter {drafts.comma(min_s, 'g')}–{drafts.comma(max_s, 'g')} s.")
 
 
+def _texts(clip: dict, title: str | None, headline: str | None) -> tuple[str, str | None, str, str]:
+    """Klippets nya rubrik och headline, och texten i bilden före och efter redigeringen: headline, annars
+    titeln (caption.headline_text). None behåller klippets, och headline "" ger titeln i bilden."""
+    new_title = clip["title"] if title is None else title.strip()
+    if not new_title:
+        raise ValueError("Rubriken får inte vara tom.")
+    new = clip.get("headline") if headline is None else hook_clean(headline)
+    before = headline_text({"headline": clip.get("headline"), "title": clip["title"]})
+    return new_title, new, before, headline_text({"headline": new, "title": new_title})
+
+
 def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
               in_s: float | None = None, out_s: float | None = None, title: str | None = None,
-              words: list[dict] | None = None) -> None:
-    """Trimma och/eller byt rubrik. Anroparen håller `lock`."""
+              words: list[dict] | None = None, headline: str | None = None) -> None:
+    """Trimma och/eller byt rubrik och texten i bilden (headline). Anroparen håller `lock`."""
     raw = raw_path(clip, settings)
     reason = why_not(clip, raw)
     if reason:
@@ -238,10 +250,8 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
     look = drafts.EditLook.of(raw)  # en egen video: valen från uppladdningen
     if trimmed:
         _check_trim(state, (new_in, new_out), profile, look)
-    new_title = clip["title"] if title is None else title.strip()
-    if not new_title:
-        raise ValueError("Rubriken får inte vara tom.")
-    look = look.titled(clip["title"], new_title)
+    new_title, new_headline, old_text, new_text = _texts(clip, title, headline)
+    look = look.titled(old_text, new_text)
     own = look.args(settings, profile, new_out - new_in)
     data, why = _words(raw, profile, settings)
     new_words = data["words"] if data else None
@@ -259,7 +269,7 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
     tmp_original = original.with_name(f".{original.name}.tmp")
     ass: Path | None = None
     try:
-        new_hook = profile.hook_text and new_title != clip["title"]  # rubriken står i bilden
+        new_hook = profile.hook_text and new_text != old_text  # rubriken står i bilden
         if trimmed or new_hook or words_changed or not done.exists():
             if trimmed:
                 _trim(source_path(raw), tmp_raw, new_in, new_out, settings.encoder)
@@ -308,8 +318,8 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
     problems, warnings = check_clip(probe(done), manifest, profile, caption, clip["format"], clip["review"])
     done.with_suffix(".txt").write_text(caption + "\n", encoding="utf-8")
 
-    fields: dict = {"title": new_title, "caption": caption, "problems": problems, "warnings": warnings,
-                    "file": str(done), "status": "underkand" if problems else "renderad"}
+    fields: dict = {"title": new_title, "headline": new_headline, "caption": caption, "problems": problems,
+                    "warnings": warnings, "file": str(done), "status": "underkand" if problems else "renderad"}
     if trimmed and state["start_s"] is not None:
         fields.update(start_s=round(state["start_s"] + new_in, 3), end_s=round(state["start_s"] + new_out, 3))
     log.update(clip["id"], **fields)

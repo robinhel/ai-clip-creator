@@ -232,10 +232,13 @@ def update_clip(clip_id: int, status: Literal["renderad", "godkand", "nekad"] | 
 
 
 @server.tool(annotations=REPLACE)
-def edit_clip(clip_id: int, in_s: float | None = None, out_s: float | None = None, title: str | None = None) -> str:
-    """Trimma klippet (in_s/out_s inom råklippet, se clip_edit_info) och byt rubriken på bilden. Klippet görs om
-    med ffmpeg. Går inte medan en körning pågår."""
-    return _send("POST", f"/campaign/clips/{clip_id}/edit", {"in_s": in_s, "out_s": out_s, "title": title})
+def edit_clip(clip_id: int, in_s: float | None = None, out_s: float | None = None, title: str | None = None,
+              headline: str | None = None) -> str:
+    """Trimma klippet (in_s/out_s inom råklippet, se clip_edit_info), byt rubriken (title, captionens första
+    rad) och texten i bilden (headline, högst 80 tecken; "" ger titeln i bilden). Klippet görs om med ffmpeg.
+    Går inte medan en körning pågår."""
+    return _send("POST", f"/campaign/clips/{clip_id}/edit",
+                 {"in_s": in_s, "out_s": out_s, "title": title, "headline": headline})
 
 
 # ---------- kampanjer ----------
