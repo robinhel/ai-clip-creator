@@ -73,8 +73,7 @@ def clip_file(settings: Settings, clip: dict, platform: str,
     schemat, och bara till en plattform som kampanjen postar på och där klippet inte redan har ett inlägg."""
     if clip["status"] not in ("godkand", *POST_STATUSES):  # postad: inlägget kan ha skapats av hjälpen
         raise ScheduleError(refused)
-    if clip["profile"] == NO_CAMPAIGN:  # extra spärr: problemet kan ha tagits bort ur loggen
-        raise ScheduleError(NO_CAMPAIGN_PROBLEM)
+    _require_campaign(clip)
     if clip["problems"]:
         raise ScheduleError("Klippet har problem. Rätta dem innan du laddar upp.")
     key, name = NAMES[platform]
@@ -89,6 +88,12 @@ def clip_file(settings: Settings, clip: dict, platform: str,
     if not path.is_relative_to(settings.out_dir.resolve()) or path.suffix != ".mp4" or not path.exists():
         raise ScheduleError("Klippets fil finns inte. Gör klippet kampanjklart igen.")
     return path
+
+
+def _require_campaign(clip: dict) -> None:
+    """Extra spärr för klipp utan kampanj (_ingen), även om problemet skulle ha tagits bort ur loggen."""
+    if clip["profile"] == NO_CAMPAIGN:
+        raise ScheduleError(NO_CAMPAIGN_PROBLEM)
 
 
 def _profile(settings: Settings, name: str | None) -> Profile | None:

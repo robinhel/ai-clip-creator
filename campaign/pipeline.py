@@ -157,6 +157,13 @@ def _twitch_ids(vod_id: str, channel: str, secrets) -> tuple[str, str]:
     return user_id, created_at
 
 
+def _channel(cfg, profile: Profile, meta: dict) -> str:
+    """Kanalen som körningen gäller. Liveklipp utan kampanj: kanalen som bevakas, sparad i körningen."""
+    if profile.name == NO_CAMPAIGN and meta.get("channel_name"):
+        return meta["channel_name"]
+    return cfg.channels[0] if cfg.channels else profile.streamer.lower()
+
+
 def _with_memory(focus: str, profile: Profile, settings: Settings) -> str:
     """Körningens focus och minnet om kampanjens tidigare klipp (campaign/memory.py)."""
     memory = selection_memory(ClipLog(settings.data_dir / "klipp.db"), profile.name, profile.min_views or 2000)
@@ -199,10 +206,8 @@ def make_clips(
         clip = cfg.clip.model_copy(update={"min_seconds": min_s or cfg.clip.min_seconds,
                                            "max_seconds": max_s or cfg.clip.max_seconds})
         cfg = cfg.model_copy(update={"clip": clip})
-    channel = cfg.channels[0] if cfg.channels else profile.streamer.lower()
     meta = (ClipLog(settings.data_dir / "klipp.db").run(run_id) if run_id is not None else None) or {}
-    if profile.name == NO_CAMPAIGN and meta.get("channel_name"):  # liveklipp utan kampanj: kanalen som bevakas
-        channel = meta["channel_name"]
+    channel = _channel(cfg, profile, meta)
     title = meta.get("title") or vod_id  # VOD-fakta sparades när körningen startade
     duration = _duration(meta["duration_s"]) if meta.get("duration_s") else ""
 
