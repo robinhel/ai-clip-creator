@@ -37,6 +37,7 @@ NEW_START_S = 3.0  # så långt flyttad startpunkt, tidigare eller senare, är e
 STICKER_S = (0.5, 10.0)
 NO_WORDS = "Ny version kräver ett klipp som appen har skurit med ordfil."
 HOOK_LINES = 3
+HARD_SPACES = str.maketrans({"\xa0": " ", "\u202f": " "})
 HOOK_CONTROL = "Hooken får inte ha radbrytningar eller andra styrtecken."
 HOOK_TOO_LONG = f"Hooken ryms inte i bilden. Skriv högst {HOOK_LINES} rader med {HOOK_LINE_CHARS} tecken."
 NO_OWN = ("Versionen har ingen ny hook och ingen ny startpunkt. Bara spegling, hastighet, filter eller font kan ge "
@@ -123,6 +124,11 @@ def fonts() -> dict[str, str]:
     return found
 
 
+def plain_spaces(text: str) -> str:
+    """Hårt blanksteg (U+00A0) och smalt hårt blanksteg (U+202F) blir vanliga, så att hook_problem godtar dem."""
+    return text.translate(HARD_SPACES)
+
+
 def hook_problem(hook: str) -> str | None:
     """Varför hooken inte går att använda, eller None. Samma radbrytning som hooken i bilden (finish), men utan
     att korta: det som inte ryms på HOOK_LINES rader stoppas."""
@@ -195,8 +201,11 @@ def _own_options(log: ClipLog, ready: dict | None) -> dict:
                 "hooks_used": [], "original_url": None, "in_s": 0.0}
     root, profile = ready["root"], ready["profile"]
     length = ready["out_s"] - ready["in_s"]
-    return {"min_start_cut_s": round(min(0.0, max(-ready["in_s"], length - profile.max_seconds)), 2),
-            "max_start_cut_s": round(max(0.0, length - profile.min_seconds), 2), "new_start_s": NEW_START_S,
+    earliest = min(0.0, max(-ready["in_s"], length - profile.max_seconds))
+    latest = max(0.0, length - profile.min_seconds)
+    # Hundradelar inåt: trimningen kan ha fler decimaler, och gränsen ska alltid gå att göra.
+    return {"min_start_cut_s": math.ceil(earliest * 100 - 1e-6) / 100,
+            "max_start_cut_s": math.floor(latest * 100 + 1e-6) / 100, "new_start_s": NEW_START_S,
             "hook": _shown(root["title"]), "hooks_used": hooks_used(log, root),
             "original_url": f"/campaign/clips/{root['id']}/original", "in_s": ready["in_s"]}
 
@@ -287,7 +296,7 @@ def _start(ready: dict, start_cut_s: float, speed: float) -> tuple[float, float]
 def _hook(hook: str | None) -> str | None:
     """Versionens hook utan blanksteg runt, eller None för originalets (också när den är tom). Ett hårt blanksteg
     blir ett vanligt. Fel hook ger 400."""
-    hook = (hook or "").replace("\xa0", " ").strip()
+    hook = plain_spaces(hook or "").strip()
     if not hook:
         return None
     if problem := hook_problem(hook):
@@ -340,7 +349,7 @@ def make(settings: Settings, log: ClipLog, clip: dict, platform: str, account: s
     shown = _shown(title)
     placed = _sticker(settings, profile, sticker, length, shown, own, data["reframe"]["mode"])
     caption = root["caption"] if hook is None else editor._caption(root, hook, profile, editor._game(log, root))
-    new_start = abs(start_cut_s) >= NEW_START_S
+    new_start = abs(start - ready["in_s"]) >= NEW_START_S - 1e-6  # verklig flytt, efter klämningen i _start
     style = {**data["caption"], **({"font": font} if font else {})}  # bara versionens undertext
     # Ny startpunkt: ordfilen utan hook, så att ingen cold open görs. Versionen ska börja där Robin valde.
     words = {**data, "caption": style, **({"hook": None} if new_start else {})}

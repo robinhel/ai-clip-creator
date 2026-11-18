@@ -17,7 +17,7 @@ from .config import Settings
 from .editor import _game
 from .profile import Profile, load_profile
 from .schedule import NAMES, Schedule, _norm
-from .versions import hook_problem, hooks_used
+from .versions import hook_problem, hooks_used, plain_spaces
 
 TRIES = 2  # ett svar som redan finns ger ett nytt försök, sedan 400
 TITLE_MAX = 100  # YouTubes gräns; TikTok tar mer
@@ -109,8 +109,8 @@ def suggest(settings: Settings, clip: dict, platform: str, account: str) -> dict
 
 
 def _clean_hook(answer: dict) -> str:
-    """Hooken rensad som en rubrik, och utan citattecken runt."""
-    return _clean(str(answer.get("hook") or "").strip(QUOTES), TITLE_MAX).strip(QUOTES).strip()
+    """Hooken rensad som en rubrik, med vanliga blanksteg (som make) och utan citattecken runt."""
+    return _clean(plain_spaces(str(answer.get("hook") or "")).strip(QUOTES), TITLE_MAX).strip(QUOTES).strip()
 
 
 def _new_hook(hook: str, taken: list[str]) -> bool:
