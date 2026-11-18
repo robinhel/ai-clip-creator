@@ -987,3 +987,23 @@ export interface CampaignProject {
   clip_counts: Partial<Record<CampaignStatus, number>>;
   files: ProjectFile[];
 }
+
+// --- Ljud i Egna videor: behåll, tyst eller musik (egna-videor-ljud) ---
+
+/** En musikfil i kampanjens mapp musik/<kampanj>/: en ljudfil eller en video. */
+export interface MusicFile {
+  file: string;
+  duration_s: number;
+}
+
+export interface UploadOptions {
+  /** Kampanjens musik. Saknas hos äldre servrar. */
+  music?: MusicFile[];
+  /** Kampanjens regler om ljud, till exempel att originalljudet ska höras. Saknas hos äldre servrar. */
+  audio_rules?: string[];
+}
+
+export interface ClipEditInfo {
+  /** Så mycket längre klippet blir än (ut − in) / speed: 0 eller 0,1 s. Saknas hos äldre servrar. */
+  length_extra_s?: number;
+}
