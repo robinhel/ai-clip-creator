@@ -62,11 +62,15 @@ def go_link(url: object) -> str | None:
 
 def resolve_join(http: httpx.Client, join_url: str | None) -> str | None:
     """Content Rewards-sidan som /go/-länken leder till, utan query. Ett anrop, och omdirigeringen följs inte.
-    None för andra länkar och svar. Nätverksfel (httpx.HTTPError) går vidare."""
+    None för andra länkar och svar, till exempel 404. Nätverksfel och tillfälliga fel (429 och 5xx) går vidare som
+    httpx.HTTPError, så att länken provas igen. Cookies som /go/ sätter sparas inte i klienten."""
     link = go_link(join_url)
     if link is None:
         return None
     response = http.get(link, headers={"User-Agent": USER_AGENT}, follow_redirects=False)
+    http.cookies.clear()  # spårningscookies (ca_vid, _fbp, _ttp) ska inte följa med till MCP-anropen
+    if response.status_code == 429 or response.is_server_error:
+        response.raise_for_status()
     if not response.is_redirect:
         return None
     target = response.headers["location"].split("?")[0].split("#")[0]
