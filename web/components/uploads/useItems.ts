@@ -146,7 +146,7 @@ export function useItems() {
       list.map((item) =>
         item.key === from.key || item.state === "done" || item.state === "busy"
           ? item
-          : { ...item, choices: copyChoices(from.choices, item.draft?.duration_s), fresh: false }
+          : { ...item, choices: copyChoices(from.choices, item.choices), fresh: false }
       )
     );
   }

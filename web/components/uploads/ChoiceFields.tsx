@@ -167,6 +167,7 @@ function StickerTimes({ choices, set, busy }: FieldsProps) {
         {label("Start (s)", "upload-sticker-start")}
         <input
           id="upload-sticker-start"
+          aria-describedby="upload-sticker-times-help"
           type="number"
           min={0}
           step={0.5}
@@ -180,6 +181,7 @@ function StickerTimes({ choices, set, busy }: FieldsProps) {
         {label("Längd (s)", "upload-sticker-length")}
         <input
           id="upload-sticker-length"
+          aria-describedby="upload-sticker-times-help"
           type="number"
           min={0.5}
           max={10}
@@ -190,6 +192,9 @@ function StickerTimes({ choices, set, busy }: FieldsProps) {
           className={field}
         />
       </div>
+      <p id="upload-sticker-times-help" className="col-span-2 -mt-1 text-xs text-muted-foreground">
+        Tiden i videon, före hastigheten.
+      </p>
     </div>
   );
 }

@@ -107,6 +107,10 @@ export interface CampaignRunInfo {
   pct: number | null;
   error: string | null;
   clip_counts: Partial<Record<CampaignStatus, number>>;
+  /** Projektet för egna filer som körningen hör till. null för Twitch. Saknas hos äldre servrar. */
+  project_id?: number | null;
+  /** "chat" när kampanjens chatt startade körningen. Saknas hos äldre servrar. */
+  origin?: "chat" | null;
 }
 
 export type StepStatus = "waiting" | "running" | "done" | "failed";
@@ -704,6 +708,8 @@ export interface ClipEditInfo {
   max_s: number | null;
   editable: boolean;
   reason: string | null;
+  /** Hastigheten för en egen video; klippets längd är (ut − in) / speed. 1.0 utan val. Saknas hos äldre servrar. */
+  speed?: number;
   /** Orden i undertexten, tider i sekunder från råklippets start. Saknas hos äldre servrar. */
   /** style: hur undertexten bränns in. Saknas: box. */
   subtitles?: { editable: boolean; reason: string | null; words: CaptionWord[]; style?: "box" | "outline" };
@@ -950,13 +956,6 @@ export interface FreedSpace {
 }
 
 // --- Ett projekt per kampanj för egna filer och uppladdningar (egna-videor-preview) ---
-
-export interface CampaignRunInfo {
-  /** Projektet för egna filer som körningen hör till. null för Twitch. Saknas hos äldre servrar. */
-  project_id?: number | null;
-  /** "chat" när kampanjens chatt startade körningen. Saknas hos äldre servrar. */
-  origin?: "chat" | null;
-}
 
 /** En egen fil i ett projekt: filens senaste körning. Kör igen och Ta bort VOD-filen går med run_id. */
 export interface ProjectFile {

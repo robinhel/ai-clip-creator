@@ -173,12 +173,11 @@ describe("senaste valen per kampanj", () => {
 });
 
 describe("Använd på alla", () => {
-  it("kopierar valen men håller start och slut inom den andra videon", () => {
-    const from = choices({ mirror: true, startS: 3, endS: 40 });
-    expect(copyChoices(from, 60)).toEqual(from);
-    expect(copyChoices(from, 30)).toEqual({ ...from, endS: 0 });
-    expect(copyChoices(choices({ startS: 35 }), 30)).toEqual(choices({ startS: 0 }));
-    expect(copyChoices(from, null)).toEqual({ ...from, endS: 0 });
+  it("kopierar valen men inte start och slut, som hör till varje video", () => {
+    const from = choices({ mirror: true, speed: 1.2, sticker: "pil.png", startS: 3, endS: 40 });
+    const to = choices({ startS: 7, endS: 25 });
+    expect(copyChoices(from, to)).toEqual({ ...from, startS: 7, endS: 25 });
+    expect(copyChoices(from, choices())).toEqual({ ...from, startS: 0, endS: 0 });
   });
 });
 

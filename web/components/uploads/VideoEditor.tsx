@@ -58,7 +58,7 @@ function Actions({ item, blocked, locked, others, outdated, actions }: { item: I
         {item.preview && !outdated
           ? "Spara använder klippet du ser."
           : "Spara gör klippet med valen ovan. Förhandsvisa först om du vill se hela klippet."}{" "}
-        Använd på alla kopierar valen, inte rubriken.
+        Använd på alla kopierar valen, inte rubriken, start och slut.
       </p>
       {item.previewError && (
         <p role="alert" className="text-xs break-words text-[#fca5a5]">

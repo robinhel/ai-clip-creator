@@ -218,12 +218,9 @@ export function loadLastChoices(storage: ChoiceStorage, profile: string): Choice
   return { ...START_CHOICES, ...Object.fromEntries(loaded) };
 }
 
-/** Använd på alla: valen till en annan video, med start och slut inom den videon. */
-export function copyChoices(from: Choices, durationS: number | null | undefined): Choices {
-  if (durationS == null) return { ...from, endS: 0 };
-  const endS = from.endS > durationS ? 0 : from.endS;
-  const startS = from.startS >= (endS || durationS) ? 0 : from.startS;
-  return { ...from, startS, endS };
+/** Använd på alla: valen till en annan video. Start och slut hör till varje video och följer inte med. */
+export function copyChoices(from: Choices, to: Choices): Choices {
+  return { ...from, startS: to.startS, endS: to.endS };
 }
 
 /** ", där 2 egna klipp redan väntar" i texten överst. */
