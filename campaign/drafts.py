@@ -181,7 +181,8 @@ def make_plan(settings: Settings, campaign: Profile, choices: Choices, duration:
     start, end = _span(choices, duration)
     plan = Plan(choices, campaign, settings, look, own, found.get(choices.font), None, start, end,
                 trimmed=bool(start or choices.end_s))
-    plan.sticker = versions._sticker(settings, campaign, _wanted(choices), plan.raw_length, plan.hook, own)
+    plan.sticker = versions._sticker(settings, campaign, _wanted(choices), plan.raw_length, plan.hook, own,
+                                     font_file=plan.font_file)
     return plan
 
 
@@ -232,7 +233,7 @@ def frame(path: Path, plan: Plan, t: float) -> bytes:
     overlay = _overlay_used(campaign, plan.settings.root, plan.overlay)
     font = plan.font_file or find_font(campaign.text_font_file)
     graph = build_filter(campaign, overlay is not None, False, font, plan.hook, sticker=plan.sticker,
-                         look=plan.look, speed=plan.choices.speed)
+                         look=plan.look, speed=plan.choices.speed, hook_font=plan.font_file)
     head = f"[0:v]{FRAMINGS[plan.choices.framing]},setpts=PTS-STARTPTS+{r:.6f}/TB[framed]"
     graph = head + ";" + graph.replace("[0:v]setsar=1", "[framed]setsar=1", 1)
     inputs = [*(["-i", str(overlay)] if overlay else []), *(["-i", str(plan.sticker["path"])] if plan.sticker else [])]
@@ -313,7 +314,8 @@ class EditLook:
             found = _check_choices(checked)
             look = versions.look(checked.mirror, checked.filter, checked.brightness, checked.saturation)
             own = versions._overlay(settings, campaign, checked.overlay or None)
-            sticker = versions._sticker(settings, campaign, _wanted(checked), length, self.hook, own)
+            sticker = versions._sticker(settings, campaign, _wanted(checked), length, self.hook, own,
+                                        font_file=found.get(checked.font))
         except (VersionError, ValueError) as error:
             raise ValueError(str(error)) from error
         return {"look": look, "speed": checked.speed, "overlay": own, "font_file": found.get(checked.font),
