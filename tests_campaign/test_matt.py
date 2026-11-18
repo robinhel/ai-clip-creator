@@ -186,6 +186,17 @@ def test_infinity_and_nan_are_refused(client, settings) -> None:  # noqa: F811
     assert post["avg_watch_s"] is None and post["full_pct"] is None
 
 
+def test_nan_as_link_is_refused_as_a_wrong_type(client, settings) -> None:  # noqa: F811
+    clip_id, post_id = _posted(client, settings)
+    response = client.patch(
+        f"/campaign/posts/{post_id}",
+        content='{"url": NaN}',
+        headers={"content-type": "application/json"},
+    )
+    assert response.status_code == 422
+    assert ClipLog(settings.data_dir / "klipp.db").get_post(post_id)["url"] == TIKTOK
+
+
 def test_the_metrics_are_not_added_up_on_the_clip(client, settings) -> None:  # noqa: F811
     clip_id, tiktok = _posted(client, settings)
     clip = client.post(
@@ -251,8 +262,11 @@ def test_reached_min_within_7_days() -> None:
     # Ja vinner när båda gäller.
     assert reached_min_7d(CREATED, [(2100, _day(5)), (1900, _day(9))], 2000) is True
     # Kampanjens gräns avgör.
+    assert reached_min_7d(CREATED, [(1000, _day(8))], 2000) is False
+    assert reached_min_7d(CREATED, [(1000, _day(8))], 250) is None
     assert reached_min_7d(CREATED, [(1000, _day(6))], 2000) is None
     assert reached_min_7d(CREATED, [(1000, _day(6))], 250) is True
+    assert reached_min_7d(CREATED, [(1000, _day(6))], 0) is None
 
 
 def test_the_post_says_if_it_reached_the_campaign_min_in_7_days(client, settings) -> None:  # noqa: F811
