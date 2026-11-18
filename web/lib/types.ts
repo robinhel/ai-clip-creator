@@ -705,8 +705,8 @@ export interface CampaignProfileCreate {
 export interface ClipEditInfo {
   clip_id: number;
   title: string;
-  /** Texten i bilden. "": titeln står där. */
-  headline: string;
+  /** Texten i bilden. "": titeln står där. Saknas hos äldre servrar. */
+  headline?: string;
   /** null när råklippet saknas; då är editable false. */
   original: { duration_s: number; start_s: number | null; end_s: number | null; url: string } | null;
   trim: { in_s: number; out_s: number } | null;

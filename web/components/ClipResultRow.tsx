@@ -471,7 +471,8 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
   function handleEdited(updated: CampaignClip, trimmed: boolean, wordsChanged = false) {
     const parts = [
       trimmed && "Klippet är trimmat.",
-      (updated.title !== clip.title || (!trimmed && !wordsChanged)) && "Rubriken är ändrad.",
+      updated.title !== clip.title && "Titeln är ändrad.",
+      (updated.headline ?? "") !== (clip.headline ?? "") && "Texten i bilden är ändrad.",
       wordsChanged && "Undertexten är rättad.",
     ];
     const what = parts.filter(Boolean).join(" ");
@@ -506,7 +507,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
     setBusy(true);
     setError(null);
     try {
-      let updated = await api.campaign.clips.saveEdit(clip.id, { ...textBody });
+      let updated = await api.campaign.clips.saveEdit(clip.id, textBody);
       if (captionDirty && caption !== updated.caption) updated = await api.campaign.clips.patch(clip.id, { caption });
       window.dispatchEvent(new Event(SUMMARY_CHANGED));
       handleEdited(updated, false);
@@ -661,7 +662,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
               onChange={setHeadline}
               disabled={busy}
               placeholder="Samma som titeln"
-              hint="Står överst i bilden hela klippet. Tomt fält: titeln står där."
+              hint="Kräver kampanjen ingen egen text, står den här texten överst i bilden under hela klippet. Tomt fält: titeln står där."
             />
             <TextField
               id={`rubrik-${clip.id}`}
@@ -710,7 +711,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
             <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
-                disabled={busy || (!captionDirty && !textDirty) || !title.trim() || title.length > TITLE_MAX || headline.length > HEADLINE_MAX}
+                disabled={busy || (!captionDirty && !textDirty) || !title.trim() || title.length > TITLE_MAX || (textBody.headline !== undefined && headline.length > HEADLINE_MAX)}
                 onClick={saveText}
               >
                 {busy && <Loader2 className="animate-spin" aria-hidden />}

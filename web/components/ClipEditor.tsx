@@ -65,7 +65,7 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
   const [inS, setIn] = useState(tenth(info.trim.in_s));
   const [outS, setOut] = useState(tenth(info.trim.out_s));
   const [title, setTitle] = useState(info.title);
-  const [headline, setHeadline] = useState(info.headline);
+  const [headline, setHeadline] = useState(info.headline ?? "");
   const subs = info.subtitles;
   const original = subs?.editable ? subs.words : [];
   const [words, setWords] = useState<CaptionWord[]>(original);
