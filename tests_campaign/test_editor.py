@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sqlite3
 
@@ -72,7 +73,7 @@ def test_trim_gives_the_right_length_and_keeps_the_original(setup, settings) -> 
     raw_bytes = raw.read_bytes()
     info = client.get(f"/campaign/clips/{clip_id}/edit").json()
     assert info["editable"] is True and info["reason"] is None
-    assert (info["min_s"], info["max_s"]) == (3, 8)
+    assert (info["min_s"], info["max_s"], info["speed"]) == (3, 8, 1.0)  # ett Twitch-klipp har ingen val-fil
     assert info["original"]["duration_s"] == pytest.approx(10.0, abs=0.1)
     assert (info["original"]["start_s"], info["original"]["url"]) == (100.0, f"/campaign/clips/{clip_id}/original")
     assert info["trim"]["in_s"] == 0.0
@@ -115,6 +116,14 @@ def test_bad_ranges_are_refused_and_change_nothing(setup, settings, body) -> Non
     assert response.json()["detail"]
     assert (log.get(clip_id), done.read_bytes(), raw.read_bytes()) == before
     assert not original.parent.exists()
+
+
+def test_range_errors_have_a_decimal_comma(setup) -> None:
+    client, _, clip_id = setup
+    short = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 0.0, "out_s": 2.5}).json()["detail"]
+    assert short == "Klippet blir 2,5 s. Kampanjen tillåter 3–8 s."
+    outside = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 5.0, "out_s": 4.0}).json()["detail"]
+    assert re.match(r"Start och slut måste ligga inom klippet: 0 till 10(,\d+)? s,", outside), outside
 
 
 # ---------- 3. postade och nekade ----------

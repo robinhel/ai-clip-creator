@@ -7,6 +7,7 @@ import type {
   CampaignProfileDetail,
   CampaignRunCreate,
   CampaignRunDetail,
+  CampaignProject,
   CampaignRunInfo,
   CampaignStatus,
   CaptionWord,
@@ -141,6 +142,11 @@ export const api = {
     },
     vod: (vodId: string) => apiFetch<VodInfo>(`/campaign/vod/${vodId}`),
     streams: () => apiFetch<StreamInfo[]>("/campaign/streams"),
+    // Kampanjens projekt för egna filer och uppladdningar, senaste först.
+    projects: {
+      list: () => apiFetch<CampaignProject[]>("/campaign/projects"),
+      get: (id: number) => apiFetch<CampaignProject>(`/campaign/projects/${id}`),
+    },
     runs: {
       list: () => apiFetch<CampaignRunInfo[]>("/campaign/runs"),
       get: (runId: number) => apiFetch<CampaignRunDetail>(`/campaign/runs/${runId}`),
@@ -166,7 +172,7 @@ export const api = {
     uploadOptions: (profile: string) =>
       apiFetch<UploadOptions>(`/campaign/uploads/options?profile=${encodeURIComponent(profile)}`),
     clips: {
-      list: (filter: { status?: CampaignStatus; vod_id?: string; run_id?: number } = {}) => {
+      list: (filter: { status?: CampaignStatus; vod_id?: string; run_id?: number; project_id?: number } = {}) => {
         const query = new URLSearchParams(
           Object.entries(filter).map(([key, value]) => [key, String(value)])
         ).toString();

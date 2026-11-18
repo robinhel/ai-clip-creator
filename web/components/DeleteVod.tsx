@@ -8,6 +8,9 @@ import { deleteRunVod } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { CampaignRunInfo } from "@/lib/types";
 
+/** Det som behövs av en körning: ett projekt från GET /campaign/runs, eller en fil i ett projekt för egna filer. */
+type VodRun = Pick<CampaignRunInfo, "run_id" | "vod_id" | "status" | "vod_bytes">;
+
 const MB = 1024 ** 2;
 const GB = 1024 ** 3;
 const one = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
@@ -18,7 +21,7 @@ export function diskSize(bytes: number): string {
 }
 
 /** En egen fil har filens namn som VOD-id. Twitch-VOD:ar har bara siffror. */
-const isOwnFile = (run: CampaignRunInfo) => !/^\d+$/.test(run.vod_id);
+const isOwnFile = (run: VodRun) => !/^\d+$/.test(run.vod_id);
 
 function Consequences({ own }: { own: boolean }) {
   return (
@@ -44,7 +47,7 @@ function Consequences({ own }: { own: boolean }) {
 }
 
 /** Frågan med vad som slutar fungera, och borttagningen. onDone får antalet byte som frigjordes. */
-function DeleteVodDialog({ run, bytes, onClose, onDone }: { run: CampaignRunInfo; bytes: number; onClose: () => void; onDone: (freed: number) => void }) {
+function DeleteVodDialog({ run, bytes, onClose, onDone }: { run: VodRun; bytes: number; onClose: () => void; onDone: (freed: number) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -92,7 +95,7 @@ function DeleteVodDialog({ run, bytes, onClose, onDone }: { run: CampaignRunInfo
  * Ta bort projektets VOD-fil och delar för att frigöra plats på disken. Frågar först och säger vad som slutar
  * fungera. Visas bara när filen finns och projektet inte pågår.
  */
-export function DeleteVod({ run, onDeleted, small }: { run: CampaignRunInfo; onDeleted?: () => void; small?: boolean }) {
+export function DeleteVod({ run, onDeleted, small }: { run: VodRun; onDeleted?: () => void; small?: boolean }) {
   const [open, setOpen] = useState(false);
   const [freed, setFreed] = useState<number | null>(null);
   const bytes = run.vod_bytes;

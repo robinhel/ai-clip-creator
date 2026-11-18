@@ -92,8 +92,9 @@ def test_the_migration_keeps_every_post_and_fills_the_account_where_it_is_safe(s
     accounts = {(p["clip_id"], p["platform"]): p["account"] for p in log.posts()}
     assert accounts == {(1, "tiktok"): "openA", (1, "youtube_shorts"): "UC1", (2, "tiktok"): None,
                         (3, "instagram_reels"): None}
-    with sqlite3.connect(path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+    with sqlite3.connect(path) as db:  # kontomigreringen (2) är körd; projekten (3) kommer efter den
+        assert db.execute("PRAGMA user_version").fetchone()[0] >= 2
+        assert "account" in {row[1] for row in db.execute("PRAGMA table_info(posts)")}
     ClipLog(path)  # en gång till ändrar inget
     assert _summary(path) == before
     assert {(p["clip_id"], p["platform"]): p["account"] for p in ClipLog(path).posts()} == accounts
@@ -116,8 +117,9 @@ def test_the_migration_works_with_upload_tables_from_before_accounts(settings) -
     log = ClipLog(path)
     assert _summary(path) == before
     assert {p["account"] for p in log.posts()} == {None}
-    with sqlite3.connect(path) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+    with sqlite3.connect(path) as db:  # kontomigreringen (2) är körd; projekten (3) kommer efter den
+        assert db.execute("PRAGMA user_version").fetchone()[0] >= 2
+        assert "account" in {row[1] for row in db.execute("PRAGMA table_info(posts)")}
 
 
 def test_a_post_is_unique_per_clip_platform_and_account(settings) -> None:

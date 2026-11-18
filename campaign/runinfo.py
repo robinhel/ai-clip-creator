@@ -10,11 +10,13 @@ from sqlalchemy.orm import Session
 from clipsmith.db.models import PipelineEvent, Run
 
 from . import estimate, pipeline, vodfiles
+from .cliplog import UPLOADS, card_runs
 from .config import Settings
 from .profile import load_profile
 
 FIELDS = ("run_id", "vod_id", "profile", "game", "focus", "min_s", "max_s",
-          "title", "channel_name", "thumbnail_url", "duration_s")
+          "title", "channel_name", "thumbnail_url", "duration_s", "project_id", "origin")
+FILE_FIELDS = ("run_id", "vod_id", "title", "status", "stage", "pct", "error", "duration_s", "vod_bytes", "created")
 MISSING = "Projektet saknas i clipsmiths databas."
 SIGNALS_STEP = "Signalerna väljer, utan Claude"
 
@@ -85,3 +87,27 @@ def stream_run(meta: dict | None, db: Session, clips: list[dict]) -> dict:
     return {"run_id": meta["run_id"], "run_status": run.status.value if run else "failed",
             "run_cancelled": bool(run and run.error == pipeline.CANCELLED),
             "clip_count": len(run_clips(meta, clips))}
+
+
+def project_clips(project: dict, runs: list[dict], clips: list[dict]) -> list[dict]:
+    """Klippen i kampanjens projekt för egna filer: filernas klipp och kampanjens uppladdningar."""
+    files = {meta["vod_id"] for meta in runs if meta["project_id"] == project["id"]} | {UPLOADS}
+    return [c for c in clips if c["profile"] == project["profile"] and c["vod_id"] in files]
+
+
+def project_files(mine: list[dict], db: Session, clips: list[dict], settings: Settings) -> list[dict]:
+    """Filerna i ett projekt, en per vod_id: filens senaste körning, inte chattens om det finns en annan.
+    Kör igen och Ta bort VOD-filen går fortfarande per fil, med run_id."""
+    shown = sorted(card_runs(mine, lambda m: m["vod_id"]).values(), key=lambda m: m["run_id"])
+    return [{key: out[key] for key in FILE_FIELDS} for out in (describe(m, db, clips, settings)[0] for m in shown)]
+
+
+def describe_project(project: dict, streamer: str, files: list[dict], own: list[dict]) -> dict:
+    """Projektet som Hem och Projekt visar det. `own`: projektets klipp (project_clips)."""
+    working = [f for f in files if f["status"] in ("running", "pending")]
+    active = min(working, key=lambda f: f["status"] != "running", default=None)  # den som körs, annars den i kö
+    times = [t for t in (*(f["created"] for f in files), *(c["updated"] for c in own)) if t]
+    return {"id": project["id"], "profile": project["profile"], "streamer": streamer, "title": project["title"],
+            "created": project["created"], "updated": max(times, default=project["created"]),
+            "active": bool(working), "pct": active and active["pct"], "poster_url": _poster_url(own),
+            "clip_counts": dict(Counter(c["status"] for c in own)), "files": files}
