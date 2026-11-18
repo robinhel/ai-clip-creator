@@ -1,4 +1,4 @@
-import type { LiveWatch, Peak, PeakStatus } from "./liveApi";
+import type { Peak, PeakStatus } from "./liveApi";
 
 const STATUS_TEXT: Record<PeakStatus, string> = {
   vantar: "Väntar",
@@ -10,7 +10,7 @@ const STATUS_TEXT: Record<PeakStatus, string> = {
   hoppad: "Hoppades över",
 };
 
-export const statusText = (status: PeakStatus): string => STATUS_TEXT[status] ?? status;
+export const statusText = (status: PeakStatus): string => STATUS_TEXT[status];
 
 const clock = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit" });
 
@@ -18,14 +18,6 @@ const clock = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", h
 export function timeText(iso: string): string {
   const ms = Date.parse(iso);
   return Number.isNaN(ms) ? "" : clock.format(ms);
-}
-
-/** av: bevakningen står inte på. vantar: den står på men kanalen är inte live. live: kanalen är live. */
-export type WatchState = "av" | "vantar" | "live";
-
-export function watchState(w: LiveWatch): WatchState {
-  if (!w.watching) return "av";
-  return w.live ? "live" : "vantar";
 }
 
 /** Senaste toppen först. Listan som kom in ändras inte. */

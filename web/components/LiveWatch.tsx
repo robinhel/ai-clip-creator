@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { newestFirst, statusText, timeText, watchState } from "@/lib/live";
+import { newestFirst, statusText, timeText } from "@/lib/live";
 import { liveApi, type LiveWatch as Watch, type Peak, type PeakStatus } from "@/lib/liveApi";
 import { pollWhileVisible } from "@/lib/poll";
 
@@ -14,10 +14,10 @@ const STATUS_TONE: Partial<Record<PeakStatus, string>> = { klar: "text-good", fe
 
 const message = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 
-/** Bevaka live: medan kanalen är live gör appen klipp när chatten exploderar. Visas bara för kampanjer med en kanal. */
-export function LiveWatch({ profile }: { profile: string }) {
-  const [watch, setWatch] = useState<Watch | null>(null);
-  const [busy, setBusy] = useState(false);
+/** Läser bevakningen när sidan öppnas, och var 5:e sekund medan den står på eller tills den första läsningen har gått. */
+function useWatch(profile: string) {
+  // undefined: listan har inte gått att läsa än. null: kampanjen finns inte i listan.
+  const [watch, setWatch] = useState<Watch | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -31,11 +31,21 @@ export function LiveWatch({ profile }: { profile: string }) {
   }, [profile]);
   useEffect(load, [load]);
 
-  const watching = watch?.watching ?? false;
-  useEffect(() => (watching ? pollWhileVisible(load, POLL_MS) : undefined), [watching, load]);
+  const polling = watch === undefined || watch?.watching === true;
+  useEffect(() => (polling ? pollWhileVisible(load, POLL_MS) : undefined), [polling, load]);
 
+  return { watch, setWatch, error, setError };
+}
+
+/** Bevaka live: medan kanalen är live gör appen klipp när chatten exploderar. Visas bara för kampanjer med en kanal. */
+export function LiveWatch({ profile }: { profile: string }) {
+  const { watch, setWatch, error, setError } = useWatch(profile);
+  const [busy, setBusy] = useState(false);
+
+  if (watch === undefined) return error ? <LoadError error={error} /> : null;
   // Utan kanal finns kampanjen inte i listan, och då visas inget.
-  if (!watch) return null;
+  if (watch === null) return null;
+  const watching = watch.watching;
 
   function toggle() {
     setBusy(true);
@@ -50,9 +60,19 @@ export function LiveWatch({ profile }: { profile: string }) {
   return (
     <section aria-label="Live-klipp" className="mt-4 max-w-[760px] rounded-2xl border border-line bg-panel p-5">
       <Header channel={watch.channel} watching={watching} busy={busy} onToggle={toggle} />
-      <WatchStatus watch={watch} />
+      <WatchStatus watching={watching} live={watch.live} />
       <Problems warning={watch.error} error={error} />
       {(watching || watch.peaks.length > 0) && <Peaks peaks={watch.peaks} />}
+    </section>
+  );
+}
+
+/** Den första läsningen gick inte. Kortet visar felet, och sidan läser om tills det går. */
+function LoadError({ error }: { error: string }) {
+  return (
+    <section aria-label="Live-klipp" className="mt-4 max-w-[760px] rounded-2xl border border-line bg-panel p-5">
+      <h2 className="font-semibold">Live-klipp</h2>
+      <Problems warning={null} error={error} />
     </section>
   );
 }
@@ -93,16 +113,14 @@ function Problems({ warning, error }: { warning: string | null; error: string | 
   );
 }
 
-function WatchStatus({ watch }: { watch: Watch }) {
-  const state = watchState(watch);
-  if (state === "vantar") return <p className="mt-3 text-sm text-muted-foreground">Väntar på att kanalen går live</p>;
-  if (state === "live")
-    return (
-      <p className="mt-3">
-        <span className="rounded-md bg-bad px-2 py-0.5 text-xs font-semibold text-white">Live nu</span>
-      </p>
-    );
-  return null;
+function WatchStatus({ watching, live }: { watching: boolean; live: boolean }) {
+  if (!watching) return null;
+  if (!live) return <p className="mt-3 text-sm text-muted-foreground">Väntar på att kanalen går live</p>;
+  return (
+    <p className="mt-3">
+      <span className="rounded-md bg-bad px-2 py-0.5 text-xs font-semibold text-white">Live nu</span>
+    </p>
+  );
 }
 
 function Peaks({ peaks }: { peaks: Peak[] }) {

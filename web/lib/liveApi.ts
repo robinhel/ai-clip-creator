@@ -35,7 +35,7 @@ async function liveFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     detail = undefined;
   }
   if (res.status === 503 && detail === "Backend unavailable") {
-    throw new Error("Appens server är inte igång. Starta den och tryck Försök igen.");
+    throw new Error("Appens server är inte igång. Starta den och vänta några sekunder.");
   }
   if (typeof detail === "string") throw new Error(detail);
   throw new Error(`Servern svarade med fel ${res.status}. Försök igen.`);
