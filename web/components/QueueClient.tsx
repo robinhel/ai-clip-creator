@@ -3,8 +3,8 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { CheckCircle2, Clock, RefreshCw, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { CheckCircle2, Clock, RefreshCw, Upload, X } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { ClipResultRow, ignoreKey } from "@/components/ClipResultRow";
 import { freePlatforms, type Posting, type PublishRequest } from "@/components/PublishDialog";
 import { RemoveFromQueue } from "@/components/RemoveFromQueue";
@@ -337,10 +337,17 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
           <h1 className="text-3xl font-bold tracking-tight">Klippen</h1>
           <p className="mt-1.5 text-muted-foreground">Granska, posta och skicka in klippen från alla projekt och egna videor.</p>
         </div>
-        <Button variant="outline" onClick={load} disabled={refreshing}>
-          <RefreshCw className={refreshing ? "animate-spin" : undefined} aria-hidden />
-          Uppdatera
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {/* Egna videor finns inte i menyn. Härifrån når Robin sidan där han lägger in ett eget klipp. */}
+          <Link href="/uploads" className={buttonVariants({ variant: "outline" })}>
+            <Upload aria-hidden />
+            Lägg in eget klipp
+          </Link>
+          <Button variant="outline" onClick={load} disabled={refreshing}>
+            <RefreshCw className={refreshing ? "animate-spin" : undefined} aria-hidden />
+            Uppdatera
+          </Button>
+        </div>
       </div>
 
       <div role="tablist" aria-label="Steg" className="mt-6 flex gap-1 overflow-x-auto border-b border-line [scrollbar-width:none]">
