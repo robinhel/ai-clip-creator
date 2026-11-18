@@ -36,6 +36,17 @@ def test_the_headline_is_trimmed_and_cleaned_of_control_characters() -> None:
     assert headline_text({"headline": "  Big\x00play \n", "title": "No way"}) == "Big play"
 
 
+@pytest.mark.parametrize("headline", ["🔥🔥", "❤️ ✨", " ⬆️ ", "👨‍👩‍👧"])
+def test_a_headline_of_only_emoji_gives_the_title(headline) -> None:
+    assert headline_text({"headline": headline, "title": "No way"}) == "No way"
+
+
+def test_the_headline_is_cleaned_of_emoji_like_the_burned_title() -> None:
+    assert headline_text({"headline": "Big ❤️ play 🔥", "title": "No way"}) == "Big play"
+    assert headline_text({"headline": "", "title": "So ✨ clean"}) == "So clean"
+    assert headline_text({"headline": "Big ❤️ play", "title": "x"}) == finish.hook_clean("Big ❤️ play")
+
+
 def test_the_placeholder_and_no_title_give_no_headline() -> None:
     assert headline_text({"title": "Moment 0:01:40"}) == ""
     assert headline_text({}) == ""

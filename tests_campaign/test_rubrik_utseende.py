@@ -275,10 +275,37 @@ def test_a_long_title_is_cut_with_an_ellipsis_within_the_width(frame, most) -> N
     assert all(_table_px([SANS.name], line) <= MAX_LINE_PX for line in lines)
 
 
-def test_emoji_are_removed_from_the_title() -> None:
-    assert finish._hook_lines(_profile(), "Huge clutch 🔥🔥", frame="fit") == ["Huge clutch"]
-    assert finish._hook_lines(_profile(), "Love it ❤️ now", frame="fit") == ["Love it ❤ now"]
-    assert finish._hook_lines(_profile(), "🔥 😂", frame="fit") == []
+@pytest.mark.parametrize(
+    "title, lines",
+    [
+        ("Huge clutch 🔥🔥", ["Huge clutch"]),
+        ("Love it ❤️ now", ["Love it now"]),  # ❤ U+2764 och U+FE0F
+        ("So ✨ clean", ["So clean"]),  # dingbat U+2728
+        ("Top 1️⃣ play", ["Top 1 play"]),  # keycap: U+FE0F och U+20E3
+        ("Family 👨‍👩‍👧 night", ["Family night"]),  # ZWJ U+200D mellan emoji
+        ("Up ↑ and ★ away ⬛", ["Up and away"]),  # pilar, symboler, U+2B1B
+        ("🔥 😂", []),
+        ("❤ ✨ ⬆", []),
+    ],
+)
+def test_emoji_and_symbols_without_glyphs_are_removed_from_the_title(title, lines) -> None:
+    assert finish._hook_lines(_profile(), title, frame="fit") == lines
+
+
+def test_ordinary_characters_stay_in_the_title() -> None:
+    title = "Åsa’s “ÄÖ” … – — & : ' ! ? åäö"
+    assert finish.hook_clean(title) == title
+    assert " ".join(finish._hook_lines(_profile(), title, frame="fit")) == title
+
+
+def test_the_manifest_has_the_burned_title_without_emoji(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(finish, "run", lambda cmd: None)
+    monkeypatch.setattr(finish, "probe", lambda path: {"has_audio": True, "duration": 9.0})
+    src, out = tmp_path / "s.mp4", tmp_path / "o.mp4"
+    manifest = finish.finish_clip(src, out, _profile(), tmp_path, title="🔥 Big ✨ play")
+    assert manifest["hook_text"] == "Big play"
+    manifest = finish.finish_clip(src, out, _profile(), tmp_path, title="🔥🔥")
+    assert manifest["hook_text"] is None
 
 
 def _width(font: Path, text: str) -> int:
