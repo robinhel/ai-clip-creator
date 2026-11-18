@@ -9,6 +9,7 @@ import { ClipResultRow, ignoreKey } from "@/components/ClipResultRow";
 import { DeleteVod } from "@/components/DeleteVod";
 import { clipTotal } from "@/components/ProjectCard";
 import { api, cancelRun } from "@/lib/api";
+import { rejectedFix } from "@/lib/steps";
 import { clock, cn, duration, serverTime, usd } from "@/lib/utils";
 import type { CampaignClip, CampaignProfile, CampaignRunDetail, CampaignStatus, Run, RunStep } from "@/lib/types";
 
@@ -765,8 +766,9 @@ export default function RunDetailPage() {
 
   if (!run) return <PageMessage error={error} />;
 
-  // Gör klippen kampanjklara igen gör bara om underkända klipp. Ett fel i captionen rättas på raden, inte här.
-  const canRedo = (clips ?? []).some((c) => c.status === "underkand" && c.problems.some((p) => !p.startsWith("Captionen ")));
+  // Gör klippen kampanjklara igen gör bara om underkända klipp, med samma råklipp. Fel i captionen och längden
+  // rättas inte av den: de rättas på raden, eller så trycker Robin Nej (rejectedFix).
+  const canRedo = (clips ?? []).some((c) => rejectedFix(c)?.kind === "projekt");
   const formats = profiles.find((p) => p.name === run.profile)?.formats ?? [];
 
   return (
