@@ -6,14 +6,16 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from campaign import editor, finish, versions, workflow
+import pytest
+
+from campaign import editor, finish, subtitles, versions, workflow
 from campaign.caption import build_caption
 from campaign.cliplog import ClipLog
 from campaign.profile import Profile, load_profile
 from campaign.versions import NO_OWN
 from campaign.workflow import finish_vod
 
-from .conftest import make_clip, make_overlay, needs_ffmpeg, needs_subtitles
+from .conftest import make_clip, make_overlay, needs_ffmpeg, needs_subtitles, set_profile
 from .test_editor import WORDS, _paths, _words, setup  # noqa: F401  (fixture)
 from .test_mcp_server import _call, app  # noqa: F401  (fixture)
 from .test_foresla_hook import _claude_hook
@@ -274,3 +276,46 @@ def test_a_suggested_hook_is_not_the_text_on_the_picture(vclip, monkeypatch) -> 
     assert answer.status_code == 200, answer.text
     assert answer.json() == {"hook": "Bodycam never felt this tense"} and len(fake.messages.calls) == 2
     assert "Big play" in str(fake.messages.calls[0]["messages"])  # texten i bilden skickas som använd
+
+
+# ---------- hook_fits och hookens regler ----------
+
+
+WORGEN = "WORLD OF WARCRAFT FOREVER LOOKS MOMMY WORGEN WARRIOR"  # exakt tre rader i sans
+
+
+def test_hook_fits_takes_three_lines_and_not_four(tmp_path) -> None:
+    profile = Profile(name="x", streamer="y", safe_top=0.07, safe_bottom=0.20, hook_text=True, hook_style="sans")
+    assert finish.hook_fits(profile, tmp_path, WORGEN, frame="fit")
+    assert not finish.hook_fits(profile, tmp_path, WORGEN + " MAMMOTH", frame="fit")  # fyra rader
+
+
+def test_hook_fits_takes_fewer_lines_in_zoom(tmp_path) -> None:
+    profile = Profile(name="x", streamer="y", safe_top=0.125, safe_bottom=0.20, hook_text=True, hook_style="sans")
+    assert finish.hook_fits(profile, tmp_path, WORGEN, frame="fit")
+    assert not finish.hook_fits(profile, tmp_path, WORGEN, frame="zoom")  # zoom: två rader ovanför bilden
+
+
+def test_hook_fits_measures_an_own_font_wider(tmp_path) -> None:
+    profile = Profile(name="x", streamer="y", safe_top=0.07, safe_bottom=0.20, hook_text=True, hook_style="serif")
+    title = "Nobody saw that coming at all and then the whole lobby lost it in"  # tre rader, fyra med egen font
+    assert finish.hook_fits(profile, tmp_path, title)
+    assert not finish.hook_fits(profile, tmp_path, title, font_file="/f/I.ttf")
+
+
+def test_a_hook_with_only_emoji_is_refused() -> None:
+    with pytest.raises(versions.VersionError, match="bokstäver eller siffror"):
+        versions._hook("🔥🔥 😂", lambda _: True)
+    assert versions._hook(" Big play 🔥 ", lambda _: True) == "Big play 🔥"
+
+
+def test_a_suggested_hook_must_fit_the_clips_zoom(vclip, settings, monkeypatch) -> None:  # noqa: F811
+    client, log, clip_id = vclip
+    set_profile(settings, safe_zone={"top": 0.125, "bottom": 0.20})  # zoom: två rader ovanför bilden
+    words = subtitles.words_path(editor.raw_path(log.get(clip_id), settings))
+    data = json.loads(words.read_text(encoding="utf-8"))
+    words.write_text(json.dumps({**data, "reframe": {**data["reframe"], "mode": "zoom"}}), encoding="utf-8")
+    fake = _claude_hook(monkeypatch, WORGEN.title(), "Bodycam never felt this tense")  # tre rader, sedan två
+    answer = client.post(f"/campaign/clips/{clip_id}/versions/hook")
+    assert answer.status_code == 200, answer.text
+    assert answer.json() == {"hook": "Bodycam never felt this tense"} and len(fake.messages.calls) == 2
