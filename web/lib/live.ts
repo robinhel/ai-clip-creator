@@ -1,7 +1,7 @@
 import type { LiveWatch, Peak, PeakStatus } from "./liveApi";
 import { parseTwitchLink } from "./twitchLink";
 
-/** Som LOGIN i campaign/streams.py: Twitchs login är små bokstäver, siffror och _. */
+/** Twitchs login är små bokstäver, siffror och _. Samma regel finns i LOGIN i campaign/streams.py: ändra båda samtidigt. */
 const LOGIN = /^[a-z0-9_]{1,25}$/;
 /** En kanallänk: twitch.tv/kanal, med eller utan https://, www. eller m., / på slutet och ?… */
 const CHANNEL_LINK = /^(?:https?:\/\/)?(?:www\.|m\.)?twitch\.tv\/([^/?#]+)\/?(?:[?#].*)?$/i;
@@ -29,16 +29,17 @@ export function channelStateText(watch: Pick<LiveWatch, "watching" | "live">): s
   return watch.live ? "Live nu. Appen spelar in strömmen." : "Väntar på att kanalen går live";
 }
 
-/** Kanalerna som bevakas utan kampanj. */
-export const freeChannels = (all: LiveWatch[]): LiveWatch[] => all.filter((w) => w.profile === null);
+/** Bevakningen för kampanjen, eller de fria kanalerna när profile är null. */
+export const watchesOf = (all: LiveWatch[], profile: string | null): LiveWatch[] => all.filter((w) => w.profile === profile);
 
-const sameFreeChannel = (a: LiveWatch, b: LiveWatch) => a.profile === null && b.profile === null && a.channel === b.channel;
-
-/** Listan med den fria kanalen utbytt, eller tillagd sist. Listan som kom in ändras inte. */
-export function withChannel(all: LiveWatch[], watch: LiveWatch): LiveWatch[] {
-  if (!all.some((w) => sameFreeChannel(w, watch))) return [...all, watch];
-  return all.map((w) => (sameFreeChannel(w, watch) ? watch : w));
+/** De fria kanalerna med kanalen utbytt, eller tillagd sist. Listan som kom in ändras inte. */
+export function withChannel(channels: LiveWatch[], watch: LiveWatch): LiveWatch[] {
+  if (!channels.some((w) => w.channel === watch.channel)) return [...channels, watch];
+  return channels.map((w) => (w.channel === watch.channel ? watch : w));
 }
+
+/** Felets text, eller fallback när felet inte är ett Error. */
+export const errorMessage = (err: unknown, fallback: string): string => (err instanceof Error ? err.message : fallback);
 
 const STATUS_TEXT: Record<PeakStatus, string> = {
   vantar: "Väntar",

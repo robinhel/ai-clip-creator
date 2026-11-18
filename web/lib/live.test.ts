@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { channelLogin, channelStateText, freeChannels, newestFirst, timeText, withChannel } from "./live";
+import { channelLogin, channelStateText, newestFirst, timeText, watchesOf, withChannel } from "./live";
 import type { LiveWatch, Peak } from "./liveApi";
 
 function peak(over: Partial<Peak> = {}): Peak {
@@ -43,19 +43,24 @@ describe("channelStateText", () => {
   });
 });
 
-describe("freeChannels", () => {
-  it("tar bara kanaler utan kampanj", () => {
-    const all = [watch({ profile: "timmy", channel: "skiimasktimmy" }), watch({ channel: "ishowspeed" })];
-    expect(freeChannels(all).map((w) => w.channel)).toEqual(["ishowspeed"]);
+describe("watchesOf", () => {
+  const all = [watch({ profile: "timmy", channel: "skiimasktimmy" }), watch({ channel: "ishowspeed" }), watch({ profile: "speed" })];
+
+  it("tar bara kanaler utan kampanj när profile är null", () => {
+    expect(watchesOf(all, null).map((w) => w.channel)).toEqual(["ishowspeed"]);
+  });
+
+  it("tar bara kampanjens bevakning", () => {
+    expect(watchesOf(all, "timmy").map((w) => w.channel)).toEqual(["skiimasktimmy"]);
+    expect(watchesOf(all, "saknas")).toEqual([]);
   });
 });
 
 describe("withChannel", () => {
-  it("byter ut den fria kanalen, och lämnar en kampanj med samma kanal", () => {
-    const campaign = watch({ profile: "speed", channel: "ishowspeed" });
-    const all = [campaign, watch({ watching: true })];
+  it("byter ut kanalen utan att ändra listan som kom in", () => {
+    const all = [watch({ channel: "kaicenat" }), watch({ watching: true })];
     const next = withChannel(all, watch({ watching: false }));
-    expect(next).toEqual([campaign, watch({ watching: false })]);
+    expect(next).toEqual([watch({ channel: "kaicenat" }), watch({ watching: false })]);
     expect(all[1].watching).toBe(true);
   });
 

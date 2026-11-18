@@ -1,50 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { newestFirst, statusText, timeText } from "@/lib/live";
-import { liveApi, type LiveWatch as Watch, type Peak, type PeakStatus } from "@/lib/liveApi";
-import { pollWhileVisible } from "@/lib/poll";
-
-const POLL_MS = 5_000;
+import { errorMessage, newestFirst, statusText, timeText } from "@/lib/live";
+import { liveApi, type Peak, type PeakStatus } from "@/lib/liveApi";
+import { useLiveWatches } from "@/lib/useLiveWatches";
 
 const STATUS_TONE: Partial<Record<PeakStatus, string>> = { klar: "text-good", fel: "text-bad" };
 
-const message = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
-
-/** Läser bevakningen när sidan öppnas, och var 5:e sekund medan den står på eller tills den första läsningen har gått. */
-function useWatch(profile: string) {
-  // undefined: listan har inte gått att läsa än. null: kampanjen finns inte i listan.
-  const [watch, setWatch] = useState<Watch | null | undefined>(undefined);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(() => {
-    liveApi
-      .list()
-      .then((all) => {
-        setWatch(all.find((w) => w.profile === profile) ?? null);
-        setError(null);
-      })
-      .catch((err) => setError(message(err, "Kunde inte läsa bevakningen")));
-  }, [profile]);
-  useEffect(load, [load]);
-
-  const polling = watch === undefined || watch?.watching === true;
-  useEffect(() => (polling ? pollWhileVisible(load, POLL_MS) : undefined), [polling, load]);
-
-  return { watch, setWatch, error, setError };
-}
-
 /** Bevaka live: medan kanalen är live gör appen klipp när chatten exploderar. Visas bara för kampanjer med en kanal. */
 export function LiveWatch({ profile }: { profile: string }) {
-  const { watch, setWatch, error, setError } = useWatch(profile);
+  const { watches, setWatches, error, setError } = useLiveWatches(profile);
   const [busy, setBusy] = useState(false);
 
-  if (watch === undefined) return error ? <LoadError error={error} /> : null;
+  if (watches === undefined) return error ? <LoadError error={error} /> : null;
+  const watch = watches[0];
   // Utan kanal finns kampanjen inte i listan, och då visas inget.
-  if (watch === null) return null;
+  if (!watch) return null;
   const watching = watch.watching;
 
   function toggle() {
@@ -52,8 +26,8 @@ export function LiveWatch({ profile }: { profile: string }) {
     setError(null);
     liveApi
       .setWatching(profile, !watching)
-      .then(setWatch)
-      .catch((err) => setError(message(err, "Det gick inte. Försök igen.")))
+      .then((next) => setWatches([next]))
+      .catch((err) => setError(errorMessage(err, "Det gick inte. Försök igen.")))
       .finally(() => setBusy(false));
   }
 

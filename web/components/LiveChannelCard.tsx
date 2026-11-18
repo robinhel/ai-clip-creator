@@ -1,44 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { Radio } from "lucide-react";
 import { Peaks, Problems } from "@/components/LiveWatch";
 import { Button } from "@/components/ui/button";
-import { channelLogin, channelStateText, freeChannels, withChannel } from "@/lib/live";
+import { channelLogin, channelStateText, errorMessage, withChannel } from "@/lib/live";
 import { liveApi, type LiveWatch as Watch } from "@/lib/liveApi";
-import { pollWhileVisible } from "@/lib/poll";
+import { useLiveWatches } from "@/lib/useLiveWatches";
 import { cn } from "@/lib/utils";
 
-const POLL_MS = 5_000;
-
-const message = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
-
-/** Läser de fria kanalerna när Hem öppnas, och var 5:e sekund medan någon bevakas eller tills den första läsningen har gått. */
-function useChannels() {
-  // undefined: listan har inte gått att läsa än.
-  const [channels, setChannels] = useState<Watch[] | undefined>(undefined);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(() => {
-    liveApi
-      .list()
-      .then((all) => {
-        setChannels(freeChannels(all));
-        setError(null);
-      })
-      .catch((err) => setError(message(err, "Kunde inte läsa bevakningen")));
-  }, []);
-  useEffect(load, [load]);
-
-  const polling = channels === undefined || channels.some((w) => w.watching);
-  useEffect(() => (polling ? pollWhileVisible(load, POLL_MS) : undefined), [polling, load]);
-
-  return { channels, setChannels, error, setError };
-}
-
-/** Bevaka live utan kampanj: Robin skriver en Twitch-kanal, och appen gör 9:16-klipp när chatten exploderar. */
+/**
+ * Bevaka live utan kampanj: Robin skriver en Twitch-kanal, och appen gör 9:16-klipp när chatten exploderar.
+ * En kanal som inte bevakas längre står kvar med sina toppar, och kan slås på igen.
+ */
 export function LiveChannelCard() {
-  const { channels, setChannels, error, setError } = useChannels();
+  const { watches: channels, setWatches: setChannels, error, setError } = useLiveWatches(null);
   const [text, setText] = useState("");
   // Kanalen som slås på eller av just nu.
   const [busy, setBusy] = useState<string | null>(null);
@@ -52,7 +28,7 @@ export function LiveChannelCard() {
         setChannels((list) => withChannel(list ?? [], watch));
         done?.();
       })
-      .catch((err) => setError(message(err, "Det gick inte. Försök igen.")))
+      .catch((err) => setError(errorMessage(err, "Det gick inte. Försök igen.")))
       .finally(() => setBusy(null));
   }
 
