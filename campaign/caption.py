@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from .finish import hook_clean
 from .profile import Profile
 
 # Snabblägets rubrik (clipsmith selector._signal_picks). Robin skriver en egen innan klippet postas.
@@ -11,10 +12,10 @@ PLACEHOLDER = re.compile(r"\bMoment \d+:\d{2}:\d{2}\b")
 
 
 def headline_text(pick: dict) -> str:
-    """Texten överst i bilden: Claudes headline, annars titeln. Styrtecken blir blanksteg som i finish._clean,
-    så en headline med bara blanksteg eller styrtecken ger titeln. Snabblägets platshållare "Moment h:mm:ss"
+    """Texten överst i bilden: Claudes headline, annars titeln. Rensad som i bilden (finish.hook_clean), så en
+    headline med bara blanksteg, styrtecken eller emoji ger titeln. Snabblägets platshållare "Moment h:mm:ss"
     och en pick utan titel ger ingen text. Filnamnsreserven skickas inte hit, så den blir ingen text heller."""
-    texts = [re.sub(r"[\x00-\x1f]", " ", str(pick.get(key) or "")).strip() for key in ("headline", "title")]
+    texts = [hook_clean(str(pick.get(key) or "")) for key in ("headline", "title")]
     text = next(filter(None, texts), "")
     return "" if PLACEHOLDER.search(text) else text
 

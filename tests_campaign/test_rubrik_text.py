@@ -44,7 +44,8 @@ def test_a_headline_of_only_emoji_gives_the_title(headline) -> None:
 def test_the_headline_is_cleaned_of_emoji_like_the_burned_title() -> None:
     assert headline_text({"headline": "Big ❤️ play 🔥", "title": "No way"}) == "Big play"
     assert headline_text({"headline": "", "title": "So ✨ clean"}) == "So clean"
-    assert headline_text({"headline": "Big ❤️ play", "title": "x"}) == finish.hook_clean("Big ❤️ play")
+    headline = "Big ❤️ play"
+    assert headline_text({"headline": headline, "title": "x"}) == finish.hook_clean(headline)
 
 
 def test_the_placeholder_and_no_title_give_no_headline() -> None:

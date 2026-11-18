@@ -26,7 +26,8 @@ HOOK_LINE_H = int(HOOK_FONT_SIZE * 1.25)  # en rad hook, med luft
 HOOK_PAD = 24  # det svarta fältets luft ovanför första raden; under sista raden är luften raden ut
 FONTS = Path(__file__).parent / "fonts"
 HOOK_FONTS = {"sans": FONTS / "Montserrat-ExtraBold.ttf", "serif": FONTS / "DMSerifDisplay-Regular.ttf"}
-NO_GLYPH = re.compile("[\U00010000-\U0010ffff\ufe0f]")  # emoji: fonterna saknar dem och ritar tomma rutor
+# Emoji, pilar, symboler, dingbats (✨ ❤), ZWJ, keycap och U+FE0F: fonterna saknar dem och ritar tomma rutor
+NO_GLYPH = re.compile("[\U00010000-\U0010ffff\u2190-\u2bff\u200d\u20e3\ufe0f]")
 
 
 def _load_widths() -> dict[str, tuple[dict[str, float], float]]:
@@ -65,8 +66,10 @@ def _hook_esc(value: str) -> str:
     return value
 
 
-def _clean(title: str) -> str:
-    return re.sub(r"[\x00-\x1f]", " ", title).strip()  # ett styrtecken (NUL) stoppar ffmpeg-anropet
+def hook_clean(title: str) -> str:
+    """Rubriken som den bränns in: styrtecken blir blanksteg (NUL stoppar ffmpeg-anropet), tecken utan glyf i
+    fonterna tas bort och blanksteg som blir kvar slås ihop."""
+    return " ".join(NO_GLYPH.sub("", re.sub(r"[\x00-\x1f]", " ", title)).split())
 
 
 def _text_on_top(profile: Profile, has_overlay: bool) -> bool:
@@ -133,8 +136,8 @@ def _hook_lines(
 ) -> list[str]:
     """Titelns rader, högst HOOK_LINE_PX breda. Stilen serif skrivs och mäts i versaler. Med en egen font
     (own_font) mäts raden med det bredaste värdet ur båda stilarnas tabeller. Emoji tas bort."""
-    title = NO_GLYPH.sub("", _clean(title))
-    if not (profile.hook_text and title.strip()):
+    title = hook_clean(title)
+    if not (profile.hook_text and title):
         return []
     if profile.hook_style == "serif":
         title = title.upper()
@@ -278,6 +281,7 @@ def finish_clip(
     """Rendera den kampanjklara versionen. plan är tidskartan (campaign.timemap). En ny version kan ge en egen
     overlay, en fontfil till texten på skärmen och hooken, och ett klistermärke (med path). Utan fontfil får
     hooken stilens font. Returnerar ett manifest om vad som gjordes."""
+    title = hook_clean(title)
     info = probe(src)
     overlay = _overlay_used(profile, root, overlay)
     has_overlay = overlay is not None
@@ -316,5 +320,5 @@ def finish_clip(
         "cold_open_s": plan["cold_open_s"] if plan else 0.0,
         "text_applied": bool(profile.text),
         "text": profile.text,
-        "hook_text": title.strip() if profile.hook_text and title.strip() else None,
+        "hook_text": title if profile.hook_text and title else None,
     }
