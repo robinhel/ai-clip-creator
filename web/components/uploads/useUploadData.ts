@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { uploadsApi, type DraftOptions } from "@/lib/uploadsApi";
-import type { CampaignClip, CampaignProfile } from "@/lib/types";
+import type { CampaignClip, CampaignProfile, MusicFile } from "@/lib/types";
 import { errorText } from "./ui";
 
 /** Kampanjerna och de egna klippen. ?kampanj=<id> väljer kampanjen, till exempel från kampanjsidan. */
@@ -58,5 +58,10 @@ export function useUploadOptions(profile: string) {
       live = false;
     };
   }, [profile, tries]);
-  return { opts, error, retry: () => setTries((n) => n + 1) };
+  /** En uppladdad låt i kampanjens lista, utan att hämta valen igen. Samma namn ersätts. */
+  const addMusic = useCallback(
+    (m: MusicFile) => setOpts((o) => o && { ...o, music: [...(o.music ?? []).filter((x) => x.file !== m.file), m] }),
+    []
+  );
+  return { opts, error, retry: () => setTries((n) => n + 1), addMusic };
 }

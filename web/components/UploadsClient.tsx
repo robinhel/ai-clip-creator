@@ -86,6 +86,14 @@ function useSelection(list: ReturnType<typeof useItems>, profile: string) {
   return { current, setSelected, addFiles };
 }
 
+/** När kampanjens musik är hämtad: en vald låt som inte finns längre ger Behåll. */
+function useKnownMusic(opts: DraftOptions | null, setMusicFiles: (music: string[]) => void) {
+  const names = opts ? JSON.stringify((opts.music ?? []).map((m) => m.file)) : null;
+  useEffect(() => {
+    if (names) setMusicFiles(JSON.parse(names) as string[]);
+  }, [names, setMusicFiles]);
+}
+
 interface VideosProps {
   list: ReturnType<typeof useItems>;
   current: Item | null;
@@ -123,9 +131,10 @@ function Videos({ list, current, profile, burnsTitle, onSelect, onFiles }: Video
 
 export function UploadsClient() {
   const { profiles, profile, setProfile, clips, setClips, loadError, profilesLoaded, load, loadClips } = useUploadData();
-  const { opts, error: optsError, retry: retryOpts } = useUploadOptions(profile);
+  const { opts, error: optsError, retry: retryOpts, addMusic } = useUploadOptions(profile);
   const list = useItems();
-  const { items } = list;
+  const { items, setMusicFiles } = list;
+  useKnownMusic(opts, setMusicFiles);
   const { current, setSelected, addFiles } = useSelection(list, profile);
   const { busy, made, saveOne, makeAll } = useSaving(list, profile, loadClips);
   const [showSafe, setShowSafe] = useState(true);
@@ -144,6 +153,7 @@ export function UploadsClient() {
     preview: (item) => list.preview(item, profile),
     save: saveOne,
     applyToAll: list.applyToAll,
+    addMusic,
   };
 
   const approved = clips.filter((c) => c.status === "godkand").length;

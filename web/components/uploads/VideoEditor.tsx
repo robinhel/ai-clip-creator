@@ -4,6 +4,8 @@ import { Copy, Eye, Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { frameQuery, previewOutdated, type Choices, type LengthCheck } from "@/lib/uploads";
 import { uploadsApi, type DraftOptions } from "@/lib/uploadsApi";
+import type { MusicFile } from "@/lib/types";
+import { AudioFields } from "./AudioFields";
 import { CampaignFields, PictureFields, type SetChoice } from "./ChoiceFields";
 import { PreviewPane } from "./PreviewPane";
 import { Timeline } from "./Timeline";
@@ -17,6 +19,8 @@ export interface EditorActions {
   preview: (item: Item) => void;
   save: (item: Item) => void;
   applyToAll: (item: Item) => void;
+  /** En uppladdad låt till kampanjens lista. */
+  addMusic: (m: MusicFile) => void;
 }
 
 interface Props {
@@ -105,7 +109,7 @@ function EditorTimeline({ item, opts, check, locked, actions }: { item: Item; op
 }
 
 /** Valen i två kolumner: bilden till vänster, det kampanjen styr till höger. */
-function EditorFields({ item, opts, locked, actions }: { item: Item; opts: DraftOptions | null; locked: boolean; actions: EditorActions }) {
+function EditorFields({ item, opts, profile, locked, actions }: { item: Item; opts: DraftOptions | null; profile: string; locked: boolean; actions: EditorActions }) {
   const set: SetChoice = (name, value) => actions.setChoice(item.key, name, value);
   const fieldProps = { choices: item.choices, set, busy: locked };
   return (
@@ -113,7 +117,10 @@ function EditorFields({ item, opts, locked, actions }: { item: Item; opts: Draft
       <div className="min-w-0 space-y-4">
         <PictureFields {...fieldProps} />
       </div>
-      <div className="min-w-0 space-y-4">{opts && <CampaignFields opts={opts} {...fieldProps} />}</div>
+      <div className="min-w-0 space-y-4">
+        {opts && <CampaignFields opts={opts} {...fieldProps} />}
+        {opts && <AudioFields opts={opts} profile={profile} onMusicAdded={actions.addMusic} {...fieldProps} />}
+      </div>
     </div>
   );
 }
@@ -146,6 +153,7 @@ export function VideoEditor({ item, profile, opts, optsError, onOptsRetry, busy,
             render={item.preview?.render}
             outdated={outdated}
             previewing={item.previewing}
+            silent={item.choices.audio !== "keep"}
             safe={opts?.safe_zone}
             showSafe={showSafe}
             onShowSafe={onShowSafe}
@@ -156,7 +164,7 @@ export function VideoEditor({ item, profile, opts, optsError, onOptsRetry, busy,
           <EditorTimeline item={item} opts={opts} check={check} locked={locked} actions={actions} />
           {otherProblem && <p className="text-xs text-[#fca5a5]">{otherProblem}</p>}
           {optsError && <LoadError error={optsError} onRetry={onOptsRetry} className="" />}
-          <EditorFields item={item} opts={opts} locked={locked} actions={actions} />
+          <EditorFields item={item} opts={opts} profile={profile} locked={locked} actions={actions} />
         </div>
       </div>
     </section>
