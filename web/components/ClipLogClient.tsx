@@ -373,7 +373,8 @@ function Engagement({ row }: { row: Row }) {
   );
 }
 
-function StatFields({ row, draft, setDraft, busy, step, label, onEnter }: FieldProps) {
+/** De fyra talen och engagemanget. children: knappen Fler mått, direkt under engagemanget. */
+function StatFields({ row, draft, setDraft, busy, step, label, onEnter, children }: FieldProps & { children?: React.ReactNode }) {
   const goto = step === "visningar" || step === "visningar_igen";
   return (
     <div className="mt-3 lg:mt-0">
@@ -398,6 +399,7 @@ function StatFields({ row, draft, setDraft, busy, step, label, onEnter }: FieldP
         ))}
       </div>
       <Engagement row={row} />
+      {children}
     </div>
   );
 }
@@ -461,54 +463,67 @@ function MetricFacts({ row }: { row: Row }) {
   );
 }
 
-/** Fler mått från TikTok Studio. Sparas som de andra fälten, med Spara, ett steg eller Enter. */
-function MoreMetrics({ row, draft, setDraft, busy, step, label, onEnter, open, onToggle }: FieldProps & { open: boolean; onToggle: () => void }) {
-  const panelId = `${rowId(row)}-matt`;
+const morePanelId = (row: Row) => `${rowId(row)}-matt`;
+
+/** Knappen som öppnar och stänger Fler mått. Står under engagemanget, bara på en rad med inlägg. */
+function MoreButton({ row, open, onToggle }: { row: Row; open: boolean; onToggle: () => void }) {
+  if (!row.post) return null;
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className="mt-1.5 -ml-2.5"
+      aria-expanded={open}
+      aria-controls={open ? morePanelId(row) : undefined}
+      onClick={onToggle}
+    >
+      <ChevronDown className={cn("transition-transform", open && "rotate-180")} aria-hidden />
+      Fler mått
+    </Button>
+  );
+}
+
+/** Fler mått från TikTok Studio, under hela raden när den är öppen. Sparas som de andra fälten, med Spara, ett steg eller Enter. */
+function MoreMetrics({ row, draft, setDraft, busy, step, label, onEnter, open }: FieldProps & { open: boolean }) {
+  if (!open) return null;
   // Att göra vid Analytics inskickad sätter markören i första fältet.
   const goto = step === "analytics_inskickad";
   return (
-    <div className="mt-3 lg:col-span-4 lg:row-start-2 lg:mt-0">
-      <Button size="sm" variant="ghost" aria-expanded={open} aria-controls={open ? panelId : undefined} onClick={onToggle}>
-        <ChevronDown className={cn("transition-transform", open && "rotate-180")} aria-hidden />
-        Fler mått
-      </Button>
-      {open && (
-        <div id={panelId} className="mt-2">
-          <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-5">
-            {METRICS.map((metric) => (
-              <label key={metric.key} className="space-y-1 text-xs text-muted-foreground">
-                <span>{metric.label}</span>
-                <Input
-                  aria-label={`${metric.label} för klipp ${label}`}
-                  inputMode={metric.key === "saves" ? "numeric" : "decimal"}
-                  value={draft[metric.key]}
-                  data-goto={goto && metric.key === "avg_watch_s" ? "" : undefined}
-                  onChange={(e) => setDraft((d) => ({ ...d, [metric.key]: e.target.value }))}
-                  onKeyDown={onEnter}
-                  disabled={busy}
-                  className="h-8 w-full text-right tabular-nums"
-                />
-                {metric.key === "countries_pct" && row.clip.audience_countries && <span className="block">{row.clip.audience_countries}</span>}
-              </label>
-            ))}
-          </div>
-          <MetricFacts row={row} />
-        </div>
-      )}
+    <div id={morePanelId(row)} className="mt-3 lg:col-span-4 lg:row-start-2 lg:mt-0">
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-5">
+        {METRICS.map((metric) => (
+          <label key={metric.key} className="space-y-1 text-xs text-muted-foreground">
+            <span>{metric.label}</span>
+            <Input
+              aria-label={`${metric.label} för klipp ${label}`}
+              inputMode={metric.key === "saves" ? "numeric" : "decimal"}
+              value={draft[metric.key]}
+              data-goto={goto && metric.key === "avg_watch_s" ? "" : undefined}
+              onChange={(e) => setDraft((d) => ({ ...d, [metric.key]: e.target.value }))}
+              onKeyDown={onEnter}
+              disabled={busy}
+              className="h-8 w-full text-right tabular-nums"
+            />
+            {metric.key === "countries_pct" && row.clip.audience_countries && <span className="block">{row.clip.audience_countries}</span>}
+          </label>
+        ))}
+      </div>
+      <MetricFacts row={row} />
     </div>
   );
 }
 
-/** Om Fler mått är öppen. Att göra vid Analytics inskickad öppnar den, i samma rendering som markören sätts. */
-function useMoreOpen(highlight: boolean, step: Step | null) {
-  const [open, setOpen] = useState(false);
-  const [seen, setSeen] = useState(false);
-  if (highlight !== seen) {
-    setSeen(highlight);
-    if (highlight && step === "analytics_inskickad") setOpen(true);
-  }
-  return [open, () => setOpen((o) => !o)] as const;
+/**
+ * Raderna där Fler mått är öppen, med rowId som nyckel. Ligger utanför raden: raden byggs om efter varje
+ * sparning (nyckeln har updated), och panelen ska vara öppen kvar.
+ */
+function useMoreOpen() {
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const toggle = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }));
+  const show = (id: string) => setOpen((o) => ({ ...o, [id]: true }));
+  return { open, toggle, show };
 }
+type MoreOpen = ReturnType<typeof useMoreOpen>;
 
 function NotPosted({ status }: { status: CampaignStatus }) {
   return (
@@ -608,19 +623,21 @@ interface RowProps {
   hidden: boolean;
   /** Raden som en punkt i Att göra pekade på. */
   highlight: boolean;
+  /** Fler mått är öppen. */
+  moreOpen: boolean;
   now: number;
   onUpdate: (clip: CampaignClip) => void;
+  onToggleMore: () => void;
 }
 
 /** Ett inlägg, eller ett klipp utan inlägg. På smal skärm ett kort, på bred skärm en rad med fyra kolumner. */
-function ClipRow({ row, info, estimate, runId, hidden, highlight, now, onUpdate }: RowProps) {
+function ClipRow({ row, info, estimate, runId, hidden, highlight, moreOpen, now, onUpdate, onToggleMore }: RowProps) {
   const saved = row.post ?? row.clip;
   const status = rowStatus(row);
   const [draft, setDraft] = useState<Draft>(() => draftFrom(saved));
   const { busy, error, setError, send, remove } = useRowSave(row, onUpdate);
   const dirty = changed(draft, saved).length > 0;
   const step = stepFor(row, now);
-  const [moreOpen, toggleMore] = useMoreOpen(highlight, step);
 
   /** Spara fälten, och statusen om ett steg ges. Det som är skrivet men inte sparat följer med. */
   function save(next?: CampaignStatus) {
@@ -654,13 +671,15 @@ function ClipRow({ row, info, estimate, runId, hidden, highlight, now, onUpdate 
       <RowTitle row={row} runId={runId} streamer={info?.streamer} error={error} />
       {POSTED.includes(status) ? (
         <>
-          <StatFields {...fields} />
+          <StatFields {...fields}>
+            <MoreButton row={row} open={moreOpen} onToggle={onToggleMore} />
+          </StatFields>
           <MoneyFields {...fields} estimate={estimate} />
         </>
       ) : (
         <NotPosted status={status} />
       )}
-      {row.post && <MoreMetrics {...fields} open={moreOpen} onToggle={toggleMore} />}
+      {row.post && <MoreMetrics {...fields} open={moreOpen} />}
       <RowActions
         row={row}
         step={step}
@@ -913,12 +932,13 @@ interface ListProps {
   earnings?: Earnings;
   runIdFor: (clip: CampaignClip) => number | undefined;
   highlight: string | null;
+  more: MoreOpen;
   now: number;
   onUpdate: (clip: CampaignClip) => void;
 }
 
 /** Alla rader. Dolda rader finns kvar, så att osparade siffror inte försvinner när filtret byts. */
-function LogList({ clips, rows, profiles, campaigns, f, earnings, runIdFor, highlight, now, onUpdate }: ListProps) {
+function LogList({ clips, rows, profiles, campaigns, f, earnings, runIdFor, highlight, more, now, onUpdate }: ListProps) {
   const shows = showsIn(f);
   const estimates = new Map(earnings?.per_clip.map((c) => [c.id, c.usd]));
   const shown = rows.filter(shows).length;
@@ -937,8 +957,10 @@ function LogList({ clips, rows, profiles, campaigns, f, earnings, runIdFor, high
             runId={runIdFor(row.clip)}
             hidden={!shows(row)}
             highlight={highlight === rowId(row)}
+            moreOpen={!!more.open[rowId(row)]}
             now={now}
             onUpdate={onUpdate}
+            onToggleMore={() => more.toggle(rowId(row))}
           />
         ))}
       </ul>
@@ -1011,6 +1033,7 @@ export function ClipLogClient(props: Props) {
   const runs = useRunLinks();
   const f = useFilters(props);
   const [highlight, setHighlight] = useHighlight();
+  const more = useMoreOpen();
   const [now] = useState(() => props.now ?? Date.now());
   const clips = log.clips ?? [];
   const profiles = [...new Set(clips.map((c) => c.profile))].sort();
@@ -1026,6 +1049,8 @@ export function ClipLogClient(props: Props) {
     const row = rows.find((r) => rowId(r) === item.rowId);
     if (!row) return;
     if (!showsIn(f)(row)) f.clear();
+    // Vid Analytics inskickad öppnas Fler mått i samma rendering, så att markören hamnar i Tittartid.
+    if (item.step === "analytics_inskickad") more.show(rowId(row));
     setHighlight(rowId(row));
   }
 
@@ -1048,6 +1073,7 @@ export function ClipLogClient(props: Props) {
             earnings={log.summary?.earnings}
             runIdFor={runs.runIdFor}
             highlight={highlight}
+            more={more}
             now={now}
             onUpdate={log.update}
           />
