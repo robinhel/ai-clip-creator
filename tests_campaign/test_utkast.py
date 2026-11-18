@@ -239,15 +239,18 @@ def test_edit_keeps_mirror_speed_filter_and_sticker(client, settings, tmp_path) 
 
     _edit(client, clip["id"], title="Ny rubrik")
     assert probe(path)["duration"] == pytest.approx(length, abs=0.05)
-    assert _psnr(_nth(path, 130, tmp_path / "rubrik.png"), before) >= 40
+    below = "crop=1080:1680:0:240,"  # under rubrikens svarta fält, som står hela klippet
+    renamed = _nth(path, 130, tmp_path / "rubrik.png")
+    assert _psnr(renamed, before, below) >= 40
+    assert _psnr(renamed, before, "crop=1080:110:0:120,") < 30  # kontroll: rubriken är bytt
 
     _edit(client, clip["id"], in_s=1.0)  # råklippet börjar 1 s (30 bildrutor) senare
     assert probe(path)["duration"] == pytest.approx(length - 1 / 1.1, abs=0.1)
     trimmed = _nth(path, 100, tmp_path / "trim.png")
-    assert _psnr(trimmed, before) >= 35
+    assert _psnr(trimmed, before, below) >= 35
     flipped = tmp_path / "vand.png"  # kontroll: utan spegling hade bilden varit den här
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(before), "-vf", "hflip", str(flipped)], check=True)
-    assert _psnr(trimmed, flipped) < 25
+    assert _psnr(trimmed, flipped, below) < 25
 
 
 @needs_ffmpeg
