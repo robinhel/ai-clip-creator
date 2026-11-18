@@ -31,7 +31,7 @@ from pydantic import BaseModel, field_validator
 
 from . import versions
 from .caption import build_caption
-from .cliplog import ClipLog
+from .cliplog import UPLOADS, ClipLog
 from .config import Settings
 from .finish import ENCODER_ARGS, HEIGHT, WIDTH, _overlay_used, build_filter, finish_clip
 from .media import find_font, need, probe, run
@@ -40,7 +40,7 @@ from .rules import check_clip
 from .versions import VersionError
 
 VIDEO_TYPES = (".mp4", ".mov", ".m4v", ".webm", ".mkv")
-UPLOAD = "upload"  # vod_id och mappen under out/
+UPLOAD = UPLOADS  # vod_id och mappen under out/
 DRAFTS = ".utkast"  # punkt först: inget annat letar där
 CHOICES = "val"
 MAX_AGE_S = 24 * 3600
@@ -434,8 +434,17 @@ def save(log: ClipLog, path: Path, plan: Plan) -> int:
     folder_out = plan.settings.out_dir / UPLOAD
     done = folder_out / "klara" / f"{stem}.mp4"
     done.parent.mkdir(parents=True, exist_ok=True)
-    os.replace(path / f"raw-{plan.raw_key}.mp4", folder_out / f"{stem}.mp4")  # råklippet, som Redigera utgår från
-    os.replace(path / "render.mp4", done)
-    clip_id = store(log, plan, done, state["manifest"])
+    moves = ((path / f"raw-{plan.raw_key}.mp4", folder_out / f"{stem}.mp4"),  # råklippet, som Redigera utgår från
+             (path / "render.mp4", done))
+    try:
+        for src, dest in moves:
+            os.replace(src, dest)
+        clip_id = store(log, plan, done, state["manifest"])
+    except BaseException:  # tillbaka till utkastet: inget klipp utan rad i klipploggen, och det går att spara igen
+        for src, dest in moves:
+            if dest.exists():
+                os.replace(dest, src)
+        (folder_out / CHOICES / f"{stem}.json").unlink(missing_ok=True)
+        raise
     shutil.rmtree(path, ignore_errors=True)
     return clip_id

@@ -27,7 +27,7 @@ from . import drafts, versions
 from .api import _log, _profile, _profile_names, _public, get_settings, router
 from .config import Settings
 from .media import probe
-from .drafts import FIT, FILL, FRAMINGS, UPLOAD, VIDEO_TYPES, Choices, FrameChoices, Plan  # noqa: F401
+from .drafts import FRAMINGS, UPLOAD, VIDEO_TYPES, Choices, FrameChoices, Plan
 from .profile import Profile
 
 KEY = [Depends(verify_api_key)]

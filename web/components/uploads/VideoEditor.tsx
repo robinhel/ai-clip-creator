@@ -141,6 +141,7 @@ export function VideoEditor({ item, profile, opts, optsError, onOptsRetry, busy,
       <div className="mt-4 grid gap-6 md:grid-cols-[240px_minmax(0,1fr)]">
         <div className="space-y-3">
           <PreviewPane
+            key={item.key}
             frameUrl={frameUrlFor(item, profile)}
             render={item.preview?.render}
             outdated={outdated}

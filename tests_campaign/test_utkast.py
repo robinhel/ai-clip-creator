@@ -7,8 +7,10 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import time
+import types
 
 import pytest
 from fastapi import FastAPI
@@ -143,6 +145,47 @@ def test_save_with_the_same_choices_keeps_the_rendered_file(client, settings, tm
     assert (choices["mirror"], choices["speed"], choices["sticker"]) == (True, 1.1, "fire.png")
     # Kampanjens projekt för egna filer skapas när klippet sparas, inte när projekten läses.
     assert [p["profile"] for p in ClipLog(settings.data_dir / "klipp.db").projects()] == ["skiimasktimmy"]
+
+
+@needs_ffmpeg
+def test_a_save_that_fails_in_the_clip_log_leaves_no_clip_and_can_be_done_again(client, settings, tmp_path,
+                                                                                monkeypatch) -> None:
+    calls = _count(monkeypatch)
+    draft_id = _draft(client, make_clip(tmp_path / "a.mp4", size="1920x1080", seconds=4))
+    assert client.post(f"/campaign/uploads/drafts/{draft_id}/render", data=CHOICES).status_code == 200
+    real = drafts.store
+
+    def broken(log, plan, done, manifest):
+        drafts.write_choices(done.parent.parent, done.stem, plan.saved())  # som store: valen före raden
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(drafts, "store", broken)
+    with pytest.raises(sqlite3.OperationalError):
+        client.post(f"/campaign/uploads/drafts/{draft_id}/save", data=CHOICES)
+    folder = settings.out_dir / "upload"
+    assert list((folder / "klara").glob("*")) == [] and list(folder.glob("*.mp4")) == []
+    assert list((folder / "val").glob("*")) == []
+    assert (folder / ".utkast" / draft_id / "render.mp4").is_file()
+    monkeypatch.setattr(drafts, "store", real)
+    saved = client.post(f"/campaign/uploads/drafts/{draft_id}/save", data=CHOICES)
+    assert saved.status_code == 201, saved.text
+    assert len(calls) == 1  # samma render, inte en ny
+    assert len(ClipLog(settings.data_dir / "klipp.db").list()) == 1
+
+
+@pytest.mark.parametrize(("out_s", "choices", "ok"), [
+    (4.9, {"speed": 1.0}, True),  # 4,9 + 0,1 = 5,0 s: precis på taket
+    (4.95, {"speed": 1.0}, False),  # 5,05 s: över, som utkastens kontroll och regelkontrollen
+    (4.95, None, True),  # ett klipp utan val-fil blir inte längre än råklippet
+])
+def test_edit_counts_the_extra_tenth_for_an_own_video(out_s, choices, ok) -> None:
+    campaign = types.SimpleNamespace(min_seconds=3, max_seconds=5)
+    try:
+        editor._check_trim({"duration_s": 6.0}, (0.0, out_s), campaign, drafts.EditLook(choices))
+    except ValueError as error:
+        assert not ok and "Kampanjen tillåter 3–5 s." in str(error), error
+    else:
+        assert ok
 
 
 @needs_ffmpeg

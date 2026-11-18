@@ -208,14 +208,16 @@ def _new_trim(state: dict, in_s: float | None, out_s: float | None) -> tuple[flo
     return new_in, new_out
 
 
-def _check_trim(state: dict, trim: tuple[float, float], profile: Profile, speed: float) -> None:
-    """Den nya trimningen inom originalet och inom kampanjens längd. Klippet blir kortare med hastigheten."""
+def _check_trim(state: dict, trim: tuple[float, float], profile: Profile, look: drafts.EditLook) -> None:
+    """Den nya trimningen inom originalet och inom kampanjens längd. Klippet blir kortare med hastigheten. En
+    egen video med val-fil blir drafts.EXTRA_S längre, som i utkastens kontroll."""
     new_in, new_out = trim
     if not 0 <= new_in < new_out <= state["duration_s"]:
         shown = drafts.comma(state["duration_s"], "g")
         raise ValueError(f"Start och slut måste ligga inom klippet: 0 till {shown} s, och starten före slutet.")
     min_s, max_s = limits(profile)
-    length = round((new_out - new_in) / speed, 3)  # exakt kampanjens gränser, som i webben
+    extra = drafts.EXTRA_S if look.choices else 0.0
+    length = round((new_out - new_in) / look.speed + extra, 3)  # exakt kampanjens gränser
     if not min_s <= length <= max_s:
         raise ValueError(f"Klippet blir {drafts.comma(length, '.1f')} s. "
                          f"Kampanjen tillåter {drafts.comma(min_s, 'g')}–{drafts.comma(max_s, 'g')} s.")
@@ -235,7 +237,7 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
     trimmed = (new_in, new_out) != (state["in_s"], state["out_s"])
     look = drafts.EditLook.of(raw)  # en egen video: valen från uppladdningen
     if trimmed:
-        _check_trim(state, (new_in, new_out), profile, look.speed)
+        _check_trim(state, (new_in, new_out), profile, look)
     new_title = clip["title"] if title is None else title.strip()
     if not new_title:
         raise ValueError("Rubriken får inte vara tom.")
