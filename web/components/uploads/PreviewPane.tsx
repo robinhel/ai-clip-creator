@@ -77,6 +77,8 @@ interface Props {
   render?: DraftRender;
   outdated: boolean;
   previewing: boolean;
+  /** Ljudet är inte originalljudet: bilden visar inte hur det låter. */
+  silent?: boolean;
   safe?: { top: number; bottom: number } | null;
   showSafe: boolean;
   onShowSafe: (on: boolean) => void;
@@ -100,7 +102,7 @@ function Frame({ frameUrl }: { frameUrl: string | null }) {
   );
 }
 
-function Caption({ render, outdated, safe, showSafe, onShowSafe }: Omit<Props, "frameUrl" | "previewing">) {
+function Caption({ render, outdated, silent, safe, showSafe, onShowSafe }: Omit<Props, "frameUrl" | "previewing">) {
   const playing = render && !outdated;
   return (
     <figcaption className="mt-2 space-y-1.5 text-xs text-muted-foreground">
@@ -111,6 +113,7 @@ function Caption({ render, outdated, safe, showSafe, onShowSafe }: Omit<Props, "
         </label>
       )}
       <p>{playing ? "Hela klippet, precis som det sparas." : "Bilden ändras med valen. Förhandsvisa gör hela klippet."}</p>
+      {silent && !playing && <p>Bilden har inget ljud. Förhandsvisa för att höra ljudet.</p>}
       {render && outdated && <p className="text-warn">Valen har ändrats. Förhandsvisa igen.</p>}
       {playing && <Notes render={render} />}
     </figcaption>

@@ -3,6 +3,8 @@ som Robin godkänner innan det hamnar i Att posta."""
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -46,6 +48,26 @@ def test_a_landscape_video_becomes_a_vertical_clip_to_review(client, settings, t
     assert info["duration"] == pytest.approx(6 / 1.2, abs=0.15)
     assert stored["file"].startswith(str(settings.out_dir / "upload" / "klara"))
     assert client.get(f"/campaign/clips/{clip['id']}/file").status_code == 200
+
+
+@needs_ffmpeg
+def test_a_draft_without_speed_and_filter_starts_at_1x_without_filter(client, settings, tmp_path) -> None:
+    from campaign import drafts
+
+    source = make_clip(tmp_path / "a.mp4", seconds=4)
+    with source.open("rb") as file:
+        answer = client.post("/campaign/uploads/drafts", files={"file": ("a.mp4", file, "video/mp4")})
+    url, form = f"/campaign/uploads/drafts/{answer.json()['draft_id']}", {"profile": "skiimasktimmy"}
+    state = client.post(f"{url}/render", data=form).json()
+    assert state["length_s"] == pytest.approx(probe(source)["duration"] + drafts.EXTRA_S, abs=0.05)
+
+    def picture(**change) -> bytes:
+        return client.get(f"{url}/frame", params={**form, "t": 1, **change}).content
+
+    assert picture() == picture(filter="none") != picture(filter="fresh")
+    saved = client.post(f"{url}/save", data=form).json()
+    choices = json.loads((settings.out_dir / "upload" / "val" / f"{saved['filename'][:-4]}.json").read_text())
+    assert (choices["speed"], choices["filter"]) == (1.0, "none")
 
 
 @needs_ffmpeg
@@ -241,6 +263,8 @@ def test_the_options_follow_the_campaign(client, extras) -> None:
         "framings": ["fill", "fit"],
         # Kampanjens regel för material, så att Robin ser den under väljaren.
         "source_allowed": "Bara SkiiMaskTimmys Twitch-streams: live eller tidigare sändningar (VOD).",
+        "music": [],  # ingen musikmapp än (test_ljud)
+        "audio_rules": [],  # Timmys regler säger inget om ljud
     }
     assert client.get("/campaign/uploads/options", params={"profile": "finns-inte"}).status_code == 400
 

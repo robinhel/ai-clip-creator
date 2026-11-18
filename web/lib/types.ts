@@ -242,6 +242,8 @@ export interface CampaignClip {
   length_s?: number | null;
   /** Länderna kampanjen vill nå, i ord, till exempel "Tier 1-länder". Saknas hos äldre servrar. */
   audience_countries?: string | null;
+  /** Kampanjen är avstängd (active: false). Statistik visar då bara klippet om det är postat. Saknas hos äldre servrar. */
+  campaign_off?: boolean;
 }
 
 export type StickerPosition = "top_left" | "top_right" | "center" | "bottom_left" | "bottom_right";
@@ -1026,4 +1028,24 @@ export interface CampaignProject {
   /** Klippen i projektet, också uppladdningarna. */
   clip_counts: Partial<Record<CampaignStatus, number>>;
   files: ProjectFile[];
+}
+
+// --- Ljud i Egna videor: behåll, tyst eller musik (egna-videor-ljud) ---
+
+/** En musikfil i kampanjens mapp musik/<kampanj>/: en ljudfil eller en video. */
+export interface MusicFile {
+  file: string;
+  duration_s: number;
+}
+
+export interface UploadOptions {
+  /** Kampanjens musik. Saknas hos äldre servrar. */
+  music?: MusicFile[];
+  /** Kampanjens regler om ljud, till exempel att originalljudet ska höras. Saknas hos äldre servrar. */
+  audio_rules?: string[];
+}
+
+export interface ClipEditInfo {
+  /** Så mycket längre klippet blir än (ut − in) / speed: 0 eller 0,1 s. Saknas hos äldre servrar. */
+  length_extra_s?: number;
 }

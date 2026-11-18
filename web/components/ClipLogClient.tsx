@@ -346,6 +346,11 @@ function RowTitle({ row, runId, streamer, error }: { row: Row; runId?: number; s
           </a>
         )}
         <CampaignStatusBadge status={rowStatus(row)} />
+        {clip.campaign_off && (
+          <span title="Kampanjen är avstängd" className="rounded-full border border-line px-2 py-0.5 text-xs text-muted-foreground">
+            Avstängd
+          </span>
+        )}
         <span className="text-xs text-muted-foreground">
           {post ? `Postad ${date.format(serverTime(post.created))}` : `Klippt ${date.format(serverTime(clip.created))}`}
         </span>
@@ -705,7 +710,7 @@ function useClipLog({ initialSummary = null, initialClips = null }: Props) {
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [summaryData, clipData] = await Promise.all([api.campaign.summary(), api.campaign.clips.list()]);
+      const [summaryData, clipData] = await Promise.all([api.campaign.summary(), api.campaign.clips.list({ posted_off: true })]);
       setSummary(summaryData);
       setClips(clipData);
       setError(null);
@@ -886,7 +891,7 @@ function EmptyList({ noClips, filtered }: { noClips: boolean; filtered: boolean 
         <Link href="/uploads" className={link}>
           egen video
         </Link>
-        .
+        . Klipp från avstängda kampanjer syns här bara när de är postade.
       </>
     );
   }

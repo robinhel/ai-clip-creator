@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from . import audio
 from .caption import check_caption
 from .profile import Profile
 
@@ -27,6 +28,23 @@ def check_campaign(profile: Profile) -> list[str]:
     return [NO_CAMPAIGN_PROBLEM] if profile.name == NO_CAMPAIGN else []
 
 
+def _sound(info: dict, manifest: dict) -> list[str]:
+    """Ett Twitch-klipp måste ha ljud. En egen video (manifestets own_video, från finish_clip) får vara utan."""
+    if info["has_audio"] or manifest.get("own_video"):
+        return []
+    return ["Klippet saknar ljud. Streamens ljud måste höras."]
+
+
+def _sound_rules(manifest: dict, profile: Profile) -> list[str]:
+    """Musik med originalljudet på 0 %: en varning när kampanjen har en regel om ljud. Robin avgör."""
+    silent = manifest.get("audio") == "music" and manifest.get("original_volume") == 0
+    found = audio.rules(profile) if silent else []
+    if not found:
+        return []
+    said = " ".join(r if r.endswith((".", "!", "?")) else f"{r}." for r in found)
+    return [f"Originalljudet hörs inte. Kampanjen har en regel om ljud: {said}"]
+
+
 def check_clip(
     info: dict,
     manifest: dict,
@@ -50,13 +68,13 @@ def check_clip(
     if info["duration"] > profile.max_seconds:
         high = f"{profile.max_seconds:g}".replace(".", ",")
         problems.append(f"Klippet är {length} s. Profilens tak är {high} s.")
-    if not info["has_audio"]:
-        problems.append("Klippet saknar ljud. Streamens ljud måste höras.")
+    problems += _sound(info, manifest)
     if profile.text_required and not manifest.get("text_applied"):
         problems.append("Texten på skärmen saknas.")
     if profile.overlay_required and not manifest.get("overlay_applied"):
         problems.append("Overlayen saknas. Lägg bilden i overlays/ och kör finish igen.")
     problems += check_caption(caption, profile)
+    warnings += _sound_rules(manifest, profile)
 
     if profile.formats:
         if clip_format is None:
