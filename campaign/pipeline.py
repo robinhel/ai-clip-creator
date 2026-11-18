@@ -36,6 +36,7 @@ from .download import download_vod
 from .media import probe
 from .memory import selection_memory
 from .profile import Profile, load_profile
+from .rules import NO_CAMPAIGN
 from .subtitles import pick_words, save_words
 from .timemap import hook_span
 from .transcribe import berget_post, transcribe_vod
@@ -200,6 +201,8 @@ def make_clips(
         cfg = cfg.model_copy(update={"clip": clip})
     channel = cfg.channels[0] if cfg.channels else profile.streamer.lower()
     meta = (ClipLog(settings.data_dir / "klipp.db").run(run_id) if run_id is not None else None) or {}
+    if profile.name == NO_CAMPAIGN and meta.get("channel_name"):  # liveklipp utan kampanj: kanalen som bevakas
+        channel = meta["channel_name"]
     title = meta.get("title") or vod_id  # VOD-fakta sparades när körningen startade
     duration = _duration(meta["duration_s"]) if meta.get("duration_s") else ""
 
