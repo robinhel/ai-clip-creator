@@ -102,3 +102,44 @@ def test_a_clip_without_a_campaign_cannot_be_uploaded(hidden) -> None:
     for platform in ("youtube", "tiktok"):
         with pytest.raises(schedule.ScheduleError, match="ingen kampanj"):
             schedule.clip_file(hidden, log.get(clip_id), platform)
+
+
+def test_a_free_live_part_is_run_without_twitch_and_with_the_channel_name(
+    hidden, monkeypatch
+) -> None:
+    """Delens id (<stream-id>_live_<n>) är ingen VOD: körningen frågar inte Twitch om den. Claude får
+    kanalens namn, inte den dolda kampanjens etikett."""
+    from campaign import pipeline, vodinfo
+    from clipsmith.models.transcript import Segment, Transcript
+
+    monkeypatch.chdir(hidden.root)  # config.live.yaml har work_dir ./work
+    part = "555_live_1"
+    mp4 = hidden.root / "work" / part / f"{part}.mp4"
+    mp4.parent.mkdir(parents=True)
+    mp4.touch()
+    segment = Segment(start=1.0, end=2.0, text="no way", words=[])
+    transcript = Transcript(video_id=part, language="en", segments=[segment])
+    (mp4.parent / "transcript.json").write_text(transcript.to_json(), encoding="utf-8")
+    (mp4.parent / "chat.json").write_text('{"video_id": "555_live_1", "messages": []}')
+    ClipLog(hidden.data_dir / "klipp.db").add_run(
+        7, part, NO_CAMPAIGN, None, title="SPEED (live, topp 1)", channel_name="ishowspeed"
+    )
+    monkeypatch.setattr(pipeline, "download_vod", lambda *a, **k: pytest.fail("ingen nedladdning"))
+    monkeypatch.setattr(pipeline, "_twitch_ids", lambda *a: pytest.fail("ingen Twitch"))
+    monkeypatch.setattr(vodinfo.twitch, "get_video", lambda *a: pytest.fail("ingen Twitch"))
+    monkeypatch.setattr(vodinfo.twitch, "gql_query", lambda *a: pytest.fail("ingen Twitch"))
+    seen: dict = {}
+
+    def process_vod(video, cfg, secrets, **kwargs):
+        seen["video"], seen["skip_chat"] = video, kwargs["skip_chat"]
+        (mp4.parent / "candidates.json").write_text("[]", encoding="utf-8")
+
+    monkeypatch.setattr(pipeline, "process_vod", process_vod)
+    profile = load_profile(NO_CAMPAIGN, hidden.profiles_dir)
+    _, why = pipeline.make_clips(
+        part, profile, hidden, game=None, emit=lambda *e: None, run_id=7, local=True
+    )
+    assert why == "Inga kandidater hittades."
+    video = seen["video"]
+    assert (video.url, video.user_id, video.user_login) == ("", "", "ishowspeed")
+    assert seen["skip_chat"] is True  # chatten från live-klipparen, inte Twitchs chattreplay
