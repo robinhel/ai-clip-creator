@@ -100,9 +100,9 @@ def test_a_fresh_twitch_campaign_with_everything_scores_high() -> None:
     pay = 5 * 1.8 / 1.05 * SCALE["pay"]  # 4,3: betalningen är inte full
     cap = 10 * math.log(500 / 100) / math.log(1000 / 100)  # 7,0: taket är 500 dollar
     assert {key: parts[key]["points"] for key in parts} == {
-        "views": 20, "fresh": 12, "minimum": 10, "source": 8, "budget": 8, "pay": pytest.approx(pay, abs=0.05),
+        "views": 10, "fresh": 12, "minimum": 10, "source": 8, "budget": 8, "pay": pytest.approx(pay, abs=0.05),
         "max_payout": pytest.approx(cap, abs=0.05), "proof": 5, "hassle": 2}
-    assert total == round(20 + 12 + 10 + 8 + 8 + pay + cap + 5 + 2) == 76  # förut 79
+    assert total == round(10 + 12 + 10 + 8 + 8 + pay + cap + 5 + 2) == 66  # förut 76, då Okänt gav 20 på Visningar
     assert all(part["label"] and part["fact"] for part in parts.values())
 
 
@@ -188,7 +188,7 @@ def test_no_details_gives_half_points_and_okant() -> None:
     assert (parts["minimum"]["points"], parts["minimum"]["fact"]) == (5, "Okänt")
     assert (parts["proof"]["points"], parts["proof"]["fact"]) == (2.5, "Okänt")
     assert (parts["max_payout"]["points"], parts["max_payout"]["fact"]) == (5, "Okänt")
-    assert (parts["views"]["points"], parts["views"]["fact"]) == (20, "Okänt: inga klipp att räkna på ännu")
+    assert (parts["views"]["points"], parts["views"]["fact"]) == (10, "Okänt: inga klipp att räkna på ännu")  # inte halva
     assert parts["fresh"]["points"] == 12  # åldern finns i sökträffen
 
 
@@ -896,14 +896,15 @@ TOP_12 = [12_000, 100, 30_000, 6_000, 25_000, 9_000, 20_000, 50, 8_000, 15_000, 
 def test_the_views_count_the_median_of_the_ten_best_campaign_clips() -> None:
     part = _views(clip_views=TOP_12)  # de två sämsta (100 och 50) räknas inte: medianen är 11 000, inte 9 500
     assert (part["max"], part["label"]) == (40, "Visningar")
-    assert part["points"] == pytest.approx(40 * math.log(11_000 / 2_000) / math.log(1_000_000 / 2_000), abs=0.05)
+    assert part["points"] == pytest.approx(40 * math.log(11_000 / 2_000) / math.log(200_000 / 2_000), abs=0.05)
     assert part["fact"] == "Median 11 000 visningar för kampanjens 10 bästa klipp"
 
 
-@pytest.mark.parametrize(("views", "points"), [
-    ([1_000_000] * 10, 40), ([2_000_000] * 6, 40), ([2_000] * 10, 0), ([500] * 5, 0), ([0] * 7, 0),
-    ([57_350] * 5, pytest.approx(21.6, abs=0.05)), ([23_150] * 5, pytest.approx(15.8, abs=0.05))])
-def test_the_campaign_scale_runs_from_2000_to_a_million(views, points) -> None:
+@pytest.mark.parametrize(("views", "points"), [  # 40 · ln(median / 2 000) / ln(100), förut ln(500) med taket 1 000 000
+    ([200_000] * 5, 40), ([1_000_000] * 10, 40), ([2_000_000] * 6, 40), ([2_000] * 10, 0), ([500] * 5, 0),
+    ([0] * 7, 0), ([28_150] * 5, pytest.approx(23.0, abs=0.05)),  # 22,97, förut 17,0
+    ([57_350] * 5, pytest.approx(29.2, abs=0.05)), ([23_150] * 5, pytest.approx(21.3, abs=0.05))])
+def test_the_campaign_scale_runs_from_2000_to_200000(views, points) -> None:
     assert _views(clip_views=views)["points"] == points
 
 
@@ -914,7 +915,8 @@ def test_twitch_goes_before_the_campaign_clips() -> None:
 
 
 @pytest.mark.parametrize(("views", "points"), [
-    ([200_000] * 5, 40), ([500] * 5, 0), ([400] * 5, 0), ([300_000] * 12 + [1], 40)])
+    ([200_000] * 5, 40), ([500] * 5, 0), ([400] * 5, 0), ([300_000] * 12 + [1], 40),
+    ([10_000] * 5, 20)])  # 40 · ln(20) / ln(400): mitt på skalan
 def test_the_twitch_scale_runs_from_500_to_200000(views, points) -> None:
     assert _views(twitch_views=views)["points"] == points
 
@@ -936,12 +938,23 @@ def test_no_twitch_clips_gives_the_campaign_clips(twitch) -> None:
     ({"twitch_views": [200_000] * 3, "clip_views": [2_000_000] * 4},
      "Okänt: 3 Twitch-klipp och 4 kampanjklipp, minst 5 behövs"),
     ({"clip_views": [2_000_000] * 4}, "Okänt: 0 Twitch-klipp och 4 kampanjklipp, minst 5 behövs"),
+    ({"twitch_views": [200_000]}, "Okänt: 1 Twitch-klipp och 0 kampanjklipp, minst 5 behövs"),
     ({"clip_views": None}, "Okänt: inga klipp att räkna på ännu"),
     ({"twitch_views": []}, "Okänt: inga klipp att räkna på ännu"),
     ({}, "Okänt: inga klipp att räkna på ännu")])
 def test_fewer_than_five_clips_on_twitch_and_in_the_campaign_is_unknown(data, fact) -> None:
     part = _views(**data)
-    assert (part["points"], part["max"], part["fact"]) == (20, 40, fact)
+    assert (part["points"], part["max"], part["fact"]) == (10, 40, fact)
+
+
+def test_unknown_views_give_fewer_points_than_proven_good_clips() -> None:
+    """Okänt ger 10 av 40, inte halva (Robins ja, 18 nov 2026). Med skalan 2 000–200 000 motsvarar 10 poäng en
+    median på 2 000 · 100^0,25, cirka 6 325: strax över ger fler poäng än Okänt, strax under färre."""
+    assert [_views(**data)["points"] for data in ({}, {"clip_views": [2_000_000]}, {"clip_views": [9_000] * 4})] == [
+        10, 10, 10]
+    above, below = _views(clip_views=[6_500] * 5)["points"], _views(clip_views=[6_000] * 5)["points"]
+    assert (above, below) == (10.2, 9.5)  # 40 · ln(3,25) / ln(100) = 10,24 och 40 · ln(3) / ln(100) = 9,54
+    assert below < 10 < above
 
 
 CHANNEL = {"videos": [{"kind": "channel", "platform": "twitch", "channel": None,
