@@ -668,7 +668,7 @@ def test_a_campaign_whose_details_fail_still_gets_a_score_and_a_notice(settings,
     fake.add("timmy/streams")
     fake.add("other/streams")
     fake.broken.add("timmy/streams")
-    fake.clip_views = [50_000] * 10
+    fake.clip_views = [1_000_000] * 10  # kampanjens klipp får mycket visningar: full poäng på Visningar
     scout.Scout(settings).run_once()
     overview = scout.Scout(settings).overview()
     assert overview["error"] is None
@@ -808,35 +808,45 @@ TOP_12 = [12_000, 100, 30_000, 6_000, 25_000, 9_000, 20_000, 50, 8_000, 15_000, 
 def test_the_views_count_the_median_of_the_ten_best_campaign_clips() -> None:
     part = _views(clip_views=TOP_12)  # de två sämsta (100 och 50) räknas inte: medianen är 11 000, inte 9 500
     assert (part["max"], part["label"]) == (40, "Visningar")
-    assert part["points"] == pytest.approx(40 * math.log(11_000 / 2_000) / math.log(50_000 / 2_000), abs=0.05)
+    assert part["points"] == pytest.approx(40 * math.log(11_000 / 2_000) / math.log(1_000_000 / 2_000), abs=0.05)
     assert part["fact"] == "Median 11 000 visningar för kampanjens 10 bästa klipp"
 
 
 @pytest.mark.parametrize(("views", "points"), [
-    ([50_000] * 10, 40), ([90_000] * 6, 40), ([2_000] * 10, 0), ([500] * 5, 0), ([0] * 7, 0)])
-def test_the_campaign_scale_runs_from_2000_to_50000(views, points) -> None:
+    ([1_000_000] * 10, 40), ([2_000_000] * 6, 40), ([2_000] * 10, 0), ([500] * 5, 0), ([0] * 7, 0),
+    ([57_350] * 5, pytest.approx(21.6, abs=0.05)), ([23_150] * 5, pytest.approx(15.8, abs=0.05))])
+def test_the_campaign_scale_runs_from_2000_to_a_million(views, points) -> None:
     assert _views(clip_views=views)["points"] == points
 
 
 def test_twitch_goes_before_the_campaign_clips() -> None:
-    part = _views(twitch_views=[1_200], clip_views=[90_000] * 10)
-    assert part["points"] == pytest.approx(40 * math.log(1_200 / 100) / math.log(10_000 / 100), abs=0.05)
+    part = _views(twitch_views=[1_200] * 5, clip_views=[2_000_000] * 10)
+    assert part["points"] == pytest.approx(40 * math.log(1_200 / 500) / math.log(200_000 / 500), abs=0.05)
     assert part["fact"] == "Twitch: median 1 200 visningar för kanalens bästa klipp, 30 dagar"
 
 
-@pytest.mark.parametrize(("views", "points"), [([10_000], 40), ([100, 50], 0), ([20_000] * 12 + [1], 40)])
-def test_the_twitch_scale_runs_from_100_to_10000(views, points) -> None:
+@pytest.mark.parametrize(("views", "points"), [
+    ([200_000] * 5, 40), ([500] * 5, 0), ([400] * 5, 0), ([300_000] * 12 + [1], 40)])
+def test_the_twitch_scale_runs_from_500_to_200000(views, points) -> None:
     assert _views(twitch_views=views)["points"] == points
 
 
-@pytest.mark.parametrize("twitch", [[], None])
+def test_four_twitch_clips_go_on_to_the_campaign_clips_and_five_are_enough() -> None:
+    part = _views(twitch_views=[200_000] * 4, clip_views=[57_350] * 5)
+    assert part["fact"] == "Median 57 350 visningar för kampanjens 5 bästa klipp"
+    part = _views(twitch_views=[200_000] * 5, clip_views=[57_350] * 5)
+    assert (part["points"], part["fact"]) == (40, "Twitch: median 200 000 visningar för kanalens bästa klipp, 30 dagar")
+
+
+@pytest.mark.parametrize("twitch", [[], None, [200_000] * 4])
 def test_no_twitch_clips_gives_the_campaign_clips(twitch) -> None:
-    part = _views(twitch_views=twitch, clip_views=[50_000] * 5)
-    assert (part["points"], part["fact"]) == (40, "Median 50 000 visningar för kampanjens 5 bästa klipp")
+    part = _views(twitch_views=twitch, clip_views=[1_000_000] * 5)
+    assert (part["points"], part["fact"]) == (40, "Median 1 000 000 visningar för kampanjens 5 bästa klipp")
 
 
-@pytest.mark.parametrize("data", [{"clip_views": [90_000] * 4}, {"clip_views": None}, {"twitch_views": []}, {}])
-def test_fewer_than_five_campaign_clips_and_no_twitch_is_unknown(data) -> None:
+@pytest.mark.parametrize("data", [{"clip_views": [2_000_000] * 4}, {"clip_views": None}, {"twitch_views": []}, {},
+                                  {"twitch_views": [200_000] * 4, "clip_views": [2_000_000] * 4}])
+def test_fewer_than_five_clips_on_twitch_and_in_the_campaign_is_unknown(data) -> None:
     part = _views(**data)
     assert (part["points"], part["max"], part["fact"]) == (20, 40, "Okänt")
 
@@ -853,7 +863,7 @@ def _saved(settings, ref: str = "timmy/streams") -> dict:
 def test_the_details_fetch_the_channel_and_the_campaign_page_once(settings, fake, monkeypatch) -> None:
     fake.add("timmy/streams")
     fake.assets["timmy/streams"] = CHANNEL
-    fake.twitch_views = [1_200]
+    fake.twitch_views = [1_200] * 5
     fake.clip_views = [90_000] * 10
     scout.Scout(settings).run_once()
 
@@ -863,7 +873,7 @@ def test_the_details_fetch_the_channel_and_the_campaign_page_once(settings, fake
     assert scout.Scout(settings).calls_today() == 2 + 1 + 1 + 4  # /go/ räknas i scout_calls
     data = _saved(settings)
     assert (data["twitch_login"], data["cr_url"], data["clip_views"], data["twitch_views"]) == (
-        "timmy_tv", CR, [90_000] * 10, [1_200])
+        "timmy_tv", CR, [90_000] * 10, [1_200] * 5)
     assert fake.twitch_calls == [("timmy_tv", NOW)] and fake.clip_calls == [CR]
     assert data.get("twitch_vod") is None and fake.vod_calls == []  # kanalposten räcker
     (view,) = scout.Scout(settings).overview()["campaigns"]
@@ -996,11 +1006,12 @@ def test_without_a_channel_entry_the_channel_comes_from_the_vod(settings, fake, 
     fake.add("timmy/streams")
     fake.assets["timmy/streams"] = VODS
     fake.vod_logins["2919796761"] = "johndoe_100x"
-    fake.twitch_views = [1_200]
+    fake.twitch_views = [1_200] * 5
     scout.Scout(settings).run_once()
 
     data = _saved(settings)
-    assert (data["twitch_vod"], data["twitch_login"], data["twitch_views"]) == ("2919796761", "johndoe_100x", [1_200])
+    assert (data["twitch_vod"], data["twitch_login"]) == ("2919796761", "johndoe_100x")
+    assert data["twitch_views"] == [1_200] * 5
     assert fake.vod_calls == ["2919796761"] and fake.twitch_calls == [("johndoe_100x", NOW)]
     assert scout.Scout(settings).calls_today() == 2 + 1 + 1 + 4  # samma som med kanalposten: inget extra anrop
     (view,) = scout.Scout(settings).overview()["campaigns"]
@@ -1027,14 +1038,14 @@ def test_without_twitch_keys_no_call_no_login_and_the_campaign_clips_count(setti
                         lambda: SimpleNamespace(twitch_client_id="", twitch_client_secret=""))
     fake.add("timmy/streams")
     fake.assets["timmy/streams"] = VODS
-    fake.clip_views = [50_000] * 5
+    fake.clip_views = [1_000_000] * 5
     scout.Scout(settings).run_once()
 
     data = _saved(settings)
     assert (data["twitch_vod"], data["twitch_login"], fake.twitch_calls) == ("2919796761", None, [])
     (view,) = scout.Scout(settings).overview()["campaigns"]
     part = next(p for p in view["parts"] if p["key"] == "views")
-    assert (part["points"], part["fact"]) == (40, "Median 50 000 visningar för kampanjens 5 bästa klipp")
+    assert (part["points"], part["fact"]) == (40, "Median 1 000 000 visningar för kampanjens 5 bästa klipp")
 
     _later(monkeypatch, hours=7)  # ny chans först efter ett dygn
     scout.Scout(settings).run_once()
