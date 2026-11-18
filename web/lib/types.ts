@@ -259,7 +259,23 @@ export interface VersionOptions {
   overlays: { file: string; url: string }[];
   /** Kampanjen kräver sin egen overlay; den går inte att byta. */
   overlay_locked: boolean;
+  /** Startpunkten räknad från originalets start. 0 eller negativ: tidigaste, tidigare än originalet. */
+  min_start_cut_s: number;
   max_start_cut_s: number;
+  /** Så långt flyttad startpunkt, tidigare eller senare, är en ny startpunkt (eget bidrag). */
+  new_start_s: number;
+  /** Originalets hook, tom om titeln är en platshållare. */
+  hook: string;
+  /** Hookarna på originalet och alla dess versioner. */
+  hooks_used: string[];
+  /** false: kampanjen visar ingen hook i bilden, så bara startpunkten räknas. */
+  hook_text: boolean;
+  /** Originalfilen med Range-stöd, null när versionen inte går att göra. */
+  original_url: string | null;
+  /** Originalets start i originalfilen. */
+  in_s: number;
+  /** Klippet har ett inlägg utan konto; det kan redan ligga på kontot. */
+  account_warning: string | null;
   speeds: number[];
   filters: string[];
   /** font null: originalets. overlay null: kampanjens overlay (eller ingen, om kampanjen inte har någon). */
@@ -282,13 +298,16 @@ export interface UploadOptions {
   framings: string[];
 }
 
-/** POST /campaign/clips/{id}/versions. Bara de här valen; inga filter, ingen spegling, ingen ändrad hastighet. */
+/** POST /campaign/clips/{id}/versions. Svaret har varningen i warnings när ny hook och ny startpunkt saknas. */
 export interface VersionCreate {
   platform: "tiktok" | "youtube";
   account: string;
   /** null: samma font som originalet. */
   font: string | null;
+  /** Negativ: tidigare än originalet. Slutet ligger kvar. */
   start_cut_s: number;
+  /** null eller tom: originalets hook, rubrik och caption. */
+  hook: string | null;
   /** null: kampanjens overlay. */
   overlay: string | null;
   sticker: VersionSticker | null;
