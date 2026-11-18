@@ -10,19 +10,34 @@ export const STATS = [
 ] as const;
 export type StatKey = (typeof STATS)[number]["key"];
 
+/** Fler mått per inlägg, ifyllda från TikTok Studio. kind säger vilka tal fältet tar. */
+export const METRICS = [
+  { key: "avg_watch_s", label: "Tittartid (s)", kind: "seconds" },
+  { key: "full_pct", label: "Ser klart (%)", kind: "percent" },
+  { key: "fyp_pct", label: "Från För dig (%)", kind: "percent" },
+  { key: "saves", label: "Sparningar", kind: "count" },
+  { key: "countries_pct", label: "Från kampanjens länder (%)", kind: "percent" },
+] as const;
+export type MetricKey = (typeof METRICS)[number]["key"];
+type Metric = (typeof METRICS)[number];
+type Field = StatKey | "paid" | MetricKey;
+
 /** Det som står i radens fält, som text. paid är fältet Betalt i dollar. */
-export type Draft = Record<StatKey | "paid", string>;
+export type Draft = Record<Field, string>;
 
-/** Det som är sparat. paid_usd saknas på en rad utan inlägg: den har inget fält Betalt. */
-export type Saved = Pick<ClipPost, StatKey> & { paid_usd?: number | null };
+/** Det som är sparat. paid_usd och måtten saknas på en rad utan inlägg: den har inga fält för dem. */
+export type Saved = Pick<ClipPost, StatKey> & { paid_usd?: number | null } & Partial<Record<MetricKey, number | null>>;
 
-export type PatchBody = Partial<Record<StatKey | "paid_usd", number | null>> & { status?: CampaignStatus };
+export type PatchBody = Partial<Record<StatKey | "paid_usd" | MetricKey, number | null>> & { status?: CampaignStatus };
 
 /** Belopp med decimalkomma, som Robin skriver det: 14,20. */
 const usdText = (value: number) => value.toFixed(2).replace(".", ",");
 
 export function draftFrom(saved: Saved): Draft {
+  // Måtten med decimalkomma: 6,4.
+  const metrics = Object.fromEntries(METRICS.map(({ key }) => [key, saved[key]?.toString().replace(".", ",") ?? ""]));
   return {
+    ...(metrics as Record<MetricKey, string>),
     views: saved.views?.toString() ?? "",
     likes: saved.likes?.toString() ?? "",
     comments: saved.comments?.toString() ?? "",
@@ -31,10 +46,11 @@ export function draftFrom(saved: Saved): Draft {
   };
 }
 
-/** Fälten som skiljer sig från det sparade. */
-export function changed(draft: Draft, saved: Saved): (StatKey | "paid")[] {
+/** Fälten som skiljer sig från det sparade. Betalt och måtten finns bara på en rad med inlägg. */
+export function changed(draft: Draft, saved: Saved): Field[] {
   const before = draftFrom(saved);
-  const keys: (StatKey | "paid")[] = [...STATS.map((s) => s.key), ...(saved.paid_usd !== undefined ? ["paid" as const] : [])];
+  const postOnly: Field[] = ["paid", ...METRICS.map((m) => m.key)];
+  const keys: Field[] = [...STATS.map((s) => s.key), ...(saved.paid_usd !== undefined ? postOnly : [])];
   return keys.filter((key) => draft[key].trim() !== before[key]);
 }
 
@@ -52,6 +68,39 @@ export function parseUsd(text: string): number | null | undefined {
   return /^\d+(\.\d{1,2})?$/.test(clean) ? Number(clean) : undefined;
 }
 
+const METRIC_HINT: Record<Metric["kind"], string> = {
+  seconds: "skriv sekunderna, till exempel 6,4.",
+  percent: "skriv ett tal från 0 till 100, till exempel 45,5.",
+  count: "skriv ett helt tal utan decimaler, till exempel 12.",
+};
+
+/** Hur ett fält läses, och felet med fältets namn när texten inte går att läsa. */
+interface FieldCheck {
+  parse: (text: string) => number | null | undefined;
+  error: string;
+}
+
+/** Sekunder och procent med komma eller punkt. Procent högst 100. */
+function metricCheck(metric: Metric): FieldCheck {
+  const error = `${metric.label}: ${METRIC_HINT[metric.kind]}`;
+  if (metric.kind === "count") return { parse: parseCount, error };
+  const max = metric.kind === "percent" ? 100 : Infinity;
+  const parse = (text: string) => {
+    const clean = text.replace(/\s/g, "").replace(",", ".");
+    if (clean === "") return null;
+    return /^\d+(\.\d+)?$/.test(clean) && Number(clean) <= max ? Number(clean) : undefined;
+  };
+  return { parse, error };
+}
+
+function fieldCheck(key: Field): FieldCheck {
+  if (key === "paid") return { parse: parseUsd, error: "Betalt: skriv beloppet i dollar, till exempel 12,50." };
+  const metric = METRICS.find((m) => m.key === key);
+  if (metric) return metricCheck(metric);
+  const label = STATS.find((s) => s.key === key)!.label;
+  return { parse: parseCount, error: `${label}: skriv ett helt tal utan decimaler, till exempel 2500.` };
+}
+
 /**
  * Det som ska sparas: de ändrade fälten och, om ett steg ges, den nya statusen i samma anrop.
  * Så försvinner inget som är skrivet men inte sparat när Robin trycker Betald eller ett annat steg.
@@ -59,21 +108,48 @@ export function parseUsd(text: string): number | null | undefined {
 export function buildPatch(draft: Draft, saved: Saved, status?: CampaignStatus): { body: PatchBody } | { error: string } {
   const body: PatchBody = {};
   for (const key of changed(draft, saved)) {
-    if (key === "paid") {
-      const usd = parseUsd(draft.paid);
-      if (usd === undefined) return { error: "Betalt: skriv beloppet i dollar, till exempel 12,50." };
-      body.paid_usd = usd;
-      continue;
-    }
-    const count = parseCount(draft[key]);
-    if (count === undefined) {
-      const label = STATS.find((s) => s.key === key)!.label;
-      return { error: `${label}: skriv ett helt tal utan decimaler, till exempel 2500.` };
-    }
-    body[key] = count;
+    const { parse, error } = fieldCheck(key);
+    const value = parse(draft[key]);
+    if (value === undefined) return { error };
+    body[key === "paid" ? "paid_usd" : key] = value;
   }
   if (status) body.status = status;
   return { body };
+}
+
+/** Tittartiden i procent av klippets längd, med en decimal. null: längden eller tittartiden saknas. */
+export function watchPctOfLength(avgWatchS?: number | null, lengthS?: number | null): number | null {
+  if (avgWatchS == null || !lengthS) return null;
+  return Math.round((avgWatchS / lengthS) * 1000) / 10;
+}
+
+/** En rad i tabellen Längd och visningar. avgViews: snittet för inlägg med visningar, null när inget har några. */
+export interface LengthGroup {
+  label: string;
+  posts: number;
+  avgViews: number | null;
+}
+
+const LENGTHS: { label: string; has: (seconds: number) => boolean }[] = [
+  { label: "Under 15 s", has: (s) => s < 15 },
+  { label: "15–20 s", has: (s) => s >= 15 && s <= 20 },
+  { label: "Över 20 s", has: (s) => s > 20 },
+];
+
+function lengthGroup({ label, rows }: { label: string; rows: Row[] }): LengthGroup {
+  const views = rows.map((r) => r.post?.views).filter((v): v is number => v != null);
+  const avgViews = views.length ? views.reduce((sum, v) => sum + v, 0) / views.length : null;
+  return { label, posts: rows.length, avgViews };
+}
+
+/** Inlägg och snittvisningar per klippets längd. Räknas per inlägg. Okänd längd bara när den har inlägg. */
+export function lengthGroups(rows: Row[]): LengthGroup[] {
+  const posts = rows.filter((r) => r.post);
+  const groups = LENGTHS.map(({ label, has }) =>
+    lengthGroup({ label, rows: posts.filter(({ clip }) => clip.length_s != null && has(clip.length_s)) })
+  );
+  const unknown = posts.filter(({ clip }) => clip.length_s == null);
+  return unknown.length ? [...groups, lengthGroup({ label: "Okänd längd", rows: unknown })] : groups;
 }
 
 /** Statusar där klippet har minst ett inlägg. */
