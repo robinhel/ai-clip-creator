@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from campaign import live_part
 from campaign.live_part import PartFailed, PartNotReady, _run, fetch_part
 from campaign.media import probe
 
@@ -56,6 +57,17 @@ def segment_files(tmp_path_factory) -> Path:
     return folder
 
 
+@pytest.fixture
+def twitchdl(monkeypatch):
+    """Byt ut körningen av twitch-dl mot en fake."""
+
+    def install(fake):
+        monkeypatch.setattr(live_part, "_run", fake)
+        return fake
+
+    return install
+
+
 def _seconds(hms: str) -> int:
     h, m, s = (int(p) for p in hms.split(":"))
     return h * 3600 + m * 60 + s
@@ -98,12 +110,12 @@ class FakeTwitchDl:
 
 @needs_ffmpeg
 def test_part_starts_at_the_segment_before_start_and_joins_those_segments(
-    tmp_path, segment_files
+    tmp_path, segment_files, twitchdl
 ) -> None:
-    fake = FakeTwitchDl(segment_files, segments=10)
+    fake = twitchdl(FakeTwitchDl(segment_files, segments=10))
     folder = tmp_path / "topp_1"
 
-    start = fetch_part("123", 25, 55, folder, run=fake)
+    start = fetch_part("123", 25, 55, folder)
 
     assert start == 20.0
     assert fake.downloaded == [2, 3, 4, 5]  # 20-30, 30-40, 40-50, 50-60
@@ -113,24 +125,24 @@ def test_part_starts_at_the_segment_before_start_and_joins_those_segments(
 
 
 @needs_ffmpeg
-def test_part_not_ready_when_playlist_ends_before_end(tmp_path, segment_files) -> None:
-    fake = FakeTwitchDl(segment_files, segments=5)  # 50 s än så länge
+def test_part_not_ready_when_playlist_ends_before_end(tmp_path, segment_files, twitchdl) -> None:
+    twitchdl(FakeTwitchDl(segment_files, segments=5))  # 50 s än så länge
     folder = tmp_path / "topp_1"
 
     with pytest.raises(PartNotReady):
-        fetch_part("123", 25, 55, folder, run=fake)
+        fetch_part("123", 25, 55, folder)
 
     assert list(folder.rglob("*.mp4")) == []
 
 
 @needs_ffmpeg
 def test_twitchdl_runs_without_join_and_with_one_cache_dir_per_folder(
-    tmp_path, segment_files
+    tmp_path, segment_files, twitchdl
 ) -> None:
-    fake = FakeTwitchDl(segment_files, segments=10)
+    fake = twitchdl(FakeTwitchDl(segment_files, segments=10))
 
-    fetch_part("123", 25, 55, tmp_path / "topp_1", run=fake)
-    fetch_part("123", 25, 55, tmp_path / "topp_2", run=fake)
+    fetch_part("123", 25, 55, tmp_path / "topp_1")
+    fetch_part("123", 25, 55, tmp_path / "topp_2")
 
     first, second = fake.commands
     assert first[:5] == [sys.executable, "-m", "twitchdl", "download", "123"]
@@ -143,16 +155,16 @@ def test_twitchdl_runs_without_join_and_with_one_cache_dir_per_folder(
 
 @needs_ffmpeg
 def test_second_call_in_same_folder_reuses_segments_when_playlist_has_grown(
-    tmp_path, segment_files
+    tmp_path, segment_files, twitchdl
 ) -> None:
-    fake = FakeTwitchDl(segment_files, segments=5)
+    fake = twitchdl(FakeTwitchDl(segment_files, segments=5))
     folder = tmp_path / "topp_1"
     with pytest.raises(PartNotReady):
-        fetch_part("123", 25, 55, folder, run=fake)
+        fetch_part("123", 25, 55, folder)
     assert fake.downloaded == [2, 3, 4]
 
     fake.segments = 10  # Twitch har spelat in mer
-    start = fetch_part("123", 25, 55, folder, run=fake)
+    start = fetch_part("123", 25, 55, folder)
 
     assert start == 20.0
     assert fake.downloaded == [2, 3, 4, 5]  # 2-4 fanns redan i samma cache-mapp
@@ -161,28 +173,34 @@ def test_second_call_in_same_folder_reuses_segments_when_playlist_has_grown(
 
 
 @needs_ffmpeg
-def test_twitchdl_error_with_long_enough_playlist_is_part_failed(tmp_path, segment_files) -> None:
-    fake = FakeTwitchDl(
-        segment_files, segments=10, code=1, output="Error: Server responded with HTTP 403"
+def test_twitchdl_error_with_long_enough_playlist_is_part_failed(
+    tmp_path, segment_files, twitchdl
+) -> None:
+    twitchdl(
+        FakeTwitchDl(
+            segment_files, segments=10, code=1, output="Error: Server responded with HTTP 403"
+        )
     )
 
     with pytest.raises(PartFailed) as error:
-        fetch_part("123", 25, 55, tmp_path / "topp_1", run=fake)
+        fetch_part("123", 25, 55, tmp_path / "topp_1")
 
     assert "Kunde inte hämta" in str(error.value)
     assert "HTTP 403" in str(error.value)
     assert not (tmp_path / "topp_1" / "topp_1.mp4").exists()
 
 
-def test_twitch_says_try_later_is_part_not_ready(tmp_path) -> None:
+def test_twitch_says_try_later_is_part_not_ready(tmp_path, twitchdl) -> None:
     def fake(cmd: list[str], timeout: float) -> tuple[int, str]:
         return 1, (
             "Error: Twitch did not return an access token.\n"
             "This sometimes happens with fresh VODs. Try again a bit later."
         )
 
+    twitchdl(fake)
+
     with pytest.raises(PartNotReady):
-        fetch_part("123", 25, 55, tmp_path / "topp_1", run=fake)
+        fetch_part("123", 25, 55, tmp_path / "topp_1")
 
 
 def test_run_stops_a_command_that_hangs(tmp_path) -> None:
