@@ -14,7 +14,7 @@ type Props = { searchParams: Promise<{ status?: Query; kampanj?: Query }> };
 const one = (value: Query) => (typeof value === "string" ? value : undefined);
 
 export default async function LogPage({ searchParams }: Props) {
-  const [summary, clips, { status, kampanj }] = await Promise.all([serverApi.summary(), serverApi.clips(), searchParams]);
+  const [summary, clips, { status, kampanj }] = await Promise.all([serverApi.summary(), serverApi.clips(true), searchParams]);
   return (
     <ClipLogClient
       initialSummary={summary}

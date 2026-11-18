@@ -655,9 +655,11 @@ def _scoped(log: ClipLog, clips: list[dict], run_id: int | None, project_id: int
 
 @router.get("/clips", summary="Klipp i klipploggen")
 def list_clips(status: str | None = None, vod_id: str | None = None, run_id: int | None = None,
-               profile: str | None = None, project_id: int | None = None,
+               profile: str | None = None, project_id: int | None = None, posted_off: bool = False,
                settings: Settings = Depends(get_settings)) -> list[dict]:
+    """posted_off: Statistik visar också postade klipp från avstängda kampanjer, med campaign_off true."""
     log = _log(settings)
+    off = _turned_off(settings)
     clips = log.list(status or None)
     if vod_id:
         clips = [c for c in clips if c["vod_id"] == vod_id]
@@ -667,9 +669,9 @@ def list_clips(status: str | None = None, vod_id: str | None = None, run_id: int
     if scoped is not None:
         clips = scoped
     elif not profile:  # en direktlänk till ett projekt visar dess klipp även när kampanjen är avstängd
-        off = _turned_off(settings)
-        clips = [c for c in clips if c["profile"] not in off]
-    return [_public(c, settings) for c in clips]
+        shown_off = set(POST_STATUSES) if posted_off else set()
+        clips = [c for c in clips if c["profile"] not in off or c["status"] in shown_off]
+    return [{**_public(c, settings), "campaign_off": c["profile"] in off} for c in clips]
 
 
 @router.get("/clips/{clip_id}/transcript", summary="Det som sägs i klippet")
@@ -879,13 +881,16 @@ def put_preferences(body: Preferences, settings: Settings = Depends(get_settings
 def summary(settings: Settings = Depends(get_settings)) -> dict:
     log = _log(settings)
     off = _turned_off(settings)
-    clips = [c for c in log.list() if c["profile"] not in off]
+    every = log.list()
+    clips = [c for c in every if c["profile"] not in off]
     counts: dict[str, int] = {}
     for clip in clips:
         counts[clip["status"]] = counts.get(clip["status"], 0) + 1
+    # Intäkterna räknar också postade klipp från avstängda kampanjer, som Statistik visar.
+    earned = [c for c in every if c["profile"] not in off or c["status"] in POST_STATUSES]
     # Budgeten gäller alla kampanjer, så den räknas som förut.
     return {"budget": budget_from_settings(settings).summary(), "counts": counts, "todo": log.todo(skip=off),
-            "disk": storage(settings), "earnings": _earnings(clips, settings, log.posts())}
+            "disk": storage(settings), "earnings": _earnings(earned, settings, log.posts())}
 
 
 def _payout(views: int, payment: dict) -> float:
