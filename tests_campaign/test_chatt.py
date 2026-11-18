@@ -373,6 +373,32 @@ def test_a_twitch_vod_without_video_downloads_only_the_part(client, chatapp, set
     assert first_segment == pytest.approx(5.0)  # transkriptet flyttas lika mycket som delen
     assert not part.exists()  # delen tas bort efteråt
     del SEGMENTS[vod]
+    # Chattens körning gör inget nytt kort: projektet för VOD:en är den gamla körningen.
+    run_id = answer.json()["run_id"]
+    assert (chatapp.log.run(run_id)["origin"], chatapp.log.run(run_id)["project_id"]) == ("chat", None)
+    assert [r["run_id"] for r in client.get("/campaign/runs").json() if r["vod_id"] == vod] == [9]
+    assert client.get(f"/campaign/runs/{run_id}").json()["origin"] == "chat"
+
+
+def test_a_chat_run_for_an_own_file_lands_in_the_campaigns_project(client, chatapp, settings,  # noqa: F811
+                                                                    monkeypatch) -> None:
+    shutil.copy(PAKET / "config.timmy.yaml", settings.root / "config.timmy.yaml")
+    (settings.work_dir / "vodA" / "vodA.mp4").write_bytes(b"video")
+    [hit] = _chat_with_hits(client, chatapp, _hit())
+    seen = {}
+    monkeypatch.setattr(pipeline, "cut_picks", lambda mp4, transcript, picks, run_dir, cfg: seen.update(dir=run_dir))
+    monkeypatch.setattr(pipeline, "finish", lambda *a, **k: [])
+    answer = client.post("/campaign/chats/1/clips", json={"hit_ids": [hit["id"]]})
+    assert answer.status_code == 202, answer.text
+    run_id = answer.json()["run_id"]
+    assert run_id != 1 and seen["dir"] == settings.out_dir / "vodA" / f"run_{run_id}"  # en egen mapp
+    project_id = chatapp.log.run(1)["project_id"]
+    assert project_id is not None
+    assert (chatapp.log.run(run_id)["origin"], chatapp.log.run(run_id)["project_id"]) == ("chat", project_id)
+    assert [r["run_id"] for r in client.get("/campaign/runs").json() if r["vod_id"] == "vodA"] == [1]
+    [project] = [p for p in client.get("/campaign/projects").json() if p["profile"] == "skiimasktimmy"]
+    assert project["id"] == project_id
+    assert {f["vod_id"]: f["run_id"] for f in project["files"]} == {"vodA": 1, "vodB": 2, "vodC": 3}
 
 
 @needs_subtitles
