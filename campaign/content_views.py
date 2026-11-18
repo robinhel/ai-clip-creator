@@ -101,15 +101,15 @@ def resolve_join(http: httpx.Client, join_url: str | None) -> str | None:
     return target if CR_CAMPAIGN.fullmatch(target) else None
 
 
-def campaign_clip_views(cr_url: str) -> dict | None:
-    """Visningarna för kampanjens klipp på Content Rewards och priset per land, {"views": [...], "geo": {...}},
+def campaign_page(cr_url: str) -> dict | None:
+    """Visningarna för kampanjens klipp på Content Rewards och priset per land, {"clip_views": [...], "geo": {...}},
     högst en hämtning i timmen. En ny kampanj utan klipp ger en tom lista. None när sidan inte går att läsa."""
     try:
         data = examples.fetch(cr_url)
     except RuntimeError as error:
         log.warning("Content Rewards: visningarna för %s gick inte att läsa: %s", cr_url, error)
         return None
-    return {"views": [clip["views"] for clip in data["clips"]], "geo": data.get("geo")}
+    return {"clip_views": [clip["views"] for clip in data["clips"]], "geo": data.get("geo")}
 
 
 def _rfc3339(moment: datetime) -> str:

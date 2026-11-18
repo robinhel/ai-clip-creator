@@ -128,7 +128,7 @@ def test_other_links_are_never_fetched(url) -> None:
 # ---------- kampanjens klipp ----------
 
 
-def test_the_campaign_clip_views_come_from_the_examples(monkeypatch) -> None:
+def test_the_campaign_page_gives_the_clip_views_and_the_price_per_country(monkeypatch) -> None:
     urls: list[str] = []
 
     def fetch(url: str) -> dict:
@@ -136,7 +136,7 @@ def test_the_campaign_clip_views_come_from_the_examples(monkeypatch) -> None:
         return {"clips": [{"views": 23000, "rank": 1}, {"views": 900, "rank": 2}], "earners": [], "geo": GEO}
 
     monkeypatch.setattr(content_views.examples, "fetch", fetch)
-    assert content_views.campaign_clip_views(CR) == {"views": [23000, 900], "geo": GEO}
+    assert content_views.campaign_page(CR) == {"clip_views": [23000, 900], "geo": GEO}
     assert urls == [CR]
 
 
@@ -149,8 +149,8 @@ def test_a_new_campaign_without_clips_gives_no_views_and_no_warning(monkeypatch,
     monkeypatch.setattr(content_views.examples, "http_client", lambda: httpx.Client(
         transport=httpx.MockTransport(lambda request: httpx.Response(200, text=page))))
     content_views.examples.clear_cache()
-    assert content_views.campaign_clip_views(CR) == {
-        "views": [], "geo": {"priced": False, "rates": None, "payout_model": []}}
+    assert content_views.campaign_page(CR) == {
+        "clip_views": [], "geo": {"priced": False, "rates": None, "payout_model": []}}
     assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []  # en ny kampanj utan klipp är inget fel
 
 
@@ -158,7 +158,7 @@ def test_a_page_without_campaign_data_gives_none_and_a_warning(monkeypatch, capl
     monkeypatch.setattr(content_views.examples, "http_client", lambda: httpx.Client(
         transport=httpx.MockTransport(lambda request: httpx.Response(200, text="<html>Inloggning krävs</html>"))))
     content_views.examples.clear_cache()
-    assert content_views.campaign_clip_views(CR) is None
+    assert content_views.campaign_page(CR) is None
     assert "hittade inga klipp" in caplog.text
 
 
@@ -167,7 +167,7 @@ def test_a_page_that_cannot_be_read_gives_none(monkeypatch) -> None:
         raise RuntimeError("Content Rewards svarar inte.")
 
     monkeypatch.setattr(content_views.examples, "fetch", fetch)
-    assert content_views.campaign_clip_views(CR) is None
+    assert content_views.campaign_page(CR) is None
 
 
 # ---------- Twitch ----------

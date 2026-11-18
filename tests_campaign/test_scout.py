@@ -355,9 +355,9 @@ class FakeAlpha:
                 out.append(msg)
         return out
 
-    def campaign_clip_views(self, cr_url: str) -> dict | None:
+    def campaign_page(self, cr_url: str) -> dict | None:
         self.clip_calls.append(cr_url)
-        return None if self.clip_views is None else {"views": self.clip_views, "geo": self.geo}
+        return None if self.clip_views is None else {"clip_views": self.clip_views, "geo": self.geo}
 
     def twitch_clip_views(self, login: str, now: datetime) -> list[int] | None:
         self.twitch_calls.append((login, now))
@@ -388,7 +388,7 @@ def fake(monkeypatch) -> FakeAlpha:
     monkeypatch.setattr(scout, "CLIP_PAGE_GAP_S", 0)
     monkeypatch.setattr(scout, "_session", {"id": None})
     monkeypatch.setattr(scout, "_now", lambda: NOW)
-    monkeypatch.setattr(scout, "campaign_clip_views", fake.campaign_clip_views)
+    monkeypatch.setattr(scout, "campaign_page", fake.campaign_page)
     monkeypatch.setattr(scout, "twitch_clip_views", fake.twitch_clip_views)
     monkeypatch.setattr(scout, "twitch_login_from_vod", fake.twitch_login_from_vod)
     return fake
@@ -1293,7 +1293,7 @@ def test_a_pause_between_the_pages_from_content_rewards(settings, fake, monkeypa
     monkeypatch.setattr(scout, "_last_call", [100.0])  # ingen väntan före anropen till ClippingAlpha
     monkeypatch.setattr(scout, "_last_page", [0.0])  # ingen sida hämtad ännu
     monkeypatch.setattr(scout, "time", SimpleNamespace(monotonic=lambda: 100.0, sleep=events.append))
-    monkeypatch.setattr(scout, "campaign_clip_views", events.append)
+    monkeypatch.setattr(scout, "campaign_page", events.append)
     scout.Scout(settings).run_once()
     assert events == [0, _page("brand/c0"), 1.0, _page("brand/c1"), 1.0, _page("brand/c2")]
 
@@ -1307,7 +1307,7 @@ def test_the_pause_also_holds_from_the_details_to_the_shown_campaigns(settings, 
     monkeypatch.setattr(scout, "_last_page", [0.0])
     # klockan står still: varje sida efter den första måste vänta hela CLIP_PAGE_GAP_S
     monkeypatch.setattr(scout, "time", SimpleNamespace(monotonic=lambda: 100.0, sleep=events.append))
-    monkeypatch.setattr(scout, "campaign_clip_views", events.append)
+    monkeypatch.setattr(scout, "campaign_page", events.append)
     scout.Scout(settings).run_once()
     assert events == [0, CR, 1.0, _page("low/streams")]
 
@@ -1440,6 +1440,11 @@ def test_a_price_that_cannot_be_read_gives_land_okant_and_is_not_excluded(geo) -
     assert scout_score.country_rates(geo, "SE") is None
     pay, excluded = _geo(geo)
     assert (pay["fact"], excluded) == ("1,80 dollar per 1 000 efter avgift, marknaden 1,05, Land okänt", None)
+
+
+@pytest.mark.parametrize("geo", ["trasig", ["SE"], 5])
+def test_a_price_per_country_that_is_not_a_dict_gives_none(geo) -> None:
+    assert scout_score.country_rates(geo, "SE") is None
 
 
 # TikTok betalar 5 dollar för Frankrike, YouTube betalar 1,50 överallt utom i Frankrike.

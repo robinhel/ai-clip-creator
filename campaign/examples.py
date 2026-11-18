@@ -110,14 +110,22 @@ def parse(html: str) -> dict:
     found = {key: _value(flight, key, kind) for key, kind in FIELDS.items()}
     if all(value is None for value in found.values()):
         raise ValueError("Kampanjsidan hittade inga klipp. Content Rewards kan ha ändrat sidan.")
-    earners = {e.get("userId"): _earner(e) for e in _dicts(found["topEarners"])}
-    rates = found["geoRates"]
+    top_earners = _dicts(found["topEarners"])
+    earners = [_earner(e) for e in top_earners]
+    by_user = {e.get("userId"): earner for e, earner in zip(top_earners, earners, strict=True)}
     return {
-        "clips": [_clip(c, earners.get(c.get("userId"))) for c in _dicts(found["topClips"])],
-        "earners": [_earner(e) for e in _dicts(found["topEarners"])],
-        "geo": {"priced": found["geoPriced"] is True, "rates": rates if isinstance(rates, dict) else None,
-                "payout_model": _dicts(found["payoutModel"])},
+        "clips": [_clip(c, by_user.get(c.get("userId"))) for c in _dicts(found["topClips"])],
+        "earners": earners,
+        "geo": _geo(found),
     }
+
+
+def _geo(found: dict) -> dict:
+    """Priset per land. rates är None eller har tiers och restOfWorld som listor med dicts."""
+    rates = found["geoRates"]
+    if isinstance(rates, dict):  # _value ger en dict eller None
+        rates = {"tiers": _dicts(rates.get("tiers")), "restOfWorld": _dicts(rates.get("restOfWorld"))}
+    return {"priced": found["geoPriced"] is True, "rates": rates, "payout_model": _dicts(found["payoutModel"])}
 
 
 def fetch(url: str) -> dict:

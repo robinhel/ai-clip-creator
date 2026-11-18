@@ -32,7 +32,7 @@ import httpx
 
 from . import preferences
 from .config import Settings, load_settings
-from .content_views import (USER_AGENT, campaign_clip_views, channel_from_assets, go_link, resolve_join,
+from .content_views import (USER_AGENT, campaign_page, channel_from_assets, go_link, resolve_join,
                             twitch_clip_views, twitch_login_from_vod, vod_from_assets)
 from .scout_score import (_days, _first, _time, country_note, country_rates, evaluate, excluded_for_country, facts,
                           min_views, pay_number)
@@ -548,11 +548,11 @@ def _clip_views(data: dict, now: datetime) -> dict:
     # minst CLIP_PAGE_GAP_S mellan två sidor, också från den sista i _details till den första i _refresh_clip_views
     time.sleep(max(0.0, CLIP_PAGE_GAP_S - (time.monotonic() - _last_page[0])))
     try:
-        page = campaign_clip_views(data["cr_url"])
+        page = campaign_page(data["cr_url"])
     finally:
         _last_page[0] = time.monotonic()
     if page is not None:
-        found.update(clip_views=page["views"], geo=page["geo"])
+        found.update(page)
     return found
 
 
@@ -612,7 +612,7 @@ def _prices(f: dict, data: dict, country: str) -> tuple[float | None, float | No
     return f["rate"], _first(f["net"], round(f["rate"] * (1 - f["fee"]), 2) if f["rate"] is not None else None)
 
 
-def _view(row: sqlite3.Row, now: datetime, country: str = preferences.DEFAULT_COUNTRY) -> dict:
+def _view(row: sqlite3.Row, now: datetime, country: str) -> dict:
     data = json.loads(row["data"])
     f = facts(data)
     age = None if f["launched"] is None else round((now - f["launched"]).total_seconds() / 3600, 1)

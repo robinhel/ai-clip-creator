@@ -148,23 +148,24 @@ def _cents(value: object) -> float:
 def _platform_rate(geo: dict, country: str, platform: str) -> float:
     """Dollar per 1 000 för landet på plattformen: först en tier med landet, sedan restOfWorld, och när plattformen
     inte finns i geoRates alls payoutModel. Annars 0."""
-    def rows(where: object) -> list[dict]:
-        return [row for row in _dict_rows(where) if row.get("platform") == platform]
+    def rows(where: list[dict]) -> list[dict]:
+        return [row for row in where if row.get("platform") == platform]
 
-    tiers, rest = rows(geo["rates"].get("tiers")), rows(geo["rates"].get("restOfWorld"))
+    tiers, rest = rows(geo["rates"].get("tiers", [])), rows(geo["rates"].get("restOfWorld", []))
     mine = [tier for tier in tiers if country in (tier.get("countries") or [])]
-    found = mine or rest or ([] if tiers else rows(geo.get("payout_model")))
+    found = mine or rest or ([] if tiers else rows(geo.get("payout_model", [])))
     return max((_cents(row.get("rate")) for row in found), default=0) / 100  # landet i flera tiers: det högsta
 
 
-def _geo_priced(geo: dict | None) -> bool:
-    """Kampanjen har pris per land."""
-    return bool(geo) and geo.get("priced") is True and isinstance(geo.get("rates"), dict)
+def _geo_priced(geo: object) -> bool:
+    """Kampanjen har pris per land. geo kommer från examples.parse: rates är None eller har tiers och restOfWorld
+    som listor med dicts."""
+    return isinstance(geo, dict) and geo.get("priced") is True and geo.get("rates") is not None
 
 
 def _readable(rates: dict) -> bool:
     """geoRates har rader i restOfWorld eller tiers, och varje rate där är ett tal."""
-    found = _dict_rows(rates.get("restOfWorld")) + _dict_rows(rates.get("tiers"))
+    found = rates.get("restOfWorld", []) + rates.get("tiers", [])
     return bool(found) and all(pay_number(row, "rate") is not None for row in found)
 
 
@@ -173,13 +174,9 @@ def _country_unknown(geo: dict | None) -> bool:
     return geo is None or (_geo_priced(geo) and not _readable(geo["rates"]))
 
 
-def _dict_rows(value: object) -> list[dict]:
-    return [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
-
-
 def _platforms(geo: dict) -> list[str]:
     """Kampanjens plattformar: de i payoutModel, i ordning och en gång var."""
-    names = (str(row.get("platform") or "") for row in _dict_rows(geo.get("payout_model")))
+    names = (str(row.get("platform") or "") for row in geo.get("payout_model", []))
     return list(dict.fromkeys(name for name in names if name))
 
 
@@ -213,7 +210,7 @@ def excluded_for_country(excluded: str | None) -> bool:
     return (excluded or "").startswith(NOT_PAID)
 
 
-def country_note(data: dict, country: str = DEFAULT_COUNTRY) -> str | None:
+def country_note(data: dict, country: str) -> str | None:
     """För webben: vilka plattformar som inte betalar för landet, när några andra gör det. Annars None."""
     unpaid = _unpaid(country_rates(data.get("geo"), country))
     return unpaid and f"{unpaid} betalar inte för visningar från {_country_name(country)}."
