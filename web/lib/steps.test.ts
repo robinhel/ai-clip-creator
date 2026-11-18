@@ -53,16 +53,46 @@ describe("submitDeadline", () => {
     expect(order).toEqual([3, 2, 4, 1]);
   });
 
-  it("ett underkänt klipp med fel bara i captionen rättas med captionen, och en egen video får ingen rad om projektsidan", () => {
+  describe("rejectedFix: hur Robin rättar ett underkänt klipp", () => {
     const failed = (vod_id: string, problems: string[]) => ({ status: "underkand", vod_id, problems }) as CampaignClip;
     const caption = "Captionen saknar hashtaggen #ad.";
-    const length = "Klippet är 4.0 s. Kampanjen kräver minst 7 s.";
-    expect(rejectedFix(failed("v123", [caption]))).toBe("caption");
-    expect(rejectedFix(failed("upload", [caption]))).toBe("caption");
-    // Fel i captionen och annat: captionen räcker inte.
-    expect(rejectedFix(failed("v123", [caption, length]))).toBe("projekt");
-    // En egen video har ingen knapp för att göra klippen kampanjklara igen.
-    expect(rejectedFix(failed("upload", [length]))).toBeNull();
-    expect(rejectedFix({ status: "renderad", vod_id: "v123", problems: [] } as unknown as CampaignClip)).toBeNull();
+    const sound = "Klippet saknar ljud. Streamens ljud måste höras.";
+    // Texterna från rules.py. Gamla klipp har punkt i talet, nya har komma.
+    const short = "Klippet är 7,9 s. Kampanjen kräver minst 11 s.";
+    const shortOld = "Klippet är 4.0 s. Kampanjen kräver minst 7 s.";
+    const long = "Klippet är 72,4 s. Profilens tak är 60 s.";
+    const longOld = "Klippet är 61.2 s. Profilens tak är 59.5 s.";
+
+    it("fel bara i captionen rättas med captionen, också för en egen video", () => {
+      expect(rejectedFix(failed("v123", [caption]))).toEqual({ kind: "caption" });
+      expect(rejectedFix(failed("upload", [caption]))).toEqual({ kind: "caption" });
+    });
+
+    it("ett för kort klipp ur ett projekt kan inte bli längre: inte projektsidan, också med fel i captionen", () => {
+      expect(rejectedFix(failed("Skyborne_WalkOnAir", [short]))).toEqual({ kind: "kort" });
+      expect(rejectedFix(failed("v123", [shortOld]))).toEqual({ kind: "kort" });
+      expect(rejectedFix(failed("v123", [caption, short]))).toEqual({ kind: "kort" });
+    });
+
+    it("ett för långt klipp kortas med Redigera till profilens tak, med komma i talet", () => {
+      expect(rejectedFix(failed("v123", [long]))).toEqual({ kind: "lang", max: "60", caption: false });
+      expect(rejectedFix(failed("v123", [longOld]))).toEqual({ kind: "lang", max: "59,5", caption: false });
+      expect(rejectedFix(failed("v123", [long, caption]))).toEqual({ kind: "lang", max: "60", caption: true });
+      // Redigera finns också för en egen video.
+      expect(rejectedFix(failed("upload", [long]))).toEqual({ kind: "lang", max: "60", caption: false });
+    });
+
+    it("längd och ett annat fel: gör klippen kampanjklara igen på projektsidan, som förut", () => {
+      expect(rejectedFix(failed("v123", [short, sound]))).toEqual({ kind: "projekt" });
+      expect(rejectedFix(failed("v123", [long, sound]))).toEqual({ kind: "projekt" });
+      expect(rejectedFix(failed("v123", [caption, sound]))).toEqual({ kind: "projekt" });
+    });
+
+    it("ingen rad för ett klipp som inte är underkänt, eller en egen video som är för kort", () => {
+      // Servern lägger själv till "Ladda upp en längre video eller tryck Nej." på en egen video.
+      expect(rejectedFix(failed("upload", [`${short} Ladda upp en längre video eller tryck Nej.`]))).toBeNull();
+      expect(rejectedFix(failed("upload", [sound]))).toBeNull();
+      expect(rejectedFix({ status: "renderad", vod_id: "v123", problems: [] } as unknown as CampaignClip)).toBeNull();
+    });
   });
 });
