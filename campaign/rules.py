@@ -7,6 +7,9 @@ from .profile import Profile
 
 # Varningen gäller bara tills formatet är valt. Webben visar den inte för ett klipp som har ett format.
 NO_FORMAT = "Klippet har inget format ännu. Välj ett när du godkänner."
+# Den dolda kampanjen för liveklipp utan kampanj (profiles/_ingen.yaml).
+NO_CAMPAIGN = "_ingen"
+NO_CAMPAIGN_PROBLEM = "Klippet har ingen kampanj. Välj kampanj först."
 
 
 def check_source(info: dict) -> list[str]:
@@ -17,6 +20,11 @@ def check_source(info: dict) -> list[str]:
             "Sätt reframe.mode: stacked (eller center) i config."
         ]
     return []
+
+
+def check_campaign(profile: Profile) -> list[str]:
+    """Ett klipp utan kampanj kan bara nekas: det har alltid ett problem tills en kampanj är vald."""
+    return [NO_CAMPAIGN_PROBLEM] if profile.name == NO_CAMPAIGN else []
 
 
 def check_clip(
@@ -33,6 +41,7 @@ def check_clip(
     """
     problems: list[str] = list(check_source(info))
     warnings: list[str] = []
+    problems += check_campaign(profile)
 
     length = f"{info['duration']:.1f}".replace(".", ",")  # svenskt talformat: 4,6 s
     if info["duration"] < profile.min_seconds:

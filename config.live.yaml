@@ -1,0 +1,75 @@
+# clipsmith-inställningar för liveklipp utan kampanj (den dolda kampanjen profiles/_ingen.yaml).
+# Live-klipparen spelar in kanalen själv, så ingen kanal behövs här.
+# Fälten följer src/clipsmith/config/models.py, som config.timmy.yaml.
+# Ingen cloud:-del och inga nycklar.
+
+channels: []
+
+work_dir: ./work
+out_dir: ./out
+
+clip:
+  min_seconds: 15
+  max_seconds: 45
+  preroll_s: 20
+  postroll_s: 8
+  min_clip_gap_s: 90
+  min_picks: 0                     # tvinga aldrig fram klipp som Claude sa nej till
+
+candidates:
+  density_window_s: 15
+  density_peak_multiplier: 3.0     # lägre än standard (4.0): liten kanal, gles chatt
+  density_author_cap: 3.0         # en avsändare väger högst 3 per fönster: en spammare är ingen topp
+  density_surge_gain: 0.5         # ökningen mot förra fönstret räknas extra: en topp är en plötslig ökning
+  existing_clip_boost: 100.0       # tittarnas egna Twitch-klipp (inga för en inspelad del)
+  clip_command_boost: 25.0
+  dedupe_window_s: 60
+  transcript_hype_score: 20.0
+  audio_energy_enabled: true       # skrik och skratt syns även när chatten är tyst
+  audio_energy_window_s: 2.0
+  audio_energy_peak_multiplier: 2.0
+  audio_energy_boost: 15.0
+  # Chattmeddelanden med ett reaktionsord räknas dubbelt i chattoppen. Hela ord, oavsett versaler:
+  # "w" träffar "W" men inte "wow".
+  reaction_words: ["lmao", "lmfao", "lol", "omg", "no way", "kekw", "w", "l", "wtf", "haha", "??"]
+  reaction_weight: 1.0
+  # Engelska i stället för de spanska standardorden. clipsmith letar efter orden
+  # som delar av text ("run" träffar även "running"), så håll listan till tydliga uttryck.
+  hype_keywords:
+    - "no way"
+    - "oh my god"
+    - "omg"
+    - "holy"
+    - "what the"
+    - "wtf"
+    - "let's go"
+    - "lets go"
+    - "clutch"
+    - "insane"
+    - "unbelievable"
+    - "are you kidding"
+    - "lmao"
+    - "so close"
+    - "noooo"
+
+transcribe:
+  model: small          # börja litet och mät tiden; prova sedan medium eller large-v3
+  compute_type: int8
+  language: en
+  chunk_minutes: 30
+  chunk_overlap_s: 30
+  max_workers: 2
+
+llm:
+  provider: anthropic
+  model_anthropic: claude-sonnet-5-5
+
+caption:
+  enabled: true         # undertexten bränns in när klippen görs klara
+  font: Arial
+  font_size: 72
+  outline: 3
+  position: bottom
+
+reframe:
+  mode: center          # 9:16 ur mitten av bilden, utan facecam-rutor: kanalen är okänd

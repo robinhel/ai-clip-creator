@@ -1,0 +1,31 @@
+# Den dolda kampanjen för liveklipp utan kampanj (Bevaka live på Hem).
+# Filen börjar med _ och syns därför inte i appens listor över kampanjer.
+# Ett klipp med den här profilen får alltid problemet "Klippet har ingen kampanj. Välj kampanj först."
+# och kan inte godkännas eller postas förrän en kampanj är vald.
+
+name: _ingen
+streamer: Twitch-kanal   # bara en etikett: körningen sparar kanalens namn för sig
+campaign: "Utan kampanj"
+language: en
+
+clipsmith_config: config.live.yaml   # 9:16 ur mitten, inbränd undertext, 15–45 s
+
+clip:
+  min_seconds: 5     # vida gränser: kampanjen som väljs sedan har sina egna
+  max_seconds: 180
+
+on_screen_text:
+  text: ""
+  required: false
+  hook_text: false   # ingen rubrik på bilden
+
+overlay:
+  required: false    # ingen overlay
+
+facecam:
+  required: false
+
+caption:
+  hashtags: []
+  game_hashtag: false   # ingen spel-hashtag
+  template: "{title}"

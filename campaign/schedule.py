@@ -24,6 +24,7 @@ from .config import Settings, load_settings
 from .media import probe
 from .preferences import submit_helper
 from .profile import PLATFORMS, Profile, load_profile
+from .rules import NO_CAMPAIGN, NO_CAMPAIGN_PROBLEM
 from .scout import STOCKHOLM, notify_mac
 from .tiktok import TITLE_MAX as TIKTOK_TITLE_MAX
 from .tiktok import TikTok, TikTokError, check_cover
@@ -72,6 +73,8 @@ def clip_file(settings: Settings, clip: dict, platform: str,
     schemat, och bara till en plattform som kampanjen postar på och där klippet inte redan har ett inlägg."""
     if clip["status"] not in ("godkand", *POST_STATUSES):  # postad: inlägget kan ha skapats av hjälpen
         raise ScheduleError(refused)
+    if clip["profile"] == NO_CAMPAIGN:  # extra spärr: problemet kan ha tagits bort ur loggen
+        raise ScheduleError(NO_CAMPAIGN_PROBLEM)
     if clip["problems"]:
         raise ScheduleError("Klippet har problem. Rätta dem innan du laddar upp.")
     key, name = NAMES[platform]
