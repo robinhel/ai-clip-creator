@@ -31,6 +31,8 @@ from .config import Settings
 
 Platform = Literal["tiktok", "youtube_shorts", "instagram_reels"]
 PostStatus = Literal["postad", "inskickad", "analytics_inskickad", "betald"]
+NUMBERS = frozenset({"views", "likes", "comments", "shares", "paid_usd",
+                     "avg_watch_s", "full_pct", "fyp_pct", "saves", "countries_pct"})
 
 
 class NewPost(BaseModel):
@@ -58,11 +60,15 @@ class PostPatch(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _infinite_as_text(cls, data: object) -> object:
-        """Infinity och NaN som text, så att 422-svaret går att skriva som JSON (annars blir det 500)."""
+        """Infinity och NaN som text, så att 422-svaret går att skriva som JSON (annars blir det 500). I talfälten
+        ger texten 422. I andra fält vore texten giltig (NaN som länk), så där läggs den i en lista: fel typ, 422."""
         if not isinstance(data, dict):
             return data
-        return {key: str(value) if isinstance(value, float) and not math.isfinite(value) else value
-                for key, value in data.items()}
+        safe = dict(data)
+        for key, value in data.items():
+            if isinstance(value, float) and not math.isfinite(value):
+                safe[key] = str(value) if key in NUMBERS else [str(value)]
+        return safe
 
 
 def _get_post(log: ClipLog, post_id: int) -> dict:
