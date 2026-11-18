@@ -320,7 +320,7 @@ def _manifest(rendered: dict | None, clip: dict, profile: Profile, settings: Set
     """Det check_clip behöver. Utan ny rendering: kampanjens overlay och text. En egen video får vara utan ljud."""
     shown = rendered or {"overlay_applied": _has_overlay(profile, settings), "text_applied": bool(profile.text)}
     return {"overlay_applied": shown["overlay_applied"], "text_applied": shown["text_applied"],
-            "own_video": clip["vod_id"] == drafts.UPLOAD}
+            "own_video": clip["vod_id"] == drafts.UPLOAD, **drafts.heard(raw_path(clip, settings))}
 
 
 def reframe_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog) -> None:

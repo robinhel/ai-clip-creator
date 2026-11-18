@@ -288,6 +288,15 @@ def saved_choices(raw: Path) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def heard(raw: Path | None) -> dict:
+    """Manifestets del om musiken ur val-filen, som replace_audio ger den: regelkontrollen varnar också efter
+    Redigera när originalljudet är 0 %. Tom för Behåll, Tyst och klipp utan val-fil."""
+    choices = saved_choices(raw) if raw is not None else None
+    if not choices or choices.get("audio") != "music":
+        return {}
+    return {"audio": "music", "original_volume": float(choices.get("original_volume", 0.3))}
+
+
 @dataclass(frozen=True)
 class EditLook:
     """Valen från uppladdningen, för Redigera. Ett klipp utan val-fil (choices None) redigeras som förut."""

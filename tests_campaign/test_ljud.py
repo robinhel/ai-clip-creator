@@ -365,6 +365,21 @@ def test_an_own_video_without_sound_is_not_refused_after_edit(client, settings, 
 
 
 @needs_ffmpeg
+def test_the_sound_warning_stays_after_edit(client, settings, tmp_path) -> None:
+    set_profile(settings, clip={"min_seconds": 3, "max_seconds": 60}, active=True, other_rules=[SOUND_RULE],
+                on_screen_text={"text": "", "hook_text": False}, overlay={"file": None, "required": False})
+    _add_music(client, _music(tmp_path / MUSIC))
+    draft_id = _draft(client, _video(tmp_path / "a.mp4", seconds=6))
+    form = {**BASE, "audio": "music", "music": MUSIC, "music_start_s": "10", "original_volume": "0"}
+    clip = client.post(f"/campaign/uploads/drafts/{draft_id}/save", data=form).json()
+    assert SOUND_WARNING in clip["warnings"], clip["warnings"]
+    for body in ({"title": "Bara rubriken"}, {"out_s": 4.0}):  # utan och med ny rendering
+        answer = client.post(f"/campaign/clips/{clip['id']}/edit", json=body)
+        assert answer.status_code == 200, answer.text
+        assert SOUND_WARNING in answer.json()["warnings"], (body, answer.json()["warnings"])
+
+
+@needs_ffmpeg
 def test_a_removed_song_stops_edit_only_when_the_clip_is_made_again(client, settings, tmp_path) -> None:
     _add_music(client, _music(tmp_path / MUSIC))
     draft_id = _draft(client, _video(tmp_path / "a.mp4", seconds=6))
