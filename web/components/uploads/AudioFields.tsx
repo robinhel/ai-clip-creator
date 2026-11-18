@@ -46,8 +46,8 @@ function AudioChoice({ choices, set, busy }: Pick<Props, "choices" | "set" | "bu
   );
 }
 
-/** Knappen Lägg till musik. Fel filtyp nekas här, innan uppladdningen. */
-function AddMusic({ profile, busy, onAdded }: { profile: string; busy: boolean; onAdded: (m: MusicFile) => void }) {
+/** Uppladdningen av en låt. Fel filtyp nekas innan uppladdningen. percent null: ingen uppladdning pågår. */
+function useMusicUpload(profile: string, onAdded: (m: MusicFile) => void) {
   const [percent, setPercent] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,12 +57,18 @@ function AddMusic({ profile, busy, onAdded }: { profile: string; busy: boolean; 
     setError(problem);
     if (problem) return;
     setPercent(0);
-    uploadMusic(file, profile, setPercent)
+    uploadMusic({ file, profile }, setPercent)
       .done.then(onAdded)
       .catch((err) => setError(errorText(err, "Musiken gick inte att ladda upp.")))
       .finally(() => setPercent(null));
   }
 
+  return { percent, error, pick };
+}
+
+/** Knappen Lägg till musik, med förloppet i procent. */
+function AddMusic({ profile, busy, onAdded }: { profile: string; busy: boolean; onAdded: (m: MusicFile) => void }) {
+  const { percent, error, pick } = useMusicUpload(profile, onAdded);
   const uploading = percent != null;
   return (
     <div>
