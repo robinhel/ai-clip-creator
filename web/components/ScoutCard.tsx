@@ -8,12 +8,13 @@ import type { CampaignProfile, ScoutCampaign } from "@/lib/types";
 
 const dollars = new Intl.NumberFormat("sv-SE", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const views = new Intl.NumberFormat("sv-SE");
+const points = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
 
 const PLATFORM: Record<string, string> = { tiktok: "TikTok", youtube: "YouTube", instagram: "Instagram" };
 
-/** 70 eller mer är en extra bra kampanj, samma gräns som notisen på Macen. */
+/** 65 eller mer är en extra bra kampanj, samma gräns som notisen på Macen. */
 export function scoutTone(score: number): string {
-  if (score >= 70) return "text-good";
+  if (score >= 65) return "text-good";
   if (score >= 50) return "text-warn";
   return "text-muted-foreground";
 }
@@ -124,7 +125,7 @@ export function ScoutCard({ campaign: c, onDismiss, busy, existing }: {
                   <p className="flex justify-between gap-2 text-sm">
                     {p.label}
                     <span className="text-muted-foreground tabular-nums">
-                      {p.points} av {p.max}
+                      {points.format(p.points)} av {points.format(p.max)}
                     </span>
                   </p>
                   <div className="mt-1 h-1 overflow-hidden rounded-full bg-line">

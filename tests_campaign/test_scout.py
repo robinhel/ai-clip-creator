@@ -10,16 +10,18 @@ from __future__ import annotations
 import json
 import math
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from campaign import api, scout, scout_api
+from campaign import api, content_views, scout, scout_api
 from campaign.cliplog import ClipLog
 
 NOW = datetime(2026, 11, 13, 12, 0, tzinfo=UTC)
+CR = "https://contentrewards.com/c/campaigns/a1cefc3b-4533-438f-8e70-a7299550f1cf"
 LIMIT_BODY = {"jsonrpc": "2.0", "error": {"code": -32001, "message": "Sign in to ClippingAlpha to go on: signed out, "
                                                                      "one network gets 500 calls a day."}, "id": None}
 
@@ -84,22 +86,73 @@ def _parts(data: dict, median: float = 1260, cpm_median: float = 1.05) -> tuple[
 # ---------- betyget ----------
 
 
+# Robins vikter: varje del räknar med sina ursprungliga maxvärden (ombyggnad-fas1) och skalas till det nya.
+SCALE = {"fresh": 12 / 25, "minimum": 10 / 20, "source": 8 / 15, "budget": 8 / 15, "pay": 5 / 10, "proof": 5 / 10,
+         "hassle": 2 / 5}
+
+
 def test_a_fresh_twitch_campaign_with_everything_scores_high() -> None:
     total, parts, excluded = _parts(_data())
     assert excluded is None
-    assert list(parts) == ["fresh", "minimum", "source", "budget", "pay", "proof", "hassle"]
-    assert [parts[key]["max"] for key in parts] == [25, 20, 15, 15, 10, 10, 5]
+    assert list(parts) == ["views", "fresh", "minimum", "source", "budget", "pay", "max_payout", "proof", "hassle"]
+    assert [parts[key]["max"] for key in parts] == [40, 12, 10, 8, 8, 5, 10, 5, 2]
+    assert sum(parts[key]["max"] for key in parts) == 100
+    pay = 5 * 1.8 / 1.05 * SCALE["pay"]  # 4,3: betalningen är inte full
+    cap = 10 * math.log(500 / 100) / math.log(1000 / 100)  # 7,0: taket är 500 dollar
     assert {key: parts[key]["points"] for key in parts} == {
-        "fresh": 25, "minimum": 20, "source": 15, "budget": 15, "pay": pytest.approx(8.6, abs=0.05),
-        "proof": 10, "hassle": 5}
-    assert total == round(25 + 20 + 15 + 15 + 5 * 1.8 / 1.05 + 10 + 5)
+        "views": 20, "fresh": 12, "minimum": 10, "source": 8, "budget": 8, "pay": pytest.approx(pay, abs=0.05),
+        "max_payout": pytest.approx(cap, abs=0.05), "proof": 5, "hassle": 2}
+    assert total == round(20 + 12 + 10 + 8 + 8 + pay + cap + 5 + 2) == 76  # förut 79
     assert all(part["label"] and part["fact"] for part in parts.values())
+
+
+def test_a_campaign_with_every_part_full_still_gets_100() -> None:
+    data = _data(alpha={"netPer1kUsd": 4.0})
+    data["search"]["netPer1kUsd"] = 4.0
+    data["analytics"]["pay"]["maxPayoutUsd"] = None
+    total, parts, _ = _parts({**data, "clip_views": [1_000_000] * 10})
+    assert all(part["points"] == part["max"] for part in parts.values())
+    assert total == 100 == sum(part["max"] for part in parts.values() if part["key"] != "max_payout") + 10
+
+
+@pytest.mark.parametrize(("cap", "points"), [(1_200, 10), (1_000, 10), (100, 0), (50, 0),
+                                            (600, pytest.approx(7.8, abs=0.05))])
+def test_max_payout_per_clip_is_logarithmic_from_100_to_1000_dollars(cap, points) -> None:
+    data = _data()
+    data["analytics"]["pay"]["maxPayoutUsd"] = cap
+    part = _parts(data)[1]["max_payout"]
+    assert (part["points"], part["max"], part["label"]) == (points, 10, "Max payout per klipp")
+    assert part["fact"] == f"Högst {cap:,} dollar per klipp".replace(",", " ")
+
+
+def test_max_payout_without_a_cap_is_full_and_unknown_without_analytics() -> None:
+    data = _data()
+    data["analytics"]["pay"]["maxPayoutUsd"] = None
+    part = _parts(data)[1]["max_payout"]
+    assert (part["points"], part["fact"]) == (10, "Inget tak per klipp")
+    del data["analytics"]["pay"]["maxPayoutUsd"]
+    assert _parts(data)[1]["max_payout"]["points"] == 10
+    part = _parts({"search": _item(), "campaign": _campaign()})[1]["max_payout"]
+    assert (part["points"], part["max"], part["fact"]) == (5, 10, "Okänt")
+
+
+@pytest.mark.parametrize(("cap", "minimum", "views"), [("1200", "x", "abc"), (True, True, True)])
+def test_payout_fields_that_are_not_numbers_count_as_missing(cap, minimum, views) -> None:
+    missing = _data()
+    del missing["analytics"]["pay"]["maxPayoutUsd"]
+    del missing["analytics"]["pay"]["minPayoutUsd"]
+    del missing["analytics"]["pay"]["minViews"]
+    data = _data()
+    data["analytics"]["pay"].update(maxPayoutUsd=cap, minPayoutUsd=minimum, minViews=views)
+    assert scout.min_views(scout.facts(data)) is None
+    assert _parts(data) == _parts(missing)
 
 
 @pytest.mark.parametrize(("age_h", "points"), [
     (47, 25), (24 * 10, 25 - 20 * (10 - 2) / (21 - 2)), (24 * 25, 5 * (30 - 25) / (30 - 21)), (24 * 31, 0)])
 def test_freshness_falls_with_age(age_h, points) -> None:
-    assert _parts(_data(age_h=age_h))[1]["fresh"]["points"] == pytest.approx(points, abs=0.05)
+    part = _parts(_data(age_h=age_h))[1]["fresh"]
+    assert part["points"] == pytest.approx(points * SCALE["fresh"], abs=0.05)
 
 
 @pytest.mark.parametrize(("verdict", "drain_days", "minus"), [("Fast", 10, 10), ("Fair", 10, 5), ("Slow", 2, 10),
@@ -107,23 +160,24 @@ def test_freshness_falls_with_age(age_h, points) -> None:
 def test_freshness_loses_points_when_the_budget_goes_fast(verdict, drain_days, minus) -> None:
     data = _data(drain={"p50": _iso(NOW + timedelta(days=drain_days)), "stalled": False})
     data["analytics"]["alpha"]["verdicts"][0]["verdict"] = verdict
-    assert _parts(data)[1]["fresh"]["points"] == 25 - minus
+    assert _parts(data)[1]["fresh"]["points"] == pytest.approx((25 - minus) * SCALE["fresh"], abs=0.05)
 
 
 def test_unknown_age_gives_half_and_okant() -> None:
     data = _data(launchedAt=None)
     data["search"]["launchedAt"] = None
     fresh = _parts(data)[1]["fresh"]
-    assert (fresh["points"], fresh["fact"]) == (12.5, "Okänt")
+    assert (fresh["points"], fresh["fact"]) == (6, "Okänt")  # halva det nya maxvärdet
 
 
 def test_the_chance_to_reach_the_minimum_is_logarithmic() -> None:
     data = _data()
     data["analytics"]["pay"]["minPayoutUsd"] = 5  # 5 dollar vid 2 dollar per 1 000: 2 500 visningar
     part = _parts(data)[1]["minimum"]
-    assert part["points"] == pytest.approx(20 * (1 - math.log(2500 / 1260) / math.log(5)), abs=0.05)
+    points = 20 * (1 - math.log(2500 / 1260) / math.log(5)) * SCALE["minimum"]
+    assert part["points"] == pytest.approx(points, abs=0.05)
     assert "2" in part["fact"] and "500" in part["fact"]
-    assert _parts(data, median=2500)[1]["minimum"]["points"] == 20
+    assert _parts(data, median=2500)[1]["minimum"]["points"] == 10
     assert _parts(data, median=500)[1]["minimum"]["points"] == 0
 
 
@@ -131,9 +185,11 @@ def test_no_details_gives_half_points_and_okant() -> None:
     data = {"search": _item()}  # bara sökträffen: ingen pay, inga regler, ingen organisatör
     _, parts, excluded = _parts(data)
     assert excluded is None
-    assert (parts["minimum"]["points"], parts["minimum"]["fact"]) == (10, "Okänt")
-    assert (parts["proof"]["points"], parts["proof"]["fact"]) == (5, "Okänt")
-    assert parts["fresh"]["points"] == 25  # åldern finns i sökträffen
+    assert (parts["minimum"]["points"], parts["minimum"]["fact"]) == (5, "Okänt")
+    assert (parts["proof"]["points"], parts["proof"]["fact"]) == (2.5, "Okänt")
+    assert (parts["max_payout"]["points"], parts["max_payout"]["fact"]) == (5, "Okänt")
+    assert (parts["views"]["points"], parts["views"]["fact"]) == (20, "Okänt: inga klipp att räkna på ännu")
+    assert parts["fresh"]["points"] == 12  # åldern finns i sökträffen
 
 
 @pytest.mark.parametrize(("title", "about", "niche", "rules", "points"), [
@@ -145,10 +201,10 @@ def test_the_source_points(title, about, niche, rules, points) -> None:
     data = _data(title=title, about=about, niche=niche,
                  rules={"checklist": [{"kind": "account", "text": text} for text in rules]})
     data["search"].update(title=title, niche=niche)
-    assert _parts(data)[1]["source"]["points"] == points
+    assert _parts(data)[1]["source"]["points"] == pytest.approx(points * SCALE["source"], abs=0.05)
 
 
-@pytest.mark.parametrize(("drain", "left", "points"), [(3.5, 5000, 7.5), (8, 5000, 15), (None, 2000, 10)])
+@pytest.mark.parametrize(("drain", "left", "points"), [(3.5, 5000, 7.5 * 8 / 15), (8, 5000, 8), (None, 2000, 10 * 8 / 15)])
 def test_the_budget_lasts(drain, left, points) -> None:
     p50 = _iso(NOW + timedelta(days=drain)) if drain else None
     data = _data(drain={"p50": p50, "stalled": False})
@@ -157,7 +213,7 @@ def test_the_budget_lasts(drain, left, points) -> None:
     assert _parts(data)[1]["budget"]["points"] == pytest.approx(points, abs=0.05)
 
 
-@pytest.mark.parametrize(("net", "points"), [(1.575, 7.5), (None, 5 * 1.8 / 1.2), (4.0, 10)])
+@pytest.mark.parametrize(("net", "points"), [(1.575, 7.5 / 2), (None, 5 * 1.8 / 1.2 / 2), (4.0, 5)])
 def test_the_pay_against_the_market(net, points) -> None:
     data = _data(alpha={"netPer1kUsd": net})
     data["search"]["netPer1kUsd"] = net
@@ -167,15 +223,15 @@ def test_the_pay_against_the_market(net, points) -> None:
 def test_proof_of_payout() -> None:
     data = _data(organizerVerified=False)
     data["analytics"]["alpha"]["adjustments"] = [{"key": "payout", "label": "$50 paid to clippers in 7 days"}]
-    assert _parts(data)[1]["proof"]["points"] == 6
+    assert _parts(data)[1]["proof"]["points"] == (4 + 2) * SCALE["proof"]  # betalat ut nyligen, står inte still
     data["analytics"]["alpha"]["adjustments"] = []
-    assert _parts(data)[1]["proof"]["points"] == 2
+    assert _parts(data)[1]["proof"]["points"] == 2 * SCALE["proof"]
 
 
 def test_hassle_for_applications_and_many_caption_rules() -> None:
     rules = [{"kind": "caption", "text": f"Tag @x{i}"} for i in range(4)] + [{"kind": "disclosure", "text": "#ad"}]
     data = _data(rules={"checklist": rules})
-    assert _parts(data)[1]["hassle"]["points"] == 3
+    assert _parts(data)[1]["hassle"]["points"] == pytest.approx((5 - 2) * SCALE["hassle"])  # 5 krav, 2 för många
     data["campaign"]["whereToJoin"][0].update(openJoin=False, gateType="application_full")
     assert _parts(data)[1]["hassle"]["points"] == 0
 
@@ -229,13 +285,29 @@ class FakeAlpha:
         self.alpha: list[dict] = []
         self.details: dict[str, tuple[dict, dict]] = {}
         self.broken: set[str] = set()  # get_campaign svarar isError för de här
+        self.broken_assets: set[str] = set()  # get_assets svarar isError för de här
         self.limit_at: str | None = None  # verktyget där ClippingAlphas dygnsgräns slår till
         self.limit_reached = False
         self.lose_session_once = False
         self.down = False
         self.sse = False
+        self.assets: dict[str, dict] = {}  # get_assets per kampanj
+        self.go: list[httpx.Request] = []  # GET /go/<id>
+        self.go_status = 302  # svaret från /go/; 302 leder till kampanjsidan och sätter cookies som den riktiga
+        self.clip_views: list[int] | None = None  # kampanjens klipp på Content Rewards
+        self.twitch_views: list[int] | None = None
+        self.clip_calls: list[str] = []
+        self.twitch_calls: list[tuple[str, datetime]] = []
+        self.vod_logins: dict[str, str] = {}  # Helix /videos: video-id och kanalen
+        self.vod_calls: list[str] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            self.go.append(request)
+            if self.go_status != 302:
+                return httpx.Response(self.go_status, text="fel")
+            return httpx.Response(302, headers=[("Location", f"{CR}?utm_source=clippingalpha&utm_content=direct"),
+                                                ("Set-Cookie", "ca_vid=1; Path=/"), ("Set-Cookie", "_fbp=fb.1; Path=/")])
         self.requests.append(request)
         if self.down:
             return httpx.Response(500, text="nere")
@@ -257,11 +329,14 @@ class FakeAlpha:
         if name == "search_campaigns":
             items = self.newest if args["sort"] == "newest" else self.alpha
             content = {"total": len(items), "cpm": {"medianUsd": 1.2}, "campaigns": items}
-        elif name == "get_campaign" and args["campaign"] in self.broken:
+        elif (name, args.get("campaign")) in {("get_campaign", ref) for ref in self.broken} | {
+                ("get_assets", ref) for ref in self.broken_assets}:
             return httpx.Response(200, json={"jsonrpc": "2.0", "id": msg["id"], "result": {
                 "isError": True, "content": [{"type": "text", "text": "Campaign not found"}]}})
         elif name == "get_campaign":
             content = {"campaign": self.details[args["campaign"]][0]}
+        elif name == "get_assets":
+            content = self.assets.get(args["campaign"], {"videos": []})
         else:
             content = self.details[args["campaign"]][1]
         body = {"jsonrpc": "2.0", "id": msg["id"], "result": {"content": [{"type": "text", "text": "..."}],
@@ -278,6 +353,18 @@ class FakeAlpha:
             if msg["method"] == method and (tool is None or msg["params"]["name"] == tool):
                 out.append(msg)
         return out
+
+    def campaign_clip_views(self, cr_url: str) -> list[int] | None:
+        self.clip_calls.append(cr_url)
+        return self.clip_views
+
+    def twitch_clip_views(self, login: str, now: datetime) -> list[int] | None:
+        self.twitch_calls.append((login, now))
+        return self.twitch_views
+
+    def twitch_login_from_vod(self, video_id: str) -> str | None:
+        self.vod_calls.append(video_id)
+        return self.vod_logins.get(video_id)
 
     def add(self, ref: str, age_h: float = 24, **campaign) -> None:
         self.newest.append(_item(ref, age_h=age_h))
@@ -297,8 +384,12 @@ def fake(monkeypatch) -> FakeAlpha:
     fake = FakeAlpha()
     monkeypatch.setattr(scout, "http_client", lambda: httpx.Client(transport=httpx.MockTransport(fake)))
     monkeypatch.setattr(scout, "MIN_GAP_S", 0)
+    monkeypatch.setattr(scout, "CLIP_PAGE_GAP_S", 0)
     monkeypatch.setattr(scout, "_session", {"id": None})
     monkeypatch.setattr(scout, "_now", lambda: NOW)
+    monkeypatch.setattr(scout, "campaign_clip_views", fake.campaign_clip_views)
+    monkeypatch.setattr(scout, "twitch_clip_views", fake.twitch_clip_views)
+    monkeypatch.setattr(scout, "twitch_login_from_vod", fake.twitch_login_from_vod)
     return fake
 
 
@@ -347,9 +438,11 @@ def test_a_run_searches_fetches_details_scores_and_lists(client, settings, fake,
     assert [c["params"]["arguments"] for c in fake.calls("tools/call", "get_campaign")] == [
         {"campaign": "timmy/streams"}, {"campaign": "brand/trailer"}]
     assert len(fake.calls("tools/call", "get_campaign_analytics")) == 2
+    assert len(fake.calls("tools/call", "get_assets")) == 2
+    assert len(fake.go) == 2
 
     answer = client.get("/campaign/scout").json()
-    assert (answer["enabled"], answer["error"], answer["calls_today"], answer["call_limit"]) == (True, None, 8, 300)
+    assert (answer["enabled"], answer["error"], answer["calls_today"], answer["call_limit"]) == (True, None, 12, 300)
     assert (answer["median_views"], answer["median_source"]) == (1260, "standard")
     assert answer["updated_at"]
     assert [c["ref"] for c in answer["campaigns"]] == ["timmy/streams", "brand/trailer"]  # på betyg
@@ -372,7 +465,7 @@ def test_a_run_searches_fetches_details_scores_and_lists(client, settings, fake,
     assert len(fake.calls("initialize")) == 1
     assert len(fake.calls("tools/call", "search_campaigns")) == 3
     assert len(fake.calls("tools/call", "get_campaign")) == 2
-    assert client.get("/campaign/scout").json()["calls_today"] == 9
+    assert client.get("/campaign/scout").json()["calls_today"] == 13
 
     _later(monkeypatch, minutes=61)
     scout.Scout(settings).run_once()
@@ -444,7 +537,7 @@ def test_the_limit_at_clippingalpha_waits_an_hour_not_a_day(client, settings, fa
     assert scout.Scout(settings).wait_s() == 0
     scout.Scout(settings).run_once()
     answer = client.get("/campaign/scout").json()
-    assert (answer["error"], answer["calls_today"]) == (None, 8)
+    assert (answer["error"], answer["calls_today"]) == (None, 10)
     assert [c["ref"] for c in answer["campaigns"]] == ["timmy/streams"]
 
 
@@ -473,6 +566,40 @@ def test_a_failing_source_saves_the_error_and_the_run_does_not_raise(settings, f
     fake.down = True
     scout.Scout(settings).run_once()
     assert scout.Scout(settings).overview()["error"]
+
+
+@pytest.mark.parametrize("step", ["_refresh_clip_views", "_rescore"])
+def test_an_error_after_the_limit_does_not_replace_the_limit(settings, fake, monkeypatch, caplog, step) -> None:
+    fake.limit_at = "search_campaigns"
+
+    def broken(self, now: datetime) -> None:
+        raise RuntimeError("trasig")
+
+    monkeypatch.setattr(scout.Scout, step, broken)
+    scout.Scout(settings).run_once()
+    assert scout.Scout(settings).overview()["error"] == (
+        "ClippingAlpha tar inte emot fler anrop just nu. Bevakningen försöker igen kl. 14:00.")
+    assert "trasig" in caplog.text  # felet loggas
+
+
+def test_an_error_in_the_scores_without_an_error_from_clippingalpha_is_saved(settings, fake, monkeypatch) -> None:
+    fake.add("timmy/streams")
+
+    def broken(self, now: datetime) -> None:
+        raise RuntimeError("trasig")
+
+    monkeypatch.setattr(scout.Scout, "_rescore", broken)
+    scout.Scout(settings).run_once()
+    assert scout.Scout(settings).overview()["error"] == (
+        "Bevakningen fick ett fel (RuntimeError). Den försöker igen om 10 minuter.")
+
+
+def test_a_max_payout_that_is_not_a_number_is_not_sent_to_the_web(settings, fake) -> None:
+    analytics = _analytics()
+    analytics["pay"]["maxPayoutUsd"] = "1200"
+    _seed(settings, "timmy/streams", 50, analytics=analytics)
+    (view,) = scout.Scout(settings).overview()["campaigns"]
+    assert view["max_payout_usd"] is None  # som betyget: "Inget tak per klipp"
 
 
 # ---------- notisen ----------
@@ -510,6 +637,26 @@ def test_without_terminal_notifier_osascript_gets_the_text_as_an_argument(settin
     assert args[-1].startswith('Ny kampanj: Clip "x" Twitch Streams, ')  # texten är ett argument, inte kod
     assert all('"x"' not in part for part in args[:-1])
     assert not kwargs.get("shell")
+
+
+def _seed(settings, ref: str, score: int, **data) -> None:
+    """En kampanj direkt i databasen, som om en tidigare körning hade sparat och betygsatt den."""
+    row = {"updated": scout._iso(NOW), "dismissed": 0, "excluded": None}
+    row.update({key: data.pop(key) for key in list(data) if key in row})
+    with scout.Scout(settings)._db() as db:
+        db.execute("INSERT INTO scout_campaigns (ref, data, score, parts, excluded, first_seen, updated, dismissed) "
+                   "VALUES (?, ?, ?, '[]', ?, ?, ?, ?)",
+                   (ref, json.dumps({"search": _item(ref), **data}), score, row["excluded"], scout._iso(NOW),
+                    row["updated"], row["dismissed"]))
+
+
+@pytest.mark.parametrize(("score", "notified"), [(70, True), (69, True), (65, True), (64, False)])
+def test_a_new_campaign_from_65_points_is_notified(settings, notes, monkeypatch, score, notified) -> None:
+    monkeypatch.setattr(scout, "_now", lambda: NOW)
+    _seed(settings, "timmy/streams", score)  # 24 timmar gammal
+    scout.Scout(settings)._notify(NOW)
+    assert [args[4] for args, _ in notes.calls] == (
+        [f"Ny kampanj: Clip streams Twitch Streams, {score} poäng"] if notified else [])
 
 
 def test_no_notification_outside_the_mac(settings, fake, notes, monkeypatch) -> None:
@@ -608,12 +755,13 @@ def test_a_campaign_whose_details_fail_still_gets_a_score_and_a_notice(settings,
     fake.add("timmy/streams")
     fake.add("other/streams")
     fake.broken.add("timmy/streams")
+    fake.clip_views = [1_000_000] * 10  # kampanjens klipp får mycket visningar: full poäng på Visningar
     scout.Scout(settings).run_once()
     overview = scout.Scout(settings).overview()
     assert overview["error"] is None
     assert {c["ref"] for c in overview["campaigns"]} == {"timmy/streams", "other/streams"}
     timmy = next(c for c in overview["campaigns"] if c["ref"] == "timmy/streams")
-    assert timmy["score"] >= 70 and timmy["max_payout_usd"] is None  # från sökträffen
+    assert timmy["score"] >= scout.NOTIFY_SCORE and timmy["max_payout_usd"] is None  # från sökträffen
     assert len(fake.calls("tools/call", "get_campaign_analytics")) == 1  # den andra hämtades ändå
     assert {args[4].split(":")[1].split(",")[0].strip() for args, _ in notes.calls} == {
         "Clip streams Twitch Streams"}  # två notiser, båda med sökträffens titel
@@ -712,7 +860,7 @@ def test_the_thread_runs_right_after_midnight_even_if_the_mac_slept(settings, mo
 def test_a_run_saves_what_it_cost(settings, fake, monkeypatch) -> None:
     fake.add("timmy/streams")
     scout.Scout(settings).run_once()
-    assert scout.Scout(settings)._get("last_cost") == "6"
+    assert scout.Scout(settings)._get("last_cost") == "8"  # med get_assets och /go/
     _later(monkeypatch, minutes=10)
     scout.Scout(settings).run_once()
     assert scout.Scout(settings)._get("last_cost") == "1"
@@ -732,3 +880,431 @@ def test_a_pot_split_campaign_is_excluded(join_model, search_model, excluded) ->
         join["payModel"] = join_model
     data = _with(campaign__whereToJoin=[join], search__payModel=search_model, search__ratePer1kUsd=None)
     assert _parts(data)[2] == excluded
+
+
+# ---------- visningarna ----------
+
+
+def _views(**data) -> dict:
+    return _parts({**_data(), **data})[1]["views"]
+
+
+TOP_12 = [12_000, 100, 30_000, 6_000, 25_000, 9_000, 20_000, 50, 8_000, 15_000, 10_000, 7_000]
+
+
+def test_the_views_count_the_median_of_the_ten_best_campaign_clips() -> None:
+    part = _views(clip_views=TOP_12)  # de två sämsta (100 och 50) räknas inte: medianen är 11 000, inte 9 500
+    assert (part["max"], part["label"]) == (40, "Visningar")
+    assert part["points"] == pytest.approx(40 * math.log(11_000 / 2_000) / math.log(1_000_000 / 2_000), abs=0.05)
+    assert part["fact"] == "Median 11 000 visningar för kampanjens 10 bästa klipp"
+
+
+@pytest.mark.parametrize(("views", "points"), [
+    ([1_000_000] * 10, 40), ([2_000_000] * 6, 40), ([2_000] * 10, 0), ([500] * 5, 0), ([0] * 7, 0),
+    ([57_350] * 5, pytest.approx(21.6, abs=0.05)), ([23_150] * 5, pytest.approx(15.8, abs=0.05))])
+def test_the_campaign_scale_runs_from_2000_to_a_million(views, points) -> None:
+    assert _views(clip_views=views)["points"] == points
+
+
+def test_twitch_goes_before_the_campaign_clips() -> None:
+    part = _views(twitch_views=[1_200] * 5, clip_views=[2_000_000] * 10)
+    assert part["points"] == pytest.approx(40 * math.log(1_200 / 500) / math.log(200_000 / 500), abs=0.05)
+    assert part["fact"] == "Twitch: median 1 200 visningar för kanalens bästa klipp, 30 dagar"
+
+
+@pytest.mark.parametrize(("views", "points"), [
+    ([200_000] * 5, 40), ([500] * 5, 0), ([400] * 5, 0), ([300_000] * 12 + [1], 40)])
+def test_the_twitch_scale_runs_from_500_to_200000(views, points) -> None:
+    assert _views(twitch_views=views)["points"] == points
+
+
+def test_four_twitch_clips_go_on_to_the_campaign_clips_and_five_are_enough() -> None:
+    part = _views(twitch_views=[200_000] * 4, clip_views=[57_350] * 5)
+    assert part["fact"] == "Median 57 350 visningar för kampanjens 5 bästa klipp"
+    part = _views(twitch_views=[200_000] * 5, clip_views=[57_350] * 5)
+    assert (part["points"], part["fact"]) == (40, "Twitch: median 200 000 visningar för kanalens bästa klipp, 30 dagar")
+
+
+@pytest.mark.parametrize("twitch", [[], None, [200_000] * 4])
+def test_no_twitch_clips_gives_the_campaign_clips(twitch) -> None:
+    part = _views(twitch_views=twitch, clip_views=[1_000_000] * 5)
+    assert (part["points"], part["fact"]) == (40, "Median 1 000 000 visningar för kampanjens 5 bästa klipp")
+
+
+@pytest.mark.parametrize(("data", "fact"), [
+    ({"twitch_views": [200_000] * 3, "clip_views": [2_000_000] * 4},
+     "Okänt: 3 Twitch-klipp och 4 kampanjklipp, minst 5 behövs"),
+    ({"clip_views": [2_000_000] * 4}, "Okänt: 0 Twitch-klipp och 4 kampanjklipp, minst 5 behövs"),
+    ({"clip_views": None}, "Okänt: inga klipp att räkna på ännu"),
+    ({"twitch_views": []}, "Okänt: inga klipp att räkna på ännu"),
+    ({}, "Okänt: inga klipp att räkna på ännu")])
+def test_fewer_than_five_clips_on_twitch_and_in_the_campaign_is_unknown(data, fact) -> None:
+    part = _views(**data)
+    assert (part["points"], part["max"], part["fact"]) == (20, 40, fact)
+
+
+CHANNEL = {"videos": [{"kind": "channel", "platform": "twitch", "channel": None,
+                       "url": "https://www.twitch.tv/timmy_tv/videos?filter=archives&sort=time"}]}
+
+
+def _saved(settings, ref: str = "timmy/streams") -> dict:
+    with scout.Scout(settings)._db() as db:
+        return json.loads(db.execute("SELECT data FROM scout_campaigns WHERE ref = ?", (ref,)).fetchone()[0])
+
+
+def test_the_details_fetch_the_channel_and_the_campaign_page_once(settings, fake, monkeypatch) -> None:
+    fake.add("timmy/streams")
+    fake.assets["timmy/streams"] = CHANNEL
+    fake.twitch_views = [1_200] * 5
+    fake.clip_views = [90_000] * 10
+    scout.Scout(settings).run_once()
+
+    assert [c["params"]["arguments"] for c in fake.calls("tools/call", "get_assets")] == [{"campaign": "timmy/streams"}]
+    (go,) = fake.go
+    assert str(go.url) == "https://clippingalpha.com/go/1"  # utan ?via=mcp
+    assert scout.Scout(settings).calls_today() == 2 + 1 + 1 + 4  # /go/ räknas i scout_calls
+    data = _saved(settings)
+    assert (data["twitch_login"], data["cr_url"], data["clip_views"], data["twitch_views"]) == (
+        "timmy_tv", CR, [90_000] * 10, [1_200] * 5)
+    assert fake.twitch_calls == [("timmy_tv", NOW)] and fake.clip_calls == [CR]
+    assert data.get("twitch_vod") is None and fake.vod_calls == []  # kanalposten räcker
+    (view,) = scout.Scout(settings).overview()["campaigns"]
+    assert next(p for p in view["parts"] if p["key"] == "views")["fact"].startswith("Twitch: median 1 200")
+
+    _later(monkeypatch, hours=7)  # nästa detaljuppdatering: inga nya get_assets eller /go/, Twitch är färskt
+    scout.Scout(settings).run_once()
+    assert len(fake.calls("tools/call", "get_campaign")) == 2
+    assert (len(fake.calls("tools/call", "get_assets")), len(fake.go)) == (1, 1)
+    assert (fake.clip_calls, len(fake.twitch_calls)) == ([CR, CR], 1)
+
+    _later(monkeypatch, hours=25)  # Twitch frågas igen efter ett dygn
+    scout.Scout(settings).run_once()
+    assert (len(fake.calls("tools/call", "get_assets")), len(fake.go)) == (1, 1)
+    assert fake.twitch_calls[1:] == [("timmy_tv", NOW + timedelta(hours=25))]
+
+
+@pytest.mark.parametrize("status", [429, 503])
+def test_a_temporary_error_from_go_is_tried_again_at_the_next_details(settings, fake, monkeypatch, status) -> None:
+    fake.add("timmy/streams")
+    fake.go_status = status
+    scout.Scout(settings).run_once()
+    assert "join_checked_at" not in _saved(settings) and len(fake.go) == 1
+    assert scout.Scout(settings).calls_today() == len(fake.requests) + 1  # /go/ räknas i scout_calls
+
+    fake.go_status = 302
+    _later(monkeypatch, hours=7)
+    scout.Scout(settings).run_once()
+    assert len(fake.go) == 2
+    assert scout.Scout(settings).calls_today() == len(fake.requests) + 2
+    data = _saved(settings)
+    assert (data["cr_url"], data["join_checked_at"]) == (CR, scout._iso(NOW + timedelta(hours=7)))
+
+
+@pytest.mark.parametrize("status", [404, 410, 200])
+def test_an_answer_without_a_campaign_page_marks_the_campaign_as_checked(settings, fake, monkeypatch, status) -> None:
+    fake.add("timmy/streams")
+    fake.go_status = status
+    scout.Scout(settings).run_once()
+    data = _saved(settings)
+    assert (data["cr_url"], data["join_checked_at"]) == (None, scout._iso(NOW))
+    _later(monkeypatch, hours=7)
+    scout.Scout(settings).run_once()
+    assert len(fake.go) == 1  # provas inte igen
+
+
+def test_go_waits_for_the_gap_after_the_last_mcp_call(settings, fake, monkeypatch) -> None:
+    fake.add("timmy/streams")
+    events: list[str | float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        events.append(request.method)
+        return fake(request)
+
+    monkeypatch.setattr(scout, "http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(scout, "MIN_GAP_S", 1.0)
+    # klockan står still: varje anrop måste vänta hela MIN_GAP_S
+    monkeypatch.setattr(scout, "time", SimpleNamespace(monotonic=lambda: 100.0, sleep=events.append))
+    scout.Scout(settings).run_once()
+    go = events.index("GET")
+    assert events[go - 2:go + 1] == ["POST", 1.0, "GET"]
+
+
+def test_the_cookies_from_go_do_not_follow_to_the_mcp_calls(settings, fake) -> None:
+    fake.add("timmy/streams")
+    fake.add("other/streams")
+    scout.Scout(settings).run_once()
+    assert len(fake.go) == 2
+    assert all("cookie" not in request.headers for request in fake.requests + fake.go)
+
+
+def test_without_a_channel_or_campaign_page_there_is_no_twitch_or_page_call(settings, fake) -> None:
+    fake.add("timmy/streams", whereToJoin=[{**_campaign()["whereToJoin"][0], "joinUrl": "https://other.example/x"}])
+    fake.newest[0]["joinUrl"] = "https://other.example/x"
+    scout.Scout(settings).run_once()
+    assert (fake.go, fake.twitch_calls, fake.clip_calls) == ([], [], [])
+    data = _saved(settings)
+    assert data["twitch_login"] is None and "assets_at" in data
+
+
+def test_without_a_go_link_from_get_campaign_go_is_checked_and_not_counted_again(settings, fake, monkeypatch) -> None:
+    fake.add("timmy/streams", whereToJoin=[{**_campaign()["whereToJoin"][0], "joinUrl": "https://other.example/x"}])
+    fake.newest[0]["joinUrl"] = "https://other.example/x"
+    scout.Scout(settings).run_once()
+    assert fake.go == [] and _saved(settings)["join_checked_at"] == scout._iso(NOW)
+
+    _later(monkeypatch, hours=7)  # nästa detaljuppdatering
+    # 2 sökningar, sedan 2 kvar: get_campaign och analytics ryms, men inte ett /go/ till
+    s = scout.Scout(settings)
+    s._count(scout.CALL_LIMIT - scout.reserve(NOW + timedelta(hours=7)) - 4 - s.calls_today())
+    s.run_once()
+    assert len(fake.calls("tools/call", "get_campaign")) == 2 and fake.go == []
+
+
+def test_without_an_answer_from_get_campaign_go_is_not_marked_as_checked(settings, fake) -> None:
+    fake.add("timmy/streams")
+    fake.newest[0]["joinUrl"] = "https://other.example/x"
+    fake.broken.add("timmy/streams")
+    scout.Scout(settings).run_once()
+    assert "join_checked_at" not in _saved(settings) and fake.go == []
+
+
+def test_failing_views_do_not_stop_the_run_and_keep_what_was_there(settings, fake, monkeypatch) -> None:
+    fake.add("timmy/streams")
+    fake.assets["timmy/streams"] = CHANNEL
+    fake.twitch_views, fake.clip_views = [1_200], [9_000] * 10
+    scout.Scout(settings).run_once()
+    fake.twitch_views = fake.clip_views = None  # Twitch och Content Rewards svarar inte
+    _later(monkeypatch, hours=25)
+    scout.Scout(settings).run_once()
+    assert scout.Scout(settings).overview()["error"] is None
+    data = _saved(settings)
+    assert (data["twitch_views"], data["clip_views"]) == ([1_200], [9_000] * 10)
+
+
+def test_a_failing_get_assets_is_handled_like_the_other_details(settings, fake) -> None:
+    fake.add("timmy/streams")
+    fake.add("other/streams")
+    fake.broken_assets.add("timmy/streams")
+    scout.Scout(settings).run_once()
+    assert len(fake.calls("tools/call", "get_assets")) == 2  # den andra hämtades ändå
+    assert "assets_at" not in _saved(settings)  # provas igen vid nästa detaljuppdatering
+    assert "assets_at" in _saved(settings, "other/streams")
+    assert scout.Scout(settings).overview()["error"] is None
+
+
+def test_the_limit_in_get_assets_stops_the_run(settings, fake) -> None:
+    fake.add("timmy/streams")
+    fake.limit_at = "get_assets"
+    scout.Scout(settings).run_once()
+    assert scout.Scout(settings).overview()["error"].startswith("ClippingAlpha tar inte emot fler anrop just nu.")
+    assert fake.go == []
+
+
+def test_go_comes_from_get_campaign_when_the_search_hit_has_no_join_url(settings, fake) -> None:
+    fake.add("timmy/streams")
+    del fake.newest[0]["joinUrl"]  # bara whereToJoin i get_campaign har länken
+    scout.Scout(settings).run_once()
+    assert len(fake.go) == 1 and _saved(settings)["cr_url"] == CR
+    assert scout.Scout(settings).calls_today() == len(fake.requests) + 1  # /go/ räknas i scout_calls
+
+
+@pytest.mark.parametrize("body", [{"data": [{"view_count": "x"}]}, {"data": "x"}])
+def test_an_unexpected_twitch_answer_still_saves_the_campaign(settings, fake, monkeypatch, body) -> None:
+    class Helix:  # svarar 200, men i en annan form
+        def __init__(self, *args):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return None
+
+        def get_user_id(self, login: str) -> str:
+            return "42"
+
+        def _get(self, path: str, params: dict) -> dict:
+            return body
+
+    monkeypatch.setattr(scout, "twitch_clip_views", content_views.twitch_clip_views)
+    monkeypatch.setattr(content_views, "TwitchClient", Helix)
+    monkeypatch.setattr(content_views, "load_secrets",
+                        lambda: SimpleNamespace(twitch_client_id="id", twitch_client_secret="secret"))
+    fake.add("timmy/streams")
+    fake.assets["timmy/streams"] = CHANNEL
+    scout.Scout(settings).run_once()
+    assert scout.Scout(settings).overview()["error"] is None
+    data = _saved(settings)
+    assert (data["twitch_login"], data["detail_at"], data["cr_url"]) == ("timmy_tv", scout._iso(NOW), CR)
+    assert "twitch_views" not in data
+
+
+def test_no_get_assets_or_go_when_the_rest_of_the_day_needs_the_calls(settings, fake) -> None:
+    fake.add("timmy/streams")
+    # 4 för initialize och sökningarna, sedan 3 kvar: get_campaign och analytics ryms, men inte get_assets och /go/
+    scout.Scout(settings)._count(300 - scout.reserve(NOW) - 7)
+    scout.Scout(settings).run_once()
+    assert fake.calls("tools/call", "get_assets") == [] and fake.go == []
+    assert fake.calls("tools/call", "get_campaign") == []
+    assert scout.Scout(settings).calls_today() == 300 - scout.reserve(NOW) - 3
+
+
+# ---------- kanalen via VOD-länken ----------
+
+VODS = {"videos": [{"kind": "video", "platform": "twitch", "channel": None, "url": f"https://www.twitch.tv/videos/{i}"}
+                   for i in ("2919796761", "2927881190")]}  # som johndoe-twitch-stream/streaming, utan kanalposten
+
+
+def test_without_a_channel_entry_the_channel_comes_from_the_vod(settings, fake, monkeypatch) -> None:
+    fake.add("timmy/streams")
+    fake.assets["timmy/streams"] = VODS
+    fake.vod_logins["2919796761"] = "johndoe_100x"
+    fake.twitch_views = [1_200] * 5
+    scout.Scout(settings).run_once()
+
+    data = _saved(settings)
+    assert (data["twitch_vod"], data["twitch_login"]) == ("2919796761", "johndoe_100x")
+    assert data["twitch_views"] == [1_200] * 5
+    assert fake.vod_calls == ["2919796761"] and fake.twitch_calls == [("johndoe_100x", NOW)]
+    assert scout.Scout(settings).calls_today() == 2 + 1 + 1 + 4  # samma som med kanalposten: inget extra anrop
+    (view,) = scout.Scout(settings).overview()["campaigns"]
+    assert next(p for p in view["parts"] if p["key"] == "views")["fact"].startswith("Twitch: median 1 200")
+
+    _later(monkeypatch, hours=25)  # kanalen är känd: ingen ny uppslagning, bara Twitch-klippen
+    scout.Scout(settings).run_once()
+    assert fake.vod_calls == ["2919796761"] and len(fake.twitch_calls) == 2
+
+
+def test_without_twitch_keys_no_call_no_login_and_the_campaign_clips_count(settings, fake, monkeypatch) -> None:
+    lookups: list[str] = []
+
+    def lookup(video_id: str) -> str | None:
+        lookups.append(video_id)
+        return content_views.twitch_login_from_vod(video_id)
+
+    def no_client(*args, **kwargs):
+        raise AssertionError("inget anrop till Twitch")
+
+    monkeypatch.setattr(scout, "twitch_login_from_vod", lookup)
+    monkeypatch.setattr(content_views, "TwitchClient", no_client)
+    monkeypatch.setattr(content_views, "load_secrets",
+                        lambda: SimpleNamespace(twitch_client_id="", twitch_client_secret=""))
+    fake.add("timmy/streams")
+    fake.assets["timmy/streams"] = VODS
+    fake.clip_views = [1_000_000] * 5
+    scout.Scout(settings).run_once()
+
+    data = _saved(settings)
+    assert (data["twitch_vod"], data["twitch_login"], fake.twitch_calls) == ("2919796761", None, [])
+    (view,) = scout.Scout(settings).overview()["campaigns"]
+    part = next(p for p in view["parts"] if p["key"] == "views")
+    assert (part["points"], part["fact"]) == (40, "Median 1 000 000 visningar för kampanjens 5 bästa klipp")
+
+    _later(monkeypatch, hours=7)  # ny chans först efter ett dygn
+    scout.Scout(settings).run_once()
+    assert lookups == ["2919796761"]
+    _later(monkeypatch, hours=25)
+    scout.Scout(settings).run_once()
+    assert lookups == ["2919796761"] * 2
+
+
+# ---------- kampanjens klipp för alla som syns ----------
+
+
+def _page(ref: str) -> str:
+    return f"https://contentrewards.com/c/campaigns/{ref}"
+
+
+def _seed_with_page(settings, ref: str, score: int, clip_age_h: float, detail_age_h: float = 0, **row) -> None:
+    _seed(settings, ref, score, cr_url=_page(ref), clip_views=[1_000] * 5,
+          detail_at=scout._iso(NOW - timedelta(hours=detail_age_h)),
+          clip_views_at=scout._iso(NOW - timedelta(hours=clip_age_h)), **row)
+
+
+def test_a_shown_campaign_outside_the_best_gets_new_clip_views_without_clippingalpha(settings, fake) -> None:
+    for i in range(scout.TOP):  # de 25 bästa: färska detaljer och klipp yngre än 6 timmar
+        _seed_with_page(settings, f"best/c{i}", 90, clip_age_h=5)
+    _seed_with_page(settings, "low/streams", 10, clip_age_h=7, detail_age_h=7)  # utanför de 25: inga nya detaljer
+    fake.clip_views = [9_000] * 5
+    scout.Scout(settings).run_once()
+
+    assert fake.clip_calls == [_page("low/streams")]
+    assert scout.Scout(settings).calls_today() == 4  # bara initialize och sökningarna
+    assert fake.calls("tools/call", "get_campaign") == [] and fake.go == []
+    data = _saved(settings, "low/streams")
+    assert (data["clip_views"], data["clip_views_at"]) == ([9_000] * 5, scout._iso(NOW))
+
+
+def test_hidden_excluded_and_old_campaigns_are_not_fetched(settings, fake) -> None:
+    _seed_with_page(settings, "hidden/streams", 90, clip_age_h=7, dismissed=1)
+    _seed_with_page(settings, "excluded/streams", 90, clip_age_h=7, excluded="Bara för medlemmar.")
+    _seed_with_page(settings, "gone/streams", 90, clip_age_h=7, updated=scout._iso(NOW - timedelta(hours=73)))
+    _seed(settings, "nopage/streams", 90, clip_views_at=scout._iso(NOW - timedelta(hours=7)))
+    scout.Scout(settings).run_once()
+    assert fake.clip_calls == []
+
+
+def test_the_clip_views_are_capped_per_run_and_a_failure_keeps_the_old(settings, fake, monkeypatch) -> None:
+    refs = [f"brand/c{i}" for i in range(scout.CLIP_VIEWS_PER_RUN + 5)]
+    for i, ref in enumerate(refs):
+        _seed_with_page(settings, ref, 90 - i, clip_age_h=7)
+    fake.clip_views = None  # Content Rewards svarar inte
+    scout.Scout(settings).run_once()
+    assert fake.clip_calls == [_page(ref) for ref in refs[:scout.CLIP_VIEWS_PER_RUN]]  # de bästa först
+    assert scout.Scout(settings).overview()["error"] is None
+    assert _saved(settings, refs[0])["clip_views"] == [1_000] * 5
+
+    _later(monkeypatch, minutes=10)  # nästa körning tar resten
+    scout.Scout(settings).run_once()
+    assert fake.clip_calls[scout.CLIP_VIEWS_PER_RUN:] == [_page(ref) for ref in refs[scout.CLIP_VIEWS_PER_RUN:]]
+
+
+@pytest.mark.parametrize(("stop", "requests", "error"), [
+    ({"limit_at": "search_campaigns"}, 3, "ClippingAlpha tar inte emot fler anrop just nu."),
+    ({"down": True}, 1, "ClippingAlpha svarade 500.")])
+def test_the_clip_views_are_refreshed_when_clippingalpha_stops_the_run(settings, fake, stop, requests,
+                                                                       error) -> None:
+    _seed_with_page(settings, "timmy/streams", 50, clip_age_h=7)
+    vars(fake).update(stop)
+    fake.clip_views = [1_000_000] * 5
+    scout.Scout(settings).run_once()
+
+    overview = scout.Scout(settings).overview()
+    assert overview["error"].startswith(error)  # felet sparas och visas som förut
+    assert (len(fake.requests), fake.go) == (requests, [])  # inga fler anrop till ClippingAlpha
+    data = _saved(settings)
+    assert (data["clip_views"], data["clip_views_at"]) == ([1_000_000] * 5, scout._iso(NOW))
+    (view,) = overview["campaigns"]
+    assert view["score"] == scout.evaluate(data, 1260, 1.05, NOW)[0] != 50
+    assert next(p for p in view["parts"] if p["key"] == "views")["points"] == 40
+
+
+def test_the_pause_between_the_pages_is_one_second() -> None:
+    assert scout.CLIP_PAGE_GAP_S == 1.0  # utan fixturen fake, som sätter pausen till 0
+
+
+def test_a_pause_between_the_pages_from_content_rewards(settings, fake, monkeypatch) -> None:
+    for i in range(3):
+        _seed_with_page(settings, f"brand/c{i}", 90 - i, clip_age_h=7)
+    events: list[str | float] = []
+    monkeypatch.setattr(scout, "CLIP_PAGE_GAP_S", 1.0)
+    monkeypatch.setattr(scout, "_last_call", [100.0])  # ingen väntan före anropen till ClippingAlpha
+    monkeypatch.setattr(scout, "_last_page", [0.0])  # ingen sida hämtad ännu
+    monkeypatch.setattr(scout, "time", SimpleNamespace(monotonic=lambda: 100.0, sleep=events.append))
+    monkeypatch.setattr(scout, "campaign_clip_views", events.append)
+    scout.Scout(settings).run_once()
+    assert events == [0, _page("brand/c0"), 1.0, _page("brand/c1"), 1.0, _page("brand/c2")]
+
+
+def test_the_pause_also_holds_from_the_details_to_the_shown_campaigns(settings, fake, monkeypatch) -> None:
+    fake.add("timmy/streams")  # nya detaljer: kampanjsidan CR hämtas i _details
+    _seed_with_page(settings, "low/streams", 10, clip_age_h=7)  # sedan den här i _refresh_clip_views
+    events: list[str | float] = []
+    monkeypatch.setattr(scout, "CLIP_PAGE_GAP_S", 1.0)
+    monkeypatch.setattr(scout, "_last_call", [100.0])  # ingen väntan före anropen till ClippingAlpha
+    monkeypatch.setattr(scout, "_last_page", [0.0])
+    # klockan står still: varje sida efter den första måste vänta hela CLIP_PAGE_GAP_S
+    monkeypatch.setattr(scout, "time", SimpleNamespace(monotonic=lambda: 100.0, sleep=events.append))
+    monkeypatch.setattr(scout, "campaign_clip_views", events.append)
+    scout.Scout(settings).run_once()
+    assert events == [0, CR, 1.0, _page("low/streams")]
