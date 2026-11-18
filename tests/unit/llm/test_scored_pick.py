@@ -165,10 +165,12 @@ def test_v2_asks_for_a_headline_after_the_title_with_its_rules() -> None:
         < (SCORED_ANSWER_FORMAT.index('"reason"'))
     )
     rules = SCORED_ANSWER_FORMAT.split("Rules:")[1]
-    assert "headline is shown on screen for the whole clip. Max 8 words" in rules
-    assert "No invented facts, numbers or names." in rules
-    assert "end right after the payoff, with no wind-down, outro or next topic" in rules
-    assert "3-10" not in SCORED_ANSWER_FORMAT
+    (headline_rule,) = [r for r in rules.split("\n- ") if r.startswith("headline")]
+    for word in ("Max 8 words", "40 characters", "sentence case", "emoji", "hashtags", "invented"):
+        assert word in headline_rule, word
+    assert "rules for title also apply to headline" in headline_rule
+    assert "payoff" in rules
+    assert "3-10" not in SCORED_ANSWER_FORMAT  # ordet om antal ord är "Max 8 words", aldrig ett spann
     assert "headline" in get_system_prompt("v1", "Campaign rules.", mode="v2")
     assert "headline" not in ANSWER_FORMAT and "headline" not in SYSTEM_PROMPT
 

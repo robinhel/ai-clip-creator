@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from campaign import finish, workflow
+from campaign.caption import headline_text
 from campaign.cliplog import ClipLog
 from campaign.profile import load_profile
-from campaign.workflow import headline_text, load_picks
+from campaign.workflow import load_picks
 from clipsmith.llm.base import ClipPick
 
 from .conftest import make_clip, make_overlay, needs_ffmpeg
@@ -22,6 +25,15 @@ def test_the_headline_goes_on_the_picture() -> None:
 def test_without_a_headline_the_title_goes_on_the_picture() -> None:
     assert headline_text({"headline": "", "title": "No way"}) == "No way"
     assert headline_text({"title": "No way"}) == "No way"
+
+
+@pytest.mark.parametrize("headline", ["   ", "\x00", " \n\t\x1f "])
+def test_a_headline_of_only_blanks_or_control_characters_gives_the_title(headline) -> None:
+    assert headline_text({"headline": headline, "title": "No way"}) == "No way"
+
+
+def test_the_headline_is_trimmed_and_cleaned_of_control_characters() -> None:
+    assert headline_text({"headline": "  Big\x00play \n", "title": "No way"}) == "Big play"
 
 
 def test_the_placeholder_and_no_title_give_no_headline() -> None:
