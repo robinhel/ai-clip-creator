@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import shutil
 from pathlib import Path
 
 from .brain import Brain
 from .budget import Budget, budget_from_settings
-from .cliplog import POST_STATUSES, STATUSES, ClipLog, UploadRunning
+from .cliplog import METRIC_KEYS, POST_STATUSES, STATUSES, ClipLog, UploadRunning
 from .config import Settings, load_settings
 from .facit import load_facit, score
 from .media import probe
@@ -258,13 +259,54 @@ def cmd_mark(args, settings: Settings) -> int:
     return 0
 
 
+def _decimal(value: str) -> float:
+    """Ett tal på svenska eller engelska (6,4 eller 6.4), 0 eller mer."""
+    try:
+        number = float(value.replace(",", "."))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"{value!r} är inget tal.") from error
+    if not math.isfinite(number):
+        raise argparse.ArgumentTypeError(f"{value!r} är inget tal.")
+    if number < 0:
+        raise argparse.ArgumentTypeError("Talet får inte vara mindre än 0.")
+    return number
+
+
+def _count(value: str) -> int:
+    """Ett heltal, 0 eller mer."""
+    try:
+        number = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"{value!r} är inget heltal.") from error
+    if number < 0:
+        raise argparse.ArgumentTypeError("Talet får inte vara mindre än 0.")
+    return number
+
+
+def _percent(value: str) -> float:
+    number = _decimal(value)
+    if number > 100:
+        raise argparse.ArgumentTypeError("En andel är högst 100 procent.")
+    return number
+
+
+def _stats_blocked(posts: list[dict], fields: dict) -> str | None:
+    """Varför siffrorna inte går att spara här, None när de går."""
+    if len(posts) > 1:
+        return "Klippet har flera inlägg. Fyll i siffrorna per inlägg under Statistik i appen."
+    if not posts and set(METRIC_KEYS) & fields.keys():
+        return "Fler mått sparas per inlägg. Spara länken först med python -m campaign posted."
+    return None
+
+
 def cmd_stats(args, settings: Settings) -> int:
     log = _log(settings)
-    fields = {k: getattr(args, k) for k in ("views", "likes", "comments", "shares")
+    fields = {k: getattr(args, k) for k in ("views", "likes", "comments", "shares", *METRIC_KEYS)
               if getattr(args, k) is not None}
     posts = log.posts(args.clip_id)
-    if len(posts) > 1:
-        print("Klippet har flera inlägg. Fyll i siffrorna per inlägg under Statistik i appen.")
+    blocked = _stats_blocked(posts, fields)
+    if blocked:
+        print(blocked)
         return 1
     if posts:
         log.update_post(posts[0]["id"], **fields)
@@ -377,6 +419,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--likes", type=int)
     p.add_argument("--comments", type=int)
     p.add_argument("--shares", type=int)
+    p.add_argument("--watch-s", dest="avg_watch_s", type=_decimal, help="genomsnittlig tittartid i sekunder")
+    p.add_argument("--full-pct", dest="full_pct", type=_percent, help="andel som ser klart, i procent")
+    p.add_argument("--fyp-pct", dest="fyp_pct", type=_percent, help="andel visningar från För dig, i procent")
+    p.add_argument("--countries-pct", dest="countries_pct", type=_percent,
+                   help="andel visningar från kampanjens länder, i procent")
+    p.add_argument("--saves", type=_count, help="antal sparningar")
     p.set_defaults(func=cmd_stats)
 
     p = sub.add_parser("status", help="Klipplogg, att göra-lista och budget")

@@ -27,6 +27,7 @@ from .caption import check_caption
 from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog, UploadRunning, card_runs
 from .config import Settings, load_settings
 from .media import need, probe, run
+from .metrics import clip_length, reached_min_7d
 from .pipeline import finish_run, run_campaign_vod
 from .profile import PLATFORMS, Profile, load_profile
 from .rules import NO_FORMAT
@@ -599,33 +600,41 @@ def _public(clip: dict, settings: Settings) -> dict:
     out["signals"] = clip["signals"] or []
     out["reason"] = clip["reason"] or ""
     out["engagement"] = ClipLog.engagement(clip)
-    out["content_rewards_url"], out["platforms"] = None, list(PLATFORMS)
+    out["content_rewards_url"], out["platforms"], out["audience_countries"] = None, list(PLATFORMS), None
+    log = _log(settings)
+    out["length_s"] = clip_length(log, clip)
     try:
         profile = load_profile(clip["profile"], settings.profiles_dir)
         out["engagement_min"] = profile.engagement_min(clip["views"] or 0)
         out["min_views"] = profile.min_views
         out["platforms"] = profile.platforms
         out["content_rewards_url"] = profile.content_rewards_url
+        out["audience_countries"] = profile.audience_countries
+        # Statistik visar märket Avstängd. Alla svar med klippet har fältet, så att märket står kvar efter en sparning.
+        out["campaign_off"] = not profile.active
     except SystemExit:
         out["engagement_min"] = None
         out["min_views"] = None
+        out["campaign_off"] = False  # en trasig profil räknas som påslagen, som i _turned_off
     # ?v= byts när klippet ändras, så att webbläsaren inte visar en gammal version efter en redigering.
     version = quote(clip.get("updated") or "")
-    out["posts"] = _public_posts(clip, settings)
+    out["posts"] = _public_posts(clip, settings, log)
     out["video_url"] = f"/campaign/clips/{clip['id']}/file?v={version}"
     out["poster_url"] = f"/campaign/clips/{clip['id']}/poster?v={version}"
     return out
 
 
-def _public_posts(clip: dict, settings: Settings) -> list[dict]:
-    """Klippets inlägg med engagemang och uppskattad intäkt per inlägg."""
+def _public_posts(clip: dict, settings: Settings, log: ClipLog) -> list[dict]:
+    """Klippets inlägg med engagemang, uppskattad intäkt och om kampanjens gräns nåddes inom 7 dagar."""
     try:
-        payment = load_profile(clip["profile"], settings.profiles_dir).payment
-    except (SystemExit, Exception):  # kampanjen finns inte längre: ingen uppskattning
-        payment = {}
+        profile = load_profile(clip["profile"], settings.profiles_dir)
+        payment, min_views = profile.payment, profile.min_views
+    except (SystemExit, Exception):  # kampanjen finns inte längre: ingen uppskattning och ingen gräns
+        payment, min_views = {}, 0
     return [{**post, "engagement": ClipLog.engagement(post),
-             "estimate_usd": _payout(post["views"] or 0, payment) if post["views"] else None}
-            for post in _log(settings).posts(clip["id"])]
+             "estimate_usd": _payout(post["views"] or 0, payment) if post["views"] else None,
+             "reached_min_7d": reached_min_7d(post["created"], log.views_history(post["id"]), min_views)}
+            for post in log.posts(clip["id"])]
 
 
 def _get(log: ClipLog, clip_id: int) -> dict:
@@ -649,8 +658,9 @@ def _scoped(log: ClipLog, clips: list[dict], run_id: int | None, project_id: int
 
 @router.get("/clips", summary="Klipp i klipploggen")
 def list_clips(status: str | None = None, vod_id: str | None = None, run_id: int | None = None,
-               profile: str | None = None, project_id: int | None = None,
+               profile: str | None = None, project_id: int | None = None, posted_off: bool = False,
                settings: Settings = Depends(get_settings)) -> list[dict]:
+    """posted_off: Statistik visar också postade klipp från avstängda kampanjer, med campaign_off true."""
     log = _log(settings)
     clips = log.list(status or None)
     if vod_id:
@@ -661,9 +671,15 @@ def list_clips(status: str | None = None, vod_id: str | None = None, run_id: int
     if scoped is not None:
         clips = scoped
     elif not profile:  # en direktlänk till ett projekt visar dess klipp även när kampanjen är avstängd
-        off = _turned_off(settings)
-        clips = [c for c in clips if c["profile"] not in off]
+        clips = _without_off(clips, settings, posted_off)
     return [_public(c, settings) for c in clips]
+
+
+def _without_off(clips: list[dict], settings: Settings, posted_off: bool) -> list[dict]:
+    """Klippen utan avstängda kampanjers klipp. posted_off: de postade klippen från avstängda kampanjer är kvar."""
+    off = _turned_off(settings)
+    shown_off = set(POST_STATUSES) if posted_off else set()
+    return [c for c in clips if c["profile"] not in off or c["status"] in shown_off]
 
 
 @router.get("/clips/{clip_id}/transcript", summary="Det som sägs i klippet")
@@ -873,13 +889,16 @@ def put_preferences(body: Preferences, settings: Settings = Depends(get_settings
 def summary(settings: Settings = Depends(get_settings)) -> dict:
     log = _log(settings)
     off = _turned_off(settings)
-    clips = [c for c in log.list() if c["profile"] not in off]
+    every = log.list()
+    clips = [c for c in every if c["profile"] not in off]
     counts: dict[str, int] = {}
     for clip in clips:
         counts[clip["status"]] = counts.get(clip["status"], 0) + 1
+    # Intäkterna räknar också postade klipp från avstängda kampanjer, som Statistik visar.
+    earned = [c for c in every if c["profile"] not in off or c["status"] in POST_STATUSES]
     # Budgeten gäller alla kampanjer, så den räknas som förut.
     return {"budget": budget_from_settings(settings).summary(), "counts": counts, "todo": log.todo(skip=off),
-            "disk": storage(settings), "earnings": _earnings(clips, settings, log.posts())}
+            "disk": storage(settings), "earnings": _earnings(earned, settings, log.posts())}
 
 
 def _payout(views: int, payment: dict) -> float:

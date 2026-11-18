@@ -42,6 +42,7 @@ class Profile:
     lufs: float = -14.0
     engagement: list[dict] = field(default_factory=list)
     payment: dict = field(default_factory=dict)
+    audience_countries: str | None = None  # länderna vars visningar betalas, som de visas i Statistik
     clipsmith_config: str | None = None  # clipsmiths inställningar för kampanjen, t.ex. config.timmy.yaml
     preferred_games: list[str] = field(default_factory=list)  # spel som ger poäng i Senaste streams
     active: bool = True  # false = kampanjen syns bara under Kampanjer i appen
@@ -223,6 +224,7 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
         lufs=_number(data.get("audio") or {}, "lufs", -14, "audio.lufs"),
         engagement=list(data.get("engagement_min_percent") or []),
         payment=dict(data.get("payment") or {}),
+        audience_countries=str(data["audience_countries"]) if data.get("audience_countries") else None,
         clipsmith_config=data.get("clipsmith_config"),
         preferred_games=[str(g) for g in data.get("preferred_games") or []],
         active=data.get("active") is not False,
