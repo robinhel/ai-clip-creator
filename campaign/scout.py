@@ -55,7 +55,9 @@ BEST_EVERY_S = 3600  # sökningen på Alpha-betyg en gång i timmen
 DETAIL_MAX_AGE_S = 6 * 3600
 DETAILS_PER_RUN = 10  # högst 40 anrop per körning för detaljer (get_campaign, analytics, get_assets och /go/)
 JOINS_PER_RUN = 10  # /go/ för kampanjer som syns men inte fick det i detaljerna: högst 10 anrop per körning
-JOIN_SLACK = 20  # /go/ lämnar plats för detaljerna till fem nya kampanjer à fyra anrop senare samma dygn
+# _find_pages (/go/) slutar 20 anrop före CALL_LIMIT - reserve(now), så att de anropen blir kvar åt _details.
+# Hur många nya kampanjer de räcker till är inte lovat: _details hämtar också om de 25 bästa var 6:e timme.
+JOIN_SLACK = 20
 TOP = 25
 SHOW_S = 72 * 3600  # en kampanj som inte syns i någon sökning på 72 timmar visas inte längre
 REFRESH_GAP_S = 120
@@ -393,7 +395,8 @@ class Scout:
 
     def _refresh_clip_views(self, now: datetime) -> None:
         """Kampanjens klipp på Content Rewards för kampanjer som syns under Kampanjer, när de är äldre än 6 timmar.
-        Också för dem som är bortsorterade för att de inte betalar för landet, så att nya priser kommer med.
+        Också för dem som är bortsorterade för att de inte betalar för landet, så att nya priser kommer med, och för
+        sidor som lästes innan priset per land (geo) sparades. En sida som inte går att läsa väntar 6 timmar.
         De bästa först och högst CLIP_VIEWS_PER_RUN per körning. Inga anrop till ClippingAlpha."""
         due = [r for r in self._shown(now) if _clip_views_wanted(r, now)]
         for row in due[:CLIP_VIEWS_PER_RUN]:
