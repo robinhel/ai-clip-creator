@@ -27,6 +27,7 @@ import type {
   CampaignProfileDetail,
   CampaignSettingsBody,
   ConnectedAccounts,
+  HookStyle,
   Platform,
   TextPosition,
 } from "@/lib/types";
@@ -49,6 +50,7 @@ function initial(p: CampaignProfileDetail) {
     hashtags: p.caption.hashtags,
     onScreenText: p.on_screen_text.text,
     textPosition: p.on_screen_text.position,
+    hookStyle: p.on_screen_text.hook_style ?? ("sans" as HookStyle),
     allowedMin: numberText(p.allowed_min_s),
     allowedMax: numberText(p.allowed_max_s),
     clipMin: numberText(p.clip_min_s),
@@ -158,6 +160,7 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
       hashtags: v.hashtags,
       on_screen_text: v.onScreenText.trim(),
       text_position: v.textPosition,
+      hook_style: v.hookStyle,
       allowed_min_s: n.allowedMin!,
       allowed_max_s: n.allowedMax!,
       ...(v.clipMin !== "" ? { clip_min_s: n.clipMin!, clip_max_s: n.clipMax! } : {}),
@@ -251,7 +254,7 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
             {previewCaption(v.template, v.mustInclude, v.hashtags)}
           </p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_160px]">
+        <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_160px_180px]">
           <Field label="Text på skärmen" hint="Tomt betyder ingen text.">
             <input value={v.onScreenText} onChange={(e) => set("onScreenText", e.target.value)} className={field} />
           </Field>
@@ -259,6 +262,12 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
             <select value={v.textPosition} onChange={(e) => set("textPosition", e.target.value as TextPosition)} className={field}>
               <option value="top">Överst</option>
               <option value="bottom">Nederst</option>
+            </select>
+          </Field>
+          <Field label="Rubrikens stil">
+            <select value={v.hookStyle} onChange={(e) => set("hookStyle", e.target.value as HookStyle)} className={field}>
+              <option value="sans">Tjock (sans-serif)</option>
+              <option value="serif">Serif i versaler</option>
             </select>
           </Field>
         </div>

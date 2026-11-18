@@ -238,6 +238,8 @@ export interface CampaignClip {
   platforms?: Platform[];
   /** Id för klippet som den här versionen gjordes av. null eller saknas: inte en version. */
   version_of?: number | null;
+  /** Texten i bilden. "" eller null: titeln står där (äldre klipp). Saknas hos äldre servrar. */
+  headline?: string | null;
 }
 
 export type StickerPosition = "top_left" | "top_right" | "center" | "bottom_left" | "bottom_right";
@@ -604,6 +606,8 @@ export interface ScoutStatus {
 
 export type OverlayMode = "full" | "top" | "bottom";
 export type TextPosition = "top" | "bottom";
+/** Rubrikens stil i bilden: tjock sans-serif eller serif i versaler. */
+export type HookStyle = "sans" | "serif";
 
 /** GET /campaign/profiles/{id}: en rad i listan plus detaljerna. */
 export interface CampaignProfileDetail extends CampaignProfile {
@@ -622,7 +626,8 @@ export interface CampaignProfileDetail extends CampaignProfile {
     width: number | null;
     height: number | null;
   };
-  on_screen_text: { text: string; position: TextPosition; required: boolean };
+  /** hook_style saknas hos äldre servrar: sans. */
+  on_screen_text: { text: string; position: TextPosition; required: boolean; hook_style?: HookStyle };
   safe_zone: { top: number; bottom: number };
   caption: {
     template: string;
@@ -700,6 +705,8 @@ export interface CampaignProfileCreate {
 export interface ClipEditInfo {
   clip_id: number;
   title: string;
+  /** Texten i bilden. "": titeln står där. */
+  headline: string;
   /** null när råklippet saknas; då är editable false. */
   original: { duration_s: number; start_s: number | null; end_s: number | null; url: string } | null;
   trim: { in_s: number; out_s: number } | null;
@@ -863,6 +870,7 @@ export interface CampaignSettingsBody {
   must_include?: string[];
   on_screen_text?: string;
   text_position?: TextPosition;
+  hook_style?: HookStyle;
   allowed_min_s?: number;
   allowed_max_s?: number;
   clip_min_s?: number;

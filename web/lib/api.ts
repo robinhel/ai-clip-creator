@@ -203,7 +203,8 @@ export const api = {
       createVersion: (id: number, body: VersionCreate) =>
         apiFetch<CampaignClip>(`/campaign/clips/${id}/versions`, { method: "POST", body: JSON.stringify(body) }),
       edit: (id: number) => apiFetch<ClipEditInfo>(`/campaign/clips/${id}/edit`),
-      saveEdit: (id: number, body: { in_s?: number; out_s?: number; title?: string; words?: CaptionWord[] }) =>
+      /** headline utelämnad: oförändrad. "": ingen egen text, titeln står i bilden. */
+      saveEdit: (id: number, body: { in_s?: number; out_s?: number; title?: string; headline?: string | null; words?: CaptionWord[] }) =>
         apiFetch<CampaignClip>(`/campaign/clips/${id}/edit`, { method: "POST", body: JSON.stringify(body) }),
       // Utan open_id väljer servern det enda kopplade kontot, och utan mode blir det ett utkast.
       sendToTikTok: (id: number, body?: TikTokSendBody) =>

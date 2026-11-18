@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { CaptionWords } from "@/components/CaptionWords";
 import { api } from "@/lib/api";
 import { speedNote, trimLength } from "@/lib/editLength";
+import { HEADLINE_MAX, textEdit } from "@/lib/headline";
 import { cn } from "@/lib/utils";
 import { inRange, lineAt } from "@/lib/words";
 import type { CampaignClip, CaptionWord, ClipEditInfo } from "@/lib/types";
@@ -64,6 +65,7 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
   const [inS, setIn] = useState(tenth(info.trim.in_s));
   const [outS, setOut] = useState(tenth(info.trim.out_s));
   const [title, setTitle] = useState(info.title);
+  const [headline, setHeadline] = useState(info.headline);
   const subs = info.subtitles;
   const original = subs?.editable ? subs.words : [];
   const [words, setWords] = useState<CaptionWord[]>(original);
@@ -84,7 +86,8 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
 
   const inChanged = inS !== tenth(info.trim.in_s);
   const outChanged = outS !== tenth(info.trim.out_s);
-  const titleChanged = title.trim() !== info.title;
+  const text = textEdit(title, info.title, headline, info.headline);
+  const textChanged = Object.keys(text).length > 0;
   const wordsChanged = JSON.stringify(words) !== JSON.stringify(original);
   const wordProblem = !wordsChanged
     ? null
@@ -102,7 +105,7 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
   const block =
     (inChanged || outChanged ? problem : null) ??
     wordProblem ??
-    (!title.trim() ? "Skriv en rubrik." : !inChanged && !outChanged && !titleChanged && !wordsChanged ? "Inget är ändrat." : null);
+    (!title.trim() ? "Skriv en titel." : !inChanged && !outChanged && !textChanged && !wordsChanged ? "Inget är ändrat." : null);
   // Råklippet saknar undertext, så raden som sägs ritas ovanpå videon.
   const style = subs?.style ?? "box";
   const line = subs?.editable ? lineAt(words.filter((w) => inRange(w, inS, outExact)), now, style) : null;
@@ -196,10 +199,9 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
     video.current?.pause();
     try {
       // Bara det som har ändrats, så att servern inte trimmar om klippet för en ny rubrik.
-      const body: { in_s?: number; out_s?: number; title?: string; words?: CaptionWord[] } = {};
+      const body: Parameters<typeof api.campaign.clips.saveEdit>[1] = { ...text };
       if (inChanged) body.in_s = inS;
       if (outChanged) body.out_s = outExact;
-      if (titleChanged) body.title = title.trim();
       // Hela listan, bara när den är ändrad. Ett ord som saknas räknas som borttaget.
       if (wordsChanged) body.words = words.map((w) => ({ ...w, word: w.word.trim() }));
       onSaved(await api.campaign.clips.saveEdit(clip.id, body), inChanged || outChanged, wordsChanged);
@@ -274,7 +276,20 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
 
           <div className="flex min-w-0 flex-col gap-5">
             <label className="block space-y-1">
-              <span className="block text-[13px] text-muted-foreground">Rubrik</span>
+              <span className="block text-[13px] text-muted-foreground">Text i bilden</span>
+              <input
+                value={headline}
+                onChange={(e) => setHeadline(e.target.value)}
+                maxLength={HEADLINE_MAX}
+                placeholder="Samma som titeln"
+                className="h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none placeholder:text-muted-foreground focus:border-brand"
+              />
+              <span className="block text-xs text-muted-foreground">
+                Kräver kampanjen ingen egen text, står den här texten överst i bilden under hela klippet. Tomt fält: titeln står där.
+              </span>
+            </label>
+            <label className="block space-y-1">
+              <span className="block text-[13px] text-muted-foreground">Titel</span>
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -282,8 +297,7 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
                 className="h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand"
               />
               <span className="block text-xs text-muted-foreground">
-                Ny rubrik ger ny caption från kampanjens mall. En caption du har skrivit själv behålls. Kräver
-                kampanjen ingen egen text, står rubriken också överst i klippet de första sekunderna.
+                Första raden i captionen. Ny titel ger ny caption från kampanjens mall. En caption du har skrivit själv behålls.
               </span>
             </label>
 

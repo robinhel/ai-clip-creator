@@ -14,6 +14,7 @@ import { ClipPosts } from "@/components/ClipPosts";
 import { CopyButton } from "@/components/CopyButton";
 import { CampaignRules, type Posting, PublishButton } from "@/components/PublishDialog";
 import { api } from "@/lib/api";
+import { HEADLINE_MAX, textEdit } from "@/lib/headline";
 import { VersionButton } from "@/components/VersionDialog";
 import { fixHint, rejectedFix } from "@/lib/steps";
 import { clock, cn, SUMMARY_CHANGED } from "@/lib/utils";
@@ -402,15 +403,44 @@ function RejectedFix({ clip, runId }: { clip: CampaignClip; runId?: number }) {
   );
 }
 
+/** Ett textfält i Ändra rubrik, med räknare mot högsta antal tecken. */
+function TextField({ id, label, value, max, onChange, disabled, placeholder, hint }: {
+  id: string;
+  label: string;
+  value: string;
+  max: number;
+  onChange: (value: string) => void;
+  disabled: boolean;
+  placeholder?: string;
+  hint: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <label htmlFor={id} className="text-[13px] text-muted-foreground">
+          {label}
+        </label>
+        <span className={cn("text-xs tabular-nums text-muted-foreground", value.length > max && "font-medium text-bad")}>
+          {value.length} / {max}
+        </span>
+      </div>
+      <Input id={id} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} disabled={disabled} className="bg-panel" />
+      <p className="text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
+
 export function ClipResultRow({ clip, number, formats, runId, source, active = false, onUpdate, onReload, approvedAction, posting }: Props) {
   const [caption, setCaption] = useState(clip.caption ?? "");
   const [title, setTitle] = useState(clip.title ?? "");
+  const [headline, setHeadline] = useState(clip.headline ?? "");
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const captionDirty = caption !== (clip.caption ?? "");
-  const titleDirty = title.trim() !== (clip.title ?? "");
+  const textBody = textEdit(title, clip.title ?? "", headline, clip.headline);
+  const textDirty = Object.keys(textBody).length > 0;
   const canEditCaption = ["renderad", "underkand", "godkand"].includes(clip.status);
   const needsFormat = formats.length > 0 && !clip.format;
   const formatName = formats.find((f) => f.id === clip.format)?.name ?? clip.format;
@@ -469,14 +499,14 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
     }
   }
 
-  /** Rubriken sparas som i Redigera: captionen byggs om från mallen, och en inbränd rubrik ritas om.
+  /** Titel och text i bilden sparas som i Redigera: captionen byggs om från mallen, och en inbränd rubrik ritas om.
    * En egen ändring i captionen sparas efteråt. */
   async function saveText() {
-    if (!titleDirty) return patch({ caption });
+    if (!textDirty) return patch({ caption });
     setBusy(true);
     setError(null);
     try {
-      let updated = await api.campaign.clips.saveEdit(clip.id, { title: title.trim() });
+      let updated = await api.campaign.clips.saveEdit(clip.id, { ...textBody });
       if (captionDirty && caption !== updated.caption) updated = await api.campaign.clips.patch(clip.id, { caption });
       window.dispatchEvent(new Event(SUMMARY_CHANGED));
       handleEdited(updated, false);
@@ -494,7 +524,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
       : undefined;
   const postBlock = hasProblems
     ? "Klippet har problem som måste rättas först."
-    : captionDirty || titleDirty
+    : captionDirty || textDirty
       ? "Spara eller ångra texten först."
       : null;
 
@@ -622,18 +652,27 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
         )}
 
         {editing && (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <label htmlFor={`rubrik-${clip.id}`} className="text-[13px] text-muted-foreground">
-                Rubrik
-              </label>
-              <span className={cn("text-xs tabular-nums text-muted-foreground", title.length > TITLE_MAX && "font-medium text-bad")}>
-                {title.length} / {TITLE_MAX}
-              </span>
-            </div>
-            <Input id={`rubrik-${clip.id}`} value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy} className="bg-panel" />
-            <p className="text-xs text-muted-foreground">Ny rubrik bygger om captionen från kampanjens mall, om du inte har skrivit den själv.</p>
-          </div>
+          <>
+            <TextField
+              id={`bildtext-${clip.id}`}
+              label="Text i bilden"
+              value={headline}
+              max={HEADLINE_MAX}
+              onChange={setHeadline}
+              disabled={busy}
+              placeholder="Samma som titeln"
+              hint="Står överst i bilden hela klippet. Tomt fält: titeln står där."
+            />
+            <TextField
+              id={`rubrik-${clip.id}`}
+              label="Titel"
+              value={title}
+              max={TITLE_MAX}
+              onChange={setTitle}
+              disabled={busy}
+              hint="Första raden i captionen. Ny titel bygger om captionen från kampanjens mall, om du inte har skrivit den själv."
+            />
+          </>
         )}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between gap-2">
@@ -669,7 +708,11 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
           )}
           {editing && (
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" disabled={busy || (!captionDirty && !titleDirty) || !title.trim() || title.length > TITLE_MAX} onClick={saveText}>
+              <Button
+                size="sm"
+                disabled={busy || (!captionDirty && !textDirty) || !title.trim() || title.length > TITLE_MAX || headline.length > HEADLINE_MAX}
+                onClick={saveText}
+              >
                 {busy && <Loader2 className="animate-spin" aria-hidden />}
                 Spara
               </Button>
@@ -680,6 +723,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
                 onClick={() => {
                   setCaption(clip.caption ?? "");
                   setTitle(clip.title ?? "");
+                  setHeadline(clip.headline ?? "");
                   setEditing(false);
                 }}
               >
