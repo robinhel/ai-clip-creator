@@ -47,6 +47,7 @@ CHOICES = "val"
 MAX_AGE_S = 24 * 3600
 DRAFT_ID = re.compile(r"[a-f0-9]{32}")
 EXTRA_S = 0.1  # klippet blir så här mycket längre än källan (ljudet)
+MUSIC_GONE = "Musiken {music} finns inte längre. Lägg tillbaka den i {folder}/, eller gör om klippet på Egna videor."
 STICKER_END_S = 0.5  # Redigera: klistermärket börjar senast så här långt före klippets slut
 # Fyll hela 9:16-bilden och skär bort det som sticker ut.
 FILL = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
@@ -314,9 +315,9 @@ class EditLook:
         return replace(self, hook=(self.choices or {}).get("title", "") if unchanged else new)
 
     def args(self, settings: Settings, campaign: Profile, length: float) -> dict:
-        """finish_clip-valen: look, hastighet, egen overlay, font, ljudet och klistermärket, placerat med klippets
-        nya längd (råtid) och rubrik. Klistermärket börjar senast STICKER_END_S före slutet, så att ett kortat klipp
-        inte stoppar Redigera. Fel ger ValueError, som redigeraren visar."""
+        """finish_clip-valen: look, hastighet, egen overlay, font och klistermärket, placerat med klippets nya längd
+        (råtid) och rubrik. Klistermärket börjar senast STICKER_END_S före slutet, så att ett kortat klipp inte
+        stoppar Redigera. Ljudet väljs i sound. Fel ger ValueError, som redigeraren visar."""
         if not self.choices:
             return {}
         try:
@@ -326,11 +327,23 @@ class EditLook:
             look = versions.look(checked.mirror, checked.filter, checked.brightness, checked.saturation)
             own = versions._overlay(settings, campaign, checked.overlay or None)
             sticker = versions._sticker(settings, campaign, _wanted(checked), length, self.hook, own)
-            sound = audio.choose(settings.root, checked)
         except (VersionError, ValueError) as error:
             raise ValueError(str(error)) from error
         return {"look": look, "speed": checked.speed, "overlay": own, "font_file": found.get(checked.font),
-                "sticker": sticker, "audio": sound}
+                "sticker": sticker}
+
+    def sound(self, settings: Settings) -> dict:
+        """Ljudet för finish_clip. Bara när klippet görs om: en låt som tagits bort ur musikmappen stoppar inte
+        ett rubrikbyte som inte gör om klippet. Fel ger ValueError."""
+        if not self.choices:
+            return {}
+        checked = Choices.model_validate({**self.choices, "start_s": 0, "end_s": 0})
+        if checked.audio == "music" and not (audio.folder(settings.root, checked.profile) / checked.music).is_file():
+            raise ValueError(MUSIC_GONE.format(music=checked.music, folder=f"{audio.FOLDER}/{checked.profile}"))
+        try:
+            return {"audio": audio.choose(settings.root, checked)}
+        except VersionError as error:
+            raise ValueError(str(error)) from error
 
     def remember(self, raw: Path) -> None:
         """Spara rubriken i val-filen, så att nästa redigering har den."""

@@ -3,22 +3,25 @@ med ett reglage för originalljudet. Regeln om saknat ljud gäller bara Twitch-k
 
 from __future__ import annotations
 
+import io
 import json
+import os
 import re
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from campaign import api, drafts, editor_api, finish
+from campaign import api, audio, drafts, editor_api, finish
 from campaign.cliplog import ClipLog
 from campaign.media import probe
 from campaign.profile import load_profile
 from campaign.rules import check_clip
 
-from .conftest import PAKET, needs_ffmpeg, set_profile
+from .conftest import PAKET, make_clip, needs_ffmpeg, set_profile
 
 BASE = {"profile": "skiimasktimmy", "title": "Ljudprov", "speed": "1.0"}
 MUSIC = "ton.wav"
@@ -48,12 +51,12 @@ def _video(path, tone: int | None = 220, seconds: float = 4):
     return path
 
 
-def _music(path):
-    """Musik: 440 Hz de första 10 sekunderna, sedan 880 Hz i 10 sekunder."""
+def _music(path, gain_db: float = 0):
+    """Musik: 440 Hz de första 10 sekunderna, sedan 880 Hz i 10 sekunder. gain_db gör den starkare eller svagare."""
     path.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:d=10",
                     "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000:d=10",
-                    "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1", str(path)], check=True)
+                    "-filter_complex", f"[0:a][1:a]concat=n=2:v=0:a=1,volume={gain_db}dB", str(path)], check=True)
     return path
 
 
@@ -164,6 +167,35 @@ def test_music_from_its_start_time_replaces_or_joins_the_original(client, tmp_pa
 
 
 @needs_ffmpeg
+def test_30_percent_means_the_same_for_a_loud_and_a_quiet_song(client, tmp_path) -> None:
+    for name, gain in (("stark.wav", 6), ("svag.wav", -6)):  # 12 dB skillnad
+        assert _add_music(client, _music(tmp_path / name, gain)).status_code == 201
+    draft_id = _draft(client, _video(tmp_path / "a.mp4", tone=220, seconds=6))
+    ratios = []
+    for name in ("stark.wav", "svag.wav"):
+        _, video = _render(client, draft_id, tmp_path, name.replace(".wav", ".mp4"), audio="music", music=name,
+                           music_start_s="10", original_volume="0.3")
+        ratios.append(_band(video, 220, 1.0, 3.0) - _band(video, 880, 1.0, 3.0))
+    assert abs(ratios[0] - ratios[1]) < 3, ratios
+
+
+@needs_ffmpeg
+def test_the_music_fades_in(client, tmp_path) -> None:
+    _add_music(client, _music(tmp_path / MUSIC))
+    draft_id = _draft(client, _video(tmp_path / "a.mp4", seconds=6))
+    _, video = _render(client, draft_id, tmp_path, audio="music", music=MUSIC, music_start_s="10", original_volume="0")
+    assert _band(video, 880, 0.0, 0.3) < _band(video, 880, 1.0, 3.0) - 5
+
+
+@needs_ffmpeg
+def test_finish_clip_without_a_sound_choice_is_not_an_own_video(settings) -> None:
+    campaign = load_profile("skiimasktimmy", settings.profiles_dir)
+    manifest = finish.finish_clip(make_clip(settings.root / "src.mp4", seconds=3), settings.root / "klar.mp4",
+                                  campaign, settings.root)
+    assert (manifest["audio"], manifest["own_video"]) == ("keep", False)
+
+
+@needs_ffmpeg
 def test_music_plays_at_normal_speed_when_the_clip_is_faster(client, tmp_path) -> None:
     _add_music(client, _music(tmp_path / MUSIC))
     draft_id = _draft(client, _video(tmp_path / "a.mp4", seconds=7))
@@ -192,7 +224,8 @@ def test_music_works_for_a_video_without_sound(client, tmp_path) -> None:
     ({"music": MUSIC, "original_volume": "1.5"}, "Originalljudet"),
     ({"music": MUSIC, "music_start_s": "-1"}, "Musiken börjar"),
     ({"music": MUSIC, "music_start_s": "25"}, "Musiken är 20 s lång"),
-    ({"audio": "hogt"}, "Ljudet 'hogt' finns inte"),
+    ({"audio": "hogt"}, "Ljudläget finns inte. Välj Behåll, Tyst eller Musik."),
+    ({"music": "ton\x00.wav"}, "finns inte"),
 ])
 def test_a_bad_music_choice_is_400(client, settings, tmp_path, form, text) -> None:
     _add_music(client, _music(tmp_path / MUSIC))
@@ -223,6 +256,23 @@ def test_only_sound_files_can_be_added_as_music(client, settings, tmp_path) -> N
     assert first.json()["file"] != second.json()["file"]
     assert sorted(p.name for p in (settings.root / "musik" / "skiimasktimmy").iterdir()) == \
         sorted([first.json()["file"], second.json()["file"]])
+
+
+@needs_ffmpeg
+def test_two_uploads_with_the_same_name_at_once_both_get_a_file(settings, tmp_path, monkeypatch) -> None:
+    sound = _music(tmp_path / MUSIC).read_bytes()
+    base = settings.root / "musik" / "skiimasktimmy"
+    real = os.link
+
+    def other_upload_first(src, dest):  # den andra uppladdningen hinner ta namnet mellan valet och os.link
+        monkeypatch.setattr(audio.os, "link", real)
+        Path(dest).write_bytes(b"den andra")
+        real(src, dest)
+
+    monkeypatch.setattr(audio.os, "link", other_upload_first)
+    added = audio.add_music(settings.root, "skiimasktimmy", io.BytesIO(sound), MUSIC)
+    assert added["file"] == "ton-2.wav"
+    assert (base / MUSIC).read_bytes() == b"den andra" and (base / "ton-2.wav").read_bytes() == sound
 
 
 def test_adding_music_needs_the_api_key(client, monkeypatch) -> None:
@@ -268,6 +318,35 @@ def test_edit_keeps_the_sound_choice(client, settings, tmp_path) -> None:
     assert answer.status_code == 200, answer.text
     assert probe(path)["has_audio"] and _volume(path)["max_volume"] < -60
     assert answer.json()["problems"] == []
+
+
+@needs_ffmpeg
+def test_an_own_video_without_sound_is_not_refused_after_edit(client, settings, tmp_path) -> None:
+    draft_id = _draft(client, _video(tmp_path / "tyst.mp4", tone=None))
+    clip = client.post(f"/campaign/uploads/drafts/{draft_id}/save", data=BASE).json()
+    assert clip["problems"] == []
+    answer = client.post(f"/campaign/clips/{clip['id']}/edit", json={"title": "Ny rubrik"})
+    assert answer.status_code == 200, answer.text
+    assert not probe(ClipLog(settings.data_dir / "klipp.db").get(clip["id"])["file"])["has_audio"]
+    assert answer.json()["problems"] == []
+
+
+@needs_ffmpeg
+def test_a_removed_song_stops_edit_only_when_the_clip_is_made_again(client, settings, tmp_path) -> None:
+    _add_music(client, _music(tmp_path / MUSIC))
+    draft_id = _draft(client, _video(tmp_path / "a.mp4", seconds=6))
+    form = {**BASE, "audio": "music", "music": MUSIC, "music_start_s": "10", "original_volume": "0"}
+    clip = client.post(f"/campaign/uploads/drafts/{draft_id}/save", data=form).json()
+    (settings.root / "musik" / "skiimasktimmy" / MUSIC).unlink()
+    set_profile(settings, clip={"min_seconds": 3, "max_seconds": 60}, active=True,  # rubriken står inte i bilden
+                on_screen_text={"text": "", "hook_text": False}, overlay={"file": None, "required": False})
+    answer = client.post(f"/campaign/clips/{clip['id']}/edit", json={"title": "Bara rubriken"})
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["title"] == "Bara rubriken"
+    answer = client.post(f"/campaign/clips/{clip['id']}/edit", json={"out_s": 4.0})
+    assert answer.status_code == 400
+    assert answer.json()["detail"] == (f"Musiken {MUSIC} finns inte längre. Lägg tillbaka den i musik/skiimasktimmy/, "
+                                       "eller gör om klippet på Egna videor.")
 
 
 @needs_ffmpeg

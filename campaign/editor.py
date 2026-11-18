@@ -270,7 +270,8 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
                 ass = raw.with_name(f".{raw.stem}.edit.ass")  # punkt först, som _tmp
                 plan = prepare(src, {**data, "words": new_words}, new_in, new_out, profile, ass)
             rendered = finish_clip(src, tmp_done, profile, settings.root, settings.encoder, title=look.hook,
-                                   subtitles=ass, plan=plan, frame=data["reframe"]["mode"] if data else "", **own)
+                                   subtitles=ass, plan=plan, frame=data["reframe"]["mode"] if data else "", **own,
+                                   **look.sound(settings))
 
         # Precis före bytet: klippet kan ha postats under tiden. Sedan tas ett gammalt ja bort, så att
         # inget godkännande gäller den nya filen om något går fel efteråt.
@@ -304,8 +305,7 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
         tmp_raw.unlink(missing_ok=True)
         tmp_done.unlink(missing_ok=True)
         tmp_original.unlink(missing_ok=True)
-    manifest = {"overlay_applied": rendered["overlay_applied"], "text_applied": rendered["text_applied"]} \
-        if rendered else {"overlay_applied": _has_overlay(profile, settings), "text_applied": bool(profile.text)}
+    manifest = _manifest(rendered, clip, profile, settings)
     problems, warnings = check_clip(probe(done), manifest, profile, caption, clip["format"], clip["review"])
     done.with_suffix(".txt").write_text(caption + "\n", encoding="utf-8")
 
@@ -314,6 +314,13 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
     if trimmed and state["start_s"] is not None:
         fields.update(start_s=round(state["start_s"] + new_in, 3), end_s=round(state["start_s"] + new_out, 3))
     log.update(clip["id"], **fields)
+
+
+def _manifest(rendered: dict | None, clip: dict, profile: Profile, settings: Settings) -> dict:
+    """Det check_clip behöver. Utan ny rendering: kampanjens overlay och text. En egen video får vara utan ljud."""
+    shown = rendered or {"overlay_applied": _has_overlay(profile, settings), "text_applied": bool(profile.text)}
+    return {"overlay_applied": shown["overlay_applied"], "text_applied": shown["text_applied"],
+            "own_video": clip["vod_id"] == drafts.UPLOAD}
 
 
 def reframe_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog) -> None:

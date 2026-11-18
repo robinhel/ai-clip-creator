@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import uuid
+from contextlib import suppress
 from pathlib import Path
 from typing import BinaryIO, NoReturn, Protocol
 
@@ -65,8 +66,9 @@ def _inside(base: Path, target: Path) -> bool:
 def music_path(root: Path, profile: str, file: object) -> Path:
     """En ljudfil eller video i kampanjens musikmapp. Ingen sökväg utanför mappen, som klistermärkena."""
     base = folder(root, profile).resolve()
-    target = (base / str(file)).resolve()
-    if not (isinstance(file, str) and _inside(base, target)):
+    named = isinstance(file, str) and "\x00" not in file  # NUL: resolve kastar ValueError
+    target = (base / str(file)).resolve() if named else None
+    if target is None or not _inside(base, target):
         _refuse(f"Musiken {file} finns inte. Välj en fil i {FOLDER}/{profile}/.")
     return target
 
@@ -100,7 +102,7 @@ def choose(root: Path, choices: SoundChoices) -> dict:
     """Ljudvalet kontrollerat, klart för replace_audio."""
     mode, music, start_s, volume = choices.audio, choices.music, choices.music_start_s, choices.original_volume
     if mode not in MODES:
-        _refuse(f"Ljudet {mode!r} finns inte. Välj {', '.join(MODES)}.")
+        _refuse("Ljudläget finns inte. Välj Behåll, Tyst eller Musik.")
     if mode != "music":
         return {"mode": mode}
     if not music:
@@ -120,11 +122,12 @@ def choose(root: Path, choices: SoundChoices) -> dict:
 
 
 def _music_graph(audio: dict, length: float, has_audio: bool, lufs: float) -> str:
-    """Musiken från sin start, tonad in och ut mot klippets slut (eller musikens, om den tar slut först),
-    blandad med klippets eget ljud. loudnorm på det blandade."""
+    """Musiken från sin start, lika stark som originalet (loudnorm), tonad in och ut mot klippets slut (eller
+    musikens, om den tar slut först), blandad med klippets eget ljud. loudnorm också på det blandade."""
     played = min(length, audio["duration_s"] - audio["start_s"])
     fmt = "aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo"
-    parts = [f"[1:a]{fmt},afade=t=in:d={FADE_IN_S},afade=t=out:st={max(played - FADE_OUT_S, 0):.3f}:d={FADE_OUT_S},"
+    norm = f"loudnorm=I={lufs}:TP=-1.5:LRA=11"
+    parts = [f"[1:a]{norm},{fmt},afade=t=in:d={FADE_IN_S},afade=t=out:st={max(played - FADE_OUT_S, 0):.3f}:d={FADE_OUT_S},"
              "apad[mus]"]
     if has_audio and audio["volume"] > 0:
         parts.append(f"[0:a]{fmt},volume={audio['volume']:.3f},apad[orig]")
@@ -134,7 +137,7 @@ def _music_graph(audio: dict, length: float, has_audio: bool, lufs: float) -> st
         last = "mus"
     # atrim också efter loudnorm: annars blev det blandade ljudet upp till 0,1 s längre än med Behåll.
     trim = f"atrim=end={length:.3f}"
-    parts.append(f"[{last}]{trim},loudnorm=I={lufs}:TP=-1.5:LRA=11,{trim}[aout]")
+    parts.append(f"[{last}]{trim},{norm},{trim}[aout]")
     return ";".join(parts)
 
 
@@ -170,6 +173,16 @@ def _free_name(base: Path, name: str) -> Path:
     return target
 
 
+def _link_free(tmp: Path, base: Path, name: str) -> Path:
+    """Länka under ett fritt namn. os.link skriver aldrig över: en uppladdning med samma namn samtidigt ger
+    FileExistsError, och då tas nästa namn."""
+    while True:
+        target = _free_name(base, name)
+        with suppress(FileExistsError):
+            os.link(tmp, target)
+            return target
+
+
 def add_music(root: Path, profile: str, file: BinaryIO, name: str) -> dict:
     """Spara en ljudfil eller video i kampanjens musikmapp. Ett namn som finns får ett tillägg."""
     suffix = Path(name).suffix.lower()
@@ -184,8 +197,7 @@ def add_music(root: Path, profile: str, file: BinaryIO, name: str) -> dict:
         info = sound_info(tmp)
         if info is None:
             _refuse(NO_SOUND.format(name))
-        target = _free_name(base, name)
-        os.link(tmp, target)  # skriver aldrig över: en fil med samma namn ger FileExistsError
+        target = _link_free(tmp, base, name)
     finally:
         tmp.unlink(missing_ok=True)
     return {"file": target.name, **info}

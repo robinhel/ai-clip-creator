@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import sqlite3
+import subprocess
 
 import pytest
 from fastapi import FastAPI
@@ -216,6 +217,16 @@ def test_problems_after_the_check_fail_the_clip_and_the_old_review_is_kept(setup
     response = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 0.0, "out_s": 6.0}).json()
     assert response["status"] == "underkand"
     assert any("Overlayen saknas" in p for p in response["problems"])
+
+
+def test_a_twitch_clip_without_sound_is_still_refused_after_edit(setup, settings) -> None:
+    client, _, clip_id = setup
+    raw, _, _ = _paths(settings)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=1080x1920:rate=30", "-t", "10",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(raw)], check=True)
+    response = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0}).json()
+    assert response["status"] == "underkand"
+    assert any("Klippet saknar ljud." in p for p in response["problems"]), response["problems"]
 
 
 # ---------- 5. rubrik och caption ----------

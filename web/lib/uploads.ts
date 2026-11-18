@@ -57,8 +57,8 @@ export interface Choices {
 
 export const START_CHOICES: Choices = {
   mirror: false,
-  speed: 1.1,
-  filter: "fresh",
+  speed: 1,
+  filter: "none",
   brightness: 0,
   saturation: 0,
   framing: "fit",
@@ -134,14 +134,14 @@ export function audioProblemText(c: Choices): string | null {
   if (c.audio !== "music") return null;
   if (!c.music) return "Välj en låt under Ljud, eller lägg till musik.";
   const startS = seconds(c.musicStart);
-  return Number.isFinite(startS) && startS >= 0 ? null : "Musiken börjar vid ska vara 0 s eller mer.";
+  return Number.isFinite(startS) && startS >= 0 ? null : "Starten i musiken ska vara 0 s eller mer.";
 }
 
 /** Texterna vid reglaget när originalljudet är 0 %. Tom lista när det hörs. */
 export function volumeWarning(originalVolume: number, rules: string[] | null | undefined): string[] {
   if (originalVolume > 0) return [];
   const warning = ["Originalljudet hörs inte i klippet."];
-  return rules?.length ? [...warning, "Kampanjen kräver att det hörs tydligt."] : warning;
+  return rules?.length ? [...warning, "Läs kampanjens regel ovan."] : warning;
 }
 
 /** Ljudet med serverns namn. Musikens fält bara när Musik är valt. Bilden har inget ljud, så frame får dem inte. */

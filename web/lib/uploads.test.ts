@@ -74,7 +74,7 @@ describe("valen till servern", () => {
       title: "Rubriken",
       mirror: "true",
       speed: "1.05",
-      filter: "fresh",
+      filter: "none",
       brightness: "0",
       saturation: "0",
       framing: "fit",
@@ -109,6 +109,11 @@ describe("valen till servern", () => {
   it("startar med Behåll ljudet och originalljudet 30 %", () => {
     expect(START_CHOICES.audio).toBe("keep");
     expect(START_CHOICES.originalVolume).toBe(30);
+  });
+
+  it("startar på 1x utan filter, som servern", () => {
+    expect(START_CHOICES.speed).toBe(1);
+    expect(START_CHOICES.filter).toBe("none");
   });
 
   it("tar med klistermärket bara när det är valt, och läser komma i sekunderna", () => {
@@ -183,7 +188,7 @@ describe("varningen när originalljudet är 0 %", () => {
     expect(volumeWarning(0, [])).toEqual(["Originalljudet hörs inte i klippet."]);
     expect(volumeWarning(0, ["Streamerns röst ska höras."])).toEqual([
       "Originalljudet hörs inte i klippet.",
-      "Kampanjen kräver att det hörs tydligt.",
+      "Läs kampanjens regel ovan.",
     ]);
     expect(volumeWarning(0, undefined)).toEqual(["Originalljudet hörs inte i klippet."]);
   });
