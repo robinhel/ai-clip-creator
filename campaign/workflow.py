@@ -16,7 +16,7 @@ from .caption import PLACEHOLDER, build_caption, headline_text
 from .cliplog import ClipLog
 from .config import Settings
 from .editor import edit_meta, source_path
-from .finish import finish_clip
+from .finish import finish_clip, hook_clean
 from .media import probe
 from .profile import Profile
 from .review import review_clip, stacked_split
@@ -135,7 +135,7 @@ def finish_vod(
         index = int(re.match(r"clip_(\d+)", src.name).group(1))
         pick = picks[index - 1] if 0 < index <= len(picks) else {}
         title = pick.get("title") or title_from_name(src)
-        headline = headline_text({"headline": pick.get("headline")})  # rensad, "" utan headline
+        headline = hook_clean(pick.get("headline") or "")  # "" utan headline
         hook = headline_text(pick)  # captionen byggs av title nedan, aldrig av headline
         start, end = pick.get("start"), pick.get("end")
         if PLACEHOLDER.search(title):  # rubrik och caption utan platshållaren, men ingen hook-text av talet

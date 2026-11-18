@@ -224,15 +224,12 @@ def _check_trim(state: dict, trim: tuple[float, float], profile: Profile, look: 
                          f"Kampanjen tillåter {drafts.comma(min_s, 'g')}–{drafts.comma(max_s, 'g')} s.")
 
 
-def _texts(clip: dict, title: str | None, headline: str | None) -> tuple[str, str | None, str, str]:
-    """Klippets nya rubrik och headline, och texten i bilden före och efter redigeringen: headline, annars
-    titeln (caption.headline_text). None behåller klippets, och headline "" ger titeln i bilden."""
+def _texts(clip: dict, title: str | None, headline: str | None) -> tuple[str, str | None]:
+    """Klippets nya titel och headline. None behåller klippets, och headline "" ger titeln i bilden."""
     new_title = clip["title"] if title is None else title.strip()
     if not new_title:
-        raise ValueError("Rubriken får inte vara tom.")
-    new = clip.get("headline") if headline is None else hook_clean(headline)
-    before = headline_text({"headline": clip.get("headline"), "title": clip["title"]})
-    return new_title, new, before, headline_text({"headline": new, "title": new_title})
+        raise ValueError("Titeln får inte vara tom.")
+    return new_title, clip["headline"] if headline is None else hook_clean(headline)
 
 
 def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
@@ -250,7 +247,8 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
     look = drafts.EditLook.of(raw)  # en egen video: valen från uppladdningen
     if trimmed:
         _check_trim(state, (new_in, new_out), profile, look)
-    new_title, new_headline, old_text, new_text = _texts(clip, title, headline)
+    new_title, new_headline = _texts(clip, title, headline)
+    old_text, new_text = headline_text(clip), headline_text({"headline": new_headline, "title": new_title})
     look = look.titled(old_text, new_text)
     own = look.args(settings, profile, new_out - new_in)
     data, why = _words(raw, profile, settings)
