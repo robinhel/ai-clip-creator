@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { buildPatch, draftFrom, matches, parseFilter, POSTED, sortRows, todoItems, undoStatus } from "./statistik";
+import {
+  buildPatch,
+  changed,
+  draftFrom,
+  lengthGroups,
+  matches,
+  parseFilter,
+  POSTED,
+  rowsOf,
+  sortRows,
+  todoItems,
+  undoStatus,
+  watchPctOfLength,
+} from "./statistik";
 import type { CampaignClip, ClipPost, PostStatus } from "./types";
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
@@ -63,6 +76,88 @@ describe("buildPatch", () => {
     expect(draftFrom(post({ paid_usd: 14.2 })).paid).toBe("14,20");
     const old = clip({ status: "inskickad", views: 10 });
     expect(buildPatch({ ...draftFrom(old), paid: "5" }, old, "betald")).toEqual({ body: { status: "betald" } });
+  });
+});
+
+describe("Fler mått", () => {
+  it("tar decimalkomma och punkt för sekunder och procent", () => {
+    const saved = post({ status: "inskickad" });
+    const draft = { ...draftFrom(saved), avg_watch_s: "6,4", full_pct: "6.4", fyp_pct: "55", countries_pct: "100", saves: "12" };
+    expect(buildPatch(draft, saved)).toEqual({
+      body: { avg_watch_s: 6.4, full_pct: 6.4, fyp_pct: 55, countries_pct: 100, saves: 12 },
+    });
+  });
+
+  it("procent över 100, text som inte är ett tal och sparningar med decimaler ger fel med fältets namn", () => {
+    const saved = post({ status: "inskickad" });
+    const errorFor = (field: string, value: string) => {
+      const result = buildPatch({ ...draftFrom(saved), [field]: value }, saved);
+      return "error" in result ? result.error : null;
+    };
+    expect(errorFor("full_pct", "101")).toMatch(/^Ser klart \(%\)/);
+    expect(errorFor("countries_pct", "abc")).toMatch(/^Från kampanjens länder \(%\)/);
+    expect(errorFor("avg_watch_s", "abc")).toMatch(/^Tittartid \(s\)/);
+    expect(errorFor("fyp_pct", "6,4,1")).toMatch(/^Från För dig \(%\)/);
+    expect(errorFor("saves", "2,5")).toMatch(/^Sparningar/);
+  });
+
+  it("visar sparade mått med komma och ser bara ändrade fält; ett tömt fält sparas som null", () => {
+    const saved = post({ status: "inskickad", avg_watch_s: 6.4, full_pct: 30, fyp_pct: null, countries_pct: 80, saves: 3 });
+    expect(draftFrom(saved).avg_watch_s).toBe("6,4");
+    expect(changed(draftFrom(saved), saved)).toEqual([]);
+    const draft = { ...draftFrom(saved), fyp_pct: "40", saves: "" };
+    expect(changed(draft, saved).sort()).toEqual(["fyp_pct", "saves"]);
+    expect(buildPatch(draft, saved, "analytics_inskickad")).toEqual({
+      body: { status: "analytics_inskickad", fyp_pct: 40, saves: null },
+    });
+  });
+
+  it("en rad utan inlägg skickar inga mått", () => {
+    const old = clip({ status: "inskickad", views: 10 });
+    const draft = { ...draftFrom(old), avg_watch_s: "6,4", full_pct: "50", fyp_pct: "50", countries_pct: "50", saves: "3" };
+    expect(changed(draft, old)).toEqual([]);
+    expect(buildPatch(draft, old)).toEqual({ body: {} });
+  });
+});
+
+describe("watchPctOfLength", () => {
+  it("ger tittartiden i procent av klippets längd", () => {
+    expect(watchPctOfLength(6.4, 20)).toBe(32);
+  });
+
+  it("ger null när längden eller tittartiden saknas", () => {
+    expect(watchPctOfLength(6.4, null)).toBeNull();
+    expect(watchPctOfLength(6.4, 0)).toBeNull();
+    expect(watchPctOfLength(null, 20)).toBeNull();
+  });
+});
+
+describe("lengthGroups", () => {
+  it("räknar inlägg per längd och snittar bara inlägg med visningar", () => {
+    const clips = [
+      clip({ id: 1, length_s: 14.9, posts: [post({ views: 500 })] }),
+      clip({ id: 2, length_s: 15.0, posts: [post({ views: 1000 }), post({ views: null })] }),
+      clip({ id: 3, length_s: 20.0, posts: [post({ views: 3000 })] }),
+      clip({ id: 4, length_s: 20.1, posts: [post({ views: 700 })] }),
+      clip({ id: 5, length_s: null, posts: [post({ views: 100 })] }),
+      // Ett klipp utan inlägg räknas inte.
+      clip({ id: 6, length_s: 10, posts: [] }),
+    ];
+    expect(lengthGroups(rowsOf(clips))).toEqual([
+      { label: "Under 15 s", posts: 1, avgViews: 500 },
+      { label: "15–20 s", posts: 3, avgViews: 2000 },
+      { label: "Över 20 s", posts: 1, avgViews: 700 },
+      { label: "Okänd längd", posts: 1, avgViews: 100 },
+    ]);
+  });
+
+  it("utan visningar är snittet null, och Okänd längd finns bara när den har inlägg", () => {
+    const clips = [clip({ length_s: 12, posts: [post({ views: null })] })];
+    expect(lengthGroups(rowsOf(clips))).toEqual([
+      { label: "Under 15 s", posts: 1, avgViews: null },
+      { label: "15–20 s", posts: 0, avgViews: null },
+      { label: "Över 20 s", posts: 0, avgViews: null },
+    ]);
   });
 });
 

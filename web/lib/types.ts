@@ -238,6 +238,10 @@ export interface CampaignClip {
   platforms?: Platform[];
   /** Id för klippet som den här versionen gjordes av. null eller saknas: inte en version. */
   version_of?: number | null;
+  /** Klippets längd i sekunder. null: okänd. Saknas hos äldre servrar. */
+  length_s?: number | null;
+  /** Länderna kampanjen vill nå, i ord, till exempel "Tier 1-länder". Saknas hos äldre servrar. */
+  audience_countries?: string | null;
 }
 
 export type StickerPosition = "top_left" | "top_right" | "center" | "bottom_left" | "bottom_right";
@@ -336,6 +340,18 @@ export interface ClipPost {
   account?: string | null;
   /** Statusen före den senaste, så att Ångra på Betald går tillbaka dit. Saknas hos äldre servrar. */
   prev_status?: PostStatus | null;
+  // Fler mått, ifyllda från TikTok Studio. De saknas hos äldre servrar.
+  /** Genomsnittlig tittartid i sekunder. */
+  avg_watch_s?: number | null;
+  /** Andel som ser klart, 0–100. */
+  full_pct?: number | null;
+  /** Andel visningar från För dig, 0–100. */
+  fyp_pct?: number | null;
+  /** Andel visningar från kampanjens länder, 0–100. */
+  countries_pct?: number | null;
+  saves?: number | null;
+  /** Inlägget nådde kampanjens minsta visningar inom 7 dagar. null: okänt. */
+  reached_min_7d?: boolean | null;
 }
 
 export type ClipAccountState = "free" | "scheduled" | "posted";
@@ -363,7 +379,12 @@ export interface ClipVariant {
   description: string | null;
 }
 
-export type ClipPostPatch = Partial<Pick<ClipPost, "status" | "url" | "views" | "likes" | "comments" | "shares" | "paid_usd">>;
+export type ClipPostPatch = Partial<
+  Pick<
+    ClipPost,
+    "status" | "url" | "views" | "likes" | "comments" | "shares" | "paid_usd" | "avg_watch_s" | "full_pct" | "fyp_pct" | "countries_pct" | "saves"
+  >
+>;
 
 export type CampaignClipPatch = Partial<
   Pick<
