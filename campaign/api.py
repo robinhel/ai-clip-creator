@@ -323,6 +323,8 @@ def create_run(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
+    if body.profile.startswith("_"):  # dold kampanj, som _ingen: bara livebevakningen kör den
+        raise HTTPException(404, f"Kampanjen {body.profile} finns inte.")
     return _create_run(body, request, background_tasks, db, settings)
 
 

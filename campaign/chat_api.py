@@ -23,7 +23,8 @@ NO_VIDEO = "Videon finns inte kvar."
 
 
 def _campaign(profile_id: str, settings: Settings) -> str:
-    if not re.fullmatch(r"[a-z0-9_]{2,40}", profile_id) or not (settings.profiles_dir / f"{profile_id}.yaml").exists():
+    """404 också för dolda kampanjer: de börjar med _, som _ingen för liveklipp utan kampanj."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_]{1,39}", profile_id) or not (settings.profiles_dir / f"{profile_id}.yaml").exists():
         raise HTTPException(404, f"Kampanjen {profile_id} finns inte.")
     return profile_id
 

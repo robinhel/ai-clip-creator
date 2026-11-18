@@ -238,6 +238,11 @@ RESTARTED = "Servern startades om innan klippet blev klart."
 _file_lock = threading.Lock()
 
 
+def _waiting(channel: dict) -> bool:
+    """Någon topp väntar på att delen klipps ur bufferten."""
+    return any(peak["status"] in {"vantar", "hamtar"} for peak in channel["peaks"])
+
+
 class LiveState:
     """Läget i klippdata/live.json, så att det överlever en omstart."""
 
@@ -487,7 +492,7 @@ class Watcher:
         for key in (set(self.reading) | set(self.recorders)) - set(watched):
             self.reading.pop(key, None)
             self._stop_recorder(key)
-        self._remove_buffers(watched)
+        self._remove_buffers(state, watched)
         for key in watched:
             try:
                 self._check_one(state, key)
@@ -549,11 +554,15 @@ class Watcher:
         if recorder is not None:
             recorder.stop()
 
-    def _remove_buffers(self, watched: list[str]) -> None:
-        """Bufferten för en fri kanal som inte bevakas längre tas bort."""
+    def _remove_buffers(self, state: LiveState, watched: list[str]) -> None:
+        """Bufferten för en fri kanal som inte bevakas längre tas bort, när ingen topp väntar på att klippas
+        ur den."""
         root = self.settings.data_dir / "live"
         for folder in root.iterdir() if root.is_dir() else []:
-            if folder.is_dir() and FREE + folder.name not in watched:
+            key = FREE + folder.name
+            if key in watched or _waiting(state.channel(key)):
+                continue
+            if folder.is_dir():
                 shutil.rmtree(folder, ignore_errors=True)
 
     def _recording(self, key: str, recorder: Any) -> None:
@@ -656,10 +665,10 @@ class Watcher:
             if job.spans is None:
                 _remove_part(work_dir, job.part_id)  # mappen har inget klipp
                 return
+            self._mark(job, "ko")
         except Exception as error:
             self._failed(job, error)
             return
-        self._mark(job, "ko")
         self.jobs.put(job)
 
     def _handle(self, job: Job) -> None:
