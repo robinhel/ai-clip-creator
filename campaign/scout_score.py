@@ -1,7 +1,8 @@
 """Kampanjbetyget 0–100 och orsaken om en kampanj sorteras bort, för kampanjbevakningen (campaign/scout.py).
 
 Betyget följer rapporten "Vad är en bra kampanj" (Jarvis, Klippverktyget, 13 nov 2026), plus delen Visningar
-(40 av 100): hur många visningar klipp av kampanjens innehåll brukar få (campaign/content_views.py).
+(40 av 100): hur många visningar klipp av kampanjens innehåll brukar få (campaign/content_views.py), och delen
+Max payout per klipp (10 av 100): hur mycket ett klipp högst kan betala.
 """
 
 from __future__ import annotations

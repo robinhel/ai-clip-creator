@@ -304,16 +304,21 @@ class Scout:
                     self._put(last_best=_iso(now))
                 self._save_items(items, now)
                 self._details(http, items, now)
-        finally:  # också när ClippingAlpha stoppar körningen: klippen kommer från Content Rewards
-            self._after_alpha(now)
+        except BaseException:  # också när ClippingAlpha stoppar körningen: klippen kommer från Content Rewards
+            self._after_alpha(now, alpha_failed=True)
+            raise
+        self._after_alpha(now, alpha_failed=False)
         self._notify(now)
 
-    def _after_alpha(self, now: datetime) -> None:
-        """Nya klipp och nya betyg. Fel loggas och kastas inte, så att de inte ersätter felet från ClippingAlpha."""
+    def _after_alpha(self, now: datetime, alpha_failed: bool) -> None:
+        """Nya klipp och nya betyg. Efter ett fel från ClippingAlpha loggas deras fel och kastas inte, så att de inte
+        ersätter det felet."""
         for step in (self._refresh_clip_views, self._rescore):
             try:
                 step(now)
             except Exception:
+                if not alpha_failed:
+                    raise
                 log.exception("Kampanjbevakningen: %s fick ett fel", step.__name__)
 
     def _search(self, http: httpx.Client, arguments: dict) -> list[dict]:
@@ -355,7 +360,7 @@ class Scout:
             if self.calls_today() + 2 + assets + go > CALL_LIMIT - reserve(now):
                 return
             fresh = self._fetch(http, ref, assets, now)
-            fresh.update(self._join(http, {**saved, **fresh}, now))
+            fresh.update(self._join(http, {**saved, **fresh}, now, answered="campaign" in fresh))
             self._merge(ref, {**fresh, **_content_views({**saved, **fresh}, now), "detail_at": _iso(now)})
 
     def _merge(self, ref: str, fresh: dict) -> None:
@@ -395,11 +400,13 @@ class Scout:
             fresh.update(twitch_login=channel_from_assets(found), twitch_vod=vod_from_assets(found), assets_at=_iso(now))
         return fresh
 
-    def _join(self, http: httpx.Client, data: dict, now: datetime) -> dict:
+    def _join(self, http: httpx.Client, data: dict, now: datetime, answered: bool) -> dict:
         """Content Rewards-sidan bakom /go/-länken. Ett anrop till ClippingAlpha, räknat innan det görs."""
         # En gång per kampanj, med joinUrl ur get_campaign när den finns.
-        if "join_checked_at" in data or not (url := go_link(facts(data)["join_url"])):
+        if "join_checked_at" in data:
             return {}
+        if not (url := go_link(facts(data)["join_url"])):  # kollad utan anrop när get_campaign har svarat
+            return {"join_checked_at": _iso(now)} if answered else {}
         self._count()
         _wait_gap()
         try:
