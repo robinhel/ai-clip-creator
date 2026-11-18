@@ -23,6 +23,8 @@ HOSTS = {"contentrewards.com", "www.contentrewards.com"}
 CDN = "cdn.contentrewards.com"
 CACHE_S = 3600
 TITLE_MAX = 300
+# fälten ur sidan och deras typ
+FIELDS = {"topClips": list, "topEarners": list, "geoPriced": bool, "geoRates": dict, "payoutModel": list}
 _PUSH = re.compile(r'self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)')
 _cache: dict[str, tuple[float, dict]] = {}
 _lock = threading.Lock()
@@ -57,13 +59,17 @@ def _https(value: object, host: str | None = None) -> str | None:
     return value
 
 
-def _value(text: str, key: str) -> object:
-    """Det första värdet för key i flight-datan, eller None när nyckeln saknas."""
-    match = re.search(rf'"{key}"\s*:\s*', text)
-    if not match:
-        return None
-    value, _ = json.JSONDecoder().raw_decode(text, match.end())
-    return value
+def _value(text: str, key: str, kind: type) -> object:
+    """Det första värdet för key i flight-datan som är av typen kind, eller None. Träffar av en annan typ, till exempel
+    null, och träffar som inte går att läsa som JSON hoppas över."""
+    for match in re.finditer(rf'"{key}"\s*:\s*', text):
+        try:
+            value, _ = json.JSONDecoder().raw_decode(text, match.end())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, kind):
+            return value
+    return None
 
 
 def _dicts(value: object) -> list[dict]:
@@ -99,9 +105,9 @@ def parse(html: str) -> dict:
     saknar kampanjdata helt."""
     try:
         flight = "".join(json.loads(m.group(1)) for m in _PUSH.finditer(html))
-        found = {key: _value(flight, key) for key in ("topClips", "topEarners", "geoPriced", "geoRates", "payoutModel")}
     except json.JSONDecodeError as error:
         raise ValueError("Kampanjsidan gick inte att läsa. Content Rewards kan ha ändrat sidan.") from error
+    found = {key: _value(flight, key, kind) for key, kind in FIELDS.items()}
     if all(value is None for value in found.values()):
         raise ValueError("Kampanjsidan hittade inga klipp. Content Rewards kan ha ändrat sidan.")
     earners = {e.get("userId"): _earner(e) for e in _dicts(found["topEarners"])}
