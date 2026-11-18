@@ -45,6 +45,12 @@ class PostPatch(BaseModel):
     comments: int | None = Field(default=None, ge=0)
     shares: int | None = Field(default=None, ge=0)
     paid_usd: float | None = Field(default=None, ge=0)
+    # Fler mått från TikTok Studio. Andelarna är procent.
+    avg_watch_s: float | None = Field(default=None, ge=0)
+    full_pct: float | None = Field(default=None, ge=0, le=100)
+    fyp_pct: float | None = Field(default=None, ge=0, le=100)
+    saves: int | None = Field(default=None, ge=0)
+    countries_pct: float | None = Field(default=None, ge=0, le=100)
 
 
 def _get_post(log: ClipLog, post_id: int) -> dict:

@@ -27,6 +27,7 @@ from .caption import check_caption
 from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog, UploadRunning, card_runs
 from .config import Settings, load_settings
 from .media import need, probe, run
+from .metrics import clip_length, reached_min_7d
 from .pipeline import finish_run, run_campaign_vod
 from .profile import PLATFORMS, Profile, load_profile
 from .rules import NO_FORMAT
@@ -599,13 +600,15 @@ def _public(clip: dict, settings: Settings) -> dict:
     out["signals"] = clip["signals"] or []
     out["reason"] = clip["reason"] or ""
     out["engagement"] = ClipLog.engagement(clip)
-    out["content_rewards_url"], out["platforms"] = None, list(PLATFORMS)
+    out["content_rewards_url"], out["platforms"], out["audience_countries"] = None, list(PLATFORMS), None
+    out["length_s"] = clip_length(_log(settings), clip)
     try:
         profile = load_profile(clip["profile"], settings.profiles_dir)
         out["engagement_min"] = profile.engagement_min(clip["views"] or 0)
         out["min_views"] = profile.min_views
         out["platforms"] = profile.platforms
         out["content_rewards_url"] = profile.content_rewards_url
+        out["audience_countries"] = profile.audience_countries
     except SystemExit:
         out["engagement_min"] = None
         out["min_views"] = None
@@ -618,14 +621,17 @@ def _public(clip: dict, settings: Settings) -> dict:
 
 
 def _public_posts(clip: dict, settings: Settings) -> list[dict]:
-    """Klippets inlägg med engagemang och uppskattad intäkt per inlägg."""
+    """Klippets inlägg med engagemang, uppskattad intäkt och om kampanjens gräns nåddes inom 7 dagar."""
     try:
-        payment = load_profile(clip["profile"], settings.profiles_dir).payment
-    except (SystemExit, Exception):  # kampanjen finns inte längre: ingen uppskattning
-        payment = {}
+        profile = load_profile(clip["profile"], settings.profiles_dir)
+        payment, min_views = profile.payment, profile.min_views
+    except (SystemExit, Exception):  # kampanjen finns inte längre: ingen uppskattning och ingen gräns
+        payment, min_views = {}, 0
+    log = _log(settings)
     return [{**post, "engagement": ClipLog.engagement(post),
-             "estimate_usd": _payout(post["views"] or 0, payment) if post["views"] else None}
-            for post in _log(settings).posts(clip["id"])]
+             "estimate_usd": _payout(post["views"] or 0, payment) if post["views"] else None,
+             "reached_min_7d": reached_min_7d(post["created"], log.views_history(post["id"]), min_views)}
+            for post in log.posts(clip["id"])]
 
 
 def _get(log: ClipLog, clip_id: int) -> dict:

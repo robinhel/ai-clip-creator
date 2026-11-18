@@ -179,6 +179,11 @@ def _rows(path) -> dict:
             "version": db.execute("PRAGMA user_version").fetchone()[0]}
 
 
+def _cut(rows: list, old: list) -> list:
+    """Raderna med bara de gamla kolumnerna: nya kolumner (NEW_COLUMNS) läggs sist."""
+    return [row[:len(old[0])] for row in rows]
+
+
 def test_the_migration_saves_a_copy_first_and_puts_own_files_in_one_project_per_campaign(tmp_path) -> None:
     path = tmp_path / "klipp.db"
     _old_cliplog(path)
@@ -192,10 +197,12 @@ def test_the_migration_saves_a_copy_first_and_puts_own_files_in_one_project_per_
     with sqlite3.connect(copy) as db:  # kopian är klipploggen före migreringen
         assert db.execute("PRAGMA user_version").fetchone()[0] == 2
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name = 'projects'").fetchone()
-        assert {t: db.execute(f"SELECT * FROM {t} ORDER BY 1").fetchall() for t in before} == before  # noqa: S608
+        assert {t: _cut(db.execute(f"SELECT * FROM {t} ORDER BY 1").fetchall(), before[t])  # noqa: S608
+                for t in before} == before
     after = _rows(path)
     assert after["version"] == 3
-    assert after["clips"] == before["clips"] and after["posts"] == before["posts"]
+    assert _cut(after["clips"], before["clips"]) == before["clips"]
+    assert _cut(after["posts"], before["posts"]) == before["posts"]
     assert after["runs"] == [row[:3] for row in before["runs"]]
     projects = {(profile, kind): (pid, title) for pid, profile, kind, title in after["projects"]}
     assert projects.keys() == {("blizzard_nordics", "egna"), (CAMPAIGN, "egna"), ("annan", "egna")}

@@ -24,7 +24,7 @@ STATUSES = [
 # Ett inlägg är klippet på en plattform. Varje inlägg skickas in, följs och betalas för sig.
 POST_STATUSES = ["postad", "inskickad", "analytics_inskickad", "betald"]
 POST_COLUMNS = ("id, clip_id, platform, account, url, status, views, likes, comments, shares, paid_usd, created, "
-                "updated, prev_status")
+                "updated, prev_status, avg_watch_s, full_pct, fyp_pct, saves, countries_pct")
 # Ett inlägg per klipp, plattform och konto. Ett inlägg loggat för hand har inget konto (NULL), och räknas som
 # ett eget konto: två utan konto på samma plattform går inte.
 POSTS_TABLE = """CREATE TABLE IF NOT EXISTS {name} (
@@ -34,21 +34,32 @@ POSTS_TABLE = """CREATE TABLE IF NOT EXISTS {name} (
 POSTS_UNIQUE = ("CREATE UNIQUE INDEX IF NOT EXISTS posts_account ON posts (clip_id, platform, COALESCE(account, ''))")
 PLATFORM_NAMES = {"tiktok": "TikTok", "instagram_reels": "Reels", "youtube_shorts": "Shorts"}
 STAT_KEYS = ("views", "likes", "comments", "shares")
+# Fler mått i Statistik, per inlägg från TikTok Studio. De summeras inte till klippet.
+METRIC_KEYS = ("avg_watch_s", "full_pct", "fyp_pct", "saves", "countries_pct")
+# Varje sparat antal visningar med sin tid, så att appen ser om inlägget nådde gränsen inom 7 dagar.
+POST_VIEWS_TABLE = """CREATE TABLE IF NOT EXISTS post_views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER, views INTEGER, at TEXT)"""
 
 COLUMNS = (
     "id, vod_id, profile, start_s, end_s, title, format, signals, file, caption, status, "
     "problems, warnings, review, platform, url, views, likes, comments, shares, note, "
-    "created, updated, score, reason, subscores, version_of"
+    "created, updated, score, reason, subscores, version_of, length_s"
 )
 
 # Kolumner som kom till efter första versionen. Saknas de läggs de till när loggen öppnas.
 NEW_COLUMNS = {
     "clips": {"score": "INTEGER", "reason": "TEXT", "subscores": "TEXT",
-              "version_of": "INTEGER"},  # en ny version för ett annat konto: originalets id
+              "version_of": "INTEGER",  # en ny version för ett annat konto: originalets id
+              "length_s": "REAL"},  # den färdiga filens längd, räknas första gången Statistik behöver den
     "runs": {"focus": "TEXT", "min_s": "INTEGER", "max_s": "INTEGER", "title": "TEXT",
              "channel_name": "TEXT", "thumbnail_url": "TEXT", "duration_s": "INTEGER", "created": "TEXT",
              "start_s": "REAL", "end_s": "REAL"},
-    "posts": {"prev_status": "TEXT"},  # statusen före den senaste, så att Ångra på Betald går tillbaka dit
+    "posts": {"prev_status": "TEXT",  # statusen före den senaste, så att Ångra på Betald går tillbaka dit
+              # Fler mått: genomsnittlig tittartid i sekunder, andel som ser klart, andel från För dig,
+              # sparningar, andel visningar från kampanjens länder. Här och inte i POSTS_TABLE:
+              # _add_accounts bygger om posts med POSTS_TABLE innan de här kolumnerna läggs till.
+              "avg_watch_s": "REAL", "full_pct": "REAL", "fyp_pct": "REAL", "saves": "INTEGER",
+              "countries_pct": "REAL"},
 }
 # Kampanjens enda projekt för egna filer: filerna från python -m campaign local och uppladdningarna.
 # Tabellen och körningarnas kolumner kommer i _add_projects, efter kopian av klipploggen.
@@ -180,6 +191,7 @@ class ClipLog:
                     run_id INTEGER PRIMARY KEY, vod_id TEXT, profile TEXT, game TEXT)"""
             )
             db.execute(POSTS_TABLE.format(name="posts"))
+            db.execute(POST_VIEWS_TABLE)
             if "account" in {row["name"] for row in db.execute("PRAGMA table_info(posts)")}:
                 db.execute(POSTS_UNIQUE)
             # Klipp från före inläggen: klippets länk blir ett inlägg. Bara en gång (user_version 0 -> 1),
@@ -348,6 +360,7 @@ class ClipLog:
         for key in ("problems", "warnings", "review", "subscores"):
             if key in fields:
                 fields[key] = json.dumps(fields[key], ensure_ascii=False) if fields[key] is not None else None
+        new_length = bool({"file", "start_s", "end_s"} & fields.keys())  # ny fil eller nya tider: räkna om längden
         self.get(clip_id)
         sets = ", ".join(f"{key} = ?" for key in fields)
         # En transaktion med skrivlås: schemaläggaren hinner inte starta en uppladdning mellan kollen och bytet.
@@ -356,7 +369,8 @@ class ClipLog:
             db.execute("BEGIN IMMEDIATE")
             if "status" in fields and fields["status"] not in ("godkand", *POST_STATUSES):
                 _cancel_uploads(db, clip_id)  # här, så att ingen väg som ändrar status glömmer det
-            db.execute(f"UPDATE clips SET {sets}, updated = ? WHERE id = ?", (*fields.values(), _now(), clip_id))
+            db.execute(f"UPDATE clips SET {sets}, updated = ?, length_s = CASE WHEN ? THEN NULL ELSE length_s END "
+                       "WHERE id = ?", (*fields.values(), _now(), new_length, clip_id))
             db.execute("COMMIT")
         finally:
             if db.in_transaction:
@@ -401,26 +415,43 @@ class ClipLog:
     def _check_post_fields(fields: dict) -> None:
         if "status" in fields and fields["status"] not in POST_STATUSES:
             raise ValueError(f"Okänd status för ett inlägg: {fields['status']}")
-        unknown = set(fields) - {"status", "url", "platform", "paid_usd", *STAT_KEYS}
+        unknown = set(fields) - {"status", "url", "platform", "paid_usd", *STAT_KEYS, *METRIC_KEYS}
         if unknown:
             raise ValueError(f"Fält som inte får ändras: {sorted(unknown)}")
 
     def update_post(self, post_id: int, **fields) -> None:
+        """Ändra ett inlägg. Varje sparat antal visningar sparas också med sin tid i post_views."""
         self._check_post_fields(fields)
         post = self.get_post(post_id)
         if fields.get("status", post["status"]) != post["status"]:
             fields["prev_status"] = post["status"]
         if fields:
             sets = ", ".join(f"{key} = ?" for key in fields)
+            now = _now()
             with self._db() as db:
-                db.execute(f"UPDATE posts SET {sets}, updated = ? WHERE id = ?", (*fields.values(), _now(), post_id))
+                db.execute(f"UPDATE posts SET {sets}, updated = ? WHERE id = ?", (*fields.values(), now, post_id))
+                if fields.get("views") is not None:
+                    db.execute("INSERT INTO post_views (post_id, views, at) VALUES (?, ?, ?)",
+                               (post_id, fields["views"], now))
         self._sync(post["clip_id"])
 
     def delete_post(self, post_id: int) -> None:
         post = self.get_post(post_id)
         with self._db() as db:
             db.execute("DELETE FROM posts WHERE id = ?", (post_id,))
+            db.execute("DELETE FROM post_views WHERE post_id = ?", (post_id,))
         self._sync(post["clip_id"])
+
+    def views_history(self, post_id: int) -> builtins.list[tuple[int, str]]:
+        """Inläggets sparade visningar med tiden (UTC) de sparades, äldst först."""
+        with self._db() as db:
+            rows = db.execute("SELECT views, at FROM post_views WHERE post_id = ? ORDER BY id", (post_id,))
+            return [(views, at) for views, at in rows]
+
+    def set_length(self, clip_id: int, length_s: float) -> None:
+        """Spara den färdiga filens längd. Klippets updated ändras inte: filen är densamma."""
+        with self._db() as db:
+            db.execute("UPDATE clips SET length_s = ? WHERE id = ?", (length_s, clip_id))
 
     def _sync(self, clip_id: int) -> None:
         """Klippets länk, plattform, siffror och status räknas fram ur inläggen, så att sammanfattningen
@@ -483,7 +514,7 @@ class ClipLog:
                 elif post["status"] == "inskickad" and post["views"] >= min_views:
                     items.append(
                         f"{where}: har {post['views']} visningar. Skicka skärminspelningen av "
-                        "inläggets analytics i analytics-formuläret."
+                        "inläggets analytics i analytics-formuläret, och fyll i Fler mått i Statistik."
                     )
         return items
 

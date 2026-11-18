@@ -459,11 +459,18 @@ def mark_submitted(post_id: int, status: Literal["inskickad", "analytics_inskick
 @server.tool(annotations=WRITE)
 def save_stats(post_id: int, views: int | None = None, likes: int | None = None, comments: int | None = None,
                shares: int | None = None, paid_usd: float | None = None,
-               status: Literal["postad", "betald"] | None = None) -> str:
+               status: Literal["postad", "betald"] | None = None, avg_watch_s: float | None = None,
+               full_pct: float | None = None, fyp_pct: float | None = None, saves: int | None = None,
+               countries_pct: float | None = None) -> str:
     """Spara statistik för ett inlägg (visningar, likes, kommentarer, delningar), eller utbetalningen (paid_usd
-    och status betald)."""
+    och status betald). Fler mått från TikTok Studio: avg_watch_s (genomsnittlig tittartid i sekunder),
+    full_pct (andel som ser klart), fyp_pct (andel från För dig), saves (sparningar) och countries_pct (andel
+    från kampanjens länder). Andelarna är procent, 0-100."""
     return _send("PATCH", f"/campaign/posts/{post_id}", {"views": views, "likes": likes, "comments": comments,
-                                                          "shares": shares, "paid_usd": paid_usd, "status": status})
+                                                          "shares": shares, "paid_usd": paid_usd, "status": status,
+                                                          "avg_watch_s": avg_watch_s, "full_pct": full_pct,
+                                                          "fyp_pct": fyp_pct, "saves": saves,
+                                                          "countries_pct": countries_pct})
 
 
 @server.tool(annotations=REPLACE)

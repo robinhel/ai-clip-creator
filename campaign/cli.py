@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .brain import Brain
 from .budget import Budget, budget_from_settings
-from .cliplog import POST_STATUSES, STATUSES, ClipLog, UploadRunning
+from .cliplog import METRIC_KEYS, POST_STATUSES, STATUSES, ClipLog, UploadRunning
 from .config import Settings, load_settings
 from .facit import load_facit, score
 from .media import probe
@@ -258,19 +258,45 @@ def cmd_mark(args, settings: Settings) -> int:
     return 0
 
 
+def _decimal(value: str) -> float:
+    """Ett tal på svenska eller engelska (6,4 eller 6.4), 0 eller mer."""
+    try:
+        number = float(value.replace(",", "."))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"{value!r} är inget tal.") from error
+    if number < 0:
+        raise argparse.ArgumentTypeError("Talet får inte vara mindre än 0.")
+    return number
+
+
+def _percent(value: str) -> float:
+    number = _decimal(value)
+    if number > 100:
+        raise argparse.ArgumentTypeError("En andel är högst 100 procent.")
+    return number
+
+
 def cmd_stats(args, settings: Settings) -> int:
     log = _log(settings)
-    fields = {k: getattr(args, k) for k in ("views", "likes", "comments", "shares")
+    fields = {k: getattr(args, k) for k in ("views", "likes", "comments", "shares", *METRIC_KEYS)
               if getattr(args, k) is not None}
     posts = log.posts(args.clip_id)
     if len(posts) > 1:
         print("Klippet har flera inlägg. Fyll i siffrorna per inlägg under Statistik i appen.")
         return 1
+    if not posts and set(METRIC_KEYS) & fields.keys():
+        print("Fler mått sparas per inlägg. Spara länken först med python -m campaign posted.")
+        return 1
     if posts:
         log.update_post(posts[0]["id"], **fields)
     else:
         log.update(args.clip_id, **fields)
-    clip = log.get(args.clip_id)
+    _print_stats(log, log.get(args.clip_id), settings)
+    return 0
+
+
+def _print_stats(log: ClipLog, clip: dict, settings: Settings) -> None:
+    """Klippets visningar, engagemang mot kampanjens krav och det som återstår att göra."""
     profile = load_profile(clip["profile"], settings.profiles_dir)
     rate = log.engagement(clip)
     print(f"#{clip['id']}: {clip['views']} visningar")
@@ -281,7 +307,6 @@ def cmd_stats(args, settings: Settings) -> int:
     for item in log.todo(profile.min_views or 2000):
         if item.startswith(f"#{clip['id']} "):
             print(f"  ATT GÖRA: {item}")
-    return 0
 
 
 def cmd_status(args, settings: Settings) -> int:
@@ -377,6 +402,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--likes", type=int)
     p.add_argument("--comments", type=int)
     p.add_argument("--shares", type=int)
+    p.add_argument("--watch-s", dest="avg_watch_s", type=_decimal, help="genomsnittlig tittartid i sekunder")
+    p.add_argument("--full-pct", dest="full_pct", type=_percent, help="andel som ser klart, i procent")
+    p.add_argument("--fyp-pct", dest="fyp_pct", type=_percent, help="andel visningar från För dig, i procent")
+    p.add_argument("--countries-pct", dest="countries_pct", type=_percent,
+                   help="andel visningar från kampanjens länder, i procent")
+    p.add_argument("--saves", type=int, help="antal sparningar")
     p.set_defaults(func=cmd_stats)
 
     p = sub.add_parser("status", help="Klipplogg, att göra-lista och budget")

@@ -18,7 +18,15 @@ from .conftest import make_clip, needs_ffmpeg
 from .test_api import _clip, client  # noqa: F401  (fixture)
 
 TIKTOK = "https://www.tiktok.com/@me/video/1"
-METRICS = {"avg_watch_s": 6.4, "full_pct": 31.5, "fyp_pct": 88.0, "saves": 12, "countries_pct": 74.2}
+TIKTOK_2 = "https://www.tiktok.com/@me/video/2"
+SHORTS = "https://youtube.com/shorts/xyz"
+METRICS = {
+    "avg_watch_s": 6.4,
+    "full_pct": 31.5,
+    "fyp_pct": 88.0,
+    "saves": 12,
+    "countries_pct": 74.2,
+}
 CREATED = "2026-11-01T12:00:00+00:00"
 
 
@@ -29,47 +37,65 @@ def _day(day: int, hour: int = 12) -> str:
 
 def _posted(client, settings) -> tuple[int, int]:  # noqa: F811
     clip_id = _clip(settings, status="godkand", clip_format="funny")
-    clip = client.post(f"/campaign/clips/{clip_id}/posts", json={"platform": "tiktok", "url": TIKTOK}).json()
+    clip = client.post(
+        f"/campaign/clips/{clip_id}/posts", json={"platform": "tiktok", "url": TIKTOK}
+    ).json()
     return clip_id, clip["posts"][0]["id"]
 
 
 # ---------- en gammal klipplogg ----------
 
 
+OLD_TABLES = [
+    """CREATE TABLE clips (id INTEGER PRIMARY KEY AUTOINCREMENT, vod_id TEXT, profile TEXT,
+    start_s REAL, end_s REAL, title TEXT, format TEXT, signals TEXT, file TEXT, caption TEXT,
+    status TEXT, problems TEXT, warnings TEXT, review TEXT, platform TEXT, url TEXT,
+    views INTEGER, likes INTEGER, comments INTEGER, shares INTEGER, note TEXT, created TEXT, updated TEXT,
+    score INTEGER, reason TEXT, subscores TEXT, version_of INTEGER)""",
+    """CREATE TABLE runs (run_id INTEGER PRIMARY KEY, vod_id TEXT, profile TEXT, game TEXT,
+    focus TEXT, min_s INTEGER, max_s INTEGER, title TEXT, channel_name TEXT, thumbnail_url TEXT,
+    duration_s INTEGER, created TEXT, start_s REAL, end_s REAL)""",
+    """CREATE TABLE posts (id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER, platform TEXT,
+    account TEXT, url TEXT, status TEXT, views INTEGER, likes INTEGER, comments INTEGER, shares INTEGER,
+    paid_usd REAL, created TEXT, updated TEXT, prev_status TEXT)""",
+    "CREATE UNIQUE INDEX posts_account ON posts (clip_id, platform, COALESCE(account, ''))",
+]
+# Egna videor (user_version 3): projekten och körningarnas kolumner.
+PROJECT_TABLES = [
+    "ALTER TABLE runs ADD COLUMN project_id INTEGER",
+    "ALTER TABLE runs ADD COLUMN origin TEXT",
+    """CREATE TABLE projects (id INTEGER PRIMARY KEY AUTOINCREMENT, profile TEXT NOT NULL,
+    kind TEXT NOT NULL, title TEXT, created TEXT)""",
+]
+OLD_CLIPS = [  # vod_id, profile, start_s, end_s, title, status, views, likes
+    ("2925991945", "skiimasktimmy", 10.0, 40.0, "No way", "inskickad", 3100, 45),
+    ("2925991945", "skiimasktimmy", 50.0, 70.0, "Clutch", "postad", 900, 8),
+]
+OLD_POSTS = [  # clip_id, platform, account, url, status, views, likes, comments, shares, paid_usd, prev_status
+    (1, "tiktok", None, TIKTOK, "inskickad", 2500, 40, 3, 1, None, "postad"),
+    (1, "youtube_shorts", None, SHORTS, "postad", 600, 5, 0, 0, None, None),
+    (2, "tiktok", "open-1", TIKTOK_2, "postad", 900, 8, 1, 0, 1.5, None),
+]
+
+
 def _old_cliplog(path, version: int) -> None:
     """En klipplogg som den såg ut med user_version 2 (före projekten) eller 3 (med projekten), med siffror."""
     db = sqlite3.connect(path)
-    db.execute("""CREATE TABLE clips (id INTEGER PRIMARY KEY AUTOINCREMENT, vod_id TEXT, profile TEXT,
-        start_s REAL, end_s REAL, title TEXT, format TEXT, signals TEXT, file TEXT, caption TEXT,
-        status TEXT, problems TEXT, warnings TEXT, review TEXT, platform TEXT, url TEXT,
-        views INTEGER, likes INTEGER, comments INTEGER, shares INTEGER, note TEXT, created TEXT, updated TEXT,
-        score INTEGER, reason TEXT, subscores TEXT, version_of INTEGER)""")
-    db.execute("""CREATE TABLE runs (run_id INTEGER PRIMARY KEY, vod_id TEXT, profile TEXT, game TEXT,
-        focus TEXT, min_s INTEGER, max_s INTEGER, title TEXT, channel_name TEXT, thumbnail_url TEXT,
-        duration_s INTEGER, created TEXT, start_s REAL, end_s REAL)""")
-    db.execute("""CREATE TABLE posts (id INTEGER PRIMARY KEY AUTOINCREMENT, clip_id INTEGER, platform TEXT,
-        account TEXT, url TEXT, status TEXT, views INTEGER, likes INTEGER, comments INTEGER, shares INTEGER,
-        paid_usd REAL, created TEXT, updated TEXT, prev_status TEXT)""")
-    db.execute("CREATE UNIQUE INDEX posts_account ON posts (clip_id, platform, COALESCE(account, ''))")
-    if version >= 3:
-        db.execute("ALTER TABLE runs ADD COLUMN project_id INTEGER")
-        db.execute("ALTER TABLE runs ADD COLUMN origin TEXT")
-        db.execute("""CREATE TABLE projects (id INTEGER PRIMARY KEY AUTOINCREMENT, profile TEXT NOT NULL,
-            kind TEXT NOT NULL, title TEXT, created TEXT)""")
-    db.execute("INSERT INTO runs (run_id, vod_id, profile) VALUES (11, '2925991945', 'skiimasktimmy')")
+    for sql in OLD_TABLES + (PROJECT_TABLES if version >= 3 else []):
+        db.execute(sql)
+    db.execute(
+        "INSERT INTO runs (run_id, vod_id, profile) VALUES (11, '2925991945', 'skiimasktimmy')"
+    )
     db.executemany(
         "INSERT INTO clips (vod_id, profile, start_s, end_s, title, status, views, likes, created, updated) "
         "VALUES (?,?,?,?,?,?,?,?,?,?)",
-        [("2925991945", "skiimasktimmy", 10.0, 40.0, "No way", "inskickad", 3100, 45, CREATED, CREATED),
-         ("2925991945", "skiimasktimmy", 50.0, 70.0, "Clutch", "postad", 900, 8, CREATED, CREATED)])
+        [(*row, CREATED, CREATED) for row in OLD_CLIPS],
+    )
     db.executemany(
         "INSERT INTO posts (clip_id, platform, account, url, status, views, likes, comments, shares, paid_usd, "
-        "created, updated, prev_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        [(1, "tiktok", None, TIKTOK, "inskickad", 2500, 40, 3, 1, None, CREATED, CREATED, "postad"),
-         (1, "youtube_shorts", None, "https://youtube.com/shorts/xyz", "postad", 600, 5, 0, 0, None, CREATED,
-          CREATED, None),
-         (2, "tiktok", "open-1", "https://www.tiktok.com/@me/video/2", "postad", 900, 8, 1, 0, 1.5, CREATED,
-          CREATED, None)])
+        "prev_status, created, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        [(*row, CREATED, CREATED) for row in OLD_POSTS],
+    )
     db.execute(f"PRAGMA user_version = {version}")
     db.commit()
     db.close()
@@ -84,23 +110,37 @@ def test_an_old_cliplog_gets_the_new_columns_and_keeps_every_row(tmp_path) -> No
         path = tmp_path / f"klipp{version}.db"
         _old_cliplog(path, version)
         with sqlite3.connect(path) as db:
-            old = {table: (_columns(db, table), db.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall())  # noqa: S608
-                   for table in ("clips", "posts")}
+            old = {
+                table: (
+                    _columns(db, table),
+                    db.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall(),
+                )  # noqa: S608
+                for table in ("clips", "posts")
+            }
 
         ClipLog(path)
 
         with sqlite3.connect(path) as db:
             assert db.execute("PRAGMA user_version").fetchone()[0] == 3
             for table, (columns, rows) in old.items():
-                assert db.execute(f"SELECT {', '.join(columns)} FROM {table} ORDER BY 1").fetchall() == rows  # noqa: S608
-            assert db.execute("SELECT avg_watch_s, full_pct, fyp_pct, saves, countries_pct FROM posts").fetchall() \
+                assert (
+                    db.execute(f"SELECT {', '.join(columns)} FROM {table} ORDER BY 1").fetchall()
+                    == rows
+                )  # noqa: S608
+            assert (
+                db.execute(
+                    "SELECT avg_watch_s, full_pct, fyp_pct, saves, countries_pct FROM posts"
+                ).fetchall()
                 == [(None,) * 5] * 3
+            )
             assert db.execute("SELECT length_s FROM clips").fetchall() == [(None,), (None,)]
             assert db.execute("SELECT * FROM post_views").fetchall() == []
         log = ClipLog(path)  # en gång till: inget ändras
         assert [p["views"] for p in log.posts()] == [2500, 600, 900]
         assert [p["account"] for p in log.posts()] == [None, None, "open-1"]
-        assert log.get(1)["views"] == 3100  # klippets gamla siffror räknas inte om när loggen öppnas
+        assert (
+            log.get(1)["views"] == 3100
+        )  # klippets gamla siffror räknas inte om när loggen öppnas
 
 
 # ---------- PATCH med måtten ----------
@@ -112,12 +152,22 @@ def test_the_metrics_are_saved_per_post_and_checked(client, settings) -> None:  
     assert response.status_code == 200, response.text
     post = response.json()["posts"][0]
     assert {key: post[key] for key in METRICS} == METRICS
-    assert client.patch(f"/campaign/posts/{post_id}", json={"avg_watch_s": 12.5}).json()["posts"][0][
-        "avg_watch_s"] == 12.5
+    assert (
+        client.patch(f"/campaign/posts/{post_id}", json={"avg_watch_s": 12.5}).json()["posts"][0][
+            "avg_watch_s"
+        ]
+        == 12.5
+    )
     assert ClipLog(settings.data_dir / "klipp.db").get_post(post_id)["avg_watch_s"] == 12.5
 
-    for wrong in ({"full_pct": 100.5}, {"saves": -1}, {"avg_watch_s": -0.1}, {"fyp_pct": -1},
-                  {"countries_pct": 101}, {"saves": 2.5}):
+    for wrong in (
+        {"full_pct": 100.5},
+        {"saves": -1},
+        {"avg_watch_s": -0.1},
+        {"fyp_pct": -1},
+        {"countries_pct": 101},
+        {"saves": 2.5},
+    ):
         assert client.patch(f"/campaign/posts/{post_id}", json=wrong).status_code == 422, wrong
     post = client.get("/campaign/clips").json()[0]["posts"][0]
     assert {key: post[key] for key in METRICS} == {**METRICS, "avg_watch_s": 12.5}
@@ -125,11 +175,15 @@ def test_the_metrics_are_saved_per_post_and_checked(client, settings) -> None:  
 
 def test_the_metrics_are_not_added_up_on_the_clip(client, settings) -> None:  # noqa: F811
     clip_id, tiktok = _posted(client, settings)
-    clip = client.post(f"/campaign/clips/{clip_id}/posts",
-                       json={"platform": "youtube_shorts", "url": "https://youtube.com/shorts/xyz"}).json()
+    clip = client.post(
+        f"/campaign/clips/{clip_id}/posts",
+        json={"platform": "youtube_shorts", "url": SHORTS},
+    ).json()
     shorts = next(p["id"] for p in clip["posts"] if p["platform"] == "youtube_shorts")
     client.patch(f"/campaign/posts/{tiktok}", json={"views": 1000, **METRICS})
-    clip = client.patch(f"/campaign/posts/{shorts}", json={"views": 1500, "saves": 20, "full_pct": 50}).json()
+    clip = client.patch(
+        f"/campaign/posts/{shorts}", json={"views": 1500, "saves": 20, "full_pct": 50}
+    ).json()
     assert clip["views"] == 2500
     assert not {"saves", "full_pct", "avg_watch_s", "fyp_pct", "countries_pct"} & clip.keys()
     assert [p["saves"] for p in clip["posts"]] == [12, 20]
@@ -156,7 +210,7 @@ def test_deleting_a_post_removes_only_its_history(settings) -> None:
     log = ClipLog(settings.data_dir / "klipp.db")
     clip_id = _clip(settings, status="godkand", clip_format="funny")
     gone = log.add_post(clip_id, "tiktok", TIKTOK)
-    kept = log.add_post(clip_id, "youtube_shorts", "https://youtube.com/shorts/xyz")
+    kept = log.add_post(clip_id, "youtube_shorts", SHORTS)
     log.update_post(gone, views=100)
     log.update_post(kept, views=200)
     log.update_post(kept, views=300)
@@ -202,8 +256,16 @@ def test_the_post_says_if_it_reached_the_campaign_min_in_7_days(client, settings
 
 def test_without_a_campaign_profile_there_is_no_answer(client, settings) -> None:  # noqa: F811
     log = ClipLog(settings.data_dir / "klipp.db")
-    clip_id = log.add(vod_id="123", profile="borttagen", file="", title="x", caption="x", status="godkand",
-                      start_s=0.0, end_s=20.0)
+    clip_id = log.add(
+        vod_id="123",
+        profile="borttagen",
+        file="",
+        title="x",
+        caption="x",
+        status="godkand",
+        start_s=0.0,
+        end_s=20.0,
+    )
     post_id = log.add_post(clip_id, "tiktok", TIKTOK)
     log.update_post(post_id, views=5000)
     clip = next(c for c in client.get("/campaign/clips").json() if c["id"] == clip_id)
@@ -224,7 +286,9 @@ def test_the_clip_length_comes_from_the_file_and_is_kept(client, settings) -> No
     assert client.get("/campaign/clips").json()[0]["length_s"] == clip["length_s"]
 
     log = ClipLog(settings.data_dir / "klipp.db")
-    log.update(clip_id, file=str(settings.out_dir / "123" / "klara" / "clip_01_b.mp4"))  # ny fil: räknas om
+    log.update(
+        clip_id, file=str(settings.out_dir / "123" / "klara" / "clip_01_b.mp4")
+    )  # ny fil: räknas om
     assert client.get("/campaign/clips").json()[0]["length_s"] == 30.0
 
 
@@ -259,8 +323,27 @@ def test_stats_in_the_terminal_saves_the_metrics(settings, monkeypatch, capsys) 
     log = ClipLog(settings.data_dir / "klipp.db")
     clip_id = _clip(settings, status="godkand", clip_format="funny")
     post_id = log.add_post(clip_id, "tiktok", TIKTOK)
-    assert cli.main(["stats", str(clip_id), "--views", "2500", "--watch-s", "6,4", "--full-pct", "31.5",
-                     "--fyp-pct", "88,0", "--countries-pct", "74,2", "--saves", "12"]) == 0
+    assert (
+        cli.main(
+            [
+                "stats",
+                str(clip_id),
+                "--views",
+                "2500",
+                "--watch-s",
+                "6,4",
+                "--full-pct",
+                "31.5",
+                "--fyp-pct",
+                "88,0",
+                "--countries-pct",
+                "74,2",
+                "--saves",
+                "12",
+            ]
+        )
+        == 0
+    )
     post = log.get_post(post_id)
     assert {key: post[key] for key in METRICS} == METRICS
     assert post["views"] == 2500
@@ -274,8 +357,11 @@ def test_save_stats_in_mcp_sends_the_metrics(monkeypatch) -> None:
         requests.append(request)
         return httpx.Response(200, json={"ok": True})
 
-    monkeypatch.setattr(mcp_server, "http_client",
-                        lambda: httpx.Client(base_url=mcp_server.BASE_URL, transport=httpx.MockTransport(answer)))
+    monkeypatch.setattr(
+        mcp_server,
+        "http_client",
+        lambda: httpx.Client(base_url=mcp_server.BASE_URL, transport=httpx.MockTransport(answer)),
+    )
     monkeypatch.setattr(mcp_server, "api_key", lambda: None)
 
     async def go():
