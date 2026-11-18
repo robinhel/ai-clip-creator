@@ -136,13 +136,15 @@ def test_max_payout_without_a_cap_is_full_and_unknown_without_analytics() -> Non
     assert (part["points"], part["max"], part["fact"]) == (5, 10, "Okänt")
 
 
-@pytest.mark.parametrize(("cap", "minimum"), [("1200", "x"), (True, True)])
-def test_payout_fields_that_are_not_numbers_count_as_missing(cap, minimum) -> None:
+@pytest.mark.parametrize(("cap", "minimum", "views"), [("1200", "x", "abc"), (True, True, True)])
+def test_payout_fields_that_are_not_numbers_count_as_missing(cap, minimum, views) -> None:
     missing = _data()
     del missing["analytics"]["pay"]["maxPayoutUsd"]
     del missing["analytics"]["pay"]["minPayoutUsd"]
+    del missing["analytics"]["pay"]["minViews"]
     data = _data()
-    data["analytics"]["pay"].update(maxPayoutUsd=cap, minPayoutUsd=minimum)
+    data["analytics"]["pay"].update(maxPayoutUsd=cap, minPayoutUsd=minimum, minViews=views)
+    assert scout.min_views(scout.facts(data)) is None
     assert _parts(data) == _parts(missing)
 
 
@@ -564,6 +566,28 @@ def test_a_failing_source_saves_the_error_and_the_run_does_not_raise(settings, f
     fake.down = True
     scout.Scout(settings).run_once()
     assert scout.Scout(settings).overview()["error"]
+
+
+@pytest.mark.parametrize("step", ["_refresh_clip_views", "_rescore"])
+def test_an_error_after_the_limit_does_not_replace_the_limit(settings, fake, monkeypatch, caplog, step) -> None:
+    fake.limit_at = "search_campaigns"
+
+    def broken(self, now: datetime) -> None:
+        raise RuntimeError("trasig")
+
+    monkeypatch.setattr(scout.Scout, step, broken)
+    scout.Scout(settings).run_once()
+    assert scout.Scout(settings).overview()["error"] == (
+        "ClippingAlpha tar inte emot fler anrop just nu. Bevakningen försöker igen kl. 14:00.")
+    assert "trasig" in caplog.text  # felet loggas
+
+
+def test_a_max_payout_that_is_not_a_number_is_not_sent_to_the_web(settings, fake) -> None:
+    analytics = _analytics()
+    analytics["pay"]["maxPayoutUsd"] = "1200"
+    _seed(settings, "timmy/streams", 50, analytics=analytics)
+    (view,) = scout.Scout(settings).overview()["campaigns"]
+    assert view["max_payout_usd"] is None  # som betyget: "Inget tak per klipp"
 
 
 # ---------- notisen ----------
@@ -1221,13 +1245,31 @@ def test_the_clip_views_are_refreshed_when_clippingalpha_stops_the_run(settings,
     assert next(p for p in view["parts"] if p["key"] == "views")["points"] == 40
 
 
+def test_the_pause_between_the_pages_is_one_second() -> None:
+    assert scout.CLIP_PAGE_GAP_S == 1.0  # utan fixturen fake, som sätter pausen till 0
+
+
 def test_a_pause_between_the_pages_from_content_rewards(settings, fake, monkeypatch) -> None:
     for i in range(3):
         _seed_with_page(settings, f"brand/c{i}", 90 - i, clip_age_h=7)
     events: list[str | float] = []
     monkeypatch.setattr(scout, "CLIP_PAGE_GAP_S", 1.0)
     monkeypatch.setattr(scout, "_last_call", [100.0])  # ingen väntan före anropen till ClippingAlpha
+    monkeypatch.setattr(scout, "_last_page", [0.0])  # ingen sida hämtad ännu
     monkeypatch.setattr(scout, "time", SimpleNamespace(monotonic=lambda: 100.0, sleep=events.append))
     monkeypatch.setattr(scout, "campaign_clip_views", events.append)
     scout.Scout(settings).run_once()
     assert events == [0, _page("brand/c0"), 1.0, _page("brand/c1"), 1.0, _page("brand/c2")]
+
+
+def test_the_pause_also_holds_from_the_details_to_the_shown_campaigns(settings, fake, monkeypatch) -> None:
+    fake.add("timmy/streams")  # nya detaljer: kampanjsidan CR hämtas i _details
+    _seed_with_page(settings, "low/streams", 10, clip_age_h=7)  # sedan den här i _refresh_clip_views
+    events: list[str | float] = []
+    monkeypatch.setattr(scout, "CLIP_PAGE_GAP_S", 1.0)
+    monkeypatch.setattr(scout, "_last_page", [0.0])
+    # klockan står still: varje sida efter den första måste vänta hela CLIP_PAGE_GAP_S
+    monkeypatch.setattr(scout, "time", SimpleNamespace(monotonic=lambda: 100.0, sleep=events.append))
+    monkeypatch.setattr(scout, "campaign_clip_views", events.append)
+    scout.Scout(settings).run_once()
+    assert events == [0, CR, 1.0, _page("low/streams")]
