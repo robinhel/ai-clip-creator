@@ -610,9 +610,12 @@ def _public(clip: dict, settings: Settings) -> dict:
         out["platforms"] = profile.platforms
         out["content_rewards_url"] = profile.content_rewards_url
         out["audience_countries"] = profile.audience_countries
+        # Statistik visar märket Avstängd. Alla svar med klippet har fältet, så att märket står kvar efter en sparning.
+        out["campaign_off"] = not profile.active
     except SystemExit:
         out["engagement_min"] = None
         out["min_views"] = None
+        out["campaign_off"] = False  # en trasig profil räknas som påslagen, som i _turned_off
     # ?v= byts när klippet ändras, så att webbläsaren inte visar en gammal version efter en redigering.
     version = quote(clip.get("updated") or "")
     out["posts"] = _public_posts(clip, settings, log)
@@ -659,7 +662,6 @@ def list_clips(status: str | None = None, vod_id: str | None = None, run_id: int
                settings: Settings = Depends(get_settings)) -> list[dict]:
     """posted_off: Statistik visar också postade klipp från avstängda kampanjer, med campaign_off true."""
     log = _log(settings)
-    off = _turned_off(settings)
     clips = log.list(status or None)
     if vod_id:
         clips = [c for c in clips if c["vod_id"] == vod_id]
@@ -669,9 +671,15 @@ def list_clips(status: str | None = None, vod_id: str | None = None, run_id: int
     if scoped is not None:
         clips = scoped
     elif not profile:  # en direktlänk till ett projekt visar dess klipp även när kampanjen är avstängd
-        shown_off = set(POST_STATUSES) if posted_off else set()
-        clips = [c for c in clips if c["profile"] not in off or c["status"] in shown_off]
-    return [{**_public(c, settings), "campaign_off": c["profile"] in off} for c in clips]
+        clips = _without_off(clips, settings, posted_off)
+    return [_public(c, settings) for c in clips]
+
+
+def _without_off(clips: list[dict], settings: Settings, posted_off: bool) -> list[dict]:
+    """Klippen utan avstängda kampanjers klipp. posted_off: de postade klippen från avstängda kampanjer är kvar."""
+    off = _turned_off(settings)
+    shown_off = set(POST_STATUSES) if posted_off else set()
+    return [c for c in clips if c["profile"] not in off or c["status"] in shown_off]
 
 
 @router.get("/clips/{clip_id}/transcript", summary="Det som sägs i klippet")

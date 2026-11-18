@@ -235,11 +235,15 @@ export function stepFor(row: Row, now: number): Step | null {
   }
 }
 
+/** Stegen som gäller en avstängd kampanj: bara visningarna. Skicka in och menyn visar den inte. */
+const OFF_STEPS: Step[] = ["visningar", "visningar_igen"];
+
 /** Att göra: ett steg per inlägg, det mest brådskande först. */
 export function todoItems(clips: CampaignClip[], now: number): TodoItem[] {
   return rowsOf(clips)
     .map((row) => ({ row, step: stepFor(row, now) }))
     .filter((x): x is { row: Row; step: Step } => x.step !== null)
+    .filter(({ row, step }) => !row.clip.campaign_off || OFF_STEPS.includes(step))
     .sort((a, b) => STEP_ORDER.indexOf(a.step) - STEP_ORDER.indexOf(b.step))
     .map(({ row, step }) => ({
       ...row,
