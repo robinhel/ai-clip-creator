@@ -1,10 +1,11 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ProjectCard, UploadsCard, groupTime, groupUploads, isActive, runTime, type UploadGroup } from "@/components/ProjectCard";
+import { EntryCard, isActive } from "@/components/ProjectCard";
 import { api } from "@/lib/api";
-import type { CampaignClip, CampaignProfile, CampaignRunInfo, CampaignStatus } from "@/lib/types";
+import { projectEntries, toReview } from "@/lib/projects";
+import type { CampaignProfile, CampaignProject, CampaignRunInfo } from "@/lib/types";
 
 const POLL_MS = 5000;
 
@@ -18,8 +19,6 @@ const STATUS_FILTERS = [
 ] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number]["id"];
 
-const toReview = (counts: Partial<Record<CampaignStatus, number>>) => (counts.renderad ?? 0) + (counts.underkand ?? 0);
-
 function runMatches(run: CampaignRunInfo, filter: StatusFilter): boolean {
   if (filter === "pagar") return isActive(run);
   if (filter === "granska") return toReview(run.clip_counts) > 0;
@@ -28,10 +27,14 @@ function runMatches(run: CampaignRunInfo, filter: StatusFilter): boolean {
   return true;
 }
 
-/** Egna videor pågår aldrig och misslyckas inte som ett projekt. */
-function groupMatches(group: UploadGroup, filter: StatusFilter): boolean {
-  if (filter === "granska") return toReview(group.counts) > 0;
-  return filter === "alla" || filter === "klara";
+/** Ett projekt för egna filer pågår medan en fil körs, och har misslyckats när en fil har det. */
+function projectMatches(project: CampaignProject, filter: StatusFilter): boolean {
+  const failed = project.files.some((f) => f.status === "failed");
+  if (filter === "pagar") return project.active;
+  if (filter === "granska") return toReview(project.clip_counts) > 0;
+  if (filter === "klara") return !project.active && !failed;
+  if (filter === "misslyckade") return failed;
+  return true;
 }
 
 interface CampaignChoice {
@@ -118,10 +121,10 @@ function NoProjects() {
   );
 }
 
-/** Projekten, egna videor och kampanjerna. Läser om projekten var femte sekund medan något pågår, som Hem gör. */
+/** Körningarna, kampanjernas projekt för egna filer och kampanjerna. Läser om var femte sekund medan något pågår, som Hem gör. */
 function useProjects() {
   const [runs, setRuns] = useState<CampaignRunInfo[] | null>(null);
-  const [uploads, setUploads] = useState<CampaignClip[]>([]);
+  const [projects, setProjects] = useState<CampaignProject[]>([]);
   const [profiles, setProfiles] = useState<CampaignProfile[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Räknas upp efter varje omläsning, så att nästa startar också när anropet misslyckades.
@@ -133,46 +136,40 @@ function useProjects() {
       .list()
       .then(setRuns)
       .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte hämta projekten"));
-    api.campaign.clips.list({ vod_id: "upload" }).then(setUploads).catch(() => setUploads([]));
+    // Ett fel här döljer bara korten för egna filer.
+    api.campaign.projects.list().then(setProjects).catch(() => setProjects([]));
     api.campaign.profiles().then(setProfiles).catch(() => {});
   }
 
   useEffect(load, []);
 
-  const anyActive = runs?.some(isActive) ?? false;
+  const anyActive = (runs?.some(isActive) ?? false) || projects.some((p) => p.active);
   useEffect(() => {
     if (!anyActive) return;
     const timer = setTimeout(() => {
-      api.campaign.runs
-        .list()
-        .then(setRuns)
+      Promise.all([api.campaign.runs.list().then(setRuns), api.campaign.projects.list().then(setProjects)])
         .catch(() => {})
         .finally(() => setPollTick((t) => t + 1));
     }, POLL_MS);
     return () => clearTimeout(timer);
   }, [anyActive, pollTick]);
 
-  const groups = useMemo(() => groupUploads(uploads, profiles), [uploads, profiles]);
-  return { runs, groups, profiles, error, load };
+  return { runs, projects, profiles, error, load };
 }
 
-/** Kampanjerna som har projekt eller egna videor, med streamerns namn som i resten av appen. */
-function campaignChoices(runs: CampaignRunInfo[], groups: UploadGroup[], profiles: CampaignProfile[]): CampaignChoice[] {
-  const names = new Set([...runs.map((r) => r.profile), ...groups.map((g) => g.profile)]);
+/** Kampanjerna som har projekt, med streamerns namn som i resten av appen. */
+function campaignChoices(runs: CampaignRunInfo[], projects: CampaignProject[], profiles: CampaignProfile[]): CampaignChoice[] {
+  const names = new Set([...runs.map((r) => r.profile), ...projects.map((p) => p.profile)]);
   return [...names].sort().map((name) => ({ name, label: profiles.find((p) => p.name === name)?.streamer || name }));
 }
 
 /** Korten som passar filtren, senaste först. */
-function projectCards(runs: CampaignRunInfo[], groups: UploadGroup[], campaign: string, status: StatusFilter) {
+function projectCards(runs: CampaignRunInfo[], projects: CampaignProject[], campaign: string, status: StatusFilter) {
   const inCampaign = (profile: string) => !campaign || profile === campaign;
-  return [
-    ...runs
-      .filter((r) => inCampaign(r.profile) && runMatches(r, status))
-      .map((run) => ({ key: `run-${run.run_id}`, time: runTime(run), card: <ProjectCard run={run} /> })),
-    ...groups
-      .filter((g) => inCampaign(g.profile) && groupMatches(g, status))
-      .map((g) => ({ key: `upload-${g.profile}`, time: groupTime(g), card: <UploadsCard group={g} /> })),
-  ].sort((a, b) => b.time - a.time);
+  return projectEntries(
+    runs.filter((r) => inCampaign(r.profile) && runMatches(r, status)),
+    projects.filter((p) => inCampaign(p.profile) && projectMatches(p, status))
+  );
 }
 
 /** Texten när listan är tom: hämtar, inga projekt alls, eller inga med filtret. */
@@ -190,12 +187,12 @@ function ListState({ loading, total, shown }: { loading: boolean; total: number 
 }
 
 export function ProjectsClient() {
-  const { runs, groups, profiles, error, load } = useProjects();
+  const { runs, projects, profiles, error, load } = useProjects();
   const [campaign, setCampaign] = useState("");
   const [status, setStatus] = useState<StatusFilter>("alla");
-  const campaigns = useMemo(() => campaignChoices(runs ?? [], groups, profiles), [runs, groups, profiles]);
-  const shown = projectCards(runs ?? [], groups, campaign, status);
-  const total = (runs?.length ?? 0) + groups.length;
+  const campaigns = useMemo(() => campaignChoices(runs ?? [], projects, profiles), [runs, projects, profiles]);
+  const shown = projectCards(runs ?? [], projects, campaign, status);
+  const total = projectEntries(runs ?? [], projects).length;
 
   return (
     <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
@@ -204,7 +201,7 @@ export function ProjectsClient() {
       </Link>
       <h1 className="mt-2 text-3xl font-bold tracking-tight">Projekt</h1>
       <p className="mt-1.5 mb-6 text-muted-foreground">
-        En stream per projekt, och egna videor per kampanj. Öppna ett projekt för att se förloppet eller granska klippen.
+        En stream per projekt, och ett projekt per kampanj för egna filer. Öppna ett projekt för att se förloppet eller granska klippen.
       </p>
       {error && <LoadError error={error} onRetry={load} />}
       {total > 0 && (
@@ -212,8 +209,8 @@ export function ProjectsClient() {
       )}
       <ListState loading={runs === null && !error} total={runs === null ? null : total} shown={shown.length} />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {shown.map((p) => (
-          <Fragment key={p.key}>{p.card}</Fragment>
+        {shown.map((entry) => (
+          <EntryCard key={entry.key} entry={entry} />
         ))}
       </div>
     </main>

@@ -1,47 +1,20 @@
 import Link from "next/link";
 import { DeleteVod } from "@/components/DeleteVod";
 import { api } from "@/lib/api";
+import { activeFile, countClips, failedFile, firstLine, isRunning, projectSize, stageText, waitingText, type ProjectEntry } from "@/lib/projects";
 import { serverTime } from "@/lib/utils";
-import type { CampaignClip, CampaignProfile, CampaignRunInfo, CampaignStatus } from "@/lib/types";
-
-// Samma namn som stegen på projektsidan (GET /campaign/runs/{id}). Kortet vet inte om kampanjen väljer med
-// Claude eller med signalerna, så steget heter bara Väljer klipp här.
-export const STAGE_LABEL: Record<string, string> = {
-  download: "Hämtar VOD:en",
-  transcribe: "Transkriberar",
-  moments: "Hittar ögonblick",
-  select: "Väljer klipp",
-  clip: "Klipper",
-  finish: "Gör kampanjklart",
-};
+import type { CampaignProject, CampaignRunInfo } from "@/lib/types";
 
 const day = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" });
 
-export function clipTotal(run: CampaignRunInfo): number {
-  return Object.values(run.clip_counts ?? {}).reduce((sum, n) => sum + (n ?? 0), 0);
-}
-
-export const isActive = (run: CampaignRunInfo) => run.status === "pending" || run.status === "running";
+export const isActive = (run: CampaignRunInfo) => isRunning(run.status);
 
 function statusTag(run: CampaignRunInfo): string {
   if (run.cancelled) return "Avbruten";
   if (run.status === "failed") return "Misslyckades";
   if (run.status === "pending") return "I kö";
-  if (run.status === "running") {
-    const stage = run.stage ? (STAGE_LABEL[run.stage] ?? run.stage) : "Startar";
-    return run.pct != null ? `${stage} ${Math.round(run.pct)} %` : stage;
-  }
-  const n = clipTotal(run);
-  return `Klar, ${n} klipp`;
-}
-
-/** "2 att granska, 1 att rätta": det som väntar på Robin i projektet. */
-function waiting(counts: Partial<Record<CampaignStatus, number>>): string | null {
-  const parts = [
-    counts.renderad ? `${counts.renderad} att granska` : null,
-    counts.underkand ? `${counts.underkand} att rätta` : null,
-  ].filter(Boolean);
-  return parts.length ? parts.join(", ") : null;
+  if (run.status === "running") return stageText(run.stage, run.pct);
+  return `Klar, ${countClips(run.clip_counts)} klipp`;
 }
 
 function Card({
@@ -106,7 +79,7 @@ function RunPicture({ run }: { run: CampaignRunInfo }) {
   return <Picture src={src} dim={isActive(run)} fallback={own ? "Egen fil" : `VOD ${run.vod_id}`} />;
 }
 
-function Progress({ pct }: { pct: number | null | undefined }) {
+export function Progress({ pct }: { pct: number | null | undefined }) {
   return (
     <div
       className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-line"
@@ -125,9 +98,9 @@ function Progress({ pct }: { pct: number | null | undefined }) {
 const canFreeSpace = (run: CampaignRunInfo) => Boolean(run.vod_bytes) && !isActive(run);
 
 export function ProjectCard({ run }: { run: CampaignRunInfo }) {
-  const todo = waiting(run.clip_counts ?? {});
+  const todo = waitingText(run.clip_counts ?? {});
   // Felets första rad, så att Robin ser varför utan att öppna projektet.
-  const why = failedByError(run) ? run.error?.split("\n")[0] : null;
+  const why = failedByError(run) ? firstLine(run.error) : null;
   return (
     <Card
       href={`/runs/${run.run_id}`}
@@ -150,56 +123,46 @@ export function ProjectCard({ run }: { run: CampaignRunInfo }) {
   );
 }
 
-/** Egna videor i en kampanj. De är inget projekt i servern, men visas som ett bredvid projekten. */
-export interface UploadGroup {
-  profile: string;
-  streamer: string;
-  counts: Partial<Record<CampaignStatus, number>>;
-  total: number;
-  /** Det senaste klippet: bilden på kortet och tiden att sortera efter. */
-  latest: CampaignClip;
+/** "Klipper 40 %" medan en fil körs, annars filerna och klippen. */
+function projectTag(project: CampaignProject): string {
+  const file = activeFile(project);
+  if (!file) return projectSize(project);
+  return file.status === "pending" ? "I kö" : stageText(file.stage, project.pct ?? file.pct);
 }
 
-/** Egna videor per kampanj, senaste först. Klippen kommer från GET /campaign/clips?vod_id=upload. */
-export function groupUploads(clips: CampaignClip[], profiles: CampaignProfile[]): UploadGroup[] {
-  const groups = new Map<string, UploadGroup>();
-  for (const clip of clips) {
-    const group = groups.get(clip.profile) ?? {
-      profile: clip.profile,
-      streamer: profiles.find((p) => p.name === clip.profile)?.streamer || clip.profile,
-      counts: {},
-      total: 0,
-      latest: clip,
-    };
-    group.counts[clip.status] = (group.counts[clip.status] ?? 0) + 1;
-    group.total += 1;
-    if (clip.id > group.latest.id) group.latest = clip;
-    groups.set(clip.profile, group);
-  }
-  return [...groups.values()].sort((a, b) => b.latest.id - a.latest.id);
-}
-
-/** Tiden att sortera efter bland projekten: när klippet eller projektet kom till. */
-export const groupTime = (g: UploadGroup) => (g.latest.created ? serverTime(g.latest.created) : 0);
-export const runTime = (r: CampaignRunInfo) => (r.created ? serverTime(r.created) : 0);
-
-export function UploadsCard({ group }: { group: UploadGroup }) {
-  const todo = waiting(group.counts);
+/** Kampanjens projekt för egna filer och uppladdningar: ett kort i stället för ett per fil. */
+export function CampaignProjectCard({ project }: { project: CampaignProject }) {
+  const todo = waitingText(project.clip_counts);
+  const failed = failedFile(project);
+  const when = project.updated ?? project.created;
   return (
     <Card
-      href={`/uploads?kampanj=${encodeURIComponent(group.profile)}`}
-      image={<Picture src={api.campaign.posterUrl(group.latest) ?? null} fallback="Egen video" />}
-      tag={`Egna videor, ${group.total} klipp`}
+      href={`/projects/${project.id}`}
+      image={<Picture src={project.poster_url ? api.campaign.proxied(project.poster_url) : null} dim={project.active} fallback="Egen fil" />}
+      tag={projectTag(project)}
       tagTone="bg-black/70"
-      title={`Egna videor för ${group.streamer}`}
+      title={project.title || `Egna filer för ${project.streamer || project.profile}`}
       meta={
         <>
-          {group.latest.created ? `Senast ${day.format(serverTime(group.latest.created))}` : "Uppladdade videor"}
-          <span className="block">Kampanj: {group.profile}</span>
+          {[project.active ? projectSize(project) : "Egna filer", when ? `senast ${day.format(serverTime(when))}` : null]
+            .filter(Boolean)
+            .join(", ")}
+          <span className="block">Kampanj: {project.profile}</span>
         </>
       }
     >
       {todo && <p className="text-[13px] font-medium text-brand">{todo}</p>}
+      {failed && (
+        <p className="line-clamp-2 text-[13px] break-words text-[#fca5a5]">
+          {failed.title || failed.vod_id}: {firstLine(failed.error)}
+        </p>
+      )}
+      {project.active && <Progress pct={project.pct ?? activeFile(project)?.pct} />}
     </Card>
   );
+}
+
+/** Ett kort på Hem och Projekt: en Twitch-körning eller kampanjens projekt för egna filer. */
+export function EntryCard({ entry }: { entry: ProjectEntry }) {
+  return entry.kind === "run" ? <ProjectCard run={entry.run} /> : <CampaignProjectCard project={entry.project} />;
 }

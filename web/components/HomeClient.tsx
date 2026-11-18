@@ -1,18 +1,19 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, FolderOpen, Link2, Loader2, Send, Upload, X } from "lucide-react";
 import { ProblemFix, readyText } from "@/components/CampaignsClient";
-import { ProjectCard, UploadsCard, groupTime, groupUploads, isActive, runTime } from "@/components/ProjectCard";
+import { EntryCard, isActive } from "@/components/ProjectCard";
 import { ScoutMiniCard } from "@/components/ScoutCard";
 import { api } from "@/lib/api";
 import { handOverFiles } from "@/lib/handoff";
+import { projectEntries } from "@/lib/projects";
 import { stepCount } from "@/lib/steps";
 import { parseTwitchLink } from "@/lib/twitchLink";
 import { clock, cn, duration, parseClock, serverTime, usd } from "@/lib/utils";
-import type { CampaignClip, CampaignProfile, CampaignRunInfo, CampaignSummary, ScoutCampaign, StreamInfo, VodInfo } from "@/lib/types";
+import type { CampaignProfile, CampaignProject, CampaignRunInfo, CampaignSummary, ScoutCampaign, StreamInfo, VodInfo } from "@/lib/types";
 
 const FOCUS_MAX = 300;
 const RUNS_POLL_MS = 5000;
@@ -250,7 +251,7 @@ export function HomeClient() {
   const [profiles, setProfiles] = useState<CampaignProfile[]>([]);
   const [summary, setSummary] = useState<CampaignSummary | null>(null);
   const [runs, setRuns] = useState<CampaignRunInfo[] | null>(null);
-  const [uploads, setUploads] = useState<CampaignClip[]>([]);
+  const [ownProjects, setOwnProjects] = useState<CampaignProject[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [streams, setStreams] = useState<StreamInfo[] | null>(null);
   const [streamsError, setStreamsError] = useState(false);
@@ -300,8 +301,8 @@ export function HomeClient() {
         setSummary(null);
         setLoadError(err instanceof Error ? err.message : "Kunde inte hämta startsidan");
       });
-    // Egna videor visas som projekt. Ett fel här döljer bara korten för dem.
-    api.campaign.clips.list({ vod_id: "upload" }).then(setUploads).catch(() => setUploads([]));
+    // Kampanjernas projekt för egna filer och uppladdningar. Ett fel här döljer bara korten för dem.
+    api.campaign.projects.list().then(setOwnProjects).catch(() => setOwnProjects([]));
     // Egen hämtning: Twitch kan vara långsam, och ett fel här ska inte stoppa resten av sidan.
     loadStreams();
     api.campaign.scout
@@ -318,11 +319,15 @@ export function HomeClient() {
   }, [load]);
 
   // Läs om projekten och siffrorna var femte sekund medan något projekt pågår, också efter ett misslyckat anrop.
-  const anyActive = runs?.some(isActive) ?? false;
+  const anyActive = (runs?.some(isActive) ?? false) || ownProjects.some((p) => p.active);
   useEffect(() => {
     if (!anyActive) return;
     const timer = setTimeout(() => {
-      Promise.all([api.campaign.runs.list().then(setRuns), api.campaign.summary().then(setSummary)])
+      Promise.all([
+        api.campaign.runs.list().then(setRuns),
+        api.campaign.projects.list().then(setOwnProjects),
+        api.campaign.summary().then(setSummary),
+      ])
         .catch(() => {})
         .finally(() => setPollTick((t) => t + 1));
     }, RUNS_POLL_MS);
@@ -492,13 +497,8 @@ export function HomeClient() {
 
   const counts = summary?.counts ?? {};
   const underkand = counts.underkand ?? 0;
-  const projects = useMemo(() => {
-    const groups = groupUploads(uploads, profiles);
-    return [
-      ...(runs ?? []).map((run) => ({ key: `run-${run.run_id}`, time: runTime(run), card: <ProjectCard run={run} /> })),
-      ...groups.map((g) => ({ key: `upload-${g.profile}`, time: groupTime(g), card: <UploadsCard group={g} /> })),
-    ].sort((a, b) => b.time - a.time);
-  }, [runs, uploads, profiles]);
+  // En egen fil syns i kampanjens projekt, inte som ett eget kort.
+  const projects = useMemo(() => projectEntries(runs ?? [], ownProjects), [runs, ownProjects]);
 
   return (
     <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
@@ -931,8 +931,8 @@ export function HomeClient() {
         </p>
       )}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {projects.slice(0, SHOWN_PROJECTS).map((p) => (
-          <Fragment key={p.key}>{p.card}</Fragment>
+        {projects.slice(0, SHOWN_PROJECTS).map((entry) => (
+          <EntryCard key={entry.key} entry={entry} />
         ))}
       </div>
     </main>
