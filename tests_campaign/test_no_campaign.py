@@ -224,3 +224,10 @@ def test_the_api_cannot_approve_or_post_a_clip_without_a_campaign(client, hidden
 def test_a_hidden_campaign_is_not_found(client, path) -> None:
     for name in (NO_CAMPAIGN, "_finns_inte"):
         assert client.get(f"/campaign/profiles/{name}{path}", headers=KEY).status_code == 404
+
+
+def test_approve_on_the_command_line_skips_a_clip_without_a_campaign(hidden, cli_main, monkeypatch) -> None:
+    log, clip_id = _hidden_clip(hidden, "renderad")
+    monkeypatch.setattr("builtins.input", lambda *a: "j")
+    assert cli_main(["approve"]) == 0
+    assert log.get(clip_id)["status"] == "renderad"

@@ -50,6 +50,8 @@ def http_client() -> httpx.Client:
 
 
 def _profile_path(profile_id: str, settings: Settings) -> Path:
+    if profile_id.startswith("_"):  # dolda kampanjer, som _ingen för liveklipp utan kampanj
+        raise HTTPException(404, f"Kampanjen {profile_id} finns inte.")
     if not edit.ID.fullmatch(profile_id):
         raise HTTPException(400, "Kampanjens id får bara ha små bokstäver, siffror och _ (2–40 tecken).")
     path = settings.profiles_dir / f"{profile_id}.yaml"
