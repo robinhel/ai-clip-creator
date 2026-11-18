@@ -93,6 +93,7 @@ Respond ONLY with a valid JSON object matching this schema (no markdown, no extr
   "start_quote": <string>,     // the clip's first 3-6 words, copied exactly from the transcript
   "end_quote": <string>,       // the clip's last 3-6 words, copied exactly from the transcript
   "title": <string>,           // 3-7 word title, no hashtags, no spoilers
+  "headline": <string>,        // the short line shown on screen, see the rules below
   "reason": <string>,          // 1-2 sentences: why, and the first sentence of the clip
   "hook": <integer>,           // 0-25
   "engagement": <integer>,     // 0-25
@@ -115,6 +116,10 @@ Rules:
 - Start on the first word of a sentence and end after the last word of a sentence.
 - The quotes decide where the clip is cut, so copy the words exactly as the transcript has them.
 - If include is false, still fill the times and title with a best estimate.
+- headline is shown on screen for the whole clip. Max 8 words, in the language of the title.
+  Give the viewer a reason to watch: a fan's honest reaction, what is at stake, or a tip or fact
+  the clip itself shows or says. Do not just describe the picture. No invented facts, numbers or names.
+- Make the clip as long as the moment needs: end right after the payoff, with no wind-down, outro or next topic.
 """
 
 SCORED_SYSTEM_PROMPT = _STREAM_INTRO + SCORED_ANSWER_FORMAT + _TRANSCRIPT_RULE
@@ -226,7 +231,8 @@ def build_stream_context(
         f"Platform: Twitch (clips for TikTok/YouTube Shorts)\n"
     )
     if language.lower() not in ("english", "en"):
-        field = "title" if mode == "v2" else "title_es"  # the name the answer format uses
+        # the names the answer format uses
+        field = "title and headline" if mode == "v2" else "title_es"
         context += (
             f"Write {field} in {language}, not English. This applies instead of the instructions.\n"
         )

@@ -45,6 +45,8 @@ def load_picks(path: Path) -> list[dict]:
                 "start": pick.get("start_offset_s"),
                 "end": pick.get("end_offset_s"),
                 "title": pick.get("title") or pick.get("title_es") or "",
+                # kort rad för bilden (val v2); tom i äldre picks
+                "headline": pick.get("headline", ""),
                 "format": pick.get("format"),
                 "signals": item.get("candidate", {}).get("sources", []),
                 # None för picks från före betyget och för snabbläget: inget betyg från Claude att visa
@@ -56,6 +58,13 @@ def load_picks(path: Path) -> list[dict]:
             }
         )
     return picks
+
+
+def headline_text(pick: dict) -> str:
+    """Texten överst i bilden: Claudes headline, annars titeln. Snabblägets platshållare "Moment h:mm:ss" och en
+    pick utan titel ger ingen text. Filnamnsreserven skickas inte hit, så den blir ingen text heller."""
+    text = pick.get("headline") or pick.get("title") or ""
+    return "" if PLACEHOLDER.search(text) else text
 
 
 TITLE_WORDS = 8
@@ -133,8 +142,7 @@ def finish_vod(
         index = int(re.match(r"clip_(\d+)", src.name).group(1))
         pick = picks[index - 1] if 0 < index <= len(picks) else {}
         title = pick.get("title") or title_from_name(src)
-        hook = pick.get("title") or ""  # filnamnet blir ingen hook-text
-        hook = "" if PLACEHOLDER.search(hook) else hook  # snabblägets "Moment h:mm:ss" blir ingen hook-text
+        hook = headline_text(pick)  # captionen byggs av title nedan, aldrig av headline
         start, end = pick.get("start"), pick.get("end")
         if PLACEHOLDER.search(title):  # rubrik och caption utan platshållaren, men ingen hook-text av talet
             title = spoken_title(settings.work_dir / vod_id / "transcript.json", start, end) or title

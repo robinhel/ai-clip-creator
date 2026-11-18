@@ -67,6 +67,7 @@ class ClipPick:
     payoff_end_s: float | None = None
     start_quote: str = ""  # the clip's first words as Claude quoted them (v2); the times are found from them
     end_quote: str = ""
+    headline: str = ""  # the short line shown on screen (v2); empty means the title is used
     if TYPE_CHECKING:
 
         @property
@@ -102,6 +103,7 @@ class ClipPick:
             payoff_end_s=_seconds(d.get("payoff_end_s")),
             start_quote=str(d.get("start_quote") or ""),
             end_quote=str(d.get("end_quote") or ""),
+            headline=str(d.get("headline") or ""),
             hook=subscores["hook"],
             engagement=subscores["engagement"],
             value=subscores["value"],
