@@ -1,4 +1,4 @@
-"""Hook-text: klippets titel överst de första sekunderna, när kampanjen inte kräver egen text."""
+"""Hook-text: klippets titel överst hela klippet, när kampanjen inte kräver egen text."""
 
 from __future__ import annotations
 
@@ -37,11 +37,11 @@ def test_the_profile_can_turn_the_hook_off(settings, blizzard) -> None:
     assert load_profile("blizzard_nordics", settings.profiles_dir).hook_text is False
 
 
-def test_hook_is_drawn_the_first_seconds_only(blizzard) -> None:
+def test_hook_is_drawn_the_whole_clip(blizzard) -> None:
     graph = build_filter(
         blizzard, has_overlay=False, has_audio=True, font=None, title="Huge clutch"
     )
-    assert "drawtext" in graph and "enable='lt(t,3)'" in graph
+    assert "drawtext" in graph and "enable=" not in graph
     assert "Huge clutch" in graph
 
 

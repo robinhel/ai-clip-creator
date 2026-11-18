@@ -100,8 +100,9 @@ def test_campaign_detail_has_overlay_text_caption_and_payment(client) -> None:
     assert detail["overlay"] == {"file": "overlays/skiimasktimmy.png", "required": True, "mode": "full",
                                  "exists": False, "url": "/campaign/profiles/skiimasktimmy/overlay",
                                  "width": None, "height": None}
-    assert detail["on_screen_text"] == {"text": "twitch.tv/skiimasktimmy", "position": "top", "required": True}
-    assert detail["safe_zone"] == {"top": 0.07, "bottom": 0.20}
+    assert detail["on_screen_text"] == {"text": "twitch.tv/skiimasktimmy", "position": "top", "required": True,
+                                        "hook_style": "sans"}
+    assert detail["safe_zone"] == {"top": 0.125, "bottom": 0.20}
     assert detail["caption"]["must_include"] == ["twitch.tv/skiimasktimmy"]
     assert "#fps" in detail["caption"]["hashtags"]
     assert "{title}" in detail["caption"]["template"]
