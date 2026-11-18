@@ -339,3 +339,32 @@ def test_stream_info_asks_twitch_for_the_live_stream(monkeypatch) -> None:
     assert live.stream_info("finnsinte") is None
     # Fel format frågar inte Twitch.
     assert live.stream_info('x" } evil') is None and len(asked) == 3
+
+
+@pytest.mark.parametrize("status", ["vantar", "hamtar"])
+def test_the_buffer_is_kept_while_a_peak_waits_to_be_cut(free, settings, status) -> None:
+    free.watcher.check()
+    folder = free.record.recorders[0].folder
+    folder.mkdir(parents=True)
+    state = live.LiveState(settings)
+    n = state.add_peak(KEY, "555", 3000.0, "2026-11-18T12:00:00+00:00")  # delen är inte klippt än
+    state.update_peak(KEY, "555", n, status=status)
+    state.set_watching(KEY, False)
+    free.watcher.check()
+    assert folder.exists() and free.record.recorders[0].stopped
+    state.update_peak(KEY, "555", n, status="klar")
+    free.watcher.check()  # nästa varv: ingen topp väntar, bufferten tas bort
+    assert not folder.exists()
+
+
+def test_a_free_peak_is_an_error_when_it_cannot_be_queued(free, settings, monkeypatch) -> None:
+    mark = free.watcher._mark
+
+    def broken(job, status, **fields):
+        if status == "ko":
+            raise OSError("läget gick inte att skriva")
+        mark(job, status, **fields)
+
+    monkeypatch.setattr(free.watcher, "_mark", broken)
+    peak = _free_peak_not_queued(free)
+    assert (peak["status"], peak["reason"]) == ("fel", "läget gick inte att skriva")

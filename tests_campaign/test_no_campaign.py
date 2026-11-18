@@ -231,3 +231,23 @@ def test_approve_on_the_command_line_skips_a_clip_without_a_campaign(hidden, cli
     monkeypatch.setattr("builtins.input", lambda *a: "j")
     assert cli_main(["approve"]) == 0
     assert log.get(clip_id)["status"] == "renderad"
+
+
+def test_the_hidden_campaign_has_no_material_and_no_chat(client, monkeypatch) -> None:
+    from campaign import chat
+
+    monkeypatch.setattr(chat, "send", lambda *a, **k: pytest.fail("ingen Claude"))
+    for path in ("/material", "/chats"):
+        assert client.get(f"/campaign/profiles/{NO_CAMPAIGN}{path}", headers=KEY).status_code == 404
+    answer = client.post(f"/campaign/profiles/{NO_CAMPAIGN}/chats", json={"message": "roliga"}, headers=KEY)
+    assert answer.status_code == 404
+    # Kontroll: en riktig kampanj har sitt material som förut.
+    assert client.get("/campaign/profiles/skiimasktimmy/material", headers=KEY).status_code == 200
+
+
+def test_a_project_cannot_be_started_for_the_hidden_campaign(client, hidden, monkeypatch) -> None:
+    monkeypatch.setattr(api, "_facts", lambda *a, **k: pytest.fail("ingen Twitch"))
+    monkeypatch.setattr(api, "run_campaign_vod", lambda *a, **k: pytest.fail("ingen körning"))
+    answer = client.post("/campaign/runs", json={"profile": NO_CAMPAIGN, "vod_id": "2925991945"}, headers=KEY)
+    assert (answer.status_code, answer.json()["detail"]) == (404, f"Kampanjen {NO_CAMPAIGN} finns inte.")
+    assert ClipLog(hidden.data_dir / "klipp.db").runs() == []
