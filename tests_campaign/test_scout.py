@@ -582,6 +582,18 @@ def test_an_error_after_the_limit_does_not_replace_the_limit(settings, fake, mon
     assert "trasig" in caplog.text  # felet loggas
 
 
+def test_an_error_in_the_scores_without_an_error_from_clippingalpha_is_saved(settings, fake, monkeypatch) -> None:
+    fake.add("timmy/streams")
+
+    def broken(self, now: datetime) -> None:
+        raise RuntimeError("trasig")
+
+    monkeypatch.setattr(scout.Scout, "_rescore", broken)
+    scout.Scout(settings).run_once()
+    assert scout.Scout(settings).overview()["error"] == (
+        "Bevakningen fick ett fel (RuntimeError). Den försöker igen om 10 minuter.")
+
+
 def test_a_max_payout_that_is_not_a_number_is_not_sent_to_the_web(settings, fake) -> None:
     analytics = _analytics()
     analytics["pay"]["maxPayoutUsd"] = "1200"
@@ -1031,7 +1043,29 @@ def test_without_a_channel_or_campaign_page_there_is_no_twitch_or_page_call(sett
     scout.Scout(settings).run_once()
     assert (fake.go, fake.twitch_calls, fake.clip_calls) == ([], [], [])
     data = _saved(settings)
-    assert data["twitch_login"] is None and "assets_at" in data and "join_checked_at" not in data
+    assert data["twitch_login"] is None and "assets_at" in data
+
+
+def test_without_a_go_link_from_get_campaign_go_is_checked_and_not_counted_again(settings, fake, monkeypatch) -> None:
+    fake.add("timmy/streams", whereToJoin=[{**_campaign()["whereToJoin"][0], "joinUrl": "https://other.example/x"}])
+    fake.newest[0]["joinUrl"] = "https://other.example/x"
+    scout.Scout(settings).run_once()
+    assert fake.go == [] and _saved(settings)["join_checked_at"] == scout._iso(NOW)
+
+    _later(monkeypatch, hours=7)  # nästa detaljuppdatering
+    # 2 sökningar, sedan 2 kvar: get_campaign och analytics ryms, men inte ett /go/ till
+    s = scout.Scout(settings)
+    s._count(scout.CALL_LIMIT - scout.reserve(NOW + timedelta(hours=7)) - 4 - s.calls_today())
+    s.run_once()
+    assert len(fake.calls("tools/call", "get_campaign")) == 2 and fake.go == []
+
+
+def test_without_an_answer_from_get_campaign_go_is_not_marked_as_checked(settings, fake) -> None:
+    fake.add("timmy/streams")
+    fake.newest[0]["joinUrl"] = "https://other.example/x"
+    fake.broken.add("timmy/streams")
+    scout.Scout(settings).run_once()
+    assert "join_checked_at" not in _saved(settings) and fake.go == []
 
 
 def test_failing_views_do_not_stop_the_run_and_keep_what_was_there(settings, fake, monkeypatch) -> None:
