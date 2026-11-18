@@ -33,7 +33,7 @@ import httpx
 from .config import Settings, load_settings
 from .content_views import (USER_AGENT, campaign_clip_views, channel_from_assets, go_link, resolve_join,
                             twitch_clip_views, twitch_login_from_vod, vod_from_assets)
-from .scout_score import _days, _first, _time, evaluate, facts, min_views
+from .scout_score import _days, _first, _time, evaluate, facts, min_views, pay_number
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +71,7 @@ REF = re.compile(r"[a-z0-9][a-z0-9-]{0,99}/[a-z0-9][a-z0-9-]{0,99}")
 
 _session: dict[str, str | None] = {"id": None}  # MCP-sessionen återanvänds, så att initialize inte kostar varje gång
 _last_call = [0.0]
+_last_page = [0.0]  # senaste sidan från Content Rewards, i _details eller _refresh_clip_views
 _run_lock = threading.Lock()  # tråden och Kontrollera nu kör inte samtidigt
 _thread: list[threading.Thread] = []
 
@@ -304,9 +305,16 @@ class Scout:
                 self._save_items(items, now)
                 self._details(http, items, now)
         finally:  # också när ClippingAlpha stoppar körningen: klippen kommer från Content Rewards
-            self._refresh_clip_views(now)
-            self._rescore(now)
+            self._after_alpha(now)
         self._notify(now)
+
+    def _after_alpha(self, now: datetime) -> None:
+        """Nya klipp och nya betyg. Fel loggas och kastas inte, så att de inte ersätter felet från ClippingAlpha."""
+        for step in (self._refresh_clip_views, self._rescore):
+            try:
+                step(now)
+            except Exception:
+                log.exception("Kampanjbevakningen: %s fick ett fel", step.__name__)
 
     def _search(self, http: httpx.Client, arguments: dict) -> list[dict]:
         content = self._tool(http, "search_campaigns", arguments)
@@ -361,8 +369,7 @@ class Scout:
         """Kampanjens klipp på Content Rewards för kampanjer som syns under Kampanjer, när de är äldre än 6 timmar.
         De bästa först och högst CLIP_VIEWS_PER_RUN per körning. Inga anrop till ClippingAlpha."""
         due = [r for r in self._shown(now) if r["excluded"] is None and _clip_views_due(json.loads(r["data"]), now)]
-        for i, row in enumerate(due[:CLIP_VIEWS_PER_RUN]):
-            time.sleep(CLIP_PAGE_GAP_S if i else 0)  # ingen paus före den första sidan
+        for row in due[:CLIP_VIEWS_PER_RUN]:
             self._merge(row["ref"], _clip_views(json.loads(row["data"]), now))
 
     def _fetch_tool(self, http: httpx.Client, name: str, ref: str) -> dict | None:
@@ -492,7 +499,12 @@ def _clip_views(data: dict, now: datetime) -> dict:
     if not data.get("cr_url"):
         return {}
     found: dict = {"clip_views_at": _iso(now)}
-    clip_views = campaign_clip_views(data["cr_url"])
+    # minst CLIP_PAGE_GAP_S mellan två sidor, också från den sista i _details till den första i _refresh_clip_views
+    time.sleep(max(0.0, CLIP_PAGE_GAP_S - (time.monotonic() - _last_page[0])))
+    try:
+        clip_views = campaign_clip_views(data["cr_url"])
+    finally:
+        _last_page[0] = time.monotonic()
     if clip_views is not None:
         found["clip_views"] = clip_views
     return found
@@ -556,7 +568,7 @@ def _view(row: sqlite3.Row, now: datetime) -> dict:
         "rate_usd": f["rate"],
         "net_rate_usd": _first(f["net"], round(f["rate"] * (1 - f["fee"]), 2) if f["rate"] is not None else None),
         "budget_left_usd": f["left"], "budget_total_usd": f["total"], "min_views": min_views(f),
-        "max_payout_usd": (f["pay"] or {}).get("maxPayoutUsd"),
+        "max_payout_usd": pay_number(f["pay"], "maxPayoutUsd"),
         "drain_days": None if drain is None else round(max(drain, 0), 1),
         "platforms": f["platforms"], "mentions_twitch": "twitch" in source, "open_join": f["open_join"],
         "page_url": _safe(f["page_url"]), "join_url": _safe(f["join_url"]), "first_seen": row["first_seen"],

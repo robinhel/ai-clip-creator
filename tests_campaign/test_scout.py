@@ -1267,6 +1267,7 @@ def test_the_pause_also_holds_from_the_details_to_the_shown_campaigns(settings, 
     _seed_with_page(settings, "low/streams", 10, clip_age_h=7)  # sedan den här i _refresh_clip_views
     events: list[str | float] = []
     monkeypatch.setattr(scout, "CLIP_PAGE_GAP_S", 1.0)
+    monkeypatch.setattr(scout, "_last_call", [100.0])  # ingen väntan före anropen till ClippingAlpha
     monkeypatch.setattr(scout, "_last_page", [0.0])
     # klockan står still: varje sida efter den första måste vänta hela CLIP_PAGE_GAP_S
     monkeypatch.setattr(scout, "time", SimpleNamespace(monotonic=lambda: 100.0, sleep=events.append))

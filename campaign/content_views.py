@@ -1,4 +1,4 @@
-"""Hur många visningar kampanjens innehåll brukar få, för delen Visningar i kampanjbetyget (campaign/scout.py).
+"""Hur många visningar kampanjens innehåll brukar få, för delen Visningar i kampanjbetyget (campaign/scout_score.py).
 
 Två källor: kanalens bästa Twitch-klipp de senaste 30 dagarna (Helix, en sida) och kampanjens bästa klipp på
 Content Rewards (den publika kampanjsidan, via examples.fetch). Twitch-kanalen kommer ur ClippingAlphas get_assets,

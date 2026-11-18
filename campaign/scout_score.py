@@ -93,17 +93,18 @@ def facts(data: dict) -> dict:
     }
 
 
-def _usd(pay: dict | None, key: str) -> float | None:
-    """Ett dollarbelopp ur pay. Bara int och float räknas, inte bool; annat är som om fältet saknas."""
+def pay_number(pay: dict | None, key: str) -> float | None:
+    """Ett tal ur pay, dollar eller visningar. Bara int och float räknas, inte bool; annat är som om fältet saknas."""
     value = (pay or {}).get(key)
     return value if isinstance(value, int | float) and not isinstance(value, bool) else None
 
 
 def min_views(f: dict) -> int | None:
     pay = f["pay"] or {}
-    if pay.get("minViews"):
-        return int(pay["minViews"])
-    minimum = _usd(pay, "minPayoutUsd")
+    views = pay_number(pay, "minViews")
+    if views:
+        return int(views)
+    minimum = pay_number(pay, "minPayoutUsd")
     if minimum and f["rate"]:
         return math.ceil(1000 * minimum / f["rate"])
     return None
@@ -159,7 +160,7 @@ def _max_payout_part(pay: dict | None) -> dict:
     """Hur mycket ett klipp högst kan ge (maxPayoutUsd), på log-skala. Utan tak: full poäng."""
     if pay is None:  # analytics är inte hämtad
         return _unknown("max_payout", "Max payout per klipp", PAYOUT_MAX)
-    cap = _usd(pay, "maxPayoutUsd")
+    cap = pay_number(pay, "maxPayoutUsd")
     points = PAYOUT_MAX if cap is None else _log_points(cap, *MAX_PAYOUT, PAYOUT_MAX)
     fact = "Inget tak per klipp" if cap is None else f"Högst {_number(cap)} dollar per klipp"
     return _part("max_payout", "Max payout per klipp", points, PAYOUT_MAX, fact)
@@ -197,7 +198,7 @@ def evaluate(data: dict, median: float, cpm_median: float, now: datetime) -> tup
 
     # 3. Chans att nå minimum.
     label = "Chans att nå minimum"
-    if f["pay"] is None or (views is None and (_usd(f["pay"], "minPayoutUsd") and not f["rate"])):
+    if f["pay"] is None or (views is None and (pay_number(f["pay"], "minPayoutUsd") and not f["rate"])):
         parts.append(_unknown("minimum", label, 20))
     elif views is None:
         parts.append(_part("minimum", label, 20, 20, "Ingen minsta utbetalning"))
