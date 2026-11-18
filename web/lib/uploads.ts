@@ -64,6 +64,9 @@ const twoDecimals = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 2 })
 /** Sekunder med decimalkomma, högst en decimal: 18,2. */
 export const formatSeconds = (s: number) => oneDecimal.format(s);
 
+/** Det färdiga klippet blir så här mycket längre än (slut − start) / hastighet (ljudet), som servern räknar. */
+export const EXTRA_S = 0.1;
+
 /** Klippets längd i sekunder: (slut − start) / hastighet. */
 export function clipLength(c: Choices, durationS: number): number {
   const end = c.endS > 0 ? c.endS : durationS;
