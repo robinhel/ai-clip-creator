@@ -10,6 +10,7 @@ Vägarna registreras på campaign.api.router, som importerar den här modulen si
 
 from __future__ import annotations
 
+import math
 import shutil
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -60,16 +61,28 @@ def _campaign(choices: Choices, settings: Settings) -> Profile:
     return _profile(choices.profile, settings)
 
 
+@contextmanager
+def _as_http() -> Iterator[None]:
+    try:
+        yield
+    except versions.VersionError as error:
+        raise HTTPException(error.status, str(error)) from error
+
+
+def _choices_only(settings: Settings, choices: Choices, duration: float) -> Plan:
+    """Valen kontrollerade, utan kampanjens längd: en bild nekas aldrig för längden."""
+    campaign = _campaign(choices, settings)
+    with _as_http():
+        return drafts.make_plan(settings, campaign, choices, duration)
+
+
 def _plan(settings: Settings, choices: Choices, duration: float, strict: bool) -> Plan:
     """Valen kontrollerade. strict: kampanjens min och max gäller alltid (utkasten). Annars bara när start
     eller slut är valt; utan dem säger regelkontrollen till, som förut."""
-    campaign = _campaign(choices, settings)
-    try:
-        plan = drafts.make_plan(settings, campaign, choices, duration)
-        if strict or plan.trimmed:
+    plan = _choices_only(settings, choices, duration)
+    if strict or plan.trimmed:
+        with _as_http():
             drafts.check_length(plan)
-    except versions.VersionError as error:
-        raise HTTPException(error.status, str(error)) from error
     return plan
 
 
@@ -112,10 +125,8 @@ def upload(choices: Annotated[Choices, Form()], file: UploadFile = File(...),
 # ---------- Utkast ----------
 
 def _draft(settings: Settings, draft_id: str) -> Path:
-    try:
+    with _as_http():
         return drafts.folder(settings, draft_id)
-    except versions.VersionError as error:
-        raise HTTPException(error.status, str(error)) from error
 
 
 @contextmanager
@@ -131,18 +142,18 @@ def _locked(settings: Settings, draft_id: str) -> Iterator[Path]:
              dependencies=KEY)
 def create_draft(file: UploadFile = File(...), settings: Settings = Depends(get_settings)) -> dict:
     name = _video_name(file)
-    try:
+    with _as_http():
         return drafts.create(settings, file.file, name.name)
-    except versions.VersionError as error:
-        raise HTTPException(error.status, str(error)) from error
 
 
 @router.get("/uploads/drafts/{draft_id}/frame", summary="En bild ur klippet vid tiden t, som den blir",
             response_class=Response)
 def draft_frame(draft_id: str, choices: Annotated[FrameChoices, Query()],
                 settings: Settings = Depends(get_settings)) -> Response:
+    if not math.isfinite(choices.t):
+        raise HTTPException(400, "Tiden t måste vara ett tal i sekunder.")
     path = _draft(settings, draft_id)
-    plan = _plan(settings, choices, drafts.meta(path)["duration_s"], strict=False)
+    plan = _choices_only(settings, choices, drafts.meta(path)["duration_s"])
     try:
         picture = drafts.frame(path, plan, choices.t)
     except RuntimeError as error:

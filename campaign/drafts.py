@@ -22,6 +22,7 @@ import subprocess
 import threading
 import time
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import BinaryIO
@@ -45,6 +46,7 @@ CHOICES = "val"
 MAX_AGE_S = 24 * 3600
 DRAFT_ID = re.compile(r"[a-f0-9]{32}")
 EXTRA_S = 0.1  # klippet blir så här mycket längre än källan (ljudet)
+STICKER_END_S = 0.5  # Redigera: klistermärket börjar senast så här långt före klippets slut
 # Fyll hela 9:16-bilden och skär bort det som sticker ut.
 FILL = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
 # Hela bilden, så stor som ryms, på en suddig kopia av sig själv som fyller 9:16. Samma bild som clipsmiths
@@ -161,8 +163,8 @@ def _span(choices: Choices, duration: float) -> tuple[float, float]:
 def _check_choices(choices: Choices) -> dict[str, str]:
     """Valen som inte beror på videon. Returnerar fonterna som finns."""
     if choices.speed not in versions.SPEEDS:
-        raise VersionError(f"Hastigheten {choices.speed:g} går inte. "
-                           f"Välj {', '.join(f'{s:g}' for s in versions.SPEEDS)}.")
+        raise VersionError(f"Hastigheten {comma(choices.speed, 'g')} går inte. "
+                           f"Välj {', '.join(comma(s, 'g') for s in versions.SPEEDS)}.")
     if choices.framing not in FRAMINGS:
         raise VersionError(f"Bildläget {choices.framing!r} finns inte. Välj {', '.join(FRAMINGS)}.")
     found = versions.fonts()
@@ -255,6 +257,7 @@ def store(log: ClipLog, plan: Plan, done: Path, manifest: dict) -> int:
     problems, warnings = check_clip(probe(done), manifest, campaign, caption)
     problems = with_advice(problems)
     write_choices(done.parent.parent, done.stem, plan.saved())
+    log.project(plan.choices.profile, campaign.streamer)  # kampanjens projekt för egna filer, om det saknas
     return log.add(vod_id=UPLOAD, profile=plan.choices.profile, file=str(done), title=plan.hook or Path(plan.name).stem,
                    caption=caption, status="underkand" if problems else "renderad", problems=problems,
                    warnings=warnings)
@@ -300,11 +303,13 @@ class EditLook:
 
     def args(self, settings: Settings, campaign: Profile, length: float) -> dict:
         """finish_clip-valen: look, hastighet, egen overlay, font och klistermärket, placerat med klippets nya
-        längd (råtid) och rubrik. Fel ger ValueError, som redigeraren visar."""
+        längd (råtid) och rubrik. Klistermärket börjar senast STICKER_END_S före slutet, så att ett kortat klipp
+        inte stoppar Redigera. Fel ger ValueError, som redigeraren visar."""
         if not self.choices:
             return {}
         try:
             checked = Choices.model_validate({**self.choices, "title": self.hook, "start_s": 0, "end_s": 0})
+            checked.sticker_start_s = min(checked.sticker_start_s, max(length - STICKER_END_S, 0.0))
             found = _check_choices(checked)
             look = versions.look(checked.mirror, checked.filter, checked.brightness, checked.saturation)
             own = versions._overlay(settings, campaign, checked.overlay or None)
@@ -337,6 +342,8 @@ def folder(settings: Settings, draft_id: str) -> Path:
     path = _root(settings) / draft_id
     if not DRAFT_ID.fullmatch(draft_id) or not (path / "meta.json").is_file():
         raise VersionError("Utkastet finns inte. Ladda upp videon igen.", 404)
+    with suppress(FileNotFoundError):  # borttaget nyss: felet kommer när meta.json läses
+        os.utime(path / "meta.json")  # används nu: _clean_old räknar åldern från meta.json
     return path
 
 

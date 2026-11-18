@@ -154,8 +154,9 @@ def edit_info(clip: dict, profile: Profile, settings: Settings) -> dict:
                     "url": f"/campaign/clips/{clip['id']}/original"}
         trim = {"in_s": state["in_s"], "out_s": state["out_s"]}
     data, why = _words(raw, profile, settings)
+    speed = drafts.EditLook.of(raw).speed if raw is not None else 1.0  # webben räknar längden med den
     return {"clip_id": clip["id"], "title": clip["title"], "original": original, "trim": trim,
-            "min_s": min_s, "max_s": max_s, "editable": reason is None, "reason": reason,
+            "min_s": min_s, "max_s": max_s, "speed": speed, "editable": reason is None, "reason": reason,
             "subtitles": {"editable": data is not None, "reason": why, "words": data["words"] if data else [],
                           "style": data["caption"].get("style") if data else None}}
 
@@ -211,12 +212,13 @@ def _check_trim(state: dict, trim: tuple[float, float], profile: Profile, speed:
     """Den nya trimningen inom originalet och inom kampanjens längd. Klippet blir kortare med hastigheten."""
     new_in, new_out = trim
     if not 0 <= new_in < new_out <= state["duration_s"]:
-        raise ValueError(f"Start och slut måste ligga inom klippet: 0 till {state['duration_s']:g} s, "
-                         "och starten före slutet.")
+        shown = drafts.comma(state["duration_s"], "g")
+        raise ValueError(f"Start och slut måste ligga inom klippet: 0 till {shown} s, och starten före slutet.")
     min_s, max_s = limits(profile)
     length = round((new_out - new_in) / speed, 3)  # exakt kampanjens gränser, som i webben
     if not min_s <= length <= max_s:
-        raise ValueError(f"Klippet blir {length:.1f} s. Kampanjen tillåter {min_s:g}–{max_s:g} s.")
+        raise ValueError(f"Klippet blir {drafts.comma(length, '.1f')} s. "
+                         f"Kampanjen tillåter {drafts.comma(min_s, 'g')}–{drafts.comma(max_s, 'g')} s.")
 
 
 def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,

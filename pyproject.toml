@@ -55,7 +55,7 @@ dev = [
     "python-multipart>=0.0.9",  # uppladdning av egna videor
 ]
 server = [
-    "fastapi>=0.111",
+    "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "sqlalchemy>=2.0",
     "alembic>=1.13",

@@ -65,7 +65,7 @@ def test_two_uploads_with_the_same_name_get_their_own_files(client, tmp_path, mo
 @needs_ffmpeg
 @pytest.mark.parametrize(("form", "text"), [
     ({"profile": "finns-inte"}, "Kampanjen"),
-    ({"speed": "1.33"}, "Hastigheten"),
+    ({"speed": "1.33"}, "Hastigheten 1,33 går inte. Välj 1, 1,05, 1,1, 1,15, 1,2."),
     ({"filter": "nope"}, "Filtret"),
 ])
 def test_bad_choices_are_refused_and_nothing_is_saved(client, settings, tmp_path, form, text) -> None:

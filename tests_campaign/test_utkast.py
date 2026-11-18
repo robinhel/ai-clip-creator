@@ -141,6 +141,8 @@ def test_save_with_the_same_choices_keeps_the_rendered_file(client, settings, tm
     assert raw.is_file()  # råklippet, som Redigera utgår från
     choices = json.loads((settings.out_dir / "upload" / "val" / f"{raw.stem}.json").read_text())
     assert (choices["mirror"], choices["speed"], choices["sticker"]) == (True, 1.1, "fire.png")
+    # Kampanjens projekt för egna filer skapas när klippet sparas, inte när projekten läses.
+    assert [p["profile"] for p in ClipLog(settings.data_dir / "klipp.db").projects()] == ["skiimasktimmy"]
 
 
 @needs_ffmpeg
@@ -166,6 +168,9 @@ def test_with_mirror_the_title_reads_the_right_way(client, tmp_path) -> None:
     picture = "crop=540:220:0:860,"  # vänstra halvan där videons svarta ruta står
     assert _psnr(plain, mirrored, title) >= 45
     assert _psnr(plain, mirrored, picture) < 20
+    untitled = tmp_path / "utan.jpg"  # kontroll: rubriken står verkligen på raden
+    untitled.write_bytes(_frame(client, draft_id, 1.0, mirror="true", sticker="", title=""))
+    assert _psnr(mirrored, untitled, title) < 30
 
 
 def _edit(client, clip_id, **body):
@@ -182,6 +187,7 @@ def test_edit_keeps_mirror_speed_filter_and_sticker(client, settings, tmp_path) 
     path = ClipLog(settings.data_dir / "klipp.db").get(clip["id"])["file"]
     before = _nth(path, 130, tmp_path / "fore.png")  # råtid 4,3 s: efter rubriken
     length = probe(path)["duration"]
+    assert client.get(f"/campaign/clips/{clip['id']}/edit").json()["speed"] == 1.1  # webben räknar längden
 
     _edit(client, clip["id"], title="Ny rubrik")
     assert probe(path)["duration"] == pytest.approx(length, abs=0.05)
@@ -208,6 +214,7 @@ def test_a_clip_outside_the_campaigns_length_is_refused_before_rendering(client,
                 on_screen_text={"text": "", "hook_text": True}, overlay={"file": None, "required": False})
     calls = _count(monkeypatch)
     draft_id = _draft(client, make_clip(tmp_path / "a.mp4", size="1920x1080", seconds=7))
+    _frame(client, draft_id, 1.0, **{"speed": "1.0", **form})  # bilden nekar aldrig för längden
     for step in ("render", "save"):
         answer = client.post(f"/campaign/uploads/drafts/{draft_id}/{step}",
                              data={**CHOICES, "speed": "1.0", **form})
@@ -228,6 +235,7 @@ def test_an_old_upload_without_saved_choices_is_edited_as_before(client, setting
     saved = settings.out_dir / "upload" / "val" / f"{raw.stem}.json"
     assert json.loads(saved.read_text())["mirror"] is True  # POST /uploads sparar också valen
     saved.unlink()  # som ett klipp från före den här ändringen
+    assert client.get(f"/campaign/clips/{clip['id']}/edit").json()["speed"] == 1.0
     calls: list = []
     real = editor.finish_clip
     monkeypatch.setattr(editor, "finish_clip", lambda *a, **k: calls.append(k) or real(*a, **k))
@@ -269,3 +277,50 @@ def test_a_draft_id_is_never_a_path(client, draft_id) -> None:
 def test_a_draft_takes_only_video_files(client, tmp_path) -> None:
     answer = client.post("/campaign/uploads/drafts", files={"file": ("x.txt", b"x", "text/plain")})
     assert answer.status_code == 400 and "Filtypen" in answer.json()["detail"]
+
+
+@pytest.mark.parametrize("t", ["nan", "inf", "-inf"])
+def test_a_time_that_is_not_a_number_is_400(client, t) -> None:
+    answer = client.get(f"/campaign/uploads/drafts/{'0' * 32}/frame", params={**CHOICES, "t": t})
+    assert answer.status_code == 400 and "Tiden" in answer.json()["detail"], answer.text
+
+
+def test_writing_to_drafts_needs_the_api_key(client, monkeypatch) -> None:
+    monkeypatch.setenv("CLIPSMITH_API_KEY", "hemlig")
+    draft = f"/campaign/uploads/drafts/{'0' * 32}"
+    calls = [("post", "/campaign/uploads/drafts", {"files": {"file": ("a.mp4", b"x", "video/mp4")}}),
+             ("post", f"{draft}/render", {"data": CHOICES}), ("post", f"{draft}/save", {"data": CHOICES}),
+             ("delete", draft, {})]
+    for method, url, body in calls:
+        assert getattr(client, method)(url, **body).status_code == 401, url
+    assert client.delete(draft, headers={"X-Api-Key": "hemlig"}).status_code == 204  # kontroll: med nyckeln
+
+
+@needs_ffmpeg
+def test_a_sticker_after_the_new_end_moves_back_inside_the_clip(client, settings) -> None:
+    choices = drafts.Choices(profile="skiimasktimmy", speed=1.1, sticker="fire.png", sticker_start_s=4,
+                             sticker_duration_s=1).model_dump()
+    look = drafts.EditLook(choices).titled("a", "a")
+    placed = look.args(settings, api._profile("skiimasktimmy", settings), 3.0)["sticker"]  # kortat till 3 s
+    assert (placed["start_s"], placed["end_s"]) == (2.5, 3.5)
+    assert look.args(settings, api._profile("skiimasktimmy", settings), 6.0)["sticker"]["start_s"] == 4
+
+
+@needs_ffmpeg
+def test_the_sticker_error_has_a_decimal_comma(client, settings) -> None:
+    with pytest.raises(drafts.VersionError, match="mellan 0 och 3,5 s"):
+        drafts.versions._sticker(settings, api._profile("skiimasktimmy", settings),
+                                 {"file": "fire.png", "start_s": 4, "duration_s": 1}, 3.5)
+
+
+@needs_ffmpeg
+def test_a_draft_in_use_is_not_cleaned_away(client, settings, tmp_path) -> None:
+    source = make_clip(tmp_path / "a.mp4", size="1920x1080", seconds=4)
+    draft_id = _draft(client, source)
+    folder = settings.out_dir / "upload" / ".utkast" / draft_id
+    old = time.time() - 25 * 3600
+    for path in (folder, *folder.iterdir()):
+        os.utime(path, (old, old))
+    _frame(client, draft_id, 1.0)  # Robin tittar på utkastet
+    _draft(client, source)
+    assert folder.exists()
