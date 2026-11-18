@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink, EyeOff } from "lucide-react";
+import { ExternalLink, EyeOff, TriangleAlert } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn, usd } from "@/lib/utils";
 import type { CampaignProfile, ScoutCampaign } from "@/lib/types";
@@ -72,9 +72,24 @@ export function existingCampaign(c: ScoutCampaign, campaigns: CampaignProfile[] 
   });
 }
 
+// country_note: plattformar som inte betalar för visningar från Robins land, eller null.
+// Flytta fältet till ScoutCampaign i lib/types.ts senare.
+type WithCountry = ScoutCampaign & { country_note?: string | null };
+
+/** Syns utan att Varför öppnas: Robin postar mest på TikTok. */
+function CountryNote({ note }: { note?: string | null }) {
+  if (!note) return null;
+  return (
+    <p data-country-note className="mt-2 flex items-start gap-1.5 rounded-lg border border-[#5a4416] bg-[#1b160b] px-2.5 py-1.5 text-[13px] text-warn">
+      <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+      <span>{note}</span>
+    </p>
+  );
+}
+
 /** En kampanj i bevakningen: betyget stort till vänster, fakta i mitten, åtgärder till höger. */
 export function ScoutCard({ campaign: c, onDismiss, busy, existing }: {
-  campaign: ScoutCampaign;
+  campaign: WithCountry;
   onDismiss: () => void;
   busy: boolean;
   /** Kampanjen är redan inlagd under Kampanjer. */
@@ -97,6 +112,7 @@ export function ScoutCard({ campaign: c, onDismiss, busy, existing }: {
           {existing && <Tag tone="bg-good/15 text-good">Finns redan</Tag>}
         </div>
         {c.brand && <p className="text-[13px] text-muted-foreground">{c.brand}</p>}
+        <CountryNote note={c.country_note} />
 
         <dl className="mt-3.5 grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3 xl:grid-cols-5">
           <Fact label="Betalning">

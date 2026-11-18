@@ -17,7 +17,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from campaign import api, content_views, scout, scout_api
+from campaign import api, content_views, preferences, scout, scout_api, scout_score
 from campaign.cliplog import ClipLog
 
 NOW = datetime(2026, 11, 13, 12, 0, tzinfo=UTC)
@@ -295,6 +295,7 @@ class FakeAlpha:
         self.go: list[httpx.Request] = []  # GET /go/<id>
         self.go_status = 302  # svaret från /go/; 302 leder till kampanjsidan och sätter cookies som den riktiga
         self.clip_views: list[int] | None = None  # kampanjens klipp på Content Rewards
+        self.geo: dict | None = None  # priset per land på samma sida
         self.twitch_views: list[int] | None = None
         self.clip_calls: list[str] = []
         self.twitch_calls: list[tuple[str, datetime]] = []
@@ -354,9 +355,9 @@ class FakeAlpha:
                 out.append(msg)
         return out
 
-    def campaign_clip_views(self, cr_url: str) -> list[int] | None:
+    def campaign_page(self, cr_url: str) -> dict | None:
         self.clip_calls.append(cr_url)
-        return self.clip_views
+        return None if self.clip_views is None else {"clip_views": self.clip_views, "geo": self.geo}
 
     def twitch_clip_views(self, login: str, now: datetime) -> list[int] | None:
         self.twitch_calls.append((login, now))
@@ -387,7 +388,7 @@ def fake(monkeypatch) -> FakeAlpha:
     monkeypatch.setattr(scout, "CLIP_PAGE_GAP_S", 0)
     monkeypatch.setattr(scout, "_session", {"id": None})
     monkeypatch.setattr(scout, "_now", lambda: NOW)
-    monkeypatch.setattr(scout, "campaign_clip_views", fake.campaign_clip_views)
+    monkeypatch.setattr(scout, "campaign_page", fake.campaign_page)
     monkeypatch.setattr(scout, "twitch_clip_views", fake.twitch_clip_views)
     monkeypatch.setattr(scout, "twitch_login_from_vod", fake.twitch_login_from_vod)
     return fake
@@ -450,7 +451,7 @@ def test_a_run_searches_fetches_details_scores_and_lists(client, settings, fake,
     assert set(best) == {"ref", "title", "brand", "score", "parts", "excluded", "age_hours", "rate_usd",
                          "net_rate_usd", "budget_left_usd", "budget_total_usd", "min_views", "max_payout_usd",
                          "drain_days", "platforms", "mentions_twitch", "open_join", "page_url", "join_url",
-                         "first_seen", "is_new"}
+                         "first_seen", "is_new", "country_note"}
     assert (best["rate_usd"], best["net_rate_usd"], best["budget_left_usd"], best["budget_total_usd"]) == (
         2, 1.8, 5000, 6000)
     assert (best["age_hours"], best["is_new"], best["mentions_twitch"], best["open_join"]) == (24, True, True, True)
@@ -1216,7 +1217,7 @@ def _page(ref: str) -> str:
 
 
 def _seed_with_page(settings, ref: str, score: int, clip_age_h: float, detail_age_h: float = 0, **row) -> None:
-    _seed(settings, ref, score, cr_url=_page(ref), clip_views=[1_000] * 5,
+    _seed(settings, ref, score, cr_url=_page(ref), clip_views=[1_000] * 5, join_checked_at=scout._iso(NOW),
           detail_at=scout._iso(NOW - timedelta(hours=detail_age_h)),
           clip_views_at=scout._iso(NOW - timedelta(hours=clip_age_h)), **row)
 
@@ -1239,7 +1240,8 @@ def test_hidden_excluded_and_old_campaigns_are_not_fetched(settings, fake) -> No
     _seed_with_page(settings, "hidden/streams", 90, clip_age_h=7, dismissed=1)
     _seed_with_page(settings, "excluded/streams", 90, clip_age_h=7, excluded="Bara för medlemmar.")
     _seed_with_page(settings, "gone/streams", 90, clip_age_h=7, updated=scout._iso(NOW - timedelta(hours=73)))
-    _seed(settings, "nopage/streams", 90, clip_views_at=scout._iso(NOW - timedelta(hours=7)))
+    _seed(settings, "nopage/streams", 90, clip_views_at=scout._iso(NOW - timedelta(hours=7)),
+          join_checked_at=scout._iso(NOW - timedelta(hours=7)), cr_url=None)  # /go/ kollad, ingen sida
     scout.Scout(settings).run_once()
     assert fake.clip_calls == []
 
@@ -1291,7 +1293,7 @@ def test_a_pause_between_the_pages_from_content_rewards(settings, fake, monkeypa
     monkeypatch.setattr(scout, "_last_call", [100.0])  # ingen väntan före anropen till ClippingAlpha
     monkeypatch.setattr(scout, "_last_page", [0.0])  # ingen sida hämtad ännu
     monkeypatch.setattr(scout, "time", SimpleNamespace(monotonic=lambda: 100.0, sleep=events.append))
-    monkeypatch.setattr(scout, "campaign_clip_views", events.append)
+    monkeypatch.setattr(scout, "campaign_page", events.append)
     scout.Scout(settings).run_once()
     assert events == [0, _page("brand/c0"), 1.0, _page("brand/c1"), 1.0, _page("brand/c2")]
 
@@ -1305,6 +1307,301 @@ def test_the_pause_also_holds_from_the_details_to_the_shown_campaigns(settings, 
     monkeypatch.setattr(scout, "_last_page", [0.0])
     # klockan står still: varje sida efter den första måste vänta hela CLIP_PAGE_GAP_S
     monkeypatch.setattr(scout, "time", SimpleNamespace(monotonic=lambda: 100.0, sleep=events.append))
-    monkeypatch.setattr(scout, "campaign_clip_views", events.append)
+    monkeypatch.setattr(scout, "campaign_page", events.append)
     scout.Scout(settings).run_once()
     assert events == [0, CR, 1.0, _page("low/streams")]
+
+
+# ---------- priset i Robins land ----------
+
+# [FRANCE] Blizzard - World of Warcraft Forever: 5 dollar per 1 000 bara för Frankrike, \"Other countries: Not paid\".
+FRANCE = {"priced": True, "rates": {"restOfWorld": [], "tiers": [{"countries": ["FR"], "label": "France",
+                                                                    "platform": "tiktok", "rate": 500}]},
+          "payout_model": [{"platform": "tiktok", "rate": 0}]}
+# TikTok betalar bara för Frankrike, YouTube betalar 1,50 dollar överallt.
+PARTLY = {"priced": True, "rates": {"restOfWorld": [{"platform": "youtube", "rate": 150}],
+                                    "tiers": [{"countries": ["FR"], "platform": "tiktok", "rate": 500}]},
+          "payout_model": [{"platform": "tiktok", "rate": 0}, {"platform": "youtube", "rate": 0}]}
+# WA-CHAA! (riktig sida): Pakistan, Indien och Bangladesh får 0, resten av världen 2 dollar.
+WACHAA = {"priced": True, "rates": {
+    "restOfWorld": [{"platform": "tiktok", "rate": 200}, {"platform": "youtube", "rate": 200}],
+    "tiers": [{"countries": ["IN", "PK", "BD"], "label": "Pak, Ind, Ban", "platform": "tiktok", "rate": 0},
+              {"countries": ["IN", "PK", "BD"], "label": "Pak, Ind, Ban", "platform": "youtube", "rate": 0}]},
+    "payout_model": [{"platform": "tiktok", "rate": 0}, {"platform": "instagram", "rate": 150},
+                     {"platform": "youtube", "rate": 0}]}
+
+
+def _geo(geo: dict | None, country: str = "SE") -> tuple[dict, str | None]:
+    data = {**_data(), "cr_url": CR, "geo": geo}
+    _, parts, excluded = scout.evaluate(data, 1260, 1.05, NOW, country)
+    return {part["key"]: part for part in parts}["pay"], excluded
+
+
+def test_the_price_comes_from_the_tier_then_rest_of_world_then_the_payout_model() -> None:
+    lower = {"priced": True, "rates": {
+        "restOfWorld": [{"platform": "tiktok", "rate": 200}],
+        "tiers": [{"countries": ["NO", "SE"], "platform": "tiktok", "rate": 100}]},
+        "payout_model": [{"platform": "tiktok", "rate": 0}, {"platform": "instagram", "rate": 150}]}
+    assert scout_score.country_rates(lower, "SE") == {"tiktok": 1.0, "instagram": 1.5}  # tier med SE, lägre
+    assert scout_score.country_rates(lower, "DK") == {"tiktok": 2.0, "instagram": 1.5}  # resten av världen
+    assert scout_score.country_rates(FRANCE, "SE") == {"tiktok": 0.0}  # tier utan SE, ingen restOfWorld
+    assert scout_score.country_rates(FRANCE, "FR") == {"tiktok": 5.0}
+
+
+def test_a_campaign_that_pays_nothing_for_sweden_is_excluded() -> None:
+    pay, excluded = _geo(FRANCE)
+    assert excluded == "Betalar inte för visningar från Sverige"
+    assert pay["fact"] == "0,00 dollar per 1 000 efter avgift i Sverige, marknaden 1,05"
+
+
+def test_a_campaign_where_only_some_platforms_pay_counts_the_best_price_for_sweden() -> None:
+    pay, excluded = _geo(PARTLY)
+    assert excluded is None
+    assert pay["fact"] == ("1,35 dollar per 1 000 efter avgift i Sverige, marknaden 1,05. "
+                           "TikTok betalar inte för Sverige.")
+    assert pay["points"] == pytest.approx(5 * 1.35 / 1.05 * SCALE["pay"], abs=0.05)  # inte 1,80
+
+
+@pytest.mark.parametrize("geo", [
+    {"priced": False, "rates": None, "payout_model": [{"platform": "tiktok", "rate": 200}]},
+    {"priced": True, "rates": None, "payout_model": []},
+    {**FRANCE, "priced": False}])  # geoPriced false: geoRates räknas inte, också när den är ifylld
+def test_without_a_price_per_country_the_usual_price_counts(geo) -> None:
+    pay, excluded = _geo(geo)
+    assert (pay["fact"], excluded) == ("1,80 dollar per 1 000 efter avgift, marknaden 1,05", None)
+
+
+@pytest.mark.parametrize("data", [_data(), {**_data(), "cr_url": CR}, {**_data(), "cr_url": None}])
+def test_without_the_campaign_page_the_country_is_unknown(data) -> None:
+    _, parts, excluded = _parts(data)
+    assert (parts["pay"]["fact"], excluded) == ("1,80 dollar per 1 000 efter avgift, marknaden 1,05, Land okänt", None)
+
+
+def test_a_tier_for_other_countries_does_not_touch_sweden() -> None:
+    pay, excluded = _geo(WACHAA)
+    assert (pay["fact"], excluded) == ("1,80 dollar per 1 000 efter avgift i Sverige, marknaden 1,05", None)
+
+
+def test_from_france_the_france_campaign_counts_five_dollars() -> None:
+    pay, excluded = _geo(FRANCE, "FR")
+    assert excluded is None
+    assert pay["fact"] == "4,50 dollar per 1 000 efter avgift i Frankrike, marknaden 1,05"
+
+
+def test_the_pay_fact_uses_a_decimal_comma() -> None:
+    fact = _parts(_data())[1]["pay"]["fact"]
+    assert "1,80" in fact and "1,05" in fact and "1.8" not in fact
+
+
+def test_the_web_gets_a_country_note_only_when_some_platforms_do_not_pay(settings, fake) -> None:
+    for ref, geo in (("partly/c", PARTLY), ("wachaa/c", WACHAA), ("france/c", FRANCE), ("nogeo/c", None)):
+        _seed(settings, ref, 50, **({} if geo is None else {"geo": geo}), cr_url=CR)
+    scout.Scout(settings)._rescore(NOW)
+    overview = scout.Scout(settings).overview()
+    notes = {view["ref"]: view["country_note"] for view in overview["campaigns"] + overview["excluded"]}
+    assert notes == {"partly/c": "TikTok betalar inte för visningar från Sverige.", "wachaa/c": None,
+                     "france/c": None, "nogeo/c": None}
+    assert [view["ref"] for view in overview["excluded"]] == ["france/c"]
+
+
+def test_the_price_per_country_is_saved_with_the_clip_views_and_kept_on_failure(settings, fake, monkeypatch) -> None:
+    _seed_with_page(settings, "timmy/streams", 50, clip_age_h=7)
+    fake.clip_views, fake.geo = [9_000] * 5, PARTLY
+    scout.Scout(settings).run_once()
+    assert (_saved(settings)["clip_views"], _saved(settings)["geo"]) == ([9_000] * 5, PARTLY)
+    fake.clip_views = None  # sidan går inte att läsa
+    _later(monkeypatch, hours=7)
+    scout.Scout(settings).run_once()
+    assert (_saved(settings)["clip_views"], _saved(settings)["geo"]) == ([9_000] * 5, PARTLY)
+
+
+def test_the_highest_price_counts_when_the_country_is_in_several_tiers() -> None:
+    geo = {"priced": True, "rates": {"restOfWorld": [], "tiers": [
+        {"countries": ["SE"], "platform": "tiktok", "rate": 100},
+        {"countries": ["NO", "SE"], "platform": "tiktok", "rate": 300},
+        {"countries": ["SE", "DK"], "platform": "tiktok", "rate": 200}]},
+        "payout_model": [{"platform": "tiktok", "rate": 0}]}
+    assert scout_score.country_rates(geo, "SE") == {"tiktok": 3.0}
+
+
+def _unreadable(rates: dict) -> dict:
+    return {"priced": True, "rates": rates, "payout_model": [{"platform": "tiktok", "rate": 0}]}
+
+
+@pytest.mark.parametrize("geo", [
+    _unreadable({"restOfWorld": [{"platform": "tiktok", "rate": "200"}], "tiers": []}),
+    _unreadable({"restOfWorld": [], "tiers": [{"countries": ["SE"], "platform": "tiktok", "rate": None}]}),
+    _unreadable({"restOfWorld": [{"platform": "tiktok", "rate": True}], "tiers": []}),
+    _unreadable({"restOfWorld": [{"platform": "youtube", "rate": 150}, {"platform": "tiktok", "rate": "200"}]}),
+    _unreadable({}),
+    _unreadable({"restOfWorld": [], "tiers": []}),
+    _unreadable({"rest_of_world": [{"platform": "tiktok", "rate": 200}]})])  # omdöpt
+def test_a_price_that_cannot_be_read_gives_land_okant_and_is_not_excluded(geo) -> None:
+    assert scout_score.country_rates(geo, "SE") is None
+    pay, excluded = _geo(geo)
+    assert (pay["fact"], excluded) == ("1,80 dollar per 1 000 efter avgift, marknaden 1,05, Land okänt", None)
+
+
+@pytest.mark.parametrize("geo", ["trasig", ["SE"], 5])
+def test_a_price_per_country_that_is_not_a_dict_gives_none(geo) -> None:
+    assert scout_score.country_rates(geo, "SE") is None
+
+
+# TikTok betalar 5 dollar för Frankrike, YouTube betalar 1,50 överallt utom i Frankrike.
+NOT_YOUTUBE_IN_FRANCE = {"priced": True, "rates": {
+    "restOfWorld": [{"platform": "youtube", "rate": 150}],
+    "tiers": [{"countries": ["FR"], "platform": "tiktok", "rate": 500},
+              {"countries": ["FR"], "platform": "youtube", "rate": 0}]},
+    "payout_model": [{"platform": "tiktok", "rate": 0}, {"platform": "youtube", "rate": 0}]}
+
+
+def test_the_card_shows_the_price_and_the_note_for_robins_country(settings, fake) -> None:
+    for ref, geo in (("partly/c", PARTLY), ("france/c", FRANCE), ("notyt/c", NOT_YOUTUBE_IN_FRANCE),
+                     ("nogeo/c", None)):
+        _seed(settings, ref, 50, **({} if geo is None else {"geo": geo}), cr_url=CR)
+
+    def cards() -> dict[str, tuple]:
+        scout.Scout(settings)._rescore(NOW)
+        overview = scout.Scout(settings).overview()
+        return {view["ref"]: (view["rate_usd"], view["net_rate_usd"], view["country_note"])
+                for view in overview["campaigns"] + overview["excluded"]}
+
+    assert cards() == {  # Sverige: TikTok betalar inte för PARTLY, så 1,50 och 1,35 och inte 2,00 och 1,80
+        "partly/c": (1.5, 1.35, "TikTok betalar inte för visningar från Sverige."),
+        "france/c": (0.0, 0.0, None), "notyt/c": (1.5, 1.35, "TikTok betalar inte för visningar från Sverige."),
+        "nogeo/c": (2, 1.8, None)}
+    preferences.save_country(settings, "FR")
+    assert cards() == {
+        "partly/c": (5.0, 4.5, None), "france/c": (5.0, 4.5, None),
+        "notyt/c": (5.0, 4.5, "YouTube betalar inte för visningar från Frankrike."), "nogeo/c": (2, 1.8, None)}
+
+
+def test_a_campaign_excluded_for_the_country_gets_its_page_read_again(settings, fake) -> None:
+    _seed_with_page(settings, "france/c", 50, clip_age_h=7, geo=FRANCE)
+    _seed_with_page(settings, "fresh/c", 50, clip_age_h=5, geo=FRANCE)  # läst för under 6 timmar sedan
+    scout.Scout(settings)._rescore(NOW)
+    assert sorted(view["ref"] for view in scout.Scout(settings).overview()["excluded"]) == ["france/c", "fresh/c"]
+
+    fake.clip_views, fake.geo = [9_000] * 5, PARTLY  # nu betalar YouTube för Sverige
+    scout.Scout(settings).run_once()
+    assert fake.clip_calls == [_page("france/c")]
+    overview = scout.Scout(settings).overview()
+    assert ([view["ref"] for view in overview["campaigns"]], [view["ref"] for view in overview["excluded"]]) == (
+        ["france/c"], ["fresh/c"])
+
+
+# ---------- landet i Inställningar ----------
+
+
+COUNTRY_CHOICES = [{"code": code, "name": name} for code, name in (
+    ("SE", "Sverige"), ("NO", "Norge"), ("DK", "Danmark"), ("FI", "Finland"), ("IS", "Island"), ("DE", "Tyskland"),
+    ("FR", "Frankrike"), ("ES", "Spanien"), ("IT", "Italien"), ("NL", "Nederländerna"), ("PL", "Polen"),
+    ("GB", "Storbritannien"), ("IE", "Irland"), ("US", "USA"), ("CA", "Kanada"), ("AU", "Australien"),
+    ("BR", "Brasilien"), ("MX", "Mexiko"), ("IN", "Indien"))]
+
+
+def test_get_country_gives_sweden_and_the_list(client) -> None:
+    assert client.get("/campaign/scout/country").json() == {"country": "SE", "choices": COUNTRY_CHOICES}
+
+
+def test_put_country_saves_and_scores_again_without_clippingalpha(client, settings, fake, monkeypatch) -> None:
+    _seed(settings, "france/c", 50, geo=FRANCE, cr_url=CR)
+    scout.Scout(settings)._rescore(NOW)
+    assert [v["ref"] for v in client.get("/campaign/scout").json()["excluded"]] == ["france/c"]
+
+    monkeypatch.setenv("CLIPSMITH_API_KEY", "nyckel")
+    assert client.put("/campaign/scout/country", json={"country": "FR"}).status_code == 401
+    answer = client.put("/campaign/scout/country", json={"country": "FR"}, headers={"X-Api-Key": "nyckel"})
+    assert (answer.status_code, answer.json()) == (200, {"country": "FR", "choices": COUNTRY_CHOICES})
+    assert preferences.country(settings) == "FR"
+    overview = client.get("/campaign/scout").json()
+    assert [v["ref"] for v in overview["campaigns"]] == ["france/c"] and overview["excluded"] == []
+    assert (fake.requests, fake.go, fake.clip_calls) == ([], [], [])
+
+
+@pytest.mark.parametrize("body", [{"country": "XX"}, {"country": "se"}, {}, {"country": "SE", "annat": 1}])
+def test_put_country_outside_the_list_gives_422(client, settings, body) -> None:
+    assert client.put("/campaign/scout/country", json=body).status_code == 422
+    assert preferences.country(settings) == "SE"
+
+
+# ---------- kampanjsidan för alla som syns ----------
+
+
+def _seed_without_page(settings, count: int, **row) -> list[str]:
+    refs = [f"seen/c{i}" for i in range(count)]
+    for i, ref in enumerate(refs):  # detaljerna är färska, men /go/ kollades aldrig
+        _seed(settings, ref, 90 - i, detail_at=scout._iso(NOW), **row)
+    return refs
+
+
+def _with_page(settings, refs: list[str]) -> list[str]:
+    return [ref for ref in refs if _saved(settings, ref).get("cr_url") == CR]
+
+
+def test_shown_campaigns_without_a_campaign_page_get_one_ten_per_run(settings, fake, monkeypatch) -> None:
+    refs = _seed_without_page(settings, 30)
+    _seed(settings, "hidden/c", 99, dismissed=1)
+    _seed(settings, "excluded/c", 99, excluded="Bara för medlemmar.")
+    fake.clip_views = [9_000] * 5
+    scout.Scout(settings).run_once()
+    assert _with_page(settings, refs) == refs[:scout.JOINS_PER_RUN] and scout.JOINS_PER_RUN == 10  # de bästa först
+    assert fake.clip_calls == [CR] * 10 and _saved(settings, refs[0])["clip_views"] == [9_000] * 5
+    assert scout.Scout(settings).calls_today() == 4 + 10  # initialize, sökningarna och tio /go/
+    assert fake.calls("tools/call", "get_campaign") == []
+
+    for run in (1, 2):
+        _later(monkeypatch, minutes=10 * run)
+        scout.Scout(settings).run_once()
+    assert _with_page(settings, refs) == refs
+    assert all(_saved(settings, ref)["clip_views"] == [9_000] * 5 for ref in refs)
+    assert len(fake.go) == 30 and scout.Scout(settings).calls_today() == 4 + 10 + 2 * (1 + 10)
+    assert "join_checked_at" not in _saved(settings, "hidden/c") | _saved(settings, "excluded/c")
+
+
+def test_no_go_when_the_rest_of_the_day_needs_the_calls(settings, fake) -> None:
+    _seed_without_page(settings, 5)
+    scout.Scout(settings)._count(scout.CALL_LIMIT - scout.reserve(NOW) - 4)  # sökningarna tar resten
+    scout.Scout(settings).run_once()
+    assert fake.go == [] and scout.Scout(settings).calls_today() == scout.CALL_LIMIT - scout.reserve(NOW)
+
+
+@pytest.mark.parametrize("stop", [{"down": True}, {"limit_at": "search_campaigns"}])
+def test_no_go_when_clippingalpha_stops_the_run(settings, fake, stop) -> None:
+    _seed_without_page(settings, 5)
+    vars(fake).update(stop)
+    scout.Scout(settings).run_once()
+    assert fake.go == []
+
+
+def test_a_search_hit_without_a_go_link_is_not_tried(settings, fake) -> None:
+    _seed_without_page(settings, 1)
+    with scout.Scout(settings)._db() as db:
+        data = {"search": _item("seen/c0", joinUrl=None), "detail_at": scout._iso(NOW)}
+        db.execute("UPDATE scout_campaigns SET data = ?", (json.dumps(data),))
+    scout.Scout(settings).run_once()
+    assert fake.go == [] and "join_checked_at" not in _saved(settings, "seen/c0")
+
+
+@pytest.mark.parametrize("status", [429, 503])
+def test_the_first_error_from_go_stops_the_round_and_is_tried_again_next_run(settings, fake, monkeypatch,
+                                                                             status) -> None:
+    refs = _seed_without_page(settings, 5)
+    fake.go_status = status
+    scout.Scout(settings).run_once()
+    assert len(fake.go) == 1 and _with_page(settings, refs) == []
+    assert scout.Scout(settings).calls_today() == 4 + 1
+
+    fake.go_status = 302
+    _later(monkeypatch, minutes=10)
+    scout.Scout(settings).run_once()
+    assert len(fake.go) == 1 + 5 and _with_page(settings, refs) == refs
+
+
+def test_go_is_not_tried_for_campaigns_that_are_no_longer_shown(settings, fake) -> None:
+    _seed(settings, "gone/c", 90, detail_at=scout._iso(NOW), updated=scout._iso(NOW - timedelta(hours=73)))
+    _seed(settings, "shown/c", 80, detail_at=scout._iso(NOW), updated=scout._iso(NOW - timedelta(hours=71)))
+    assert scout.SHOW_S == 72 * 3600
+    scout.Scout(settings).run_once()
+    assert len(fake.go) == 1 and _with_page(settings, ["gone/c", "shown/c"]) == ["shown/c"]
+    assert "join_checked_at" not in _saved(settings, "gone/c")

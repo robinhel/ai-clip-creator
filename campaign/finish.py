@@ -178,6 +178,17 @@ def build_filter(
     return ";".join(parts)
 
 
+def _output_args(has_audio: bool, encoder: str, speed: float) -> list[str]:
+    """Ljudet, tidsbasen och kodaren efter -map [vout]."""
+    args = ["-map", "[aout]", "-c:a", "aac", "-b:a", "160k", "-ar", "48000"] if has_audio else []
+    if speed != 1.0:
+        # Alla bildrutor med tiderna från setpts, i ffmpeg 7 och 8 lika. Från ffmpeg 8 behåller setpts
+        # källans bildfrekvens, och kodaren räknade då i 1/30 s och kastade var elfte ruta vid 1,1. Förhandsbilden
+        # (drafts.frame) räknar med att ruta n i klippet är ruta n i råklippet. Värdet filter finns från ffmpeg 6.1.
+        args += ["-enc_time_base:v", "filter"]
+    return args + ENCODER_ARGS.get(encoder, ENCODER_ARGS["libx264"])
+
+
 def finish_clip(
     src: Path, out: Path, profile: Profile, root: Path, encoder: str = "libx264", title: str = "",
     subtitles: Path | None = None, plan: dict | None = None, overlay: Path | None = None,
@@ -209,9 +220,7 @@ def finish_clip(
         "-map",
         "[vout]",
     ]
-    if info["has_audio"]:
-        cmd += ["-map", "[aout]", "-c:a", "aac", "-b:a", "160k", "-ar", "48000"]
-    cmd += ENCODER_ARGS.get(encoder, ENCODER_ARGS["libx264"])
+    cmd += _output_args(info["has_audio"], encoder, speed)
     cmd += ["-movflags", "+faststart", str(out)]
     run(cmd)
     return {
