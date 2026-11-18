@@ -1,4 +1,4 @@
-// Live-bevakningen per kampanj (/campaign/live). Egen liten fetch mot proxyn, som apiFetch i api.ts.
+// Live-bevakningen per kampanj och för fria kanaler (/campaign/live). Egen liten fetch mot proxyn, som apiFetch i api.ts.
 
 export type PeakStatus = "vantar" | "hamtar" | "ko" | "kor" | "klar" | "fel" | "hoppad";
 
@@ -14,9 +14,11 @@ export type Peak = {
   reason: string | null;
 };
 
-/** Bevakningen för en kampanj som har en kanal. */
+/** Bevakningen för en kampanj som har en kanal, eller för en fri kanal utan kampanj (profile null). */
 export type LiveWatch = {
-  profile: string;
+  /** Kampanjen, eller null för en fri kanal. */
+  profile: string | null;
+  /** Kanalens login med små bokstäver. */
   channel: string;
   watching: boolean;
   live: boolean;
@@ -45,6 +47,12 @@ export const liveApi = {
   list: () => liveFetch<LiveWatch[]>("/campaign/live"),
   setWatching: (profile: string, watching: boolean) =>
     liveFetch<LiveWatch>(`/campaign/live/${encodeURIComponent(profile)}`, {
+      method: "PUT",
+      body: JSON.stringify({ watching }),
+    }),
+  /** Slår på eller av bevakningen av en fri kanal. login: kanalens login med små bokstäver. */
+  setChannelWatching: (login: string, watching: boolean) =>
+    liveFetch<LiveWatch>(`/campaign/live/channel/${encodeURIComponent(login)}`, {
       method: "PUT",
       body: JSON.stringify({ watching }),
     }),

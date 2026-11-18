@@ -94,8 +94,8 @@ function Header({ channel, watching, busy, onToggle }: { channel: string; watchi
   );
 }
 
-/** warning: bevakningens eget fel från servern. error: anropet från sidan gick inte. */
-function Problems({ warning, error }: { warning: string | null; error: string | null }) {
+/** warning: bevakningens eget fel från servern. error: anropet från sidan gick inte. Används också på Hem. */
+export function Problems({ warning, error }: { warning: string | null; error: string | null }) {
   return (
     <>
       {warning && (
@@ -123,7 +123,8 @@ function WatchStatus({ watching, live }: { watching: boolean; live: boolean }) {
   );
 }
 
-function Peaks({ peaks }: { peaks: Peak[] }) {
+/** Topparna i chatten, senaste först, med länk till körningen. Används också på Hem. */
+export function Peaks({ peaks }: { peaks: Peak[] }) {
   if (peaks.length === 0) return <p className="mt-4 text-sm text-muted-foreground">Inga toppar än.</p>;
   return (
     <ul aria-label="Toppar i chatten" className="mt-4 rounded-2xl border border-line px-3">
