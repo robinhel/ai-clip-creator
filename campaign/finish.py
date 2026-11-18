@@ -25,6 +25,7 @@ HOOK_MAX_LINES = 3
 HOOK_GAP = 24  # zoom: luft mellan hookens sista rad och bilden
 HOOK_LINE_H = int(HOOK_FONT_SIZE * 1.25)  # en rad hook, med luft
 HOOK_PAD = 24  # det svarta fältets luft ovanför första raden; under sista raden är luften raden ut
+HOOK_SECONDS = 3  # stacked: så länge rubriken syns
 FONTS = Path(__file__).parent / "fonts"
 HOOK_FONTS = {"sans": FONTS / "Montserrat-ExtraBold.ttf", "serif": FONTS / "DMSerifDisplay-Regular.ttf"}
 # Emoji, pilar, symboler, dingbats (✨ ❤), ZWJ, keycap och U+FE0F: fonterna saknar dem och ritar tomma rutor
@@ -196,12 +197,17 @@ def _hook(
     profile: Profile, title: str, font: str | None, last: str, text_on_top: bool, frame: str = ""
 ) -> list[str]:
     """Titeln vit och centrerad under övre säkra zonen hela klippet, på upp till tre rader (_hook_top). Utom i
-    zoom, där bakgrunden redan är svart, ligger ett svart fält i full bredd bakom. font: stilens font om None."""
+    zoom, där bakgrunden redan är svart, ligger ett svart fält i full bredd bakom. I stacked ligger streamerns
+    kamera överst, så där får texten en svart kant i stället för fält och syns bara de första HOOK_SECONDS.
+    font: stilens font om None."""
     lines = _hook_lines(profile, title, text_on_top, frame, font is not None)
     top = _hook_top(profile, text_on_top, len(lines), frame)
     font = font or str(_style_font(profile))
     parts = []
-    if frame != "zoom":
+    color = "fontcolor=white"
+    if frame == "stacked":
+        color += f":borderw=5:bordercolor=black@0.9:enable='lt(t,{HOOK_SECONDS})'"
+    elif frame != "zoom":
         height = HOOK_PAD + len(lines) * HOOK_LINE_H
         parts.append(f"[{last}]drawbox=x=0:y={top - HOOK_PAD}:w=iw:h={height}:color=black:t=fill[hookbar]")
         last = "hookbar"
@@ -209,7 +215,7 @@ def _hook(
         out = "withhook" if i == len(lines) - 1 else f"hook{i}"
         parts.append(
             f"[{last}]drawtext=fontfile='{_esc(font)}':expansion=none:text={_hook_esc(line)}:"
-            f"x=(w-text_w)/2:y={top + i * HOOK_LINE_H}:fontsize={HOOK_FONT_SIZE}:fontcolor=white[{out}]"
+            f"x=(w-text_w)/2:y={top + i * HOOK_LINE_H}:fontsize={HOOK_FONT_SIZE}:{color}[{out}]"
         )
         last = out
     return parts
