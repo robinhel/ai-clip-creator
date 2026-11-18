@@ -86,47 +86,86 @@ def _parts(data: dict, median: float = 1260, cpm_median: float = 1.05) -> tuple[
 # ---------- betyget ----------
 
 
+# Robins vikter: varje del räknar med sina ursprungliga maxvärden (ombyggnad-fas1) och skalas till det nya.
+SCALE = {"fresh": 12 / 25, "minimum": 10 / 20, "source": 8 / 15, "budget": 8 / 15, "pay": 5 / 10, "proof": 5 / 10,
+         "hassle": 2 / 5}
+
+
 def test_a_fresh_twitch_campaign_with_everything_scores_high() -> None:
     total, parts, excluded = _parts(_data())
     assert excluded is None
-    assert list(parts) == ["views", "fresh", "minimum", "source", "budget", "pay", "proof", "hassle"]
-    assert [parts[key]["max"] for key in parts] == [40, 15, 12, 9, 9, 6, 6, 3]
+    assert list(parts) == ["views", "fresh", "minimum", "source", "budget", "pay", "max_payout", "proof", "hassle"]
+    assert [parts[key]["max"] for key in parts] == [40, 12, 10, 8, 8, 5, 10, 5, 2]
     assert sum(parts[key]["max"] for key in parts) == 100
+    pay = 5 * 1.8 / 1.05 * SCALE["pay"]  # 4,3: betalningen är inte full
+    cap = 10 * math.log(500 / 100) / math.log(1000 / 100)  # 7,0: taket är 500 dollar
     assert {key: parts[key]["points"] for key in parts} == {
-        "views": 20, "fresh": 15, "minimum": 12, "source": 9, "budget": 9, "pay": pytest.approx(5.1, abs=0.05),
-        "proof": 6, "hassle": 3}
-    assert total == round(20 + 15 + 12 + 9 + 9 + 3 * 1.8 / 1.05 + 6 + 3)
+        "views": 20, "fresh": 12, "minimum": 10, "source": 8, "budget": 8, "pay": pytest.approx(pay, abs=0.05),
+        "max_payout": pytest.approx(cap, abs=0.05), "proof": 5, "hassle": 2}
+    assert total == round(20 + 12 + 10 + 8 + 8 + pay + cap + 5 + 2) == 76  # förut 79
     assert all(part["label"] and part["fact"] for part in parts.values())
 
 
+def test_a_campaign_with_every_part_full_still_gets_100() -> None:
+    data = _data(alpha={"netPer1kUsd": 4.0})
+    data["search"]["netPer1kUsd"] = 4.0
+    data["analytics"]["pay"]["maxPayoutUsd"] = None
+    total, parts, _ = _parts({**data, "clip_views": [1_000_000] * 10})
+    assert all(part["points"] == part["max"] for part in parts.values())
+    assert total == 100 == sum(part["max"] for part in parts.values() if part["key"] != "max_payout") + 10
+
+
+@pytest.mark.parametrize(("cap", "points"), [(1_200, 10), (1_000, 10), (100, 0), (50, 0),
+                                            (600, pytest.approx(7.8, abs=0.05))])
+def test_max_payout_per_clip_is_logarithmic_from_100_to_1000_dollars(cap, points) -> None:
+    data = _data()
+    data["analytics"]["pay"]["maxPayoutUsd"] = cap
+    part = _parts(data)[1]["max_payout"]
+    assert (part["points"], part["max"], part["label"]) == (points, 10, "Max payout per klipp")
+    assert part["fact"] == f"Högst {cap:,} dollar per klipp".replace(",", " ")
+
+
+def test_max_payout_without_a_cap_is_full_and_unknown_without_analytics() -> None:
+    data = _data()
+    data["analytics"]["pay"]["maxPayoutUsd"] = None
+    part = _parts(data)[1]["max_payout"]
+    assert (part["points"], part["fact"]) == (10, "Inget tak per klipp")
+    del data["analytics"]["pay"]["maxPayoutUsd"]
+    assert _parts(data)[1]["max_payout"]["points"] == 10
+    part = _parts({"search": _item(), "campaign": _campaign()})[1]["max_payout"]
+    assert (part["points"], part["max"], part["fact"]) == (5, 10, "Okänt")
+
+
 @pytest.mark.parametrize(("age_h", "points"), [
-    (47, 15), (24 * 10, 15 - 12 * (10 - 2) / (21 - 2)), (24 * 25, 3 * (30 - 25) / (30 - 21)), (24 * 31, 0)])
+    (47, 25), (24 * 10, 25 - 20 * (10 - 2) / (21 - 2)), (24 * 25, 5 * (30 - 25) / (30 - 21)), (24 * 31, 0)])
 def test_freshness_falls_with_age(age_h, points) -> None:
-    assert _parts(_data(age_h=age_h))[1]["fresh"]["points"] == pytest.approx(points, abs=0.05)
+    part = _parts(_data(age_h=age_h))[1]["fresh"]
+    assert part["points"] == pytest.approx(points * SCALE["fresh"], abs=0.05)
 
 
-@pytest.mark.parametrize(("verdict", "drain_days", "minus"), [("Fast", 10, 6), ("Fair", 10, 3), ("Slow", 2, 6),
-                                                               ("Slow", 5, 3), ("Too early", 10, 0)])
+@pytest.mark.parametrize(("verdict", "drain_days", "minus"), [("Fast", 10, 10), ("Fair", 10, 5), ("Slow", 2, 10),
+                                                               ("Slow", 5, 5), ("Too early", 10, 0)])
 def test_freshness_loses_points_when_the_budget_goes_fast(verdict, drain_days, minus) -> None:
     data = _data(drain={"p50": _iso(NOW + timedelta(days=drain_days)), "stalled": False})
     data["analytics"]["alpha"]["verdicts"][0]["verdict"] = verdict
-    assert _parts(data)[1]["fresh"]["points"] == 15 - minus
+    assert _parts(data)[1]["fresh"]["points"] == pytest.approx((25 - minus) * SCALE["fresh"], abs=0.05)
 
 
 def test_unknown_age_gives_half_and_okant() -> None:
     data = _data(launchedAt=None)
     data["search"]["launchedAt"] = None
     fresh = _parts(data)[1]["fresh"]
-    assert (fresh["points"], fresh["fact"]) == (7.5, "Okänt")
+    assert (fresh["points"], fresh["fact"]) == (6, "Okänt")  # halva det nya maxvärdet
 
 
 def test_the_chance_to_reach_the_minimum_is_logarithmic() -> None:
     data = _data()
     data["analytics"]["pay"]["minPayoutUsd"] = 5  # 5 dollar vid 2 dollar per 1 000: 2 500 visningar
     part = _parts(data)[1]["minimum"]
-    assert part["points"] == pytest.approx(12 * (1 - math.log(2500 / 1260) / math.log(5)), abs=0.05)
+    points = 20 * (1 - math.log(2500 / 1260) / math.log(5)) * SCALE["minimum"]
+    assert part["points"] == pytest.approx(points, abs=0.05)
     assert "2" in part["fact"] and "500" in part["fact"]
-    assert _parts(data, median=2500)[1]["minimum"]["points"] == 12
+    assert _parts(data, median=2500)[1]["minimum"]["points"] == 10
     assert _parts(data, median=500)[1]["minimum"]["points"] == 0
 
 
@@ -134,25 +173,26 @@ def test_no_details_gives_half_points_and_okant() -> None:
     data = {"search": _item()}  # bara sökträffen: ingen pay, inga regler, ingen organisatör
     _, parts, excluded = _parts(data)
     assert excluded is None
-    assert (parts["minimum"]["points"], parts["minimum"]["fact"]) == (6, "Okänt")
-    assert (parts["proof"]["points"], parts["proof"]["fact"]) == (3, "Okänt")
+    assert (parts["minimum"]["points"], parts["minimum"]["fact"]) == (5, "Okänt")
+    assert (parts["proof"]["points"], parts["proof"]["fact"]) == (2.5, "Okänt")
+    assert (parts["max_payout"]["points"], parts["max_payout"]["fact"]) == (5, "Okänt")
     assert (parts["views"]["points"], parts["views"]["fact"]) == (20, "Okänt: inga klipp att räkna på ännu")
-    assert parts["fresh"]["points"] == 15  # åldern finns i sökträffen
+    assert parts["fresh"]["points"] == 12  # åldern finns i sökträffen
 
 
 @pytest.mark.parametrize(("title", "about", "niche", "rules", "points"), [
-    ("Clip Twitch streams", "", "film-and-tv", ["Post in English"], 9),
-    ("Clip the streamer", "", "film-and-tv", [], 4.2),  # stream 2,4 + inget annat språk 1,8
-    ("Movie trailer", "Cut the trailer.", "gaming", ["Post in English"], 2.4),  # spel ger minst 2,4
-    ("Movie trailer", "Cut the trailer.", "film-and-tv", [], 1.8)])
+    ("Clip Twitch streams", "", "film-and-tv", ["Post in English"], 15),
+    ("Clip the streamer", "", "film-and-tv", [], 7),  # stream 4 + inget annat språk 3
+    ("Movie trailer", "Cut the trailer.", "gaming", ["Post in English"], 4),  # spel ger minst 4
+    ("Movie trailer", "Cut the trailer.", "film-and-tv", [], 3)])
 def test_the_source_points(title, about, niche, rules, points) -> None:
     data = _data(title=title, about=about, niche=niche,
                  rules={"checklist": [{"kind": "account", "text": text} for text in rules]})
     data["search"].update(title=title, niche=niche)
-    assert _parts(data)[1]["source"]["points"] == points
+    assert _parts(data)[1]["source"]["points"] == pytest.approx(points * SCALE["source"], abs=0.05)
 
 
-@pytest.mark.parametrize(("drain", "left", "points"), [(3.5, 5000, 4.5), (8, 5000, 9), (None, 2000, 6)])
+@pytest.mark.parametrize(("drain", "left", "points"), [(3.5, 5000, 7.5 * 8 / 15), (8, 5000, 8), (None, 2000, 10 * 8 / 15)])
 def test_the_budget_lasts(drain, left, points) -> None:
     p50 = _iso(NOW + timedelta(days=drain)) if drain else None
     data = _data(drain={"p50": p50, "stalled": False})
@@ -161,7 +201,7 @@ def test_the_budget_lasts(drain, left, points) -> None:
     assert _parts(data)[1]["budget"]["points"] == pytest.approx(points, abs=0.05)
 
 
-@pytest.mark.parametrize(("net", "points"), [(1.575, 4.5), (None, 3 * 1.8 / 1.2), (4.0, 6)])
+@pytest.mark.parametrize(("net", "points"), [(1.575, 7.5 / 2), (None, 5 * 1.8 / 1.2 / 2), (4.0, 5)])
 def test_the_pay_against_the_market(net, points) -> None:
     data = _data(alpha={"netPer1kUsd": net})
     data["search"]["netPer1kUsd"] = net
@@ -171,15 +211,15 @@ def test_the_pay_against_the_market(net, points) -> None:
 def test_proof_of_payout() -> None:
     data = _data(organizerVerified=False)
     data["analytics"]["alpha"]["adjustments"] = [{"key": "payout", "label": "$50 paid to clippers in 7 days"}]
-    assert _parts(data)[1]["proof"]["points"] == 3.6
+    assert _parts(data)[1]["proof"]["points"] == (4 + 2) * SCALE["proof"]  # betalat ut nyligen, står inte still
     data["analytics"]["alpha"]["adjustments"] = []
-    assert _parts(data)[1]["proof"]["points"] == 1.2
+    assert _parts(data)[1]["proof"]["points"] == 2 * SCALE["proof"]
 
 
 def test_hassle_for_applications_and_many_caption_rules() -> None:
     rules = [{"kind": "caption", "text": f"Tag @x{i}"} for i in range(4)] + [{"kind": "disclosure", "text": "#ad"}]
     data = _data(rules={"checklist": rules})
-    assert _parts(data)[1]["hassle"]["points"] == 1.8
+    assert _parts(data)[1]["hassle"]["points"] == pytest.approx((5 - 2) * SCALE["hassle"])  # 5 krav, 2 för många
     data["campaign"]["whereToJoin"][0].update(openJoin=False, gateType="application_full")
     assert _parts(data)[1]["hassle"]["points"] == 0
 
