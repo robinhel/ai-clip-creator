@@ -84,10 +84,18 @@ def test_a_redirect_to_content_rewards_gives_the_address_without_query() -> None
     httpx.Response(302, headers={"Location": "https://evil.example/c/campaigns/a1cefc3b-4533-438f-8e70-a7299550f1cf"}),
     httpx.Response(302, headers={"Location": "https://contentrewards.com/c/other/x"}),
     httpx.Response(200, text="<html></html>"),
+    httpx.Response(404, text="Not found"),
+    httpx.Response(410, text="Gone"),
 ])
 def test_other_answers_give_none(response) -> None:
     with _http(lambda request: response) as http:
         assert content_views.resolve_join(http, "https://clippingalpha.com/go/11045701?via=mcp") is None
+
+
+@pytest.mark.parametrize("status", [429, 500, 503])
+def test_a_temporary_error_is_raised_so_that_it_is_tried_again(status) -> None:
+    with _http(lambda request: httpx.Response(status, text="fel")) as http, pytest.raises(httpx.HTTPStatusError):
+        content_views.resolve_join(http, "https://clippingalpha.com/go/11045701?via=mcp")
 
 
 @pytest.mark.parametrize("url", [

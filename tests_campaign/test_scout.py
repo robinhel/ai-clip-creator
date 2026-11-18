@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import math
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -240,6 +241,7 @@ class FakeAlpha:
         self.sse = False
         self.assets: dict[str, dict] = {}  # get_assets per kampanj
         self.go: list[httpx.Request] = []  # GET /go/<id>
+        self.go_status = 302  # svaret från /go/; 302 leder till kampanjsidan och sätter cookies som den riktiga
         self.clip_views: list[int] | None = None  # kampanjens klipp på Content Rewards
         self.twitch_views: list[int] | None = None
         self.clip_calls: list[str] = []
@@ -248,7 +250,10 @@ class FakeAlpha:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
             self.go.append(request)
-            return httpx.Response(302, headers={"Location": f"{CR}?utm_source=clippingalpha&utm_content=direct"})
+            if self.go_status != 302:
+                return httpx.Response(self.go_status, text="fel")
+            return httpx.Response(302, headers=[("Location", f"{CR}?utm_source=clippingalpha&utm_content=direct"),
+                                                ("Set-Cookie", "ca_vid=1; Path=/"), ("Set-Cookie", "_fbp=fb.1; Path=/")])
         self.requests.append(request)
         if self.down:
             return httpx.Response(500, text="nere")
@@ -854,6 +859,60 @@ def test_the_details_fetch_the_channel_and_the_campaign_page_once(settings, fake
     scout.Scout(settings).run_once()
     assert (len(fake.calls("tools/call", "get_assets")), len(fake.go)) == (1, 1)
     assert fake.twitch_calls[1:] == [("timmy_tv", NOW + timedelta(hours=25))]
+
+
+@pytest.mark.parametrize("status", [429, 503])
+def test_a_temporary_error_from_go_is_tried_again_at_the_next_details(settings, fake, monkeypatch, status) -> None:
+    fake.add("timmy/streams")
+    fake.go_status = status
+    scout.Scout(settings).run_once()
+    assert "join_checked_at" not in _saved(settings) and len(fake.go) == 1
+    assert scout.Scout(settings).calls_today() == len(fake.requests) + 1  # /go/ räknas i scout_calls
+
+    fake.go_status = 302
+    _later(monkeypatch, hours=7)
+    scout.Scout(settings).run_once()
+    assert len(fake.go) == 2
+    assert scout.Scout(settings).calls_today() == len(fake.requests) + 2
+    data = _saved(settings)
+    assert (data["cr_url"], data["join_checked_at"]) == (CR, scout._iso(NOW + timedelta(hours=7)))
+
+
+@pytest.mark.parametrize("status", [404, 410, 200])
+def test_an_answer_without_a_campaign_page_marks_the_campaign_as_checked(settings, fake, monkeypatch, status) -> None:
+    fake.add("timmy/streams")
+    fake.go_status = status
+    scout.Scout(settings).run_once()
+    data = _saved(settings)
+    assert (data["cr_url"], data["join_checked_at"]) == (None, scout._iso(NOW))
+    _later(monkeypatch, hours=7)
+    scout.Scout(settings).run_once()
+    assert len(fake.go) == 1  # provas inte igen
+
+
+def test_go_waits_for_the_gap_after_the_last_mcp_call(settings, fake, monkeypatch) -> None:
+    fake.add("timmy/streams")
+    events: list[str | float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        events.append(request.method)
+        return fake(request)
+
+    monkeypatch.setattr(scout, "http_client", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(scout, "MIN_GAP_S", 1.0)
+    # klockan står still: varje anrop måste vänta hela MIN_GAP_S
+    monkeypatch.setattr(scout, "time", SimpleNamespace(monotonic=lambda: 100.0, sleep=events.append))
+    scout.Scout(settings).run_once()
+    go = events.index("GET")
+    assert events[go - 2:go + 1] == ["POST", 1.0, "GET"]
+
+
+def test_the_cookies_from_go_do_not_follow_to_the_mcp_calls(settings, fake) -> None:
+    fake.add("timmy/streams")
+    fake.add("other/streams")
+    scout.Scout(settings).run_once()
+    assert len(fake.go) == 2
+    assert all("cookie" not in request.headers for request in fake.requests + fake.go)
 
 
 def test_without_a_channel_or_campaign_page_there_is_no_twitch_or_page_call(settings, fake) -> None:
