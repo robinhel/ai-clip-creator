@@ -144,15 +144,18 @@ def test_music_from_its_start_time_replaces_or_joins_the_original(client, tmp_pa
     added = _add_music(client, _music(tmp_path / MUSIC))
     assert added.status_code == 201, added.text
     assert added.json() == {"file": MUSIC, "duration_s": pytest.approx(20, abs=0.1)}
-    draft_id = _draft(client, _video(tmp_path / "a.mp4", tone=220))
+    draft_id = _draft(client, _video(tmp_path / "a.mp4", tone=220, seconds=6))  # 6 s: loudnorm gjorde ljudet längre
     music = {"audio": "music", "music": MUSIC, "music_start_s": "10"}
+    kept, _ = _render(client, draft_id, tmp_path, "behall.mp4")
     only, video = _render(client, draft_id, tmp_path, "musik.mp4", **music, original_volume="0")
     assert only["problems"] == [] and probe(video)["has_audio"]
+    assert only["length_s"] == kept["length_s"]  # samma längd som med Behåll
     high, low, source = (_band(video, f, 1.0, 3.0) for f in (880, 440, 220))
     assert high > -45, high
     assert high > low + 20  # musiken från 10 s, inte från början
     assert high > source + 25  # inget av originalet vid 0
-    _, video = _render(client, draft_id, tmp_path, "blandat.mp4", **music, original_volume="1")
+    mixed, video = _render(client, draft_id, tmp_path, "blandat.mp4", **music, original_volume="1")
+    assert mixed["length_s"] == kept["length_s"]
     full = _band(video, 220, 1.0, 3.0) - _band(video, 880, 1.0, 3.0)
     assert full > -12  # originalet hörs också
     _, video = _render(client, draft_id, tmp_path, "svagt.mp4", **music, original_volume="0.3")
