@@ -21,11 +21,16 @@ KEY = f"kanal:{LOGIN}"
 
 
 class FakeRecord:
-    """Låtsas-campaign.live_record: Recorder och cut, utan ffmpeg och utan Twitch."""
+    """Låtsas-campaign.live_record: Recorder och cut, utan ffmpeg och utan Twitch. Som bufferten städar cut
+    bort delar äldre än keep_s, med världens klocka."""
 
-    def __init__(self) -> None:
+    def __init__(self, now) -> None:
         self.recorders: list = []
         self.cuts: list[tuple] = []
+        self.cut_at: list[float] = []  # klockan när cut anropades
+        self.now = now
+        self.keep_s = 600.0
+        self.hole: tuple[float, float] | None = None  # väggklocka: reklam eller avbrott i delen
         self.not_ready = 0
         self.failed: str | None = None
         recorders = self.recorders
@@ -43,16 +48,22 @@ class FakeRecord:
 
         self.Recorder = Recorder
 
-    def cut(self, folder, start_wall: float, end_wall: float, out) -> float:
+    def cut(self, folder, start_wall: float, end_wall: float, out) -> list[tuple[float, float]]:
         self.cuts.append((folder, start_wall, end_wall, out))
+        self.cut_at.append(self.now())
         if self.not_ready:
             self.not_ready -= 1
             raise live.live_part.PartNotReady("inte inspelat än")
         if self.failed:
             raise live.live_part.PartFailed(self.failed)
+        if start_wall < self.now() - self.keep_s:
+            raise live.live_part.PartFailed("Början av delen är städad.")
         out.mkdir(parents=True, exist_ok=True)
         (out / f"{out.name}.mp4").write_bytes(b"mp4")
-        return start_wall - 4.0  # delen börjar vid en bildruta lite före
+        first = start_wall - 4.0  # delen börjar vid en bildruta lite före
+        if self.hole is None:
+            return [(first, end_wall)]
+        return [(first, self.hole[0]), (self.hole[1], end_wall)]
 
 
 @pytest.fixture
@@ -82,7 +93,7 @@ def free(world, settings):  # noqa: F811 (fixturen från test_live.py)
         else:
             target(*args)
 
-    world.record = FakeRecord()
+    world.record = FakeRecord(world.now)
     watcher.stream, watcher.record, watcher.spawn = stream, world.record, spawn
     watcher.latest = lambda channel: pytest.fail("en fri kanal frågar inte efter VOD:en")
     watcher.part = SimpleNamespace(
@@ -188,29 +199,87 @@ def test_the_free_part_chat_has_times_from_the_recorded_start(free, settings) ->
     assert min(m["time_in_seconds"] for m in chat["messages"]) >= 0
 
 
+def test_the_free_part_chat_leaves_out_a_hole_and_follows_the_picture_after_it(
+    free, settings
+) -> None:
+    # Reklam 3010-3020 s in i streamen: de tio sekunderna finns inte i mp4-filen.
+    hole_start, hole_end = 3010.0, 3020.0
+    free.record.hole = (STARTED + hole_start, STARTED + hole_end)
+    job = _free_peak(free)
+    free.watcher.handle(job)
+    _, start_wall, _, out = free.record.cuts[0]
+    real_start = start_wall - 4.0 - STARTED
+    sent_s = [ms / 1000 - STARTED for _, _, ms in exploding_chat()]
+    expected = [
+        t - real_start - (hole_end - hole_start if t >= hole_end else 0.0)
+        for t in sent_s
+        if job.start_s <= t < job.end_s and not hole_start <= t < hole_end
+    ]
+    chat = json.loads((out / "chat.json").read_text())
+    times = [m["time_in_seconds"] for m in chat["messages"]]
+    assert sorted(times) == pytest.approx(sorted(expected))
+    assert len(times) < len([t for t in sent_s if job.start_s <= t < job.end_s])  # hålet är borta
+    run = free.runs[0]
+    meta = ClipLog(settings.data_dir / "klipp.db").run(run["run_id"])
+    assert meta["duration_s"] == round(job.end_s - real_start - (hole_end - hole_start))
+
+
+def test_a_free_part_is_cut_as_soon_as_it_is_recorded(free, settings) -> None:
+    job = _free_peak(free)
+    assert free.record.cut_at == [pytest.approx(STARTED + job.peak_s + live.DELAY_S)]
+    assert (free.record.cuts[0][3] / "555_live_1.mp4").exists()  # klar innan toppen tas ur kön
+
+
+def test_a_free_peak_that_waits_in_the_queue_keeps_its_part(free, settings) -> None:
+    # Förra körningen tog en kvart. Bufferten har städat bort början av delen när toppen tas ur kön.
+    job = _free_peak(free)
+    free.t += 900.0
+    free.watcher.handle(job)
+    assert len(free.record.cuts) == 1  # delen klipptes en gång, när den var inspelad
+    peak = live.LiveState(settings).channel(KEY)["peaks"][0]
+    assert (peak["status"], peak["reason"]) == ("klar", None)
+    assert free.runs[0]["vod_id"] == "555_live_1"
+
+
+def _free_peak_not_queued(found) -> dict:
+    """Toppen kom aldrig till kön: delen gick inte att klippa. Svarar med toppen i läget."""
+    found.chats = [exploding_chat()]
+    found.watcher.check()
+    assert found.watcher.jobs.empty()
+    return live.LiveState(found.watcher.settings).channel(KEY)["peaks"][0]
+
+
 def test_a_free_part_that_is_not_ready_is_tried_again_for_three_minutes(free, settings) -> None:
     free.record.not_ready = 1000
-    free.watcher.handle(_free_peak(free))
+    peak = _free_peak_not_queued(free)
     assert len(free.record.cuts) >= 12
     assert sum(s for s in free.sleeps if s == live.RETRY_S) == pytest.approx(180)
     assert free.runs == []
-    peak = live.LiveState(settings).channel(KEY)["peaks"][0]
-    assert (peak["status"], peak["reason"]) == ("fel", live.NOT_READY)
+    assert (peak["status"], peak["reason"]) == ("fel", live.NOT_RECORDED)
     assert not free.record.cuts[0][3].exists()
 
 
 def test_a_free_part_that_failed_is_an_error_with_its_text(free, settings) -> None:
     free.record.failed = "Inspelningen har inte den delen."
-    free.watcher.handle(_free_peak(free))
-    peak = live.LiveState(settings).channel(KEY)["peaks"][0]
+    peak = _free_peak_not_queued(free)
     assert (peak["status"], peak["reason"]) == ("fel", "Inspelningen har inte den delen.")
     assert free.runs == []
+
+
+def test_a_free_part_that_breaks_is_an_error_and_not_queued(free, settings) -> None:
+    def broken(*args):
+        raise OSError("disken är full")
+
+    free.record.cut = broken
+    peak = _free_peak_not_queued(free)
+    assert (peak["status"], peak["reason"]) == ("fel", "disken är full")
 
 
 def test_no_budget_skips_a_free_peak(free, settings) -> None:
     settings.budget_day_usd = 0.0
     free.watcher.handle(_free_peak(free))
-    assert free.record.cuts == [] and free.runs == []
+    assert free.runs == []
+    assert not free.record.cuts[0][3].exists()  # den klippta delen tas bort
     peak = live.LiveState(settings).channel(KEY)["peaks"][0]
     assert (peak["status"], peak["reason"]) == ("hoppad", live.NO_BUDGET)
 

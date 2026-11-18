@@ -100,10 +100,19 @@ def test_part_starts_before_the_peak_and_ends_after() -> None:
 
 def test_chat_for_the_part_has_times_from_the_part_start() -> None:
     msgs = [message(t, "KEKW", "a") for t in (100.0, 3640.0, 3700.0, 3760.0)]
-    log = chat_for_part(msgs, 3633.0, 3753.0, "2927104410_live_3")
+    log = chat_for_part(msgs, [(3633.0, 3753.0)], "2927104410_live_3")
     assert log.video_id == "2927104410_live_3"
     assert [m.time_in_seconds for m in log.messages] == [7.0, 67.0]
     assert ChatLog.from_json(log.to_json()).messages[0].hype_emote_count == 1
+
+
+def test_chat_for_a_part_with_a_hole_leaves_the_hole_out_and_moves_the_chat_after_it() -> None:
+    # Hålet 110-120 är inte med i mp4-filen: bilden efter det börjar vid 10 s.
+    msgs = [
+        message(t, "KEKW", "a") for t in (99.0, 100.0, 105.0, 110.0, 115.0, 120.0, 125.0, 130.0)
+    ]
+    log = chat_for_part(msgs, [(100.0, 110.0), (120.0, 130.0)], "p")
+    assert [m.time_in_seconds for m in log.messages] == [0.0, 5.0, 10.0, 15.0]
 
 
 def test_irc_line_becomes_a_message_with_its_time() -> None:

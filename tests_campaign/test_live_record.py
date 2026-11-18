@@ -396,6 +396,38 @@ def test_run_never_logs_the_token(tmp_path, caplog):
     assert "edge/" not in caplog.text
 
 
+def test_httpx_never_logs_twitchs_urls_when_the_recorder_fetches(
+    gql, tmp_path, monkeypatch, caplog
+):
+    """httpx skriver hela URL:en på INFO. Usher-URL:en har sig och token, och videons adresser har
+    signerade vägar. Den riktiga loggningen i httpx, med ett låtsasnät under den."""
+    gql({"value": '{"channel":"ishowspeed","hemligt":true}', "signature": "hemligsig"})
+    edge = "https://video-edge-c1.abs.hls.ttvnw.net/v1/"
+    master = MASTER.replace("https://video-edge.example/v1/", edge + "hemligt-")
+    media = _media(0, T0, ["live", "live"]).replace("https://seg/", edge + "segment/hemligt-")
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "usher.ttvnw.net":
+            return httpx.Response(200, text=master)
+        if request.url.path.endswith(".m3u8"):
+            return httpx.Response(200, text=media)
+        return httpx.Response(200, content=b"ts")
+
+    net = httpx.MockTransport(answer)
+    monkeypatch.setattr(
+        httpx.HTTPTransport, "handle_request", lambda self, request: net.handle_request(request)
+    )
+    rec = Recorder("ishowspeed", tmp_path / "buffer")
+    rec.sleep = lambda seconds: rec.stop()  # ett varv
+    with caplog.at_level("INFO", logger="httpx"):
+        rec.run()
+        httpx.get("https://example.test/annat")  # annan kod loggas som förut
+    assert len(_index(rec.folder)) == 2  # spellistan och delarna hämtades genom httpx
+    assert "example.test/annat" in caplog.text
+    assert "hemligt" not in caplog.text
+    assert "ttvnw" not in caplog.text
+
+
 # --- cut ----------------------------------------------------------------------------------------
 
 SEG_S = 2.0
@@ -483,6 +515,26 @@ def test_cut_accepts_a_small_hole(buffer, tmp_path):
     (buffer / "index.tsv").write_text("".join(lines[:2] + lines[3:]))  # 2 s av 10 s
     assert cut(buffer, T0, T0 + 10.0, tmp_path / "del") == pytest.approx(T0, abs=1e-3)
     assert (tmp_path / "del" / "del.mp4").exists()
+
+
+@needs_ffmpeg
+def test_cut_pushes_a_hole_together_and_says_where_the_pictures_come_from(buffer, tmp_path):
+    lines = (buffer / "index.tsv").read_text().splitlines(keepends=True)
+    (buffer / "index.tsv").write_text("".join(lines[:2] + lines[3:]))  # reklam T0+4 till T0+6
+    spans = cut(buffer, T0, T0 + 10.0, tmp_path / "del")
+    assert spans == [
+        pytest.approx((T0, T0 + 4.0), abs=1e-3),
+        pytest.approx((T0 + 6.0, T0 + 10.0), abs=1e-3),
+    ]
+    video = tmp_path / "del" / "del.mp4"
+    assert probe(video)["duration"] == pytest.approx(8.0, abs=0.3)  # ingen lucka på 2 s i filen
+    audio = tmp_path / "ljud.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-i", str(video), "-vn", str(audio)], check=True)
+    seconds = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(audio)],
+        capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+    assert float(seconds) == pytest.approx(8.0, abs=0.3)  # ljudet, som transkriberas, följer bilden
 
 
 @needs_ffmpeg
