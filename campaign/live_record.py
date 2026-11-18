@@ -3,7 +3,7 @@
 Twitch sparar inte alltid en VOD av strömmen. Därför läser inspelaren kanalens mediaspellista var
 annan sekund och sparar varje ny del i en mapp, med en rad per del i index.tsv. Delarnas tid är
 spellistans PROGRAM-DATE-TIME, väggklockan, samma klocka som chattens tidsstämplar. Reklam som
-Twitch lägger in i strömmen sparas inte. Inget token eller hel URL skrivs i loggen.
+Twitch lägger in i strömmen sparas inte. Inget token eller hel URL skrivs i loggen, inte heller av httpx.
 """
 
 from __future__ import annotations
@@ -12,10 +12,12 @@ import datetime as dt
 import logging
 import os
 import random
-import re
 import shutil
+import subprocess
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,19 +27,21 @@ import m3u8
 from twitchdl import twitch
 from twitchdl.playlists import parse_playlists, select_playlist_by_name
 
-from .download import join_segments
 from .live_part import PartFailed, PartNotReady
+from .media import need
+from .streams import LOGIN
 
 log = logging.getLogger(__name__)
 
 USHER = "https://usher.ttvnw.net/api/channel/hls/{login}.m3u8"
-LOGIN_RE = re.compile(r"[a-z0-9_]{1,25}")
 QUALITY = "source"  # Robins val: källkvaliteten
 TIMEOUT_S = 10.0
 POLL_S = 2.0  # delarna är 2 s långa
 FIRST_WAIT_S = 1.0  # väntan efter ett fel, dubblas upp till MAX_WAIT_S
 MAX_WAIT_S = 60.0
 MAX_HOLE = 0.3  # högst så stor del av fönstret får saknas (reklam, avbrott)
+GAP_S = 1.0  # ett hål på minst så här mycket trycks ihop i mp4-filen; Twitchs delar är 2 s
+MIN_PART_S = 30.0  # en del som börjar senare, där inspelningen börjar, är minst så här lång
 INDEX = "index.tsv"
 AD_CLASS = "twitch-stitched-ad"
 AD_ID = "stitched-ad-"
@@ -71,7 +75,6 @@ class Seg:
 class _Row:
     """En rad i index.tsv: en sparad del."""
 
-    seq: int
     start: float
     dur: float
     name: str
@@ -81,12 +84,35 @@ class _Row:
         return self.start + self.dur
 
     def line(self) -> str:
-        return f"{self.seq}\t{self.start:.3f}\t{self.dur:.3f}\t{self.name}\n"
+        return f"{self.start:.3f}\t{self.dur:.3f}\t{self.name}\n"
+
+
+_hidden: ContextVar[bool] = ContextVar("live_record_hidden", default=False)
+
+
+class _HideFetches(logging.Filter):
+    """httpx skriver hela URL:en på INFO. Twitchs URL:er har token och signatur: det _fetch hämtar loggas inte."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not _hidden.get()
+
+
+logging.getLogger("httpx").addFilter(_HideFetches())
+
+
+@contextmanager
+def _unlogged() -> Iterator[None]:
+    mark = _hidden.set(True)
+    try:
+        yield
+    finally:
+        _hidden.reset(mark)
 
 
 def _fetch(url: str) -> bytes:
-    """Hämta en URL med tidsgräns. HTTPStatusError vid 4xx och 5xx."""
-    response = httpx.get(url, timeout=TIMEOUT_S)
+    """Hämta en URL med tidsgräns, utan att httpx loggar URL:en. HTTPStatusError vid 4xx och 5xx."""
+    with _unlogged():
+        response = httpx.get(url, timeout=TIMEOUT_S)
     response.raise_for_status()
     return response.content
 
@@ -102,9 +128,8 @@ def _reason(error: Exception) -> str:
 
 
 def live_playlist(login: str) -> str | None:
-    """URL till kanalens mediaspellista i källkvalitet. None när kanalen inte är live."""
-    login = login.strip().lower()
-    if not LOGIN_RE.fullmatch(login):
+    """URL till kanalens mediaspellista i källkvalitet. None när kanalen inte är live. login i små bokstäver."""
+    if not LOGIN.fullmatch(login):
         raise ValueError(f"{login[:40]!r} är inget Twitch-namn.")
     token = twitch.gql_query(TOKEN_QUERY % login)["data"]["streamPlaybackAccessToken"]
     if token is None:
@@ -176,19 +201,20 @@ def _name(seg: Seg) -> str:
 
 
 def _read_index(folder: Path) -> list[_Row]:
-    """Raderna i index.tsv. En rad som inte är färdigskriven, utan radslut, räknas inte."""
+    """Raderna i index.tsv, en per fil. En rad som inte är färdigskriven, utan radslut, räknas inte."""
     try:
         text = (folder / INDEX).read_text(encoding="utf-8")
     except FileNotFoundError:
         return []
-    rows = []
+    rows: dict[str, _Row] = {}
     for line in text.split("\n")[:-1]:
         fields = line.split("\t")
         try:
-            rows.append(_Row(int(fields[0]), float(fields[1]), float(fields[2]), fields[3]))
+            row = _Row(float(fields[0]), float(fields[1]), fields[2])
         except (IndexError, ValueError):
             continue
-    return rows
+        rows.setdefault(row.name, row)
+    return list(rows.values())
 
 
 def _write_index(folder: Path, rows: list[_Row]) -> None:
@@ -277,7 +303,7 @@ class Recorder:
             partial = self.folder / f"{name}.del"
             partial.write_bytes(data)
             partial.replace(self.folder / name)  # filen finns hel innan raden skrivs
-            row = _Row(seg.seq, seg.start_wall, seg.dur, name)
+            row = _Row(seg.start_wall, seg.dur, name)
             with (self.folder / INDEX).open("a", encoding="utf-8") as index:
                 index.write(row.line())
             self._saved.add(name)
@@ -299,9 +325,7 @@ def _link(src: Path, dst: Path) -> None:
     """Hårdlänka delen, eller kopiera den när länk inte går. join_segments tar bort det den läst."""
     try:
         os.link(src, dst)
-    except FileNotFoundError:
-        raise
-    except OSError:
+    except OSError:  # FileNotFoundError: copy2 kastar samma fel
         shutil.copy2(src, dst)
 
 
@@ -313,8 +337,6 @@ def _window(rows: list[_Row], start_wall: float, end_wall: float) -> list[_Row]:
     """Delarna som täcker [start_wall, end_wall). PartFailed när för mycket saknas."""
     chosen = [row for row in rows if _overlap(row, start_wall, end_wall) > 0]
     length = end_wall - start_wall
-    if not chosen:
-        raise PartFailed("Inspelningen har inga delar i den tiden.")
     covered = sum(_overlap(row, start_wall, end_wall) for row in chosen)
     if length - covered > MAX_HOLE * length:
         raise PartFailed(
@@ -323,16 +345,47 @@ def _window(rows: list[_Row], start_wall: float, end_wall: float) -> list[_Row]:
     return chosen
 
 
-def _check(rows: list[_Row], start_wall: float, end_wall: float) -> None:
-    """PartFailed när bufferten är tom eller början redan städad, PartNotReady när slutet inte finns än."""
+def _check(rows: list[_Row], start_wall: float, end_wall: float) -> float:
+    """Var delen börjar. Har inspelningen börjat efter start_wall, till exempel ett !clip direkt efter start,
+    börjar delen där inspelningen börjar. PartFailed när bufferten är tom eller det blir för lite kvar,
+    PartNotReady när slutet inte finns än."""
     if not rows:
         raise PartFailed("Inspelningen har inga delar än.")
     if rows[0].start > start_wall:
-        raise PartFailed(
-            "Början av delen finns inte i inspelningen. Den är städad eller spelades aldrig in."
-        )
+        start_wall = rows[0].start
+        if end_wall - start_wall < MIN_PART_S:
+            raise PartFailed("Inspelningen började för nära toppen. Det finns inte nog att klippa.")
     if rows[-1].end < end_wall:
         raise PartNotReady("Slutet av delen är inte inspelat än.")
+    return start_wall
+
+
+def _spans(chosen: list[_Row]) -> list[tuple[float, float]]:
+    """Väggklockan för bilden i mp4-filen: sammanhängande tider, som följer på varandra i filen. Ett hål
+    på minst GAP_S skiljer två tider åt; ett mindre hål står kvar i filen och räknas in."""
+    spans = [(chosen[0].start, chosen[0].end)]
+    for row in chosen[1:]:
+        if row.start - spans[-1][1] >= GAP_S:
+            spans.append((row.start, row.end))
+        else:
+            spans[-1] = (spans[-1][0], row.end)
+    return spans
+
+
+def _concat(segments: Path, names: list[str], video: Path) -> None:
+    """Slå ihop .ts-delarna till en mp4-fil, med hålen ihoptryckta. ffmpeg flyttar fram allt efter ett hopp i
+    tiden på minst GAP_S, så att bild och ljud följer varandra utan lucka. (Utan det står ett hål på högst
+    10 s kvar som lucka i bilden men inte i ljudet, och ett större hål trycks ihop.)"""
+    partial = video.with_name(f"{video.stem}.del.mp4")
+    result = subprocess.run(
+        [need("ffmpeg"), "-v", "error", "-y", "-dts_delta_threshold", str(GAP_S),
+         "-f", "mpegts", "-i", "concat:" + "|".join(names), "-c", "copy", "-f", "mp4", str(partial)],
+        cwd=segments, capture_output=True, text=True, check=False,
+    )  # fmt: skip
+    if result.returncode != 0:
+        partial.unlink(missing_ok=True)
+        raise RuntimeError(f"ffmpeg kunde inte slå ihop delarna: {result.stderr[-1500:]}")
+    partial.replace(video)
 
 
 def _join(folder: Path, chosen: list[_Row], out: Path) -> None:
@@ -343,9 +396,7 @@ def _join(folder: Path, chosen: list[_Row], out: Path) -> None:
     try:
         for row in chosen:
             _link(folder / row.name, segments / row.name)
-        playlist = "".join(f"#EXTINF:{row.dur:.3f},\n{row.name}\n" for row in chosen)
-        (segments / "playlist_downloaded.m3u8").write_text("#EXTM3U\n" + playlist, encoding="utf-8")
-        join_segments(segments, out / f"{out.name}.mp4")
+        _concat(segments, [row.name for row in chosen], out / f"{out.name}.mp4")
     except FileNotFoundError as error:
         raise PartFailed("En del i tiden har redan städats bort ur inspelningen.") from error
     except (RuntimeError, OSError) as error:
@@ -354,15 +405,16 @@ def _join(folder: Path, chosen: list[_Row], out: Path) -> None:
         shutil.rmtree(segments, ignore_errors=True)
 
 
-def cut(folder: Path, start_wall: float, end_wall: float, out: Path) -> float:
+def cut(folder: Path, start_wall: float, end_wall: float, out: Path) -> list[tuple[float, float]]:
     """Klipp ut [start_wall, end_wall) ur bufferten i folder till out/<out.name>.mp4.
 
-    Svarar med väggklockan där den första delen börjar. PartNotReady: slutet är inte inspelat än,
-    försök igen senare. PartFailed: delen går inte att göra, texten är kort och på svenska.
+    Svarar med väggklockan för bilden i filen: (start, slut) för varje sammanhängande tid, i ordning och utan
+    hålen (reklam eller avbrott), som följer direkt på varandra i filen. PartNotReady: slutet är inte
+    inspelat än, försök igen senare. PartFailed: delen går inte att göra, texten är kort och på svenska.
     """
     folder, out = Path(folder), Path(out)
     rows = sorted(_read_index(folder), key=lambda row: row.start)
-    _check(rows, start_wall, end_wall)
+    start_wall = _check(rows, start_wall, end_wall)
     chosen = _window(rows, start_wall, end_wall)
     _join(folder, chosen, out)
-    return chosen[0].start
+    return _spans(chosen)

@@ -115,8 +115,9 @@ def signals_mode(profile: Profile, settings: Settings) -> bool:
 
 def finish(vod_id: str, profile: Profile, settings: Settings, game: str | None,
            run_id: int | None = None, stop: Callable[[], None] = lambda: None) -> list[dict]:
-    """I snabbläget ingen bildgranskning och ingen Claude-budget, också när klippen görs klara igen."""
-    review = not signals_mode(profile, settings)
+    """I snabbläget ingen bildgranskning och ingen Claude-budget, också när klippen görs klara igen. Inte heller
+    utan kampanj (_ingen): den har inga bildregler att granska mot."""
+    review = profile.name != NO_CAMPAIGN and not signals_mode(profile, settings)
     log = ClipLog(settings.data_dir / "klipp.db")
     brain = Brain(settings, budget_from_settings(settings)) if review else None
     subdir = f"run_{run_id}"

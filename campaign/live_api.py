@@ -63,9 +63,8 @@ def _watch_free(login: str, settings: Settings) -> LiveWatch:
 def list_live(settings: SettingsDep) -> list[LiveWatch]:
     channels = {name: _channel(name, settings) for name in _profile_names(settings)}
     campaigns = [_watch(name, channel, settings) for name, channel in channels.items() if channel]
-    free = [
-        key.removeprefix(FREE) for key in LiveState(settings).watching() if key.startswith(FREE)
-    ]
+    # Också en fri kanal som inte bevakas längre, så att topparna finns kvar på Hem efter Sluta bevaka.
+    free = [key.removeprefix(FREE) for key in LiveState(settings).keys() if key.startswith(FREE)]
     return campaigns + [_watch_free(login, settings) for login in free]
 
 

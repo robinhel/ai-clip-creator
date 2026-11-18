@@ -175,14 +175,6 @@ STARTED = dt.datetime.fromisoformat(CREATED.replace("Z", "+00:00")).timestamp()
 PROFILE = "skiimasktimmy"
 
 
-class NotReady(Exception):
-    pass
-
-
-class Failed(Exception):
-    pass
-
-
 class World:
     """Låtsas-Twitch, låtsas-klocka och låtsas-körning. Inget går mot nätverket och inget sover på riktigt."""
 
@@ -238,9 +230,9 @@ class World:
         (folder / "segments" / "00001.ts").write_bytes(b"ts")
         if self.not_ready:
             self.not_ready -= 1
-            raise NotReady("inte inspelat än")
+            raise live.live_part.PartNotReady("inte inspelat än")
         if self.failed:
-            raise Failed(self.failed)
+            raise live.live_part.PartFailed(self.failed)
         folder.mkdir(parents=True, exist_ok=True)
         (folder / f"{folder.name}.mp4").write_bytes(b"mp4")
         return start_s - 4.0  # delen börjar vid en del i spellistan, lite före
@@ -316,9 +308,7 @@ def world(settings, tmp_path, monkeypatch) -> World:
         found.sleep,
         lambda target, *args: target(*args),
     )
-    watcher.part = SimpleNamespace(
-        fetch_part=found.fetch_part, PartNotReady=NotReady, PartFailed=Failed
-    )
+    watcher.part = SimpleNamespace(fetch_part=found.fetch_part)
     live.LiveState(settings).set_watching(PROFILE, True)
     return found
 

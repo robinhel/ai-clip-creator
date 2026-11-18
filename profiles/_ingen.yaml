@@ -11,7 +11,9 @@ language: en
 clipsmith_config: config.live.yaml   # 9:16 ur mitten, inbränd undertext, 15–45 s
 
 clip:
-  min_seconds: 5     # vida gränser: kampanjen som väljs sedan har sina egna
+  # Bara regelkontrollen. Klippens längd väljs i config.live.yaml (15-45 s), som ligger inom de här
+  # gränserna. Vida gränser: kampanjen som väljs sedan har sina egna.
+  min_seconds: 5
   max_seconds: 180
 
 on_screen_text:

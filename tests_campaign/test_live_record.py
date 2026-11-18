@@ -148,7 +148,7 @@ def gql(monkeypatch):
 def test_live_playlist_is_none_when_twitch_has_no_token(gql, monkeypatch):
     sent = gql(None)
     monkeypatch.setattr(live_record, "_fetch", lambda url: pytest.fail("usher ska inte frågas"))
-    assert live_playlist("IShowSpeed") is None
+    assert live_playlist("ishowspeed") is None
     assert 'channelName: "ishowspeed"' in sent[0]
     assert 'playerType: "site"' in sent[0]
 
@@ -196,6 +196,8 @@ def test_live_playlist_refuses_a_login_that_is_not_a_twitch_name(gql):
     gql(None)
     with pytest.raises(ValueError):
         live_playlist('speed"){ evil }')
+    with pytest.raises(ValueError):
+        live_playlist("IShowSpeed")  # live.py ger namnet i små bokstäver
 
 
 # --- Recorder -----------------------------------------------------------------------------------
@@ -255,6 +257,14 @@ def _index(folder: Path) -> list[list[str]]:
     return [line.split("\t") for line in (folder / "index.tsv").read_text().splitlines()]
 
 
+def _seqs(folder: Path) -> list[int]:
+    """Delarnas nummer i spellistan, i indexets ordning. En låtsasdel har sin URL som innehåll."""
+    return [
+        int((folder / row[2]).read_text().rsplit("/", 1)[1].removesuffix(".ts"))
+        for row in _index(folder)
+    ]
+
+
 def test_run_saves_new_segments_once_and_skips_ads_and_prefetch(tmp_path):
     fake = FakeTwitch(
         [
@@ -267,11 +277,11 @@ def test_run_saves_new_segments_once_and_skips_ads_and_prefetch(tmp_path):
     rec.run()
 
     rows = _index(rec.folder)
-    assert [int(r[0]) for r in rows] == [10, 11, 12, 14]
-    assert [float(r[1]) for r in rows] == pytest.approx([T0, T0 + 2, T0 + 4, T0 + 8], abs=1e-3)
-    assert [float(r[2]) for r in rows] == [2.0] * 4
+    assert _seqs(rec.folder) == [10, 11, 12, 14]
+    assert [float(r[0]) for r in rows] == pytest.approx([T0, T0 + 2, T0 + 4, T0 + 8], abs=1e-3)
+    assert [float(r[1]) for r in rows] == [2.0] * 4
     for row in rows:
-        assert (rec.folder / row[3]).read_bytes().startswith(b"data https://seg/")
+        assert (rec.folder / row[2]).read_bytes().startswith(b"data https://seg/")
     assert sorted(fake.fetched) == sorted(f"https://seg/{n}.ts" for n in (10, 11, 12, 14))
     assert not any("prefetch" in url for url in fake.fetched)
     assert fake.waits == [2.0, 2.0, 2.0, 1.0]  # en läsning varannan sekund, sist 404 och inte live
@@ -309,7 +319,7 @@ def test_run_asks_for_a_new_url_after_403_and_404_and_waits_longer_each_time(tmp
     assert (
         fake.resolved == 13
     )  # en ny URL efter varje 403 och 404, och sista frågan svarar inte live
-    assert [int(r[0]) for r in _index(rec.folder)] == [0, 1]
+    assert _seqs(rec.folder) == [0, 1]
 
 
 def test_run_waits_and_asks_again_when_asking_twitch_fails(tmp_path):
@@ -326,7 +336,7 @@ def test_run_waits_and_asks_again_when_asking_twitch_fails(tmp_path):
     rec.playlist = playlist
     rec.run()
     assert fake.waits[0] == 1
-    assert [int(r[0]) for r in _index(rec.folder)] == [0]
+    assert _seqs(rec.folder) == [0]
 
 
 def test_run_keeps_the_url_after_other_errors(tmp_path):
@@ -342,7 +352,7 @@ def test_run_ends_when_the_channel_goes_offline_after_a_404(tmp_path):
     rec = _recorder(tmp_path, fake)
     rec.run()
     assert fake.reads == 2
-    assert [int(r[0]) for r in _index(rec.folder)] == [0]
+    assert _seqs(rec.folder) == [0]
 
 
 def test_run_tries_a_failing_segment_again_next_round(tmp_path):
@@ -359,7 +369,7 @@ def test_run_tries_a_failing_segment_again_next_round(tmp_path):
 
     rec.get = flaky
     rec.run()
-    assert [int(r[0]) for r in _index(rec.folder)] == [0]
+    assert _seqs(rec.folder) == [0]
 
 
 def test_run_cleans_up_segments_older_than_keep_s(tmp_path):
@@ -370,8 +380,8 @@ def test_run_cleans_up_segments_older_than_keep_s(tmp_path):
     rec.run()
     rows = _index(rec.folder)
     # varje varv städar först; det sista, med 404, vid T0 + 22: delar som slutade före T0 + 16 är borta
-    assert [int(r[0]) for r in rows] == [7, 8, 9]
-    assert sorted(p.name for p in rec.folder.glob("*.ts")) == sorted(r[3] for r in rows)
+    assert _seqs(rec.folder) == [7, 8, 9]
+    assert sorted(p.name for p in rec.folder.glob("*.ts")) == sorted(r[2] for r in rows)
 
 
 def test_a_new_session_keeps_the_old_segments_even_when_seq_starts_over(tmp_path):
@@ -382,9 +392,9 @@ def test_a_new_session_keeps_the_old_segments_even_when_seq_starts_over(tmp_path
     rec = _recorder(tmp_path, second)
     rec.run()
     rows = _index(rec.folder)
-    assert [int(r[0]) for r in rows] == [0, 1, 0, 1]
-    assert len({r[3] for r in rows}) == 4
-    assert all((rec.folder / r[3]).exists() for r in rows)
+    assert _seqs(rec.folder) == [0, 1, 0, 1]
+    assert len({r[2] for r in rows}) == 4
+    assert all((rec.folder / r[2]).exists() for r in rows)
 
 
 def test_run_never_logs_the_token(tmp_path, caplog):
@@ -449,7 +459,7 @@ def ts_files(tmp_path_factory) -> list[Path]:
 
 @pytest.fixture
 def buffer(tmp_path, ts_files) -> Path:
-    """En buffert som inspelaren skriver den: delarna och index.tsv med seq, start, längd och filnamn."""
+    """En buffert som inspelaren skriver den: delarna och index.tsv med start, längd och filnamn."""
     folder = tmp_path / "buffer"
     folder.mkdir()
     lines = []
@@ -457,7 +467,7 @@ def buffer(tmp_path, ts_files) -> Path:
         start = T0 + SEG_S * i
         name = f"{round(start * 1000)}.ts"
         shutil.copy(src, folder / name)
-        lines.append(f"{i}\t{start:.3f}\t{SEG_S}\t{name}\n")
+        lines.append(f"{start:.3f}\t{SEG_S}\t{name}\n")
     (folder / "index.tsv").write_text("".join(lines))
     return folder
 
@@ -465,8 +475,9 @@ def buffer(tmp_path, ts_files) -> Path:
 @needs_ffmpeg
 def test_cut_joins_the_segments_that_cover_the_window(buffer, tmp_path):
     out = tmp_path / "del-1"
-    start = cut(buffer, T0 + 3.0, T0 + 7.0, out)
+    [(start, end)] = cut(buffer, T0 + 3.0, T0 + 7.0, out)
     assert start == pytest.approx(T0 + 2.0, abs=1e-3)  # början av delen som 3.0 ligger i
+    assert end == pytest.approx(T0 + 8.0, abs=1e-3)  # slutet av delen som 7.0 ligger i
     video = out / "del-1.mp4"
     assert video.exists()
     assert probe(video)["duration"] == pytest.approx(6.0, abs=0.5)  # delarna 2, 3 och 4
@@ -478,7 +489,7 @@ def test_cut_joins_the_segments_that_cover_the_window(buffer, tmp_path):
 def test_cut_again_in_the_same_folder_works(buffer, tmp_path):
     out = tmp_path / "del-2"
     cut(buffer, T0, T0 + 4.0, out)
-    assert cut(buffer, T0 + 4.0, T0 + 8.0, out) == pytest.approx(T0 + 4.0, abs=1e-3)
+    assert cut(buffer, T0 + 4.0, T0 + 8.0, out) == [pytest.approx((T0 + 4.0, T0 + 8.0), abs=1e-3)]
     assert probe(out / "del-2.mp4")["duration"] == pytest.approx(4.0, abs=0.5)
 
 
@@ -487,9 +498,20 @@ def test_cut_is_not_ready_when_the_end_is_not_recorded_yet(buffer, tmp_path):
         cut(buffer, T0 + 4.0, T0 + 12.5, tmp_path / "del")
 
 
-def test_cut_fails_when_the_start_is_already_cleaned_up(buffer, tmp_path):
-    with pytest.raises(PartFailed, match="städa"):
-        cut(buffer, T0 - 10.0, T0 + 4.0, tmp_path / "del")
+@needs_ffmpeg
+def test_cut_starts_where_the_recording_starts_for_a_clip_right_after_the_start(
+    buffer, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(live_record, "MIN_PART_S", 6.0)  # testets buffert är bara 12 s
+    assert cut(buffer, T0 - 60.0, T0 + 8.0, tmp_path / "del") == [
+        pytest.approx((T0, T0 + 8.0), abs=1e-3)
+    ]
+    assert probe(tmp_path / "del" / "del.mp4")["duration"] == pytest.approx(8.0, abs=0.3)
+
+
+def test_cut_fails_when_too_little_is_left_after_the_recording_started(buffer, tmp_path):
+    with pytest.raises(PartFailed, match="för nära"):
+        cut(buffer, T0 - 10.0, T0 + 12.0, tmp_path / "del")  # 12 s kvar, under 30 s
 
 
 def test_cut_fails_when_there_are_no_segments(tmp_path):
@@ -513,7 +535,8 @@ def test_cut_fails_when_holes_are_more_than_30_percent(buffer, tmp_path):
 def test_cut_accepts_a_small_hole(buffer, tmp_path):
     lines = (buffer / "index.tsv").read_text().splitlines(keepends=True)
     (buffer / "index.tsv").write_text("".join(lines[:2] + lines[3:]))  # 2 s av 10 s
-    assert cut(buffer, T0, T0 + 10.0, tmp_path / "del") == pytest.approx(T0, abs=1e-3)
+    spans = cut(buffer, T0, T0 + 10.0, tmp_path / "del")
+    assert [start for start, _ in spans] == pytest.approx([T0, T0 + 6.0], abs=1e-3)
     assert (tmp_path / "del" / "del.mp4").exists()
 
 
@@ -540,13 +563,22 @@ def test_cut_pushes_a_hole_together_and_says_where_the_pictures_come_from(buffer
 @needs_ffmpeg
 def test_cut_fails_with_a_short_text_when_a_segment_was_cleaned_up_meanwhile(buffer, tmp_path):
     rows = _index(buffer)
-    (buffer / rows[1][3]).unlink()
+    (buffer / rows[1][2]).unlink()
     with pytest.raises(PartFailed, match="städa"):
         cut(buffer, T0, T0 + 4.0, tmp_path / "del")
 
 
+@needs_ffmpeg
+def test_cut_uses_a_segment_only_once_when_the_index_has_it_twice(buffer, tmp_path):
+    index = buffer / "index.tsv"
+    lines = index.read_text().splitlines(keepends=True)
+    index.write_text("".join(lines + lines[1:3]))  # samma filer en gång till
+    assert cut(buffer, T0, T0 + 6.0, tmp_path / "del") == [pytest.approx((T0, T0 + 6.0), abs=1e-3)]
+    assert probe(tmp_path / "del" / "del.mp4")["duration"] == pytest.approx(6.0, abs=0.3)
+
+
 def test_cut_skips_a_half_written_last_line(buffer, tmp_path):
     with (buffer / "index.tsv").open("a") as index:
-        index.write("6\t17634")
+        index.write("17634")
     with pytest.raises(PartNotReady):
         cut(buffer, T0, T0 + 12.5, tmp_path / "del")

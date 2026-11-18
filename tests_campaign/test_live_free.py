@@ -97,9 +97,7 @@ def free(world, settings):  # noqa: F811 (fixturen från test_live.py)
     watcher.stream, watcher.record, watcher.spawn = stream, world.record, spawn
     watcher.latest = lambda channel: pytest.fail("en fri kanal frågar inte efter VOD:en")
     watcher.part = SimpleNamespace(
-        fetch_part=lambda *args: pytest.fail("en fri kanal hämtar inte ur VOD:en"),
-        PartNotReady=live.live_part.PartNotReady,
-        PartFailed=live.live_part.PartFailed,
+        fetch_part=lambda *args: pytest.fail("en fri kanal hämtar inte ur VOD:en")
     )
     state = live.LiveState(settings)
     state.set_watching(PROFILE, False)
@@ -124,7 +122,7 @@ def test_a_live_free_channel_starts_the_recorder_and_the_chat(free, settings) ->
     assert job.part_id == "555_live_1"
     state = live.LiveState(settings).channel(KEY)
     assert (state["live"], state["vod_id"], state["watching"]) == (True, "555", True)
-    assert [p["status"] for p in state["peaks"]] == ["vantar"]
+    assert [p["status"] for p in state["peaks"]] == ["ko"]  # delen är klippt och väntar i kön
     free.watcher.check()  # nästa varv: samma inspelning, ingen ny
     assert len(free.record.recorders) == 1
 
@@ -137,12 +135,34 @@ def test_a_free_channel_that_is_not_live_starts_nothing(free, settings) -> None:
     assert live.LiveState(settings).channel(KEY)["live"] is False
 
 
-def test_the_recorder_stops_when_watching_is_turned_off(free, settings) -> None:
+def test_the_recorder_stops_and_the_buffer_is_removed_when_watching_is_turned_off(
+    free, settings
+) -> None:
     free.watcher.check()
     [rec] = free.record.recorders
+    rec.folder.mkdir(parents=True)
+    (rec.folder / "index.tsv").write_text("")
+    other = settings.data_dir / "live" / "annan"  # en kanal som bevakas har kvar sin buffert
+    other.mkdir()
+    live.LiveState(settings).set_watching("kanal:annan", True)
+    free.stream = None  # kanalen annan är inte live
     live.LiveState(settings).set_watching(KEY, False)
     free.watcher.check()
     assert rec.stopped and free.watcher.recorders == {}
+    assert not rec.folder.exists() and other.exists()
+
+
+def test_the_buffer_is_removed_when_watching_is_turned_off_after_the_stream_ended(
+    free, settings
+) -> None:
+    free.watcher.check()
+    free.stream = None
+    free.watcher.check()  # streamen slutade: inspelningen stoppades, bufferten finns kvar
+    folder = free.record.recorders[0].folder
+    folder.mkdir(parents=True)
+    live.LiveState(settings).set_watching(KEY, False)
+    free.watcher.check()
+    assert not folder.exists()
 
 
 def test_the_recorder_stops_when_the_stream_ends(free, settings) -> None:
@@ -157,7 +177,7 @@ def test_the_recorder_stops_when_the_stream_ends(free, settings) -> None:
 def test_a_recorder_that_stops_by_itself_is_started_again(free, settings) -> None:
     free.watcher.check()
     rec = free.record.recorders[0]
-    free.watcher._recording(rec)  # run() kom tillbaka: inspelningen dog
+    free.watcher._recording(KEY, rec)  # run() kom tillbaka: inspelningen dog
     assert free.watcher.recorders == {}
     free.watcher.check()
     assert len(free.record.recorders) == 2
@@ -282,6 +302,20 @@ def test_no_budget_skips_a_free_peak(free, settings) -> None:
     assert not free.record.cuts[0][3].exists()  # den klippta delen tas bort
     peak = live.LiveState(settings).channel(KEY)["peaks"][0]
     assert (peak["status"], peak["reason"]) == ("hoppad", live.NO_BUDGET)
+
+
+def test_a_clip_without_a_campaign_gets_no_image_review_from_claude(
+    free, settings, monkeypatch
+) -> None:
+    from campaign import pipeline
+    from campaign.profile import load_profile
+
+    seen: dict = {}
+    monkeypatch.setattr(pipeline, "Brain", lambda *a, **k: pytest.fail("ingen Brain utan kampanj"))
+    monkeypatch.setattr(pipeline, "finish_vod", lambda *a, **k: seen.update(k) or [])
+    profile = load_profile("_ingen", settings.profiles_dir)
+    pipeline.finish("555_live_1", profile, settings, "IRL", 7)
+    assert seen["review"] is False and seen["brain"] is None
 
 
 def test_stream_info_asks_twitch_for_the_live_stream(monkeypatch) -> None:

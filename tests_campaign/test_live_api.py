@@ -116,6 +116,20 @@ def test_a_free_channel_is_turned_on_and_shown_without_a_campaign(client, settin
     ]
 
 
+def test_a_free_channel_that_is_not_watched_any_more_still_shows_its_peaks(
+    client, settings
+) -> None:
+    state = LiveState(settings)
+    state.set_watching("kanal:ishowspeed", True)
+    state.set_channel("kanal:ishowspeed", live=True, vod_id="555")
+    state.add_peak("kanal:ishowspeed", "555", 3002.5, "2026-11-18T18:50:02+00:00")
+    client.put("/campaign/live/channel/ishowspeed", json={"watching": False}, headers=KEY)
+    listed = client.get("/campaign/live", headers=KEY).json()
+    [free] = [w for w in listed if w["profile"] is None]
+    assert (free["channel"], free["watching"], free["vod_id"]) == ("ishowspeed", False, "555")
+    assert [p["n"] for p in free["peaks"]] == [1]
+
+
 def test_a_free_channel_needs_the_key_and_a_twitch_login(client) -> None:
     body = {"watching": True}
     assert client.put("/campaign/live/channel/ishowspeed", json=body).status_code == 401

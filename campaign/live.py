@@ -38,6 +38,7 @@ from .chat import lock as chat_lock
 from .config import Settings, load_settings
 from .editor import lock as editor_lock
 from .pipeline import clipsmith_config, run_campaign_vod
+from .profile import Profile
 from .rules import NO_CAMPAIGN
 from .scout import notify_mac
 from .streams import LOGIN
@@ -147,22 +148,34 @@ def part_id(vod_id: str, n: int) -> str:
     return f"{vod_id}_live_{n}"
 
 
+def _part_time(t: float, spans: list[tuple[float, float]]) -> float | None:
+    """Var tiden t ligger i delens mp4-fil, där spans följer direkt på varandra. None: t är inte med."""
+    offset = 0.0
+    for start, end in spans:
+        if start <= t < end:
+            return offset + t - start
+        offset += end - start
+    return None
+
+
 def chat_for_part(
-    messages: list[ChatMessage], start_s: float, end_s: float, video_id: str
+    messages: list[ChatMessage], spans: list[tuple[float, float]], video_id: str
 ) -> ChatLog:
-    """Chatten under delen, med tider från delens början. Sparas som chat.json, så att toppen räknas."""
+    """Chatten under delen, med tider i delens mp4-fil. spans är tiderna (start, slut) som filen visar, i
+    ordning och direkt efter varandra. Chatten under ett hål mellan dem tas inte med. Sparas som chat.json, så
+    att toppen räknas."""
     return ChatLog(
         video_id=video_id,
         messages=[
             ChatMessage(
-                time_in_seconds=m.time_in_seconds - start_s,
+                time_in_seconds=t,
                 message=m.message,
                 author=m.author,
                 is_clip_command=m.is_clip_command,
                 hype_emote_count=m.hype_emote_count,
             )
             for m in messages
-            if start_s <= m.time_in_seconds < end_s
+            if (t := _part_time(m.time_in_seconds, spans)) is not None
         ],
     )
 
@@ -259,6 +272,11 @@ class LiveState:
     def watching(self) -> list[str]:
         return sorted(self._read()["watching"])
 
+    def keys(self) -> list[str]:
+        """Allt som bevakas eller har ett läge sparat, också det som inte bevakas längre."""
+        data = self._read()
+        return sorted(set(data["watching"]) | set(data["channels"]))
+
     def channel(self, profile: str) -> dict:
         data = self._read()
         return {**self._channel(data, profile), "watching": profile in data["watching"]}
@@ -325,6 +343,7 @@ MAX_WAIT_S = 60.0  # längsta väntan innan chatten ansluts igen
 NO_BUDGET = "Budgeten är slut."
 TO_REVIEW = ("renderad", "underkand")  # klippen i Att granska
 NOT_READY = "Delen fanns inte hos Twitch efter tre minuter."
+NOT_RECORDED = "Delen fanns inte i inspelningen efter tre minuter. Streamen slutade eller inspelningen stannade."
 NOT_WATCHABLE = "Kampanjen är avstängd, inte redo eller saknar kanal."
 FREE = "kanal:"  # nyckeln i LiveState för en fri kanal utan kampanj: kanal:<login>
 
@@ -356,16 +375,6 @@ def stream_info(login: str) -> dict | None:
     return user.get("stream") or None
 
 
-def _stream_vod(info: dict) -> dict:
-    """En pågående stream i samma form som en VOD, så att vod_seconds, part_id och Job fungerar som förut."""
-    return {
-        "id": str(info["id"]),
-        "createdAt": info["createdAt"],
-        "title": info.get("title"),
-        "game": info.get("game"),
-    }
-
-
 def _spawn(target: Callable[..., None], *args: Any) -> None:
     threading.Thread(target=target, args=args, name="livechatt", daemon=True).start()
 
@@ -383,6 +392,9 @@ class Job:
     start_s: float  # delen av VOD:en, part_window(peak_s)
     end_s: float
     messages: list[ChatMessage] = field(default_factory=list)
+    # Fri kanal: delen är redan klippt. Tiderna (start, slut) som mp4-filen visar, i sekunder från streamens
+    # början och utan hålen, som chat_for_part tar dem.
+    spans: list[tuple[float, float]] | None = None
 
     @property
     def part_id(self) -> str:
@@ -475,6 +487,7 @@ class Watcher:
         for key in (set(self.reading) | set(self.recorders)) - set(watched):
             self.reading.pop(key, None)
             self._stop_recorder(key)
+        self._remove_buffers(watched)
         for key in watched:
             try:
                 self._check_one(state, key)
@@ -502,13 +515,12 @@ class Watcher:
     def _check_free(self, state: LiveState, key: str) -> None:
         """En fri kanal: live när Twitch har en pågående stream. Då spelas strömmen in och chatten läses."""
         login = key.removeprefix(FREE)
-        info = self.stream(login)
-        vod = _stream_vod(info) if info is not None else None
+        vod = self.stream(login)  # id createdAt title game, som en VOD
         if vod is None:  # vod_id står kvar, så att topparna från streamen syns
             state.set_channel(key, live=False, error=None)
             self._stop_recorder(key)
         else:
-            state.set_channel(key, live=True, vod_id=vod["id"], error=None)
+            state.set_channel(key, live=True, vod_id=str(vod["id"]), error=None)
             self._start_recorder(key, login)
         self._follow(key, NO_CAMPAIGN, login, vod)
 
@@ -530,17 +542,23 @@ class Watcher:
             return
         recorder = self.record.Recorder(login, self.settings.data_dir / "live" / login)
         self.recorders[key] = recorder
-        self.spawn(self._recording, recorder)
+        self.spawn(self._recording, key, recorder)
 
     def _stop_recorder(self, key: str) -> None:
         recorder = self.recorders.pop(key, None)
         if recorder is not None:
             recorder.stop()
 
-    def _recording(self, recorder: Any) -> None:
+    def _remove_buffers(self, watched: list[str]) -> None:
+        """Bufferten för en fri kanal som inte bevakas längre tas bort."""
+        root = self.settings.data_dir / "live"
+        for folder in root.iterdir() if root.is_dir() else []:
+            if folder.is_dir() and FREE + folder.name not in watched:
+                shutil.rmtree(folder, ignore_errors=True)
+
+    def _recording(self, key: str, recorder: Any) -> None:
         """Spelar in tills inspelningen stoppas eller slutar själv. Nästa varv startar en ny om kanalen
         fortfarande är live."""
-        key = FREE + recorder.login
         try:
             recorder.run()
         except Exception:
@@ -590,8 +608,14 @@ class Watcher:
         n = LiveState(self.settings).add_peak(
             stream.key, stream.vod_id, peak, at.isoformat(timespec="seconds")
         )
-        if n is not None:
-            self.jobs.put(stream.job(n, peak))
+        if n is None:
+            return
+        job = stream.job(n, peak)
+        # En fri kanals buffert städar delen efter tio minuter: den klipps innan toppen väntar i kön.
+        if job.free:
+            self.spawn(self._cut_early, job)
+        else:
+            self.jobs.put(job)
 
     # ----- från topp till körning -----
 
@@ -600,65 +624,95 @@ class Watcher:
         try:
             self._handle(job)
         except Exception as error:
-            log.exception("Liveklipp %s", job.part_id)
-            reason = (
-                error.detail
-                if isinstance(error, HTTPException)
-                else str(error) or type(error).__name__
-            )
-            self._mark(job, "fel", reason=reason)
+            self._failed(job, error)
+
+    def _failed(self, job: Job, error: Exception) -> None:
+        log.exception("Liveklipp %s", job.part_id)
+        reason = (
+            error.detail if isinstance(error, HTTPException) else str(error) or type(error).__name__
+        )
+        self._mark(job, "fel", reason=reason)
 
     def _mark(self, job: Job, status: str, **fields: Any) -> None:
         LiveState(self.settings).update_peak(
             job.key, str(job.vod["id"]), job.n, status=status, **fields
         )
 
-    def _handle(self, job: Job) -> None:
+    def _wait_for_part(self, job: Job) -> None:
         self.sleep(max(0.0, _started(job.vod["createdAt"]) + job.peak_s + DELAY_S - self.now()))
+
+    def _work_dir(self, job: Job) -> tuple[Profile, Path]:
+        """Kampanjen och clipsmiths work_dir, där delen har en egen mapp."""
+        profile = _profile(job.profile, self.settings)
+        return profile, clipsmith_config(profile, self.settings).work_dir.expanduser()
+
+    def _cut_early(self, job: Job) -> None:
+        """Fri kanal, i en egen tråd: klipp delen ur bufferten så fort den är inspelad, och lägg sedan toppen i
+        kön till körningen."""
+        try:
+            self._wait_for_part(job)
+            _, work_dir = self._work_dir(job)
+            job.spans = self._fetch(job, work_dir / job.part_id)
+            if job.spans is None:
+                _remove_part(work_dir, job.part_id)  # mappen har inget klipp
+                return
+        except Exception as error:
+            self._failed(job, error)
+            return
+        self._mark(job, "ko")
+        self.jobs.put(job)
+
+    def _handle(self, job: Job) -> None:
+        if job.spans is None:  # kampanj: delen hämtas ur VOD:en när toppen tas ur kön
+            self._wait_for_part(job)
         try:
             budget_from_settings(self.settings).check()
         except BudgetExceeded:
             self._mark(job, "hoppad", reason=NO_BUDGET)
+            if job.spans is not None:  # en fri kanals del är redan klippt
+                _remove_part(self._work_dir(job)[1], job.part_id)
             return
-        profile = _profile(job.profile, self.settings)
-        work_dir = clipsmith_config(profile, self.settings).work_dir.expanduser()
+        profile, work_dir = self._work_dir(job)
         folder = work_dir / job.part_id
-        real_start = self._fetch(job, folder)
-        if real_start is None:
+        if job.spans is None:
+            job.spans = self._fetch(job, folder)
+        if job.spans is None:
             _remove_part(work_dir, job.part_id)  # mappen har inget klipp
             return
         # Före körningen: annars frågar clipsmith Twitch efter chatten med delens id.
-        chat = chat_for_part(job.messages, real_start, job.end_s, job.part_id)
+        chat = chat_for_part(job.messages, job.spans, job.part_id)
         (folder / "chat.json").write_text(chat.to_json(), encoding="utf-8")
         streamer = job.channel if job.free else profile.streamer
-        run_id = self._start_run(job, streamer, round(job.end_s - real_start))
+        run_id = self._start_run(job, streamer, round(sum(end - start for start, end in job.spans)))
         self._run(job, run_id, streamer)
 
-    def _fetch(self, job: Job, folder: Path) -> float | None:
-        """Delens verkliga start i VOD:en, eller None när den inte gick att hämta (toppen är då fel)."""
-        part = live_part if job.free else self.part  # live_record kastar live_parts fel
+    def _fetch(self, job: Job, folder: Path) -> list[tuple[float, float]] | None:
+        """Tiderna som delens mp4-fil visar, i sekunder från streamens början, eller None när delen inte gick
+        att hämta (toppen är då fel)."""
         self._mark(job, "hamtar")
         deadline = self.now() + NOT_READY_S
         while True:
             try:
                 return self._get_part(job, folder)
-            except part.PartNotReady:
+            except live_part.PartNotReady:
                 if self.now() >= deadline:
-                    self._mark(job, "fel", reason=NOT_READY)
+                    self._mark(job, "fel", reason=NOT_RECORDED if job.free else NOT_READY)
                     return None
                 self.sleep(RETRY_S)
-            except part.PartFailed as error:
+            except live_part.PartFailed as error:
                 self._mark(job, "fel", reason=str(error))
                 return None
 
-    def _get_part(self, job: Job, folder: Path) -> float:
+    def _get_part(self, job: Job, folder: Path) -> list[tuple[float, float]]:
         """Kampanj: hämta delen ur VOD:en. Fri kanal: klipp den ur inspelningen, med väggklockan, och räkna
         om svaret till sekunder från streamens början."""
         if not job.free:
-            return self.part.fetch_part(str(job.vod["id"]), job.start_s, job.end_s, folder)
+            real_start = self.part.fetch_part(str(job.vod["id"]), job.start_s, job.end_s, folder)
+            return [(real_start, job.end_s)]
         started = _started(job.vod["createdAt"])
         buffer = self.settings.data_dir / "live" / job.channel
-        return self.record.cut(buffer, started + job.start_s, started + job.end_s, folder) - started
+        spans = self.record.cut(buffer, started + job.start_s, started + job.end_s, folder)
+        return [(start - started, end - started) for start, end in spans]
 
     def _busy(self) -> bool:
         return (
