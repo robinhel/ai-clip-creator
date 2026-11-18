@@ -19,7 +19,7 @@ from . import editor
 from .caption import headline_text
 from .cliplog import POST_STATUSES, ClipLog
 from .config import Settings
-from .finish import HEIGHT, WIDTH, finish_clip, hook_fits, top_text_end
+from .finish import HEIGHT, WIDTH, finish_clip, hook_clean, hook_fits, top_text_end
 from .media import probe
 from .profile import Profile, load_profile
 from .profile_edit import overlay_target
@@ -292,12 +292,15 @@ def _start(ready: dict, start_cut_s: float, speed: float) -> tuple[float, float]
 
 def _hook(hook: str | None, fits: Callable[[str], bool]) -> str | None:
     """Versionens hook utan blanksteg runt, eller None för originalets (också när den är tom). Ett hårt blanksteg
-    blir ett vanligt. Fel hook, eller en som inte ryms i versionens bild (fits, som hook_problem), ger 400."""
+    blir ett vanligt. Fel hook, en som inte ryms i versionens bild (fits, som hook_problem) eller en som blir tom i
+    bilden (hook_clean) ger 400."""
     hook = plain_spaces(hook or "").strip()
     if not hook:
         return None
     if problem := hook_problem(hook, fits):
         raise VersionError(problem)
+    if not hook_clean(hook):  # bara emoji eller tecken utan glyf: inget kvar i bilden
+        raise VersionError("Hooken måste ha bokstäver eller siffror. Emoji syns inte i bilden.")
     return hook
 
 

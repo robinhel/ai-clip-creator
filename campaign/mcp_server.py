@@ -363,7 +363,8 @@ def make_version(clip_id: int, platform: Literal["tiktok", "youtube"], account: 
                  mirror: bool | None = None, speed: float | None = None, filter: str | None = None,
                  brightness: float | None = None, saturation: float | None = None, hook: str | None = None) -> str:
     """Gör en ny version av ett godkänt klipp för ett annat konto i kampanjen. Eget bidrag: en ny hook (hook, texten
-    överst i bilden och versionens rubrik, högst 3 rader med 22 tecken; tom = originalets) eller en ny startpunkt
+    överst i bilden och versionens rubrik, högst 3 rader som ryms i bilden, färre i zoom, servern säger till om den
+    är för lång; tom = originalets) eller en ny startpunkt
     (start_cut_s, tidigare eller senare, inom min_start_cut_s–max_start_cut_s i version_options; 3 s eller mer
     räknas som ny och stänger av cold open). Utan något av dem får versionen en varning. Dessutom: annan font,
     egen overlay och klistermärke ({file, position, start_s, duration_s}), spegling, hastighet (speeds),

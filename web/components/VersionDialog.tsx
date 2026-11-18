@@ -195,7 +195,7 @@ function HookField({ value, onChange, busy, asking, error, onSuggest }: {
           {asking ? "Skriver…" : "Föreslå"}
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">Högst 3 rader med 22 tecken. En ny hook gör versionen till ett eget klipp. Tom: originalets hook.</p>
+      <p className="text-xs text-muted-foreground">Högst 3 rader som ryms i bilden, färre i zoom. Servern säger till om den är för lång. En ny hook gör versionen till ett eget klipp. Tom: originalets hook.</p>
       {error && (
         <p role="alert" className={alert}>
           {error}

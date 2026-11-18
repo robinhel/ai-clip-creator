@@ -11,6 +11,7 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any
 
+from . import editor
 from .brain import Brain
 from .budget import BudgetExceeded, budget_from_settings
 from .caption import build_caption, check_caption
@@ -20,6 +21,7 @@ from .editor import _game
 from .finish import hook_fits
 from .profile import Profile, load_profile
 from .schedule import NAMES, Schedule, _norm
+from .subtitles import load_words
 from .versions import hook_problem, hooks_used, plain_spaces
 
 TRIES = 2  # ett svar som redan finns ger ett nytt försök, sedan 400
@@ -122,6 +124,13 @@ def _new_hook(hook: str, taken: list[str], fits: Callable[[str], bool]) -> bool:
     return bool(hook) and hook_problem(hook, fits) is None and _norm(hook) not in {_norm(text) for text in taken}
 
 
+def _frame(settings: Settings, clip: dict) -> str:
+    """Klippets bildläge ur ordfilen, som versions._ready läser den. Tomt när ordfilen saknas."""
+    raw = editor.raw_path(clip, settings)
+    data = load_words(raw, editor.source_path(raw)) if raw is not None and raw.is_file() else None
+    return data["reframe"]["mode"] if data else ""
+
+
 def suggest_hook(settings: Settings, clip: dict) -> dict:
     """Ny hook för en ny version av klippet (originalet, om klippet är en version). Den ryms i bilden och skiljer sig
     från hookarna på originalet och dess versioner."""
@@ -130,6 +139,7 @@ def suggest_hook(settings: Settings, clip: dict) -> dict:
     profile, brain = _setup(settings, root)
     taken = hooks_used(log, root)
     game = _game(log, root)
+    frame = _frame(settings, root)
     tried: list[str] = []
     for _ in range(TRIES):
         content = f"{_about(root, game)}Hooks already used for this clip:\n{_listed([*taken, *tried])}"
@@ -137,7 +147,7 @@ def suggest_hook(settings: Settings, clip: dict) -> dict:
                       system=HOOK_SYSTEM.format(language=profile.language), content=content, schema=HOOK_SCHEMA,
                       max_tokens=150)
         hook = _clean_hook(answer)
-        if _new_hook(hook, taken, partial(hook_fits, profile, settings.root)):  # kampanjens stil och overlay
+        if _new_hook(hook, taken, partial(hook_fits, profile, settings.root, frame=frame)):  # stil, overlay, bildläge
             return {"hook": hook}
         tried.append(hook)
     raise VariantError("Claude föreslog en hook som redan finns eller inte ryms i bilden. Försök igen.")
