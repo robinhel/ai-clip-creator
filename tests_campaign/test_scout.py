@@ -451,7 +451,7 @@ def test_a_run_searches_fetches_details_scores_and_lists(client, settings, fake,
     assert set(best) == {"ref", "title", "brand", "score", "parts", "excluded", "age_hours", "rate_usd",
                          "net_rate_usd", "budget_left_usd", "budget_total_usd", "min_views", "max_payout_usd",
                          "drain_days", "platforms", "mentions_twitch", "open_join", "page_url", "join_url",
-                         "first_seen", "is_new"}
+                         "first_seen", "is_new", "country_note"}
     assert (best["rate_usd"], best["net_rate_usd"], best["budget_left_usd"], best["budget_total_usd"]) == (
         2, 1.8, 5000, 6000)
     assert (best["age_hours"], best["is_new"], best["mentions_twitch"], best["open_join"]) == (24, True, True, True)
@@ -1318,8 +1318,8 @@ def test_the_pause_also_holds_from_the_details_to_the_shown_campaigns(settings, 
 FRANCE = {"priced": True, "rates": {"restOfWorld": [], "tiers": [{"countries": ["FR"], "label": "France",
                                                                     "platform": "tiktok", "rate": 500}]},
           "payout_model": [{"platform": "tiktok", "rate": 0}]}
-# TikTok betalar bara för Frankrike, YouTube betalar 3 dollar överallt.
-PARTLY = {"priced": True, "rates": {"restOfWorld": [{"platform": "youtube", "rate": 300}],
+# TikTok betalar bara för Frankrike, YouTube betalar 1,50 dollar överallt.
+PARTLY = {"priced": True, "rates": {"restOfWorld": [{"platform": "youtube", "rate": 150}],
                                     "tiers": [{"countries": ["FR"], "platform": "tiktok", "rate": 500}]},
           "payout_model": [{"platform": "tiktok", "rate": 0}, {"platform": "youtube", "rate": 0}]}
 # WA-CHAA! (riktig sida): Pakistan, Indien och Bangladesh får 0, resten av världen 2 dollar.
@@ -1357,13 +1357,14 @@ def test_a_campaign_that_pays_nothing_for_sweden_is_excluded() -> None:
 def test_a_campaign_where_only_some_platforms_pay_counts_the_best_price_for_sweden() -> None:
     pay, excluded = _geo(PARTLY)
     assert excluded is None
-    assert pay["fact"] == ("2,70 dollar per 1 000 efter avgift i Sverige, marknaden 1,05. "
+    assert pay["fact"] == ("1,35 dollar per 1 000 efter avgift i Sverige, marknaden 1,05. "
                            "TikTok betalar inte för Sverige.")
-    assert pay["points"] == pytest.approx(5 * 2.7 / 1.05 * SCALE["pay"], abs=0.05)
+    assert pay["points"] == pytest.approx(5 * 1.35 / 1.05 * SCALE["pay"], abs=0.05)  # inte 1,80
 
 
-@pytest.mark.parametrize("geo", [{"priced": False, "rates": None, "payout_model": [{"platform": "tiktok", "rate": 200}]},
-                                 {"priced": True, "rates": None, "payout_model": []}])
+@pytest.mark.parametrize("geo", [
+    {"priced": False, "rates": None, "payout_model": [{"platform": "tiktok", "rate": 200}]},
+    {"priced": True, "rates": None, "payout_model": []}])
 def test_without_a_price_per_country_the_usual_price_counts(geo) -> None:
     pay, excluded = _geo(geo)
     assert (pay["fact"], excluded) == ("1,80 dollar per 1 000 efter avgift, marknaden 1,05", None)

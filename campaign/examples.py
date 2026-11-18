@@ -4,6 +4,9 @@ Sidan (https://contentrewards.com/c/campaigns/<id>) är en Next.js-sida. Datan l
 self.__next_f.push([1,"..."]) och har topClips (de 10 klippen med flest visningar, med mp4 på Content
 Rewards CDN) och topEarners (de 3 klipparna som tjänat mest). Vi läser bara den publika sidan, aldrig /api/,
 som robots.txt stänger. En hämtning per kampanj och timme.
+
+Sidan har också priset per land: geoPriced, geoRates (tiers och restOfWorld, cent per 1 000 visningar) och
+payoutModel. Det ges som geo, för kampanjbetyget (campaign/scout_score.py). En ny kampanj utan klipp är inget fel.
 """
 
 from __future__ import annotations
@@ -54,54 +57,61 @@ def _https(value: object, host: str | None = None) -> str | None:
     return value
 
 
-def _array(text: str, key: str) -> list:
-    match = re.search(rf'"{key}"\s*:\s*\[', text)
+def _value(text: str, key: str) -> object:
+    """Det första värdet för key i flight-datan, eller None när nyckeln saknas."""
+    match = re.search(rf'"{key}"\s*:\s*', text)
     if not match:
-        return []
-    value, _ = json.JSONDecoder().raw_decode(text, match.end() - 1)
-    return value if isinstance(value, list) else []
+        return None
+    value, _ = json.JSONDecoder().raw_decode(text, match.end())
+    return value
+
+
+def _dicts(value: object) -> list[dict]:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
 
 
 def _int(value: object) -> int:
     return int(value) if isinstance(value, (int, float)) else 0
 
 
+def _earner(e: dict) -> dict:
+    return {"rank": _int(e.get("rank")), "name": str(e.get("username") or e.get("whopUsername") or "Okänd"),
+            "earned_usd": round(_int(e.get("earnedCents")) / 100, 2), "views": _int(e.get("totalViews")),
+            "approved": _int(e.get("approvedSubmissionCount"))}
+
+
+def _clip(c: dict, earner: dict | None) -> dict:
+    return {
+        "rank": _int(c.get("rank")),
+        "platform": str(c.get("platform") or ""),
+        "views": _int(c.get("totalViews")),
+        "name": c.get("username") or (earner and earner["name"]) or None,
+        "earner_rank": earner and earner["rank"],
+        "post_url": _https(c.get("postUrl")),
+        "video_url": _https(c.get("videoUrl"), CDN),
+        "thumbnail_url": _https(c.get("thumbnailUrl"), CDN),
+        "title": str(c.get("title") or "")[:TITLE_MAX],
+    }
+
+
 def parse(html: str) -> dict:
-    """Klippen och klipparna ur sidan. ValueError när sidan saknar dem."""
+    """Klippen, klipparna och priset per land ur sidan. Tomma listor för en kampanj utan klipp. ValueError när sidan
+    saknar kampanjdata helt."""
     try:
         flight = "".join(json.loads(m.group(1)) for m in _PUSH.finditer(html))
-        clips, earners = _array(flight, "topClips"), _array(flight, "topEarners")
+        found = {key: _value(flight, key) for key in ("topClips", "topEarners", "geoPriced", "geoRates", "payoutModel")}
     except json.JSONDecodeError as error:
         raise ValueError("Kampanjsidan gick inte att läsa. Content Rewards kan ha ändrat sidan.") from error
-    if not clips and not earners:
+    if all(value is None for value in found.values()):
         raise ValueError("Kampanjsidan hittade inga klipp. Content Rewards kan ha ändrat sidan.")
-    by_user = {}
-    out_earners = []
-    for e in earners:
-        if not isinstance(e, dict):
-            continue
-        row = {"rank": _int(e.get("rank")), "name": str(e.get("username") or e.get("whopUsername") or "Okänd"),
-               "earned_usd": round(_int(e.get("earnedCents")) / 100, 2), "views": _int(e.get("totalViews")),
-               "approved": _int(e.get("approvedSubmissionCount"))}
-        out_earners.append(row)
-        by_user[e.get("userId")] = row
-    out_clips = []
-    for c in clips:
-        if not isinstance(c, dict):
-            continue
-        earner = by_user.get(c.get("userId"))
-        out_clips.append({
-            "rank": _int(c.get("rank")),
-            "platform": str(c.get("platform") or ""),
-            "views": _int(c.get("totalViews")),
-            "name": c.get("username") or (earner and earner["name"]) or None,
-            "earner_rank": earner and earner["rank"],
-            "post_url": _https(c.get("postUrl")),
-            "video_url": _https(c.get("videoUrl"), CDN),
-            "thumbnail_url": _https(c.get("thumbnailUrl"), CDN),
-            "title": str(c.get("title") or "")[:TITLE_MAX],
-        })
-    return {"clips": out_clips, "earners": out_earners}
+    earners = {e.get("userId"): _earner(e) for e in _dicts(found["topEarners"])}
+    rates = found["geoRates"]
+    return {
+        "clips": [_clip(c, earners.get(c.get("userId"))) for c in _dicts(found["topClips"])],
+        "earners": [_earner(e) for e in _dicts(found["topEarners"])],
+        "geo": {"priced": found["geoPriced"] is True, "rates": rates if isinstance(rates, dict) else None,
+                "payout_model": _dicts(found["payoutModel"])},
+    }
 
 
 def fetch(url: str) -> dict:
