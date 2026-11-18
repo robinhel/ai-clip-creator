@@ -136,6 +136,16 @@ def test_max_payout_without_a_cap_is_full_and_unknown_without_analytics() -> Non
     assert (part["points"], part["max"], part["fact"]) == (5, 10, "Okänt")
 
 
+@pytest.mark.parametrize(("cap", "minimum"), [("1200", "x"), (True, True)])
+def test_payout_fields_that_are_not_numbers_count_as_missing(cap, minimum) -> None:
+    missing = _data()
+    del missing["analytics"]["pay"]["maxPayoutUsd"]
+    del missing["analytics"]["pay"]["minPayoutUsd"]
+    data = _data()
+    data["analytics"]["pay"].update(maxPayoutUsd=cap, minPayoutUsd=minimum)
+    assert _parts(data) == _parts(missing)
+
+
 @pytest.mark.parametrize(("age_h", "points"), [
     (47, 25), (24 * 10, 25 - 20 * (10 - 2) / (21 - 2)), (24 * 25, 5 * (30 - 25) / (30 - 21)), (24 * 31, 0)])
 def test_freshness_falls_with_age(age_h, points) -> None:
