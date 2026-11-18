@@ -107,6 +107,10 @@ export interface CampaignRunInfo {
   pct: number | null;
   error: string | null;
   clip_counts: Partial<Record<CampaignStatus, number>>;
+  /** Projektet för egna filer som körningen hör till. null för Twitch. Saknas hos äldre servrar. */
+  project_id?: number | null;
+  /** "chat" när kampanjens chatt startade körningen. Saknas hos äldre servrar. */
+  origin?: "chat" | null;
 }
 
 export type StepStatus = "waiting" | "running" | "done" | "failed";
@@ -704,6 +708,8 @@ export interface ClipEditInfo {
   max_s: number | null;
   editable: boolean;
   reason: string | null;
+  /** Hastigheten för en egen video; klippets längd är (ut − in) / speed. 1.0 utan val. Saknas hos äldre servrar. */
+  speed?: number;
   /** Orden i undertexten, tider i sekunder från råklippets start. Saknas hos äldre servrar. */
   /** style: hur undertexten bränns in. Saknas: box. */
   subtitles?: { editable: boolean; reason: string | null; words: CaptionWord[]; style?: "box" | "outline" };
@@ -947,4 +953,37 @@ export interface CampaignRunInfo {
 export interface FreedSpace {
   freed_bytes: number;
   freed_gb: number;
+}
+
+// --- Ett projekt per kampanj för egna filer och uppladdningar (egna-videor-preview) ---
+
+/** En egen fil i ett projekt: filens senaste körning. Kör igen och Ta bort VOD-filen går med run_id. */
+export interface ProjectFile {
+  run_id: number;
+  vod_id: string;
+  title: string | null;
+  status: RunStatus;
+  stage: string | null;
+  pct: number | null;
+  error: string | null;
+  duration_s: number | null;
+  vod_bytes: number | null;
+  created: string | null;
+}
+
+/** GET /campaign/projects och /campaign/projects/{id}: kampanjens enda projekt för egna filer. */
+export interface CampaignProject {
+  id: number;
+  profile: string;
+  streamer: string;
+  title: string;
+  created: string | null;
+  updated: string | null;
+  /** En fil körs eller väntar på att köras. */
+  active: boolean;
+  pct: number | null;
+  poster_url: string | null;
+  /** Klippen i projektet, också uppladdningarna. */
+  clip_counts: Partial<Record<CampaignStatus, number>>;
+  files: ProjectFile[];
 }

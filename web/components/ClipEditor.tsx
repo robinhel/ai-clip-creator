@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { CaptionWords } from "@/components/CaptionWords";
 import { api } from "@/lib/api";
+import { speedNote, trimLength } from "@/lib/editLength";
 import { cn } from "@/lib/utils";
 import { inRange, lineAt } from "@/lib/words";
 import type { CampaignClip, CaptionWord, ClipEditInfo } from "@/lib/types";
@@ -93,8 +94,9 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
         ? "Ett ord i undertexten får vara högst 40 tecken."
         : null;
   // Slutet längst ut är originalets exakta längd; tidslinjen visar den avrundad till 0,1 s.
+  // En egen video spelas snabbare, så klippet blir kortare än råtiden (som servern).
   const outExact = outS >= total ? exact : outS;
-  const length = Math.round((outExact - inS) * 1000) / 1000;
+  const length = trimLength(inS, outExact, info.speed);
   const problem = lengthProblem(length, info.min_s, info.max_s);
   // Bara en ny rubrik: servern kontrollerar inte längden, så den stoppar inte heller här.
   const block =
@@ -310,6 +312,7 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
             </dl>
             <p className="-mt-2 text-xs text-muted-foreground">
               Kampanjen tillåter {info.min_s ?? 0}–{info.max_s ?? "∞"} s. Råklippet är {fmt(total)}.
+              {speedNote(info.speed)}
             </p>
 
             <div className="flex flex-wrap gap-2">

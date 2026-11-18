@@ -15,6 +15,7 @@ import { CampaignMaterial } from "@/components/CampaignMaterial";
 import { CampaignRules } from "@/components/CampaignRules";
 import { CampaignSettingsForm } from "@/components/CampaignSettingsForm";
 import { CampaignYaml } from "@/components/CampaignYaml";
+import { LiveWatch } from "@/components/LiveWatch";
 import { MissingKeys, ProblemFix, ReadyBadge, keyProblems, lengthText, ownProblems, sourceText } from "@/components/CampaignsClient";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -234,6 +235,7 @@ export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat,
           ))}
         </ul>
       )}
+      <LiveWatch profile={profile.name} />
 
       <div
         ref={tabs}

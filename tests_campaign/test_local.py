@@ -29,13 +29,13 @@ def blizzard(settings, monkeypatch, tmp_path):
     return settings
 
 
-def _runs(settings) -> list[dict]:
+def _runs(settings, path: str = "/campaign/runs") -> list[dict]:
     """Projekten som webben ser. cmd_local har redan pekat clipsmiths databas på work/clipsmith.db."""
     app = FastAPI()
     app.state.active_run_id = None
     app.include_router(api.router)
     app.dependency_overrides[api.get_settings] = lambda: settings
-    return TestClient(app).get("/campaign/runs").json()
+    return TestClient(app).get(path).json()
 
 
 def _file(tmp_path):
@@ -62,6 +62,11 @@ def test_a_file_that_is_already_run_becomes_a_done_project_with_its_clips(blizza
     assert run["channel_name"] == "Blizzard Entertainment" and run["thumbnail_url"] is None
     assert run["duration_s"] == 3 and run["game"] == "World of Warcraft: Forever"
     assert run["clip_counts"] == {"renderad": 1}
+    # Filen hamnar i kampanjens enda projekt för egna filer.
+    [project] = _runs(blizzard, "/campaign/projects")
+    assert run["project_id"] == project["id"] and run["origin"] is None
+    assert project["title"] == "Egna filer för Blizzard Entertainment"
+    assert [(f["run_id"], f["vod_id"]) for f in project["files"]] == [(run["run_id"], STEM)]
 
 
 @needs_ffmpeg

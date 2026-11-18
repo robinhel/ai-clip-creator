@@ -24,7 +24,7 @@ from clipsmith.db.models import Run, RunStatus
 from . import editor, estimate, pipeline, preferences, runinfo, streams, vodfiles
 from .budget import BudgetExceeded, budget_from_settings
 from .caption import check_caption
-from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog, UploadRunning
+from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog, UploadRunning, card_runs
 from .config import Settings, load_settings
 from .media import need, probe, run
 from .pipeline import finish_run, run_campaign_vod
@@ -291,7 +291,7 @@ def list_streams(db: Session = Depends(get_db), settings: Settings = Depends(get
         raise HTTPException(502, "Twitch svarar inte. Försök igen om en stund.")
     log = _log(settings)
     clips = log.list()
-    latest = {meta["vod_id"]: meta for meta in log.runs()}  # runs() är i ordning, så den sista vinner
+    latest = card_runs(log.runs(), lambda m: m["vod_id"])  # den senaste, men inte chattens om det finns en annan
     for stream in found:
         stream.update(runinfo.stream_run(latest.get(stream["vod_id"]), db, clips))
     streams.recommend(found)
@@ -449,10 +449,41 @@ def list_runs(db: Session = Depends(get_db), settings: Settings = Depends(get_se
     clips = log.list()
     off = _turned_off(settings)
     # Ett projekt per stream och kampanj: Kör igen och en ny körning på samma VOD visas som samma projekt,
-    # med den senaste körningen. Klippen delas redan per VOD och kampanj (runinfo.run_clips).
-    latest = {(meta["vod_id"], meta["profile"]): meta for meta in log.runs() if meta["profile"] not in off}
+    # med den senaste körningen. Klippen delas redan per VOD och kampanj (runinfo.run_clips). En körning från
+    # chatten tar inte över kortet. Egna filer har också project_id: webben visar dem i kampanjens projekt,
+    # men Klippen, Att posta och MCP-servern letar upp körningen här med vod_id och kampanj.
+    latest = card_runs([meta for meta in log.runs() if meta["profile"] not in off],
+                       lambda m: (m["vod_id"], m["profile"]))
     return [runinfo.describe(_with_facts(meta, log), db, clips, settings)[0]
             for meta in sorted(latest.values(), key=lambda m: m["run_id"], reverse=True)]
+
+
+# ---------- projekt för egna filer ----------
+
+
+def _describe_project(project: dict, log: ClipLog, db: Session, settings: Settings) -> dict:
+    runs, clips = log.runs(), log.list()
+    files = runinfo.project_files([m for m in runs if m["project_id"] == project["id"]], db, clips, settings)
+    streamer = project["title"].removeprefix("Egna filer för ")  # titeln har streamerns namn
+    return runinfo.describe_project(project, streamer, files, runinfo.project_clips(project, runs, clips))
+
+
+@router.get("/projects", summary="Kampanjernas projekt för egna filer och uppladdningar, senaste först")
+def list_projects(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> list[dict]:
+    log = _log(settings)
+    off = _turned_off(settings)
+    found = [_describe_project(project, log, db, settings) for project in log.projects()
+             if project["profile"] not in off]
+    return sorted(found, key=lambda p: (p["updated"] or "", p["id"]), reverse=True)
+
+
+@router.get("/projects/{project_id}", summary="Ett projekt för egna filer, med filerna och klippen")
+def get_project(project_id: int, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> dict:
+    log = _log(settings)
+    project = log.get_project(project_id)
+    if project is None:
+        raise HTTPException(404, "Projektet finns inte.")
+    return _describe_project(project, log, db, settings)
 
 
 @router.get("/runs/{run_id}", summary="Ett projekt med förloppet per steg")
@@ -604,18 +635,31 @@ def _get(log: ClipLog, clip_id: int) -> dict:
         raise HTTPException(404, "Klippet finns inte.") from error
 
 
+def _scoped(log: ClipLog, clips: list[dict], run_id: int | None, project_id: int | None) -> list[dict] | None:
+    """Klippen i ett projekt för egna filer (filernas klipp och kampanjens uppladdningar) eller i en körning.
+    None när inget av dem är valt."""
+    if project_id is not None:
+        project = log.get_project(project_id)
+        return runinfo.project_clips(project, log.runs(), clips) if project else []
+    if run_id is not None:
+        meta = log.run(run_id)
+        return runinfo.run_clips(meta, clips) if meta else []
+    return None
+
+
 @router.get("/clips", summary="Klipp i klipploggen")
 def list_clips(status: str | None = None, vod_id: str | None = None, run_id: int | None = None,
-               profile: str | None = None, settings: Settings = Depends(get_settings)) -> list[dict]:
+               profile: str | None = None, project_id: int | None = None,
+               settings: Settings = Depends(get_settings)) -> list[dict]:
     log = _log(settings)
     clips = log.list(status or None)
     if vod_id:
         clips = [c for c in clips if c["vod_id"] == vod_id]
     if profile:  # kampanjsidan visar sina klipp även när kampanjen är avstängd
         clips = [c for c in clips if c["profile"] == profile]
-    if run_id is not None:
-        meta = log.run(run_id)
-        clips = runinfo.run_clips(meta, clips) if meta else []
+    scoped = _scoped(log, clips, run_id, project_id)
+    if scoped is not None:
+        clips = scoped
     elif not profile:  # en direktlänk till ett projekt visar dess klipp även när kampanjen är avstängd
         off = _turned_off(settings)
         clips = [c for c in clips if c["profile"] not in off]

@@ -693,6 +693,11 @@ def test_retry_of_a_run_from_an_own_file_runs_the_file_again(client, settings, s
     assert mp4.read_bytes() == b"video"  # filen är kvar: den tas inte bort som en halv video
     run = client.get(f"/campaign/runs/{new['id']}").json()
     assert (run["vod_id"], run["title"], run["duration_s"], run["status"]) == (OWN_FILE, "T", 13950, "pending")
+    # Kör igen stannar i kampanjens projekt för egna filer.
+    project_id = client.get(f"/campaign/runs/{run_id}").json()["project_id"]
+    assert project_id is not None and run["project_id"] == project_id
+    [project] = client.get("/campaign/projects").json()
+    assert project["id"] == project_id and [f["run_id"] for f in project["files"]] == [new["id"]]
 
 
 def test_retry_of_a_run_from_an_own_file_that_is_gone_says_why(client, settings, started) -> None:  # noqa: F811

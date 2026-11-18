@@ -22,6 +22,7 @@ from clipsmith.config.loaders import load_config
 from clipsmith.rendering.clipper import _build_ffmpeg_cmd
 from clipsmith.settings import CaptionConfig, ReframeConfig
 
+from . import drafts
 from .caption import build_caption
 from .cliplog import ClipLog
 from .config import Settings
@@ -153,8 +154,9 @@ def edit_info(clip: dict, profile: Profile, settings: Settings) -> dict:
                     "url": f"/campaign/clips/{clip['id']}/original"}
         trim = {"in_s": state["in_s"], "out_s": state["out_s"]}
     data, why = _words(raw, profile, settings)
+    speed = drafts.EditLook.of(raw).speed if raw is not None else 1.0  # webben räknar längden med den
     return {"clip_id": clip["id"], "title": clip["title"], "original": original, "trim": trim,
-            "min_s": min_s, "max_s": max_s, "editable": reason is None, "reason": reason,
+            "min_s": min_s, "max_s": max_s, "speed": speed, "editable": reason is None, "reason": reason,
             "subtitles": {"editable": data is not None, "reason": why, "words": data["words"] if data else [],
                           "style": data["caption"].get("style") if data else None}}
 
@@ -206,6 +208,21 @@ def _new_trim(state: dict, in_s: float | None, out_s: float | None) -> tuple[flo
     return new_in, new_out
 
 
+def _check_trim(state: dict, trim: tuple[float, float], profile: Profile, look: drafts.EditLook) -> None:
+    """Den nya trimningen inom originalet och inom kampanjens längd. Klippet blir kortare med hastigheten. En
+    egen video med val-fil blir drafts.EXTRA_S längre, som i utkastens kontroll."""
+    new_in, new_out = trim
+    if not 0 <= new_in < new_out <= state["duration_s"]:
+        shown = drafts.comma(state["duration_s"], "g")
+        raise ValueError(f"Start och slut måste ligga inom klippet: 0 till {shown} s, och starten före slutet.")
+    min_s, max_s = limits(profile)
+    extra = drafts.EXTRA_S if look.choices else 0.0
+    length = round((new_out - new_in) / look.speed + extra, 3)  # exakt kampanjens gränser
+    if not min_s <= length <= max_s:
+        raise ValueError(f"Klippet blir {drafts.comma(length, '.1f')} s. "
+                         f"Kampanjen tillåter {drafts.comma(min_s, 'g')}–{drafts.comma(max_s, 'g')} s.")
+
+
 def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
               in_s: float | None = None, out_s: float | None = None, title: str | None = None,
               words: list[dict] | None = None) -> None:
@@ -218,17 +235,14 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
     state = _state(clip, raw)
     new_in, new_out = _new_trim(state, in_s, out_s)
     trimmed = (new_in, new_out) != (state["in_s"], state["out_s"])
+    look = drafts.EditLook.of(raw)  # en egen video: valen från uppladdningen
     if trimmed:
-        if not 0 <= new_in < new_out <= state["duration_s"]:
-            raise ValueError(f"Start och slut måste ligga inom klippet: 0 till {state['duration_s']:g} s, "
-                             "och starten före slutet.")
-        min_s, max_s = limits(profile)
-        length = round(new_out - new_in, 3)  # exakt kampanjens gränser, som i webben
-        if not min_s <= length <= max_s:
-            raise ValueError(f"Klippet blir {length:.1f} s. Kampanjen tillåter {min_s:g}–{max_s:g} s.")
+        _check_trim(state, (new_in, new_out), profile, look)
     new_title = clip["title"] if title is None else title.strip()
     if not new_title:
         raise ValueError("Rubriken får inte vara tom.")
+    look = look.titled(clip["title"], new_title)
+    own = look.args(settings, profile, new_out - new_in)
     data, why = _words(raw, profile, settings)
     new_words = data["words"] if data else None
     if words is not None:
@@ -254,8 +268,8 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
             if data:  # orden har originalets tider: undertexten för in_s–out_s, samma plan som körningen
                 ass = raw.with_name(f".{raw.stem}.edit.ass")  # punkt först, som _tmp
                 plan = prepare(src, {**data, "words": new_words}, new_in, new_out, profile, ass)
-            rendered = finish_clip(src, tmp_done, profile, settings.root, settings.encoder, title=new_title,
-                                   subtitles=ass, plan=plan, frame=data["reframe"]["mode"] if data else "")
+            rendered = finish_clip(src, tmp_done, profile, settings.root, settings.encoder, title=look.hook,
+                                   subtitles=ass, plan=plan, frame=data["reframe"]["mode"] if data else "", **own)
 
         # Precis före bytet: klippet kan ha postats under tiden. Sedan tas ett gammalt ja bort, så att
         # inget godkännande gäller den nya filen om något går fel efteråt.
@@ -277,6 +291,7 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
                 "raw_size": stat.st_size, "raw_mtime_ns": stat.st_mtime_ns}).encode("utf-8"))
         if rendered:
             os.replace(tmp_done, done)
+        look.remember(raw)
         if data and (trimmed or words_changed):
             # Efter metafilen: source_path(raw) är nu originalet, så ordfilen hör till det. Efter klippet: går
             # bytet fel gäller de gamla orden fortfarande det klipp som ligger där.

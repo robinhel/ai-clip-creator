@@ -29,7 +29,7 @@ from clipsmith.selection.selector import PickResult, _matches, _token
 from . import download, pipeline
 from .brain import Brain
 from .budget import budget_from_settings
-from .cliplog import ClipLog
+from .cliplog import ClipLog, card_runs
 from .config import Settings
 from .profile import Profile, load_profile
 
@@ -204,14 +204,14 @@ class Chats:
 def material(profile: str, settings: Settings, log: ClipLog) -> list[dict]:
     """Kampanjens källor: varje vod_id med en körning för kampanjen, nyast först. `game` är bara för klippen."""
     found: dict[str, dict] = {}
-    for run in log.runs():
-        if run["profile"] != profile:
-            continue
+    runs = [run for run in log.runs() if run["profile"] == profile]
+    cards = card_runs(runs, lambda r: r["vod_id"])  # projektet med källan: inte chattens körning
+    for run in runs:
         item = found.setdefault(run["vod_id"], {"vod_id": run["vod_id"], "title": None, "created": run["created"],
                                                 "duration_s": None, "game": None})
         for key in ("title", "duration_s", "game"):
             item[key] = run[key] or item[key]
-        item["_run"] = run["run_id"]
+        item["_run"] = cards[run["vod_id"]]["run_id"]
     clips = Counter(clip["vod_id"] for clip in log.list() if clip["profile"] == profile)
     for vod_id, item in found.items():
         folder = settings.work_dir / vod_id
