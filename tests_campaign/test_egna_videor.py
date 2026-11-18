@@ -50,11 +50,11 @@ def test_a_landscape_video_becomes_a_vertical_clip_to_review(client, settings, t
 
 @needs_ffmpeg
 def test_two_uploads_with_the_same_name_get_their_own_files(client, tmp_path, monkeypatch) -> None:
-    from campaign import uploads_api
+    from campaign import drafts
 
     hooks: list = []
-    real = uploads_api.finish_clip
-    monkeypatch.setattr(uploads_api, "finish_clip", lambda *a, **k: hooks.append(k["title"]) or real(*a, **k))
+    real = drafts.finish_clip
+    monkeypatch.setattr(drafts, "finish_clip", lambda *a, **k: hooks.append(k["title"]) or real(*a, **k))
     source = make_clip(tmp_path / "a.mp4", seconds=4)
     first, second = _upload(client, source).json(), _upload(client, source, title="Wow").json()
     assert first["filename"] != second["filename"]
@@ -141,16 +141,16 @@ def extras(settings, monkeypatch):
 
 
 def _spy(monkeypatch) -> list:
-    from campaign import uploads_api
+    from campaign import drafts
 
     seen: list = []
-    real = uploads_api.finish_clip
+    real = drafts.finish_clip
 
     def spy(*args, **kwargs):
         seen.append(kwargs)
         return real(*args, **{**kwargs, "font_file": None})  # testfonten är ingen riktig font
 
-    monkeypatch.setattr(uploads_api, "finish_clip", spy)
+    monkeypatch.setattr(drafts, "finish_clip", spy)
     return seen
 
 
@@ -235,6 +235,8 @@ def test_the_options_follow_the_campaign(client, extras) -> None:
         "overlay_locked": True,  # Timmys overlay krävs
         "max_start_cut_s": 5.0,
         "min_seconds": 3.0,
+        "max_seconds": 60.0,  # kampanjens tak, som tidslinjen visar
+        "safe_zone": {"top": 0.07, "bottom": 0.2},  # andelar av höjden, samma som profilen
         "hook_text": False,  # Timmy kräver sin text, så rubriken bränns inte in
         "framings": ["fill", "fit"],
         # Kampanjens regel för material, så att Robin ser den under väljaren.
