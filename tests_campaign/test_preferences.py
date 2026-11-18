@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 
 import pytest
 
@@ -45,3 +47,22 @@ def test_the_list_has_swedish_names() -> None:
     assert list(preferences.COUNTRIES)[:3] == ["SE", "NO", "DK"]
     assert (preferences.COUNTRIES["SE"], preferences.COUNTRIES["FR"], len(preferences.COUNTRIES)) == (
         "Sverige", "Frankrike", 19)
+
+
+def test_two_saves_at_the_same_time_keep_both_values(settings, monkeypatch) -> None:
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    read = preferences._read
+
+    def slow_read(settings) -> dict:  # den andra sparningen läser medan den första ännu inte har skrivit
+        saved = read(settings)
+        time.sleep(0.05)
+        return saved
+
+    monkeypatch.setattr(preferences, "_read", slow_read)
+    threads = [threading.Thread(target=preferences.save_country, args=(settings, "FR")),
+               threading.Thread(target=preferences.save_submit_helper, args=(settings, False))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert _saved(settings) == {"country": "FR", "submit_helper": False}
