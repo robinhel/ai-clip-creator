@@ -215,7 +215,7 @@ import subprocess  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from campaign import api, subtitles  # noqa: E402
+from campaign import api, editor_api, subtitles  # noqa: E402
 from campaign.workflow import finish_vod  # noqa: E402
 from clipsmith.settings import CaptionConfig, ReframeConfig  # noqa: E402
 
@@ -289,6 +289,24 @@ def _spy(monkeypatch) -> list:
     return seen
 
 
+def _trimmed(client, log, clip_id, span: tuple[float, float] = (4.0, 10.0)) -> None:
+    """Trimma originalet till span (4–10 s) i redigeraren, så att originalfilen är längre än klippet. Godkänt
+    igen."""
+    client.app.include_router(editor_api.router)
+    answer = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": span[0], "out_s": span[1]})
+    assert answer.status_code == 200, answer.text
+    log.update(clip_id, status="godkand", problems=[])
+
+
+def _length(path: Path) -> float:
+    return float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+                                 str(path)], capture_output=True, text=True, check=True).stdout)
+
+
+def _hook_on(settings) -> None:
+    set_profile(settings, on_screen_text={"text": "twitch.tv/skiimasktimmy", "required": True, "hook_text": True})
+
+
 @needs_ffmpeg
 def test_the_options_list_fonts_stickers_overlays_and_the_accounts_style(vclip, settings) -> None:
     client, _, clip_id = vclip
@@ -299,7 +317,7 @@ def test_the_options_list_fonts_stickers_overlays_and_the_accounts_style(vclip, 
     assert options["overlays"] == [{"file": "overlays/skiimasktimmy.png",
                                     "url": "/campaign/overlays/skiimasktimmy.png"}]
     assert options["overlay_locked"] is True  # Timmys overlay krävs
-    assert options["max_start_cut_s"] == 5.0
+    assert options["max_start_cut_s"] == 7.0  # 10 s - 3 s, ingen spärr på 5 s
     assert options["defaults"] == {"font": "Arial", "overlay": None, "sticker": None, "start_cut_s": 0.0}
     set_profile(settings, accounts_style={"openB": {"font": "Impact", "start_cut_s": 2}})
     assert _options(client, clip_id)["defaults"]["start_cut_s"] == 2.0
@@ -361,8 +379,11 @@ def test_a_version_cuts_the_start_shifts_the_words_and_changes_only_its_own_font
 
 @needs_ffmpeg
 @pytest.mark.parametrize(("body", "text"), [
-    ({"start_cut_s": 5.5}, "0–5"),
-    ({"start_cut_s": -1}, "0–5"),
+    ({"start_cut_s": 7.5}, "minst 3"),  # 10 s - 7,5 s = 2,5 s
+    ({"start_cut_s": -1}, "originalfilen"),  # klippet är inte trimmat: inget finns före
+    ({"hook": "Två\nrader"}, "styrtecken"),
+    ({"hook": "This hook is far too long to fit in three short lines at the top of the clip"},
+     "3 rader med 22 tecken"),  # fyra rader
     ({"font": "Wingdings"}, "Fonten"),
     ({"overlay": "overlays/annan.png"}, "kräver sin egen overlay"),
     ({"sticker": {"file": "../overlays/skiimasktimmy.png", "position": "center", "start_s": 0, "duration_s": 2}},
@@ -383,12 +404,13 @@ def test_bad_choices_are_refused_and_nothing_is_made(vclip, settings, body, text
     answer = _make(client, clip_id, **body)
     assert answer.status_code == 400 and text in answer.json()["detail"], answer.text
     assert len(log.list()) == count
+    assert not (settings.out_dir / "123" / "klara" / "clip_01_no_way.v1.mp4").exists()
 
 
 @needs_subtitles
 def test_a_versions_sticker_at_the_top_goes_below_the_burned_in_title(vclip, settings, monkeypatch) -> None:
     client, _, clip_id = vclip
-    set_profile(settings, on_screen_text={"text": "twitch.tv/skiimasktimmy", "required": True, "hook_text": True})
+    _hook_on(settings)
     seen = _spy(monkeypatch)
     answer = _make(client, clip_id, sticker={"file": "fire.png", "position": "top_right", "start_s": 0,
                                              "duration_s": 3})
@@ -407,9 +429,7 @@ def test_a_version_can_be_mirrored_filtered_and_sped_up(vclip, settings, monkeyp
     (call,) = seen
     assert call["look"].startswith(",hflip,eq=") and call["speed"] == 1.2
     out = settings.out_dir / "123" / "klara" / "clip_01_no_way.v1.mp4"
-    length = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
-                                   "csv=p=0", str(out)], capture_output=True, text=True, check=True).stdout)
-    assert length == pytest.approx(10.0 / 1.2, abs=0.15)
+    assert _length(out) == pytest.approx(10.0 / 1.2, abs=0.15)
     options = _options(client, clip_id)
     assert options["speeds"] == [1.0, 1.05, 1.1, 1.15, 1.2]
     assert options["filters"] == ["none", "fresh", "warm", "cool", "punch"]
@@ -535,3 +555,194 @@ def test_the_original_lists_the_account_of_its_version(sched, settings) -> None:
     _schedule(sched, version, "openB", title="Second take")
     accounts = sched.get(f"/campaign/clips/{original}/accounts", params={"platform": "tiktok"}).json()["accounts"]
     assert {a["account"]: a["state"] for a in accounts}["openB"] == "scheduled"
+
+
+# ---------- 5. eget bidrag: ny hook eller ny startpunkt ----------
+
+from campaign.versions import NO_OWN  # noqa: E402
+
+NO_ACCOUNT = ("Klippet har ett inlägg utan konto på TikTok. Det kan redan ligga på det här kontot. Kontrollera "
+              "innan du postar.")
+
+
+@needs_subtitles
+def test_an_earlier_start_is_cut_from_the_original_file_and_the_words_follow(vclip, settings, monkeypatch) -> None:
+    client, log, clip_id = vclip
+    _trimmed(client, log, clip_id)  # klippet är 4–10 s i originalfilen på 10 s
+    log.update(clip_id, start_s=100.0)  # klippet börjar 100 s in i VOD:en
+    seen = _spy(monkeypatch)
+    answer = _make(client, clip_id, start_cut_s=-4.03)  # webben avrundar: så nära filens början är början
+    assert answer.status_code == 201, answer.text
+    assert "Dialogue: 0,0:00:00.50," in seen[-1]["ass"]  # Bro vid 0,5 s i originalfilen kommer med
+    assert "Dialogue: 0,0:00:02.00," in seen[-1]["ass"]  # wei vid 2,0 s står kvar på 2,0 s
+    out = settings.out_dir / "123" / "klara" / "clip_01_no_way.v1.mp4"
+    assert _length(out) == pytest.approx(10.0, abs=0.15)
+    assert log.get(answer.json()["id"])["start_s"] == 96.0  # originalfilens början, inte 95,97
+    answer = _make(client, clip_id, start_cut_s=-2)  # börjar vid 2 s i originalfilen
+    assert answer.status_code == 201, answer.text
+    assert "Dialogue: 0,0:00:00.50," not in seen[-1]["ass"]  # Bro vid 0,5 s kommer inte med
+    assert "Dialogue: 0,0:00:00.00," in seen[-1]["ass"]  # wei vid 2,0 s står först
+    assert _length(out.with_name("clip_01_no_way.v2.mp4")) == pytest.approx(8.0, abs=0.15)
+    assert log.get(answer.json()["id"])["start_s"] == 98.0
+    assert not [p for p in out.parent.parent.rglob(".*")]  # inga tillfälliga filer kvar
+
+
+@needs_subtitles
+def test_an_earlier_start_of_three_seconds_is_new_and_has_no_cold_open(vclip, settings, monkeypatch) -> None:
+    client, log, clip_id = vclip
+    _trimmed(client, log, clip_id)
+    raw = settings.out_dir / "123" / RAW
+    subtitles.save_words(raw, WORDS, CaptionConfig(enabled=True, style="box"), ReframeConfig(mode="center"),
+                         editor.source_path(raw), hook=[6.0, 7.5])  # i originalfilen, som orden
+    seen = _spy(monkeypatch)
+    version = _make(client, clip_id, start_cut_s=-2).json()  # under 3 s: hooken först, och varningen
+    assert seen[-1]["plan"] and seen[-1]["plan"]["cold_open"] and NO_OWN in version["warnings"]
+    version = _make(client, clip_id, start_cut_s=-3).json()
+    assert not (seen[-1]["plan"] or {}).get("cold_open") and NO_OWN not in version["warnings"]
+
+
+@needs_subtitles
+def test_a_start_moved_less_than_three_seconds_is_not_new_after_the_clamp(vclip, settings, monkeypatch) -> None:
+    client, log, clip_id = vclip
+    _trimmed(client, log, clip_id, (2.98, 10.0))
+    raw = settings.out_dir / "123" / RAW
+    subtitles.save_words(raw, WORDS, CaptionConfig(enabled=True, style="box"), ReframeConfig(mode="center"),
+                         editor.source_path(raw), hook=[6.0, 7.5])
+    seen = _spy(monkeypatch)
+    answer = _make(client, clip_id, start_cut_s=-3.0)  # kläms till filens början: verklig flytt 2,98 s
+    assert answer.status_code == 201, answer.text
+    assert seen[-1]["plan"] and seen[-1]["plan"]["cold_open"] and NO_OWN in answer.json()["warnings"]
+
+
+@needs_subtitles
+def test_a_later_start_beyond_five_seconds_is_allowed(vclip, settings) -> None:
+    client, _, clip_id = vclip
+    answer = _make(client, clip_id, start_cut_s=6)
+    assert answer.status_code == 201, answer.text
+    assert _length(settings.out_dir / "123" / "klara" / "clip_01_no_way.v1.mp4") == pytest.approx(4.0, abs=0.15)
+
+
+@needs_subtitles
+def test_the_edge_from_the_options_is_accepted(vclip, settings) -> None:
+    client, log, clip_id = vclip
+    _trimmed(client, log, clip_id, (0.0, 8.28))  # 8,28 - 1,28 blir 6,9999… s i flyttal
+    set_profile(settings, clip={"min_seconds": 7, "max_seconds": 60})
+    edge = _options(client, clip_id)["max_start_cut_s"]
+    assert edge == 1.28
+    answer = _make(client, clip_id, start_cut_s=edge)
+    assert answer.status_code == 201, answer.text
+
+
+@needs_subtitles
+@pytest.mark.parametrize("case", [  # trimning, kampanjens gränser, gränsen i options
+    ((4.125, 9.13), {"min_seconds": 2, "max_seconds": 60}, "max_start_cut_s", 3.0),  # 5,005 - 2 = 3,005
+    ((4.125, 9.12), {"min_seconds": 3, "max_seconds": 8}, "min_start_cut_s", -3.0),  # 4,995 - 8 = -3,005
+])
+def test_the_edge_from_the_options_is_rounded_inwards(vclip, settings, case) -> None:
+    client, log, clip_id = vclip
+    span, limits, key, expected = case
+    _trimmed(client, log, clip_id, span)  # redigeraren avrundar inte: tre decimaler
+    set_profile(settings, clip=limits)
+    edge = _options(client, clip_id)[key]
+    assert edge == expected
+    answer = _make(client, clip_id, start_cut_s=edge)
+    assert answer.status_code == 201, answer.text
+
+
+@needs_ffmpeg
+def test_a_start_that_makes_the_version_too_long_is_refused(vclip, settings) -> None:
+    client, log, clip_id = vclip
+    _trimmed(client, log, clip_id)
+    set_profile(settings, clip={"min_seconds": 3, "max_seconds": 8})
+    count = len(log.list())
+    answer = _make(client, clip_id, start_cut_s=-4)  # 6 s + 4 s = 10 s
+    assert answer.status_code == 400 and "högst 8" in answer.json()["detail"], answer.text
+    answer = _make(client, clip_id, start_cut_s=-4.5)  # före originalfilens början
+    assert answer.status_code == 400 and "originalfilen" in answer.json()["detail"], answer.text
+    assert len(log.list()) == count
+
+
+@needs_subtitles
+def test_a_raw_clip_longer_than_the_max_is_left_to_the_rule_check(vclip, settings) -> None:
+    client, _, clip_id = vclip
+    set_profile(settings, clip={"min_seconds": 3, "max_seconds": 8})  # råklippet är 10 s, som förut
+    for start_cut_s in (0, 1):
+        answer = _make(client, clip_id, start_cut_s=start_cut_s)
+        assert answer.status_code == 201, answer.text
+
+
+@needs_subtitles
+def test_a_new_start_turns_off_the_cold_open_and_a_small_one_keeps_it(vclip, settings, monkeypatch) -> None:
+    client, _, clip_id = vclip
+    raw = settings.out_dir / "123" / RAW
+    subtitles.save_words(raw, WORDS, CaptionConfig(enabled=True, style="box"), ReframeConfig(mode="center"), raw,
+                         hook=[6.0, 7.5])
+    seen = _spy(monkeypatch)
+    assert _make(client, clip_id, start_cut_s=2).status_code == 201
+    assert seen[-1]["plan"] and seen[-1]["plan"]["cold_open"]  # under 3 s: hooken först, som förut
+    assert _make(client, clip_id, start_cut_s=3).status_code == 201
+    assert not (seen[-1]["plan"] or {}).get("cold_open")
+
+
+@needs_subtitles
+@pytest.mark.parametrize("case", [  # hook_text, versionerna i tur och ordning, varning på den sista
+    (True, [{"mirror": True, "speed": 1.1}], True),
+    (True, [{"start_cut_s": 2.9}], True),
+    (True, [{"start_cut_s": 3}], False),
+    (True, [{"hook": "Nobody saw that coming"}], False),
+    (True, [{"hook": "no  WAY"}], True),  # originalets hook
+    (True, [{"hook": "Nobody saw that coming"}, {"hook": "nobody saw  THAT coming"}], True),  # en versions hook
+    (False, [{"hook": "Nobody saw that coming"}], True),  # Timmys hook_text är falskt: kanalens text står uppe
+    (False, [{"start_cut_s": 4}], False),
+])
+def test_the_warning_comes_without_a_new_hook_or_a_new_start(vclip, settings, case) -> None:
+    client, _, clip_id = vclip
+    hook_text, bodies, warned = case
+    if hook_text:
+        _hook_on(settings)
+    for body in bodies:
+        version = _make(client, clip_id, **body).json()
+    assert (NO_OWN in version["warnings"]) is warned, version["warnings"]
+
+
+@needs_subtitles
+def test_a_post_without_an_account_gives_a_warning_but_does_not_stop(vclip) -> None:
+    client, log, clip_id = vclip
+    assert _options(client, clip_id)["account_warning"] is None
+    assert NO_ACCOUNT not in _make(client, clip_id).json()["warnings"]
+    log.add_post(clip_id, "tiktok", "https://www.tiktok.com/@a/video/1", account=None)  # loggat för hand
+    options = _options(client, clip_id)
+    assert (options["allowed"], options["account_warning"]) == (True, NO_ACCOUNT)
+    answer = _make(client, clip_id)
+    assert answer.status_code == 201, answer.text
+    assert NO_ACCOUNT in answer.json()["warnings"]
+    assert _options(client, clip_id, "okänt")["account_warning"] is None  # versionen går inte att göra
+
+
+@needs_subtitles
+def test_the_options_tell_the_start_range_and_the_hooks(vclip, settings) -> None:
+    client, log, clip_id = vclip
+    options = _options(client, clip_id)
+    assert {k: options[k] for k in ("min_start_cut_s", "max_start_cut_s", "new_start_s", "hook", "hooks_used",
+                                    "hook_text", "original_url", "in_s")} == {
+        "min_start_cut_s": 0.0, "max_start_cut_s": 7.0, "new_start_s": 3.0, "hook": "No way",
+        "hooks_used": ["No way"], "hook_text": False, "original_url": f"/campaign/clips/{clip_id}/original",
+        "in_s": 0.0}
+    _hook_on(settings)
+    version = _make(client, clip_id, hook="Nobody saw that coming").json()
+    for asked in (clip_id, version["id"]):  # en version visar originalets val
+        options = _options(client, asked)
+        assert options["hooks_used"] == ["No way", "Nobody saw that coming"] and options["hook_text"] is True
+        assert (options["hook"], options["original_url"]) == ("No way", f"/campaign/clips/{clip_id}/original")
+    _trimmed(client, log, clip_id)
+    set_profile(settings, clip={"min_seconds": 3, "max_seconds": 8})
+    options = _options(client, clip_id)
+    assert (options["in_s"], options["min_start_cut_s"], options["max_start_cut_s"]) == (4.0, -2.0, 3.0)
+    log.update(clip_id, title="Moment 0:01:40")  # snabblägets platshållare är ingen hook
+    options = _options(client, clip_id)
+    assert (options["hook"], options["hooks_used"]) == ("", ["Nobody saw that coming"])
+    blocked = _options(client, clip_id, "okänt")
+    assert (blocked["allowed"], blocked["hook"], blocked["hooks_used"], blocked["min_start_cut_s"]) == (
+        False, "", [], 0.0)
+
+

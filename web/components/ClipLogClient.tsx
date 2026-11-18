@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { ChevronDown, ExternalLink, RefreshCw } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,9 @@ import {
   DEFAULT_FILTER,
   draftFrom,
   inScope,
+  lengthGroups,
   matches,
+  METRICS,
   minViewsOf,
   parseCount,
   POSTED,
@@ -28,6 +30,7 @@ import {
   stepFor,
   todoItems,
   undoStatus,
+  watchPctOfLength,
   type Draft,
   type Filter,
   type PatchBody,
@@ -41,6 +44,7 @@ import type { CampaignClip, CampaignRunInfo, CampaignStatus, CampaignSummary, Cl
 const usd = new Intl.NumberFormat("sv-SE", { style: "currency", currency: "USD" });
 const count = new Intl.NumberFormat("sv-SE");
 const percent = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const decimal = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
 const date = new Intl.DateTimeFormat("sv-SE", { dateStyle: "medium" });
 const DAY_MS = 86_400_000;
 
@@ -206,7 +210,7 @@ const STEP_TEXT: Record<Exclude<Step, "posta">, (item: TodoItem, now: number) =>
   inskickad: () => `Skicka in länken i Content Rewards. Tryck sedan ${STEP_LABEL.inskickad}.`,
   visningar: () => "Fyll i visningar, gillningar och kommentarer.",
   analytics_inskickad: (item) =>
-    `${viewsOf(item)} visningar. Skicka en skärminspelning av inläggets analytics i analytics-formuläret. Tryck sedan ${STEP_LABEL.analytics_inskickad}.`,
+    `${viewsOf(item)} visningar. Fyll i Fler mått. Skicka en skärminspelning av inläggets analytics i analytics-formuläret. Tryck sedan ${STEP_LABEL.analytics_inskickad}.`,
   betald: () => `Fyll i beloppet när Whop har betalat. Tryck sedan ${STEP_LABEL.betald}.`,
   visningar_igen: (item, now) =>
     `Fyll i visningarna igen. De ändrades för ${days((item.post ?? item.clip).updated, now)} dagar sedan. Kampanjen betalar från ${count.format(item.minViews)}.`,
@@ -369,7 +373,8 @@ function Engagement({ row }: { row: Row }) {
   );
 }
 
-function StatFields({ row, draft, setDraft, busy, step, label, onEnter }: FieldProps) {
+/** De fyra talen och engagemanget. children: knappen Fler mått, direkt under engagemanget. */
+function StatFields({ row, draft, setDraft, busy, step, label, onEnter, children }: FieldProps & { children?: React.ReactNode }) {
   const goto = step === "visningar" || step === "visningar_igen";
   return (
     <div className="mt-3 lg:mt-0">
@@ -394,6 +399,7 @@ function StatFields({ row, draft, setDraft, busy, step, label, onEnter }: FieldP
         ))}
       </div>
       <Engagement row={row} />
+      {children}
     </div>
   );
 }
@@ -428,6 +434,96 @@ function MoneyFields({ row, draft, setDraft, busy, step, label, onEnter, estimat
     </div>
   );
 }
+
+/** Ja, Nej eller Okänt för Nådde gränsen på 7 dagar. */
+function reachedText(reached?: boolean | null): string {
+  if (reached == null) return "Okänt";
+  return reached ? "Ja" : "Nej";
+}
+
+/** Värdena i Fler mått som Robin inte skriver själv. */
+function MetricFacts({ row }: { row: Row }) {
+  const { clip, post } = row;
+  const pct = watchPctOfLength(post?.avg_watch_s, clip.length_s);
+  const facts: [string, string][] = [
+    ["Längd (s)", clip.length_s == null ? "–" : decimal.format(clip.length_s)],
+    ["Tittartid i procent av längden", pct == null ? "–" : `${decimal.format(pct)} %`],
+    ["Nådde gränsen på 7 dagar", reachedText(post?.reached_min_7d)],
+    ["Version", clip.version_of == null ? "Original" : `Version av #${clip.version_of}`],
+  ];
+  return (
+    <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs sm:grid-cols-4">
+      {facts.map(([name, value]) => (
+        <div key={name}>
+          <dt className="text-muted-foreground">{name}</dt>
+          <dd className="text-sm tabular-nums">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+const morePanelId = (row: Row) => `${rowId(row)}-matt`;
+
+/** Knappen som öppnar och stänger Fler mått. Står under engagemanget, bara på en rad med inlägg. */
+function MoreButton({ row, open, onToggle }: { row: Row; open: boolean; onToggle: () => void }) {
+  if (!row.post) return null;
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className="mt-1.5 -ml-2.5"
+      aria-expanded={open}
+      aria-controls={open ? morePanelId(row) : undefined}
+      onClick={onToggle}
+    >
+      <ChevronDown className={cn("transition-transform", open && "rotate-180")} aria-hidden />
+      Fler mått
+    </Button>
+  );
+}
+
+/** Fler mått från TikTok Studio, under hela raden när den är öppen. Sparas som de andra fälten, med Spara, ett steg eller Enter. */
+function MoreMetrics({ row, draft, setDraft, busy, step, label, onEnter, open }: FieldProps & { open: boolean }) {
+  if (!open) return null;
+  // Att göra vid Analytics inskickad sätter markören i första fältet.
+  const goto = step === "analytics_inskickad";
+  return (
+    <div id={morePanelId(row)} className="mt-3 lg:col-span-4 lg:row-start-2 lg:mt-0">
+      <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-5">
+        {METRICS.map((metric) => (
+          <label key={metric.key} className="space-y-1 text-xs text-muted-foreground">
+            <span>{metric.label}</span>
+            <Input
+              aria-label={`${metric.label} för klipp ${label}`}
+              inputMode={metric.key === "saves" ? "numeric" : "decimal"}
+              value={draft[metric.key]}
+              data-goto={goto && metric.key === "avg_watch_s" ? "" : undefined}
+              onChange={(e) => setDraft((d) => ({ ...d, [metric.key]: e.target.value }))}
+              onKeyDown={onEnter}
+              disabled={busy}
+              className="h-8 w-full text-right tabular-nums"
+            />
+            {metric.key === "countries_pct" && row.clip.audience_countries && <span className="block">{row.clip.audience_countries}</span>}
+          </label>
+        ))}
+      </div>
+      <MetricFacts row={row} />
+    </div>
+  );
+}
+
+/**
+ * Raderna där Fler mått är öppen, med rowId som nyckel. Ligger utanför raden: raden byggs om efter varje
+ * sparning (nyckeln har updated), och panelen ska vara öppen kvar.
+ */
+function useMoreOpen() {
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const toggle = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }));
+  const show = (id: string) => setOpen((o) => ({ ...o, [id]: true }));
+  return { open, toggle, show };
+}
+type MoreOpen = ReturnType<typeof useMoreOpen>;
 
 function NotPosted({ status }: { status: CampaignStatus }) {
   return (
@@ -527,12 +623,15 @@ interface RowProps {
   hidden: boolean;
   /** Raden som en punkt i Att göra pekade på. */
   highlight: boolean;
+  /** Fler mått är öppen. */
+  moreOpen: boolean;
   now: number;
   onUpdate: (clip: CampaignClip) => void;
+  onToggleMore: () => void;
 }
 
 /** Ett inlägg, eller ett klipp utan inlägg. På smal skärm ett kort, på bred skärm en rad med fyra kolumner. */
-function ClipRow({ row, info, estimate, runId, hidden, highlight, now, onUpdate }: RowProps) {
+function ClipRow({ row, info, estimate, runId, hidden, highlight, moreOpen, now, onUpdate, onToggleMore }: RowProps) {
   const saved = row.post ?? row.clip;
   const status = rowStatus(row);
   const [draft, setDraft] = useState<Draft>(() => draftFrom(saved));
@@ -572,12 +671,15 @@ function ClipRow({ row, info, estimate, runId, hidden, highlight, now, onUpdate 
       <RowTitle row={row} runId={runId} streamer={info?.streamer} error={error} />
       {POSTED.includes(status) ? (
         <>
-          <StatFields {...fields} />
+          <StatFields {...fields}>
+            <MoreButton row={row} open={moreOpen} onToggle={onToggleMore} />
+          </StatFields>
           <MoneyFields {...fields} estimate={estimate} />
         </>
       ) : (
         <NotPosted status={status} />
       )}
+      {row.post && <MoreMetrics {...fields} open={moreOpen} />}
       <RowActions
         row={row}
         step={step}
@@ -830,12 +932,13 @@ interface ListProps {
   earnings?: Earnings;
   runIdFor: (clip: CampaignClip) => number | undefined;
   highlight: string | null;
+  more: MoreOpen;
   now: number;
   onUpdate: (clip: CampaignClip) => void;
 }
 
 /** Alla rader. Dolda rader finns kvar, så att osparade siffror inte försvinner när filtret byts. */
-function LogList({ clips, rows, profiles, campaigns, f, earnings, runIdFor, highlight, now, onUpdate }: ListProps) {
+function LogList({ clips, rows, profiles, campaigns, f, earnings, runIdFor, highlight, more, now, onUpdate }: ListProps) {
   const shows = showsIn(f);
   const estimates = new Map(earnings?.per_clip.map((c) => [c.id, c.usd]));
   const shown = rows.filter(shows).length;
@@ -854,11 +957,52 @@ function LogList({ clips, rows, profiles, campaigns, f, earnings, runIdFor, high
             runId={runIdFor(row.clip)}
             hidden={!shows(row)}
             highlight={highlight === rowId(row)}
+            moreOpen={!!more.open[rowId(row)]}
             now={now}
             onUpdate={onUpdate}
+            onToggleMore={() => more.toggle(rowId(row))}
           />
         ))}
       </ul>
+    </section>
+  );
+}
+
+/** Postade inlägg och snittvisningar per klippets längd, för vald kampanj. */
+function LengthTable({ rows }: { rows: Row[] }) {
+  const cell = "py-1.5 text-right tabular-nums";
+  return (
+    <section aria-labelledby="langd-rubrik" className="rounded-2xl border border-line bg-panel p-4">
+      <h2 id="langd-rubrik" className="text-lg font-semibold">
+        Längd och visningar
+      </h2>
+      <p className="text-xs text-muted-foreground">Postade inlägg efter klippets längd.</p>
+      <table className="mt-2 w-full max-w-md text-sm">
+        <thead>
+          <tr className="text-xs text-muted-foreground">
+            <th scope="col" className="py-1.5 text-left font-normal">
+              Längd
+            </th>
+            <th scope="col" className="py-1.5 text-right font-normal">
+              Inlägg
+            </th>
+            <th scope="col" className="py-1.5 text-right font-normal">
+              Snittvisningar
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line">
+          {lengthGroups(rows).map((group) => (
+            <tr key={group.label} data-length={group.label}>
+              <th scope="row" className="py-1.5 text-left font-medium">
+                {group.label}
+              </th>
+              <td className={cell}>{count.format(group.posts)}</td>
+              <td className={cell}>{group.avgViews == null ? "–" : count.format(Math.round(group.avgViews))}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </section>
   );
 }
@@ -889,6 +1033,7 @@ export function ClipLogClient(props: Props) {
   const runs = useRunLinks();
   const f = useFilters(props);
   const [highlight, setHighlight] = useHighlight();
+  const more = useMoreOpen();
   const [now] = useState(() => props.now ?? Date.now());
   const clips = log.clips ?? [];
   const profiles = [...new Set(clips.map((c) => c.profile))].sort();
@@ -904,6 +1049,8 @@ export function ClipLogClient(props: Props) {
     const row = rows.find((r) => rowId(r) === item.rowId);
     if (!row) return;
     if (!showsIn(f)(row)) f.clear();
+    // Vid Analytics inskickad öppnas Fler mått i samma rendering, så att markören hamnar i Tittartid.
+    if (item.step === "analytics_inskickad") more.show(rowId(row));
     setHighlight(rowId(row));
   }
 
@@ -916,6 +1063,7 @@ export function ClipLogClient(props: Props) {
       {log.clips && (
         <>
           <TodoCard items={todoItems(clips, now)} campaigns={campaigns} now={now} onGo={go} />
+          <LengthTable rows={rows.filter((r) => inScope(r, f.campaign, ""))} />
           <LogList
             clips={clips}
             rows={rows}
@@ -925,6 +1073,7 @@ export function ClipLogClient(props: Props) {
             earnings={log.summary?.earnings}
             runIdFor={runs.runIdFor}
             highlight={highlight}
+            more={more}
             now={now}
             onUpdate={log.update}
           />
