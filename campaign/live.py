@@ -7,11 +7,11 @@ Här finns kärnan utan nätverk: toppar i chatten, var toppen ligger i VOD:en, 
 from __future__ import annotations
 
 import datetime as dt
-import importlib
 import json
 import logging
 import os
 import queue
+import shutil
 import socket
 import threading
 import time
@@ -19,8 +19,10 @@ from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException
 from twitchdl import twitch
 
 from clipsmith.candidates.math import compute_density_scores
@@ -28,6 +30,7 @@ from clipsmith.db.models import Run, RunStatus
 from clipsmith.db.session import get_session
 from clipsmith.models.chat import HYPE_EMOTES, ChatLog, ChatMessage
 
+from . import live_part
 from .api import _describe_profile, _log, _profile, _start_lock
 from .budget import BudgetExceeded, budget_from_settings
 from .chat import lock as chat_lock
@@ -84,7 +87,7 @@ class PeakFinder:
         self.multiplier = multiplier
         self.author_cap = author_cap
         self.surge_gain = surge_gain
-        self._recent: deque[ChatMessage] = deque()
+        self.recent: deque[ChatMessage] = deque()
         self._first: float | None = None
         self._last_peak: float | None = None
         self._last_check: float | None = None
@@ -94,9 +97,9 @@ class PeakFinder:
         t = msg.time_in_seconds
         if self._first is None:
             self._first = t
-        self._recent.append(msg)
-        while self._recent and self._recent[0].time_in_seconds < t - BASELINE_S:
-            self._recent.popleft()
+        self.recent.append(msg)
+        while self.recent and self.recent[0].time_in_seconds < t - BASELINE_S:
+            self.recent.popleft()
         if self._last_peak is not None and t - self._last_peak < GAP_S:
             return None
         if msg.is_clip_command or self._is_burst(t):
@@ -112,7 +115,7 @@ class PeakFinder:
             return False
         self._last_check = t
         scores = compute_density_scores(
-            list(self._recent),
+            list(self.recent),
             window_s=WINDOW_S,
             peak_multiplier=self.multiplier,
             author_cap=self.author_cap,
@@ -122,10 +125,14 @@ class PeakFinder:
         return any(center - WINDOW_S / 2 > t - WINDOW_S for center, _ in scores)
 
 
+def _started(created_at: str) -> float:
+    """VOD:ens start i sekunder sedan 1970."""
+    return dt.datetime.fromisoformat(created_at.replace("Z", "+00:00")).timestamp()
+
+
 def vod_seconds(sent_ms: int, vod_created_at: str) -> float:
     """Var i VOD:en ett meddelande ligger. sent_ms är chattens tid (tmi-sent-ts), created_at VOD:ens start."""
-    started = dt.datetime.fromisoformat(vod_created_at.replace("Z", "+00:00"))
-    return sent_ms / 1000 - started.timestamp()
+    return sent_ms / 1000 - _started(vod_created_at)
 
 
 def part_window(peak_s: float) -> tuple[float, float]:
@@ -211,7 +218,6 @@ def _lines(conn: socket.socket) -> Iterator[str]:
 
 # ---------- läget: vilka kampanjer som bevakas, och topparna i den senaste streamen ----------
 
-STATUSES = ("vantar", "hamtar", "ko", "kor", "klar", "fel", "hoppad")
 FINAL = {"klar", "fel", "hoppad"}
 RESTARTED = "Servern startades om innan klippet blev klart."
 _file_lock = threading.Lock()
@@ -268,12 +274,13 @@ class LiveState:
                 channel["peaks"] = []
             channel.update(fields)
 
-    def add_peak(self, profile: str, vod_id: str, vod_s: float, at: str) -> int:
-        """En ny topp med status vantar. Returnerar toppens nummer i VOD:en (1, 2, 3 ...)."""
+    def add_peak(self, profile: str, vod_id: str, vod_s: float, at: str) -> int | None:
+        """En ny topp med status vantar. Returnerar toppens nummer i VOD:en (1, 2, 3 ...). None när kanalen
+        redan har en nyare VOD: en sen topp från den gamla streamen raderar inte den nya streamens toppar."""
         with self._change() as data:
             channel = self._channel(data, profile)
             if channel["vod_id"] != vod_id:
-                channel["vod_id"], channel["peaks"] = vod_id, []
+                return None
             n = len(channel["peaks"]) + 1
             channel["peaks"].append(
                 {
@@ -314,6 +321,7 @@ NOT_READY_S = 180.0  # och ge upp efter tre minuter
 QUEUE_S = 10.0  # en annan körning pågår: försök igen efter så här lång tid
 MAX_WAIT_S = 60.0  # längsta väntan innan chatten ansluts igen
 NO_BUDGET = "Budgeten är slut."
+TO_REVIEW = ("renderad", "underkand")  # klippen i Att granska
 NOT_READY = "Delen fanns inte hos Twitch efter tre minuter."
 NOT_WATCHABLE = "Kampanjen är avstängd, inte redo eller saknar kanal."
 
@@ -333,10 +341,6 @@ def latest_vod(channel: str) -> dict | None:
     return edges[0]["node"] if edges else None
 
 
-def _started(created_at: str) -> float:
-    return dt.datetime.fromisoformat(created_at.replace("Z", "+00:00")).timestamp()
-
-
 def _spawn(target: Callable[..., None], *args: Any) -> None:
     threading.Thread(target=target, args=args, name="livechatt", daemon=True).start()
 
@@ -350,19 +354,13 @@ class Job:
     vod: dict  # id createdAt title game
     n: int
     peak_s: float
+    start_s: float  # delen av VOD:en, part_window(peak_s)
+    end_s: float
     messages: list[ChatMessage] = field(default_factory=list)
 
     @property
     def part_id(self) -> str:
         return part_id(str(self.vod["id"]), self.n)
-
-    @property
-    def start_s(self) -> float:
-        return part_window(self.peak_s)[0]
-
-    @property
-    def end_s(self) -> float:
-        return part_window(self.peak_s)[1]
 
     @property
     def game(self) -> str | None:
@@ -371,14 +369,13 @@ class Job:
 
 @dataclass
 class Stream:
-    """En stream vars chatt läses: toppsökningen, chatten de senaste tio minuterna, och topparna vars del
-    inte är slut än. Bara chattens tråd ändrar den."""
+    """En stream vars chatt läses: toppsökningen (med chatten de senaste tio minuterna), och topparna vars
+    del inte är slut än. Bara chattens tråd ändrar den."""
 
     profile: str
     channel: str
     vod: dict
     finder: PeakFinder = field(default_factory=PeakFinder)
-    recent: deque[ChatMessage] = field(default_factory=deque)
     open: list[Job] = field(default_factory=list)
 
     @property
@@ -387,25 +384,23 @@ class Stream:
 
     def add(self, msg: ChatMessage) -> float | None:
         """Lägg till ett meddelande. Returnerar toppens tid när en ny topp börjar, annars None."""
-        t = msg.time_in_seconds
-        self.recent.append(msg)
-        while self.recent[0].time_in_seconds < t - BASELINE_S:
-            self.recent.popleft()
-        self.open = [job for job in self.open if t < job.end_s]
+        self.open = [job for job in self.open if msg.time_in_seconds < job.end_s]
         for job in self.open:
             job.messages.append(msg)
         return self.finder.add(msg)
 
     def job(self, n: int, peak_s: float) -> Job:
         """Toppen n som ett jobb, med chatten från delens början. Chatten som kommer sedan läggs till."""
-        start_s = part_window(peak_s)[0]
+        start_s, end_s = part_window(peak_s)
         job = Job(
             self.profile,
             self.channel,
             self.vod,
             n,
             peak_s,
-            [m for m in self.recent if m.time_in_seconds >= start_s],
+            start_s,
+            end_s,
+            [m for m in self.finder.recent if m.time_in_seconds >= start_s],
         )
         self.open.append(job)
         return job
@@ -429,8 +424,8 @@ class Watcher:
         self.now: Callable[[], float] = time.time
         self.sleep: Callable[[float], None] = time.sleep
         self.spawn: Callable[..., None] = _spawn
-        self.part: Any = None  # campaign.live_part, som importeras när den behövs
-        self.reading: dict[str, str] = {}  # kampanj -> VOD vars chatt läses
+        self.part: Any = live_part
+        self.reading: dict[str, Stream] = {}  # kampanj -> streamen vars chatt läses
         # Utan tak. Topparna körs i tur och ordning.
         self.jobs: queue.Queue[Job] = queue.Queue()
 
@@ -462,11 +457,13 @@ class Watcher:
         live = vod is not None and vod.get("status") == "RECORDING"
         vod_id = str(vod["id"]) if vod else None
         state.set_channel(profile, live=live, vod_id=vod_id, error=None)
+        reading = self.reading.get(profile)
         if not live:
             self.reading.pop(profile, None)
-        elif self.reading.get(profile) != vod_id:
-            self.reading[profile] = vod_id
-            self.spawn(self._read, Stream(profile, channel, vod))
+        elif reading is None or reading.vod_id != vod_id:
+            # En ny Stream: en gammal läsare av samma VOD (bevakningen av och på) slutar.
+            self.reading[profile] = stream = Stream(profile, channel, vod)
+            self.spawn(self._read, stream)
 
     def _read(self, stream: Stream) -> None:
         """Läser chatten tills kanalen inte är live längre. Bryts anslutningen ansluts den igen, efter
@@ -484,7 +481,7 @@ class Watcher:
                 self.reading.pop(stream.profile, None)
 
     def _still_reading(self, stream: Stream) -> bool:
-        return self.reading.get(stream.profile) == stream.vod_id
+        return self.reading.get(stream.profile) is stream
 
     def _read_once(self, stream: Stream) -> bool:
         """En anslutning. Svarar om några meddelanden kom."""
@@ -492,11 +489,11 @@ class Watcher:
         try:
             for author, text, sent_ms in self.chat(stream.channel, READ_TIMEOUT_S):
                 got = True
+                if not self._still_reading(stream):
+                    break
                 self._feed(
                     stream, message(vod_seconds(sent_ms, stream.vod["createdAt"]), text, author)
                 )
-                if not self._still_reading(stream):
-                    break
         except OSError as error:  # nätverket, eller tyst längre än tidsgränsen
             log.info("Chatten för %s bröts (%s)", stream.channel, type(error).__name__)
         return got
@@ -509,7 +506,8 @@ class Watcher:
         n = LiveState(self.settings).add_peak(
             stream.profile, stream.vod_id, peak, at.isoformat(timespec="seconds")
         )
-        self.jobs.put(stream.job(n, peak))
+        if n is not None:
+            self.jobs.put(stream.job(n, peak))
 
     # ----- från topp till körning -----
 
@@ -519,7 +517,12 @@ class Watcher:
             self._handle(job)
         except Exception as error:
             log.exception("Liveklipp %s", job.part_id)
-            self._mark(job, "fel", reason=str(error) or type(error).__name__)
+            reason = (
+                error.detail
+                if isinstance(error, HTTPException)
+                else str(error) or type(error).__name__
+            )
+            self._mark(job, "fel", reason=reason)
 
     def _mark(self, job: Job, status: str, **fields: Any) -> None:
         LiveState(self.settings).update_peak(
@@ -534,9 +537,11 @@ class Watcher:
             self._mark(job, "hoppad", reason=NO_BUDGET)
             return
         profile = _profile(job.profile, self.settings)
-        folder = clipsmith_config(profile, self.settings).work_dir.expanduser() / job.part_id
+        work_dir = clipsmith_config(profile, self.settings).work_dir.expanduser()
+        folder = work_dir / job.part_id
         real_start = self._fetch(job, folder)
         if real_start is None:
+            _remove_part(work_dir, job.part_id)  # mappen har inget klipp
             return
         # Före körningen: annars frågar clipsmith Twitch efter chatten med delens id.
         chat = chat_for_part(job.messages, real_start, job.end_s, job.part_id)
@@ -544,9 +549,9 @@ class Watcher:
         run_id = self._start_run(job, profile.streamer, round(job.end_s - real_start))
         self._run(job, run_id, profile.streamer)
 
-    def _fetch(self, job: Job, folder: Any) -> float | None:
+    def _fetch(self, job: Job, folder: Path) -> float | None:
         """Delens verkliga start i VOD:en, eller None när den inte gick att hämta (toppen är då fel)."""
-        part = self.part or importlib.import_module("campaign.live_part")
+        part = self.part
         self._mark(job, "hamtar")
         deadline = self.now() + NOT_READY_S
         while True:
@@ -594,10 +599,11 @@ class Watcher:
                     thumbnail_url=None,
                     duration_s=duration_s,
                 )
+                self._mark(job, "kor", run_id=run.id)
             except Exception:  # annars står körningen som pågående tills servern startas om
                 run.status, run.error = (
                     RunStatus.failed,
-                    "Projektet kunde inte sparas i klipploggen.",
+                    "Projektet eller läget för liveklippet kunde inte sparas.",
                 )
                 db.commit()
                 self.app.state.active_run_id = None
@@ -607,7 +613,6 @@ class Watcher:
             db.close()
 
     def _run(self, job: Job, run_id: int, streamer: str) -> None:
-        self._mark(job, "kor", run_id=run_id)
         # run_campaign_vod släpper active_run_id själv när den är klar.
         self.run(
             run_id,
@@ -631,8 +636,8 @@ class Watcher:
         self._mark(job, "klar" if done else "fel", run_id=run_id, reason=None if done else error)
         if done:
             url = f"{self.settings.web_url}/queue?tab=granska"
-            for clip in _log(self.settings).list("renderad"):
-                if clip["vod_id"] == job.part_id:
+            for clip in _log(self.settings).list():
+                if clip["vod_id"] == job.part_id and clip["status"] in TO_REVIEW:
                     self.notify(f"Nytt liveklipp från {streamer}: {clip['title']}", url)
 
     # ----- trådarna -----
@@ -647,7 +652,18 @@ class Watcher:
 
     def work(self) -> None:
         while True:
-            self.handle(self.jobs.get())
+            job = self.jobs.get()
+            try:
+                self.handle(job)
+            except Exception:  # ett fel gäller bara den här toppen, inte klipptråden
+                log.exception("Liveklipp %s", job.part_id)
+
+
+def _remove_part(work_dir: Path, name: str) -> None:
+    """Ta bort delens mapp. Bara delens egen mapp direkt under work_dir, aldrig något annat."""
+    folder = (work_dir / name).resolve()
+    if folder.parent == work_dir.resolve() and folder.name == name:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 _thread: list[threading.Thread] = []
@@ -664,7 +680,10 @@ def start(app: Any, settings: Settings | None = None) -> threading.Thread | None
     if _off():
         return None
     settings = settings or load_settings()
-    LiveState(settings).after_restart()
+    try:
+        LiveState(settings).after_restart()
+    except Exception:  # servern startar ändå, och bevakningen med den
+        log.exception("Läget för liveklippen gick inte att spara efter omstarten")
     watcher = Watcher(settings, app)
     for target, name in ((watcher.loop, "livebevakning"), (watcher.work, "liveklipp")):
         thread = threading.Thread(target=target, name=name, daemon=True)

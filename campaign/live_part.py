@@ -21,6 +21,7 @@ TIMEOUT_S = 300.0  # en del på två minuter tar normalt under en minut att häm
 # source finns alltid. Ett namn som 1080p60 måste först slås upp med ett anrop utan tidsgräns.
 QUALITY = "source"
 TRY_LATER = "Try again a bit later"  # twitch-dl säger så när en färsk VOD saknar access token
+ENDLIST = "#EXT-X-ENDLIST"  # spellistan är klar: streamen är slut
 
 
 class PartNotReady(Exception):
@@ -58,10 +59,13 @@ def _first_index(downloaded: Path) -> int:
 
 
 def _check_ready(output: str, playlist: Path, end_s: float) -> None:
-    """PartNotReady när Twitch säger försök senare, eller när slutet inte är inspelat än."""
+    """PartNotReady när Twitch säger försök senare, eller när slutet inte är inspelat än.
+    Har spellistan ENDLIST är streamen slut: då räcker det som finns, även om det slutar före end_s."""
     if TRY_LATER in output:
         raise PartNotReady("Twitch har inte VOD:en klar än.")
-    if playlist.exists() and sum(_durations(playlist)) < end_s:
+    if not playlist.exists() or ENDLIST in playlist.read_text(encoding="utf-8"):
+        return
+    if sum(_durations(playlist)) < end_s:
         raise PartNotReady("Slutet av delen är inte inspelat än.")
 
 
@@ -78,6 +82,7 @@ def fetch_part(vod_id: str, start_s: float, end_s: float, folder: Path) -> float
     """Hämta start_s till end_s ur VOD:en till folder/<mappnamn>.mp4.
 
     Svarar med delens verkliga start i VOD:en: början av den Twitch-del som start_s ligger i.
+    Är streamen slut före end_s blir delen kortare: det som finns hämtas.
     PartNotReady: försök igen senare med samma mapp. PartFailed: något annat gick fel.
     """
     folder = Path(folder)

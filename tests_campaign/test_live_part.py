@@ -77,17 +77,10 @@ class FakeTwitchDl:
     """Gör som twitch-dl download --no-join: spellistan i playlist.m3u8, delarna i start-slut som
     00002.ts osv., redan hämtade delar hämtas inte igen, och playlist_downloaded.m3u8 med dem."""
 
-    def __init__(
-        self,
-        segment_files: Path,
-        segments: int,
-        code: int = 0,
-        output: str = "",
-        ended: bool = False,
-    ) -> None:
+    def __init__(self, segment_files: Path, segments: int, code: int = 0, output: str = "") -> None:
         self.segment_files = segment_files
         self.segments = segments
-        self.ended = ended  # streamen är slut: spellistan har #EXT-X-ENDLIST
+        self.ended = False  # streamen är slut: spellistan har #EXT-X-ENDLIST
         self.code = code
         self.output = output
         self.commands: list[list[str]] = []
@@ -150,7 +143,8 @@ def test_a_finished_vod_shorter_than_end_gives_what_there_is(
     tmp_path, segment_files, twitchdl
 ) -> None:
     """Streamen slutade mindre än 30 s efter toppen: spellistan blir aldrig så lång som slutet."""
-    fake = twitchdl(FakeTwitchDl(segment_files, segments=5, ended=True))  # 50 s, och klar
+    fake = twitchdl(FakeTwitchDl(segment_files, segments=5))  # 50 s
+    fake.ended = True  # och streamen är slut
     folder = tmp_path / "topp_1"
 
     start = fetch_part("123", 25, 55, folder)
