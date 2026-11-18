@@ -91,6 +91,9 @@ payment:
   cpm_usd: 4.00
   min_views: 250     # minst 250 visningar för betalning
 
+# Länderna vars visningar betalas. Visas vid andelen från kampanjens länder i Statistik.
+audience_countries: Sverige, Danmark, Norge och Finland
+
 approval: >
   Skicka in klippen via Content Rewards. Bara visningar från Sverige, Danmark, Norge och
   Finland betalas. Frågor går till Clipping Culture, inte till Blizzard.

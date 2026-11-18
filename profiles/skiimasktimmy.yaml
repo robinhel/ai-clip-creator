@@ -92,6 +92,9 @@ payment:
   campaign_budget_usd: 2500
   min_views: 2000
 
+# Länderna vars visningar betalas. Visas vid andelen från kampanjens länder i Statistik.
+audience_countries: Tier 1-länder
+
 approval: >
   Skicka in alla klipp via Content Rewards. När ett klipp passerat 2 000 visningar:
   skicka en skärminspelning av klippets egen statistik (tittartid, alla visningsgrafer

@@ -346,7 +346,11 @@ def clip_accounts(clip_id: int, platform: Literal["tiktok", "youtube"]) -> str:
 @server.tool(annotations=READ)
 def version_options(clip_id: int, platform: Literal["tiktok", "youtube"], account: str) -> str:
     """Valen för en ny version av klippet till ett annat konto: om det går (allowed, reason), fonter,
-    klistermärken, overlays, hur mycket som får klippas i början och kontots fasta stil (defaults)."""
+    klistermärken, overlays och kontots fasta stil (defaults). Startpunkten får vara min_start_cut_s–max_start_cut_s
+    sekunder från originalets start (negativ är tidigare, positiv senare). new_start_s (3 s) är hur långt den måste
+    flyttas för att räknas som ny. hook är originalets hook, hooks_used hookarna på originalet och dess versioner,
+    hook_text om kampanjen visar hooken i bilden. account_warning är en varning när klippet har ett inlägg utan konto
+    på plattformen (det kan redan ligga på kontot); den stoppar inte versionen."""
     return _send("GET", f"/campaign/clips/{clip_id}/versions/options", params={"platform": platform, "account": account})
 
 
@@ -354,15 +358,18 @@ def version_options(clip_id: int, platform: Literal["tiktok", "youtube"], accoun
 def make_version(clip_id: int, platform: Literal["tiktok", "youtube"], account: str, font: str | None = None,
                  start_cut_s: float | None = None, overlay: str | None = None, sticker: dict | None = None,
                  mirror: bool | None = None, speed: float | None = None, filter: str | None = None,
-                 brightness: float | None = None, saturation: float | None = None) -> str:
-    """Gör en ny version av ett godkänt klipp för ett annat konto i kampanjen: annan font, klipp i början
-    (start_cut_s, 0–5 s), egen overlay och klistermärke ({file, position, start_s, duration_s}), spegling,
-    hastighet (speeds i version_options), färgfilter (filters), ljusstyrka (-0,3–0,3) och mättnad (-0,5–0,5).
-    Versionen blir ett eget klipp som Robin godkänner. Inget publiceras. Läs version_options först."""
+                 brightness: float | None = None, saturation: float | None = None, hook: str | None = None) -> str:
+    """Gör en ny version av ett godkänt klipp för ett annat konto i kampanjen. Eget bidrag: en ny hook (hook, texten
+    överst i bilden och versionens rubrik, högst 3 rader med 22 tecken; tom = originalets) eller en ny startpunkt
+    (start_cut_s, tidigare eller senare, inom min_start_cut_s–max_start_cut_s i version_options; 3 s eller mer
+    räknas som ny och stänger av cold open). Utan något av dem får versionen en varning. Dessutom: annan font,
+    egen overlay och klistermärke ({file, position, start_s, duration_s}), spegling, hastighet (speeds),
+    färgfilter (filters), ljusstyrka (-0,3–0,3) och mättnad (-0,5–0,5). Versionen blir ett eget klipp som Robin
+    godkänner. Inget publiceras. Läs version_options först."""
     return _send("POST", f"/campaign/clips/{clip_id}/versions",
                  {"platform": platform, "account": account, "font": font, "start_cut_s": start_cut_s,
                   "overlay": overlay, "sticker": sticker, "mirror": mirror, "speed": speed, "filter": filter,
-                  "brightness": brightness, "saturation": saturation})
+                  "brightness": brightness, "saturation": saturation, "hook": hook})
 
 
 @server.tool(annotations=PAID)
@@ -459,11 +466,18 @@ def mark_submitted(post_id: int, status: Literal["inskickad", "analytics_inskick
 @server.tool(annotations=WRITE)
 def save_stats(post_id: int, views: int | None = None, likes: int | None = None, comments: int | None = None,
                shares: int | None = None, paid_usd: float | None = None,
-               status: Literal["postad", "betald"] | None = None) -> str:
+               status: Literal["postad", "betald"] | None = None, avg_watch_s: float | None = None,
+               full_pct: float | None = None, fyp_pct: float | None = None, saves: int | None = None,
+               countries_pct: float | None = None) -> str:
     """Spara statistik för ett inlägg (visningar, likes, kommentarer, delningar), eller utbetalningen (paid_usd
-    och status betald)."""
+    och status betald). Fler mått från TikTok Studio: avg_watch_s (genomsnittlig tittartid i sekunder),
+    full_pct (andel som ser klart), fyp_pct (andel från För dig), saves (sparningar) och countries_pct (andel
+    från kampanjens länder). Andelarna är procent, 0-100."""
     return _send("PATCH", f"/campaign/posts/{post_id}", {"views": views, "likes": likes, "comments": comments,
-                                                          "shares": shares, "paid_usd": paid_usd, "status": status})
+                                                          "shares": shares, "paid_usd": paid_usd, "status": status,
+                                                          "avg_watch_s": avg_watch_s, "full_pct": full_pct,
+                                                          "fyp_pct": fyp_pct, "saves": saves,
+                                                          "countries_pct": countries_pct})
 
 
 @server.tool(annotations=REPLACE)
