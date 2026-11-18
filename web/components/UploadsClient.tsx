@@ -88,10 +88,9 @@ function useSelection(list: ReturnType<typeof useItems>, profile: string) {
 
 /** När kampanjens musik är hämtad: en vald låt som inte finns längre ger Behåll. */
 function useKnownMusic(opts: DraftOptions | null, setMusicFiles: (music: string[]) => void) {
-  const names = opts ? JSON.stringify((opts.music ?? []).map((m) => m.file)) : null;
   useEffect(() => {
-    if (names) setMusicFiles(JSON.parse(names) as string[]);
-  }, [names, setMusicFiles]);
+    if (opts) setMusicFiles((opts.music ?? []).map((m) => m.file));
+  }, [opts, setMusicFiles]);
 }
 
 interface VideosProps {

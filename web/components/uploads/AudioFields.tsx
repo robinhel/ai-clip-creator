@@ -4,10 +4,10 @@ import { useState } from "react";
 import { Info, Loader2, Plus } from "lucide-react";
 import { AUDIOS, MUSIC_ACCEPT, formatSeconds, musicFileProblem, volumeWarning, type Choices } from "@/lib/uploads";
 import { uploadMusic, type DraftOptions } from "@/lib/uploadsApi";
-import type { MusicFile } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import type { SetChoice } from "./ChoiceFields";
 import { errorText, field, label } from "./ui";
+import type { UploadedMusic } from "./useUploadData";
 
 interface Props {
   opts: DraftOptions;
@@ -15,8 +15,8 @@ interface Props {
   choices: Choices;
   set: SetChoice;
   busy: boolean;
-  /** En uppladdad låt: den läggs i kampanjens lista. */
-  onMusicAdded: (m: MusicFile) => void;
+  /** En uppladdad låt: den läggs i kampanjens lista, om kampanjen är densamma. Returnerar om den lades till. */
+  onMusicAdded: (uploaded: UploadedMusic) => boolean;
 }
 
 function AudioChoice({ choices, set, busy }: Pick<Props, "choices" | "set" | "busy">) {
@@ -46,8 +46,10 @@ function AudioChoice({ choices, set, busy }: Pick<Props, "choices" | "set" | "bu
   );
 }
 
+type Added = (uploaded: UploadedMusic) => void;
+
 /** Uppladdningen av en låt. Fel filtyp nekas innan uppladdningen. percent null: ingen uppladdning pågår. */
-function useMusicUpload(profile: string, onAdded: (m: MusicFile) => void) {
+function useMusicUpload(profile: string, onAdded: Added) {
   const [percent, setPercent] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,7 +60,7 @@ function useMusicUpload(profile: string, onAdded: (m: MusicFile) => void) {
     if (problem) return;
     setPercent(0);
     uploadMusic({ file, profile }, setPercent)
-      .done.then(onAdded)
+      .done.then((music) => onAdded({ to: profile, music }))
       .catch((err) => setError(errorText(err, "Musiken gick inte att ladda upp.")))
       .finally(() => setPercent(null));
   }
@@ -67,7 +69,7 @@ function useMusicUpload(profile: string, onAdded: (m: MusicFile) => void) {
 }
 
 /** Knappen Lägg till musik, med förloppet i procent. */
-function AddMusic({ profile, busy, onAdded }: { profile: string; busy: boolean; onAdded: (m: MusicFile) => void }) {
+function AddMusic({ profile, busy, onAdded }: { profile: string; busy: boolean; onAdded: Added }) {
   const { percent, error, pick } = useMusicUpload(profile, onAdded);
   const uploading = percent != null;
   return (
@@ -195,9 +197,8 @@ export function AudioFields({ opts, profile, choices, set, busy, onMusicAdded }:
           <AddMusic
             profile={profile}
             busy={busy}
-            onAdded={(m) => {
-              onMusicAdded(m);
-              set("music", m.file);
+            onAdded={(uploaded) => {
+              if (onMusicAdded(uploaded)) set("music", uploaded.music.file);
             }}
           />
           <MusicStart {...fieldProps} />

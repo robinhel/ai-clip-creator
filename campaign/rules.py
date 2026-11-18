@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from . import audio
 from .caption import check_caption
 from .profile import Profile
 
@@ -24,6 +25,16 @@ def _sound(info: dict, manifest: dict) -> list[str]:
     if info["has_audio"] or manifest.get("own_video"):
         return []
     return ["Klippet saknar ljud. Streamens ljud måste höras."]
+
+
+def _sound_rules(manifest: dict, profile: Profile) -> list[str]:
+    """Musik med originalljudet på 0 %: en varning när kampanjen har en regel om ljud. Robin avgör."""
+    silent = manifest.get("audio") == "music" and manifest.get("original_volume") == 0
+    found = audio.rules(profile) if silent else []
+    if not found:
+        return []
+    said = " ".join(r if r.endswith((".", "!", "?")) else f"{r}." for r in found)
+    return [f"Originalljudet hörs inte. Kampanjen har en regel om ljud: {said}"]
 
 
 def check_clip(
@@ -54,6 +65,7 @@ def check_clip(
     if profile.overlay_required and not manifest.get("overlay_applied"):
         problems.append("Overlayen saknas. Lägg bilden i overlays/ och kör finish igen.")
     problems += check_caption(caption, profile)
+    warnings += _sound_rules(manifest, profile)
 
     if profile.formats:
         if clip_format is None:

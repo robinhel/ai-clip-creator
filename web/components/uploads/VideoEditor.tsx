@@ -4,13 +4,13 @@ import { Copy, Eye, Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { frameQuery, previewOutdated, type Choices, type LengthCheck } from "@/lib/uploads";
 import { uploadsApi, type DraftOptions } from "@/lib/uploadsApi";
-import type { MusicFile } from "@/lib/types";
 import { AudioFields } from "./AudioFields";
 import { CampaignFields, PictureFields, type SetChoice } from "./ChoiceFields";
 import { PreviewPane } from "./PreviewPane";
 import { Timeline } from "./Timeline";
 import { LoadError } from "./ui";
 import { clipTime, itemProblem, type Item } from "./useItems";
+import type { UploadedMusic } from "./useUploadData";
 
 export interface EditorActions {
   setChoice: <K extends keyof Choices>(key: string, name: K, value: Choices[K]) => void;
@@ -19,8 +19,8 @@ export interface EditorActions {
   preview: (item: Item) => void;
   save: (item: Item) => void;
   applyToAll: (item: Item) => void;
-  /** En uppladdad låt till kampanjens lista. */
-  addMusic: (m: MusicFile) => void;
+  /** En uppladdad låt till kampanjens lista, om kampanjen är densamma. Returnerar om den lades till. */
+  addMusic: (uploaded: UploadedMusic) => boolean;
 }
 
 interface Props {

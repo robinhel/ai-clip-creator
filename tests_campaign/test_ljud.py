@@ -187,6 +187,39 @@ def test_the_music_fades_in(client, tmp_path) -> None:
     assert _band(video, 880, 0.0, 0.3) < _band(video, 880, 1.0, 3.0) - 5
 
 
+SOUND_RULE = "Bakgrundsmusik får finnas om originalljudet hörs tydligt."
+SOUND_WARNING = f"Originalljudet hörs inte. Kampanjen har en regel om ljud: {SOUND_RULE}"
+
+
+@needs_ffmpeg
+def test_music_without_the_original_warns_when_the_campaign_has_a_sound_rule(client, settings, tmp_path) -> None:
+    set_profile(settings, other_rules=[SOUND_RULE, "Språk: engelska"])
+    _add_music(client, _music(tmp_path / MUSIC))
+    draft_id = _draft(client, _video(tmp_path / "a.mp4"))
+    music = {"audio": "music", "music": MUSIC, "music_start_s": "10"}
+    silent, _ = _render(client, draft_id, tmp_path, **music, original_volume="0")
+    assert silent["problems"] == [] and SOUND_WARNING in silent["warnings"], silent
+    heard, _ = _render(client, draft_id, tmp_path, "hors.mp4", **music, original_volume="0.3")
+    assert not any("Originalljudet" in w for w in heard["warnings"]), heard["warnings"]
+
+
+def test_the_sound_warning_needs_music_at_0_percent_and_a_sound_rule(settings) -> None:
+    set_profile(settings, other_rules=[SOUND_RULE])
+    campaign = load_profile("skiimasktimmy", settings.profiles_dir)
+    info = {"width": 1080, "height": 1920, "duration": 20.0, "has_audio": True}
+    base = {"text_applied": True, "overlay_applied": True, "own_video": True}
+
+    def warned(campaign, **sound) -> bool:
+        return SOUND_WARNING in check_clip(info, {**base, **sound}, campaign, "#ad")[1]
+
+    assert warned(campaign, audio="music", original_volume=0.0)
+    assert not warned(campaign, audio="music", original_volume=0.3)
+    assert not warned(campaign, audio="mute")
+    assert not warned(campaign)  # ett Twitch-klipp
+    set_profile(settings, other_rules=["Språk: engelska"])
+    assert not warned(load_profile("skiimasktimmy", settings.profiles_dir), audio="music", original_volume=0.0)
+
+
 @needs_ffmpeg
 def test_finish_clip_without_a_sound_choice_is_not_an_own_video(settings) -> None:
     campaign = load_profile("skiimasktimmy", settings.profiles_dir)

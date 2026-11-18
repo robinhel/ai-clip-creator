@@ -161,7 +161,8 @@ def replace_audio(out: Path, profile: Profile, audio: dict | None) -> dict:
             os.replace(tmp, out)
         finally:
             tmp.unlink(missing_ok=True)
-    return {"audio": mode, "own_video": audio is not None}
+    heard = {"original_volume": audio["volume"]} if mode == "music" else {}  # regelkontrollen varnar vid 0
+    return {"audio": mode, "own_video": audio is not None, **heard}
 
 
 def _free_name(base: Path, name: str) -> Path:
