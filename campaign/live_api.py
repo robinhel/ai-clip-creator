@@ -1,4 +1,4 @@
-"""Bevaka live per kampanj: knappen på kampanjsidan och läget för liveklippen."""
+"""Bevaka live per kampanj och för en fri Twitch-kanal utan kampanj: knapparna och läget för liveklippen."""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ from clipsmith.api.deps import verify_api_key
 
 from .api import _describe_profile, _profile_names, get_settings
 from .config import Settings
-from .live import LiveState
+from .live import FREE, LiveState
+from .streams import LOGIN
 
 router = APIRouter(prefix="/campaign", tags=["campaign"], dependencies=[Depends(verify_api_key)])
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -27,7 +28,7 @@ class Peak(BaseModel):
 
 
 class LiveWatch(BaseModel):
-    profile: str
+    profile: str | None  # None: en fri kanal utan kampanj
     channel: str
     watching: bool
     live: bool
@@ -51,12 +52,35 @@ def _watch(name: str, channel: str, settings: Settings) -> LiveWatch:
     return LiveWatch(profile=name, channel=channel, **LiveState(settings).channel(name))
 
 
+def _watch_free(login: str, settings: Settings) -> LiveWatch:
+    return LiveWatch(profile=None, channel=login, **LiveState(settings).channel(FREE + login))
+
+
 @router.get(
-    "/live", summary="Bevaka live: läget och topparna för varje kampanj med en Twitch-kanal"
+    "/live",
+    summary="Bevaka live: läget och topparna för varje kampanj med en Twitch-kanal, och fria kanaler",
 )
 def list_live(settings: SettingsDep) -> list[LiveWatch]:
     channels = {name: _channel(name, settings) for name in _profile_names(settings)}
-    return [_watch(name, channel, settings) for name, channel in channels.items() if channel]
+    campaigns = [_watch(name, channel, settings) for name, channel in channels.items() if channel]
+    free = [
+        key.removeprefix(FREE) for key in LiveState(settings).watching() if key.startswith(FREE)
+    ]
+    return campaigns + [_watch_free(login, settings) for login in free]
+
+
+@router.put(
+    "/live/channel/{login}", summary="Slå på eller av Bevaka live för en Twitch-kanal utan kampanj"
+)
+def set_live_channel(login: str, body: WatchBody, settings: SettingsDep) -> LiveWatch:
+    login = login.lower()
+    if not LOGIN.fullmatch(login):
+        raise HTTPException(
+            400,
+            "Det ser inte ut som en Twitch-kanal. Skriv kanalens namn, till exempel ishowspeed.",
+        )
+    LiveState(settings).set_watching(FREE + login, body.watching)
+    return _watch_free(login, settings)
 
 
 @router.put("/live/{profile}", summary="Slå på eller av Bevaka live för en kampanj")

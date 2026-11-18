@@ -1,5 +1,6 @@
 """Liveklipp: chatten läses medan streamen pågår. När chatten exploderar blir stunden före toppen en körning
-på en kort del av VOD:en, som Twitch spelar in under tiden.
+på en kort del av VOD:en, som Twitch spelar in under tiden. En fri kanal utan kampanj (nyckeln kanal:<login>)
+har ingen VOD att hämta ur: där spelar live_record in strömmen, och delen klipps ur inspelningen.
 
 Här finns kärnan utan nätverk: toppar i chatten, var toppen ligger i VOD:en, och delen som ska hämtas.
 """
@@ -30,13 +31,14 @@ from clipsmith.db.models import Run, RunStatus
 from clipsmith.db.session import get_session
 from clipsmith.models.chat import HYPE_EMOTES, ChatLog, ChatMessage
 
-from . import live_part
+from . import live_part, live_record
 from .api import _describe_profile, _log, _profile, _start_lock
 from .budget import BudgetExceeded, budget_from_settings
 from .chat import lock as chat_lock
 from .config import Settings, load_settings
 from .editor import lock as editor_lock
 from .pipeline import clipsmith_config, run_campaign_vod
+from .rules import NO_CAMPAIGN
 from .scout import notify_mac
 from .streams import LOGIN
 
@@ -324,6 +326,7 @@ NO_BUDGET = "Budgeten är slut."
 TO_REVIEW = ("renderad", "underkand")  # klippen i Att granska
 NOT_READY = "Delen fanns inte hos Twitch efter tre minuter."
 NOT_WATCHABLE = "Kampanjen är avstängd, inte redo eller saknar kanal."
+FREE = "kanal:"  # nyckeln i LiveState för en fri kanal utan kampanj: kanal:<login>
 
 LATEST_QUERY = (
     '{{ user(login: "{login}") {{ videos(first: 1, type: ARCHIVE, sort: TIME) {{ edges {{ node {{ '
@@ -341,6 +344,28 @@ def latest_vod(channel: str) -> dict | None:
     return edges[0]["node"] if edges else None
 
 
+STREAM_QUERY = '{{ user(login: "{login}") {{ stream {{ id createdAt title game {{ name }} }} }} }}'
+
+
+def stream_info(login: str) -> dict | None:
+    """Kanalens pågående stream (id createdAt title game), eller None när kanalen inte är live."""
+    login = login.lower()
+    if not LOGIN.fullmatch(login):
+        return None
+    user = twitch.gql_query(STREAM_QUERY.format(login=login))["data"]["user"] or {}
+    return user.get("stream") or None
+
+
+def _stream_vod(info: dict) -> dict:
+    """En pågående stream i samma form som en VOD, så att vod_seconds, part_id och Job fungerar som förut."""
+    return {
+        "id": str(info["id"]),
+        "createdAt": info["createdAt"],
+        "title": info.get("title"),
+        "game": info.get("game"),
+    }
+
+
 def _spawn(target: Callable[..., None], *args: Any) -> None:
     threading.Thread(target=target, args=args, name="livechatt", daemon=True).start()
 
@@ -349,8 +374,9 @@ def _spawn(target: Callable[..., None], *args: Any) -> None:
 class Job:
     """En topp som ska bli en körning. messages är chatten från 90 s före toppen till delens slut."""
 
-    profile: str
-    channel: str
+    key: str  # nyckeln i LiveState: kampanjens namn, eller kanal:<login>
+    profile: str  # kampanjen som körningen görs med: _ingen för en fri kanal
+    channel: str  # kanalens login
     vod: dict  # id createdAt title game
     n: int
     peak_s: float
@@ -366,12 +392,18 @@ class Job:
     def game(self) -> str | None:
         return (self.vod.get("game") or {}).get("name")
 
+    @property
+    def free(self) -> bool:
+        """En fri kanal utan kampanj: delen klipps ur den egna inspelningen."""
+        return self.key.startswith(FREE)
+
 
 @dataclass
 class Stream:
     """En stream vars chatt läses: toppsökningen (med chatten de senaste tio minuterna), och topparna vars
     del inte är slut än. Bara chattens tråd ändrar den."""
 
+    key: str
     profile: str
     channel: str
     vod: dict
@@ -393,6 +425,7 @@ class Stream:
         """Toppen n som ett jobb, med chatten från delens början. Chatten som kommer sedan läggs till."""
         start_s, end_s = part_window(peak_s)
         job = Job(
+            self.key,
             self.profile,
             self.channel,
             self.vod,
@@ -425,45 +458,96 @@ class Watcher:
         self.sleep: Callable[[float], None] = time.sleep
         self.spawn: Callable[..., None] = _spawn
         self.part: Any = live_part
-        self.reading: dict[str, Stream] = {}  # kampanj -> streamen vars chatt läses
+        self.stream: Callable[[str], dict | None] = stream_info
+        self.record: Any = live_record
+        self.reading: dict[str, Stream] = {}  # nyckel -> streamen vars chatt läses
+        self.recorders: dict[str, Any] = {}  # kanal:<login> -> inspelningen som pågår
         # Utan tak. Topparna körs i tur och ordning.
         self.jobs: queue.Queue[Job] = queue.Queue()
 
     # ----- Twitch och chatten -----
 
     def check(self) -> None:
-        """Ett varv: för varje bevakad kampanj, fråga om kanalen är live och läs chatten om den är det."""
+        """Ett varv: för varje bevakad kampanj och fri kanal, fråga om kanalen är live och läs chatten om den
+        är det."""
         state = LiveState(self.settings)
         watched = state.watching()
-        for profile in set(self.reading) - set(watched):
-            self.reading.pop(profile, None)
-        for profile in watched:
+        for key in (set(self.reading) | set(self.recorders)) - set(watched):
+            self.reading.pop(key, None)
+            self._stop_recorder(key)
+        for key in watched:
             try:
-                self._check_one(state, profile)
-            except (SystemExit, Exception) as error:  # en kampanj stoppar inte de andra
-                log.warning("Livebevakningen av %s", profile, exc_info=True)
+                self._check_one(state, key)
+            except (SystemExit, Exception) as error:  # en kanal stoppar inte de andra
+                log.warning("Livebevakningen av %s", key, exc_info=True)
                 state.set_channel(
-                    profile, error=f"Kanalen gick inte att fråga ({type(error).__name__})."
+                    key, error=f"Kanalen gick inte att fråga ({type(error).__name__})."
                 )
 
-    def _check_one(self, state: LiveState, profile: str) -> None:
-        described = _describe_profile(profile, self.settings)
+    def _check_one(self, state: LiveState, key: str) -> None:
+        if key.startswith(FREE):
+            self._check_free(state, key)
+            return
+        described = _describe_profile(key, self.settings)
         channel = described["channel"]
         if not _can_watch(described):
-            self.reading.pop(profile, None)
-            state.set_channel(profile, live=False, error=NOT_WATCHABLE)
+            self.reading.pop(key, None)
+            state.set_channel(key, live=False, error=NOT_WATCHABLE)
             return
         vod = self.latest(channel)
         live = vod is not None and vod.get("status") == "RECORDING"
-        vod_id = str(vod["id"]) if vod else None
-        state.set_channel(profile, live=live, vod_id=vod_id, error=None)
-        reading = self.reading.get(profile)
-        if not live:
-            self.reading.pop(profile, None)
-        elif reading is None or reading.vod_id != vod_id:
+        state.set_channel(key, live=live, vod_id=str(vod["id"]) if vod else None, error=None)
+        self._follow(key, key, channel, vod if live else None)
+
+    def _check_free(self, state: LiveState, key: str) -> None:
+        """En fri kanal: live när Twitch har en pågående stream. Då spelas strömmen in och chatten läses."""
+        login = key.removeprefix(FREE)
+        info = self.stream(login)
+        vod = _stream_vod(info) if info is not None else None
+        if vod is None:  # vod_id står kvar, så att topparna från streamen syns
+            state.set_channel(key, live=False, error=None)
+            self._stop_recorder(key)
+        else:
+            state.set_channel(key, live=True, vod_id=vod["id"], error=None)
+            self._start_recorder(key, login)
+        self._follow(key, NO_CAMPAIGN, login, vod)
+
+    def _follow(self, key: str, profile: str, channel: str, vod: dict | None) -> None:
+        """Läs chatten för vod medan den pågår. None: kanalen är inte live, och ingen chatt läses."""
+        reading = self.reading.get(key)
+        if vod is None:
+            self.reading.pop(key, None)
+        elif reading is None or reading.vod_id != str(vod["id"]):
             # En ny Stream: en gammal läsare av samma VOD (bevakningen av och på) slutar.
-            self.reading[profile] = stream = Stream(profile, channel, vod)
+            self.reading[key] = stream = Stream(key, profile, channel, vod)
             self.spawn(self._read, stream)
+
+    # ----- inspelningen av en fri kanal -----
+
+    def _start_recorder(self, key: str, login: str) -> None:
+        """En inspelning per kanal, i en egen tråd."""
+        if key in self.recorders:
+            return
+        recorder = self.record.Recorder(login, self.settings.data_dir / "live" / login)
+        self.recorders[key] = recorder
+        self.spawn(self._recording, recorder)
+
+    def _stop_recorder(self, key: str) -> None:
+        recorder = self.recorders.pop(key, None)
+        if recorder is not None:
+            recorder.stop()
+
+    def _recording(self, recorder: Any) -> None:
+        """Spelar in tills inspelningen stoppas eller slutar själv. Nästa varv startar en ny om kanalen
+        fortfarande är live."""
+        key = FREE + recorder.login
+        try:
+            recorder.run()
+        except Exception:
+            log.exception("Inspelningen av %s", recorder.login)
+        finally:
+            if self.recorders.get(key) is recorder:
+                self.recorders.pop(key, None)
 
     def _read(self, stream: Stream) -> None:
         """Läser chatten tills kanalen inte är live längre. Bryts anslutningen ansluts den igen, efter
@@ -478,10 +562,10 @@ class Watcher:
             log.exception("Chatten för %s", stream.channel)
         finally:
             if self._still_reading(stream):
-                self.reading.pop(stream.profile, None)
+                self.reading.pop(stream.key, None)
 
     def _still_reading(self, stream: Stream) -> bool:
-        return self.reading.get(stream.profile) is stream
+        return self.reading.get(stream.key) is stream
 
     def _read_once(self, stream: Stream) -> bool:
         """En anslutning. Svarar om några meddelanden kom."""
@@ -504,7 +588,7 @@ class Watcher:
             return
         at = dt.datetime.fromtimestamp(_started(stream.vod["createdAt"]) + peak, dt.UTC)
         n = LiveState(self.settings).add_peak(
-            stream.profile, stream.vod_id, peak, at.isoformat(timespec="seconds")
+            stream.key, stream.vod_id, peak, at.isoformat(timespec="seconds")
         )
         if n is not None:
             self.jobs.put(stream.job(n, peak))
@@ -526,7 +610,7 @@ class Watcher:
 
     def _mark(self, job: Job, status: str, **fields: Any) -> None:
         LiveState(self.settings).update_peak(
-            job.profile, str(job.vod["id"]), job.n, status=status, **fields
+            job.key, str(job.vod["id"]), job.n, status=status, **fields
         )
 
     def _handle(self, job: Job) -> None:
@@ -546,17 +630,18 @@ class Watcher:
         # Före körningen: annars frågar clipsmith Twitch efter chatten med delens id.
         chat = chat_for_part(job.messages, real_start, job.end_s, job.part_id)
         (folder / "chat.json").write_text(chat.to_json(), encoding="utf-8")
-        run_id = self._start_run(job, profile.streamer, round(job.end_s - real_start))
-        self._run(job, run_id, profile.streamer)
+        streamer = job.channel if job.free else profile.streamer
+        run_id = self._start_run(job, streamer, round(job.end_s - real_start))
+        self._run(job, run_id, streamer)
 
     def _fetch(self, job: Job, folder: Path) -> float | None:
         """Delens verkliga start i VOD:en, eller None när den inte gick att hämta (toppen är då fel)."""
-        part = self.part
+        part = live_part if job.free else self.part  # live_record kastar live_parts fel
         self._mark(job, "hamtar")
         deadline = self.now() + NOT_READY_S
         while True:
             try:
-                return part.fetch_part(str(job.vod["id"]), job.start_s, job.end_s, folder)
+                return self._get_part(job, folder)
             except part.PartNotReady:
                 if self.now() >= deadline:
                     self._mark(job, "fel", reason=NOT_READY)
@@ -565,6 +650,15 @@ class Watcher:
             except part.PartFailed as error:
                 self._mark(job, "fel", reason=str(error))
                 return None
+
+    def _get_part(self, job: Job, folder: Path) -> float:
+        """Kampanj: hämta delen ur VOD:en. Fri kanal: klipp den ur inspelningen, med väggklockan, och räkna
+        om svaret till sekunder från streamens början."""
+        if not job.free:
+            return self.part.fetch_part(str(job.vod["id"]), job.start_s, job.end_s, folder)
+        started = _started(job.vod["createdAt"])
+        buffer = self.settings.data_dir / "live" / job.channel
+        return self.record.cut(buffer, started + job.start_s, started + job.end_s, folder) - started
 
     def _busy(self) -> bool:
         return (
