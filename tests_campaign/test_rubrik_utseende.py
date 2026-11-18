@@ -321,12 +321,10 @@ def test_a_rendered_wide_title_does_not_reach_the_edges() -> None:
     title = "WORLD OF WARCRAFT: FOREVER"
     graph = build_filter(_profile(), False, False, None, title=title, frame="fit")
     ((bar_y, bar_h),) = _bars(graph)
-    frame = subprocess.run(
-        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=gray:s=1080x1920", "-filter_complex",
-         graph, "-map", "[vout]", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"],
-        capture_output=True,
-        check=True,
-    ).stdout
+    cmd = "ffmpeg -v error -f lavfi -i color=gray:s=1080x1920 -filter_complex GRAPH -map [vout]"
+    cmd += " -frames:v 1 -f rawvideo -pix_fmt gray -"
+    args = [graph if arg == "GRAPH" else arg for arg in cmd.split()]
+    frame = subprocess.run(args, capture_output=True, check=True).stdout
     rows = [frame[y * 1080 : (y + 1) * 1080] for y in range(bar_y, bar_y + bar_h)]
     assert max(max(row[:21]) for row in rows) < 40 and max(max(row[1060:]) for row in rows) < 40
     assert max(max(row) for row in rows) > 200  # vit text i fältet

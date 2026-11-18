@@ -12,7 +12,7 @@ from clipsmith.selection.selector import SIGNALS_REASON
 
 from .brain import Brain
 from .budget import BudgetExceeded
-from .caption import PLACEHOLDER, build_caption
+from .caption import PLACEHOLDER, build_caption, headline_text
 from .cliplog import ClipLog
 from .config import Settings
 from .editor import edit_meta, source_path
@@ -58,13 +58,6 @@ def load_picks(path: Path) -> list[dict]:
             }
         )
     return picks
-
-
-def headline_text(pick: dict) -> str:
-    """Texten överst i bilden: Claudes headline, annars titeln. Snabblägets platshållare "Moment h:mm:ss" och en
-    pick utan titel ger ingen text. Filnamnsreserven skickas inte hit, så den blir ingen text heller."""
-    text = pick.get("headline") or pick.get("title") or ""
-    return "" if PLACEHOLDER.search(text) else text
 
 
 TITLE_WORDS = 8

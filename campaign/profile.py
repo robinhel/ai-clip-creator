@@ -63,6 +63,7 @@ class Profile:
     def __post_init__(self) -> None:
         if self.hook_text is None:
             self.hook_text = not self.text_required
+        self.hook_style = self.hook_style or "sans"  # hook_style: null i YAML
 
     @property
     def format_ids(self) -> list[str]:

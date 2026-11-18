@@ -10,6 +10,15 @@ from .profile import Profile
 PLACEHOLDER = re.compile(r"\bMoment \d+:\d{2}:\d{2}\b")
 
 
+def headline_text(pick: dict) -> str:
+    """Texten överst i bilden: Claudes headline, annars titeln. Styrtecken blir blanksteg som i finish._clean,
+    så en headline med bara blanksteg eller styrtecken ger titeln. Snabblägets platshållare "Moment h:mm:ss"
+    och en pick utan titel ger ingen text. Filnamnsreserven skickas inte hit, så den blir ingen text heller."""
+    texts = [re.sub(r"[\x00-\x1f]", " ", str(pick.get(key) or "")).strip() for key in ("headline", "title")]
+    text = next(filter(None, texts), "")
+    return "" if PLACEHOLDER.search(text) else text
+
+
 def _game_tag(game: str) -> str:
     return "#" + re.sub(r"[^a-z0-9]", "", game.lower())
 

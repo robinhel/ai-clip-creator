@@ -7,8 +7,9 @@ rendering (rendering/clipper.py) så att klippet bara kodas en gång.
 
 from __future__ import annotations
 
+import json
 import re
-import textwrap
+from collections.abc import Callable
 from pathlib import Path
 
 from clipsmith.rendering.clipper import ZOOM_TOP
@@ -18,13 +19,28 @@ from .profile import Profile
 
 WIDTH, HEIGHT = 1080, 1920
 HOOK_FONT_SIZE = 64
-HOOK_LINE_CHARS = 26  # en vanlig mening blir högst 960 px bred i båda stilarna vid HOOK_FONT_SIZE
+HOOK_LINE_PX = 960  # bredaste raden, så att texten inte når bildens kanter (1080 px)
 HOOK_MAX_LINES = 3
 HOOK_GAP = 24  # zoom: luft mellan hookens sista rad och bilden
 HOOK_LINE_H = int(HOOK_FONT_SIZE * 1.25)  # en rad hook, med luft
 HOOK_PAD = 24  # det svarta fältets luft ovanför första raden; under sista raden är luften raden ut
 FONTS = Path(__file__).parent / "fonts"
 HOOK_FONTS = {"sans": FONTS / "Montserrat-ExtraBold.ttf", "serif": FONTS / "DMSerifDisplay-Regular.ttf"}
+NO_GLYPH = re.compile("[\U00010000-\U0010ffff\ufe0f]")  # emoji: fonterna saknar dem och ritar tomma rutor
+
+
+def _load_widths() -> dict[str, tuple[dict[str, float], float]]:
+    """Per font i fonts/: (pixlar per tecken vid HOOK_FONT_SIZE, bredaste tecknet). widths.json är genererad
+    ur fontfilerna (advance width och unitsPerEm)."""
+    tables = {}
+    for name, font in json.loads((FONTS / "widths.json").read_text(encoding="utf-8")).items():
+        scale = HOOK_FONT_SIZE / font["units_per_em"]
+        px = {char: width * scale for char, width in font["widths"].items()}
+        tables[name] = (px, max(px.values()))
+    return tables
+
+
+HOOK_WIDTHS = _load_widths()
 
 ENCODER_ARGS = {
     "libx264": ["-c:v", "libx264", "-preset", "medium", "-crf", "19"],
@@ -71,15 +87,60 @@ def _max_lines(start: int, frame: str) -> int:
     return max(1, min(HOOK_MAX_LINES, 1 + room // HOOK_LINE_H))
 
 
-def _hook_lines(profile: Profile, title: str, text_on_top: bool = False, frame: str = "") -> list[str]:
-    """Titelns rader. Stilen serif skrivs i versaler."""
-    title = _clean(title)
-    if not (profile.hook_text and title):
+def _style_font(profile: Profile) -> Path:
+    return HOOK_FONTS["serif" if profile.hook_style == "serif" else "sans"]
+
+
+def _line_px(line: str, fonts: list[str]) -> float:
+    """Radens bredd enligt tabellen: det bredaste värdet per tecken i fonterna. Ett okänt tecken räknas som
+    fontens bredaste."""
+    return sum(max(HOOK_WIDTHS[font][0].get(char, HOOK_WIDTHS[font][1]) for font in fonts) for char in line)
+
+
+def _split_word(word: str, fits: Callable[[str], bool]) -> list[str]:
+    """Ett ord som ensamt är bredare än en rad delas, som textwrap gör."""
+    pieces = [""]
+    for char in word:
+        if pieces[-1] and not fits(pieces[-1] + char):
+            pieces.append("")
+        pieces[-1] += char
+    return pieces
+
+
+def _with_ellipsis(line: str, fits: Callable[[str], bool]) -> str:
+    """Sista raden med "…", kortad ord för ord tills den ryms."""
+    while line and not fits(line + "…"):
+        line = line.rsplit(" ", 1)[0] if " " in line else line[:-1]
+    return line + "…"
+
+
+def _wrap(text: str, fits: Callable[[str], bool], max_lines: int) -> list[str]:
+    """Raderna efter bredd: så många ord som ryms på varje rad, högst max_lines rader, annars "…" sist."""
+    lines: list[str] = []
+    for word in text.split():
+        joined = f"{lines[-1]} {word}" if lines else word
+        if lines and fits(joined):
+            lines[-1] = joined
+        else:
+            lines += _split_word(word, fits)
+    if len(lines) <= max_lines:
+        return lines
+    return lines[: max_lines - 1] + [_with_ellipsis(lines[max_lines - 1], fits)]
+
+
+def _hook_lines(
+    profile: Profile, title: str, text_on_top: bool = False, frame: str = "", own_font: bool = False
+) -> list[str]:
+    """Titelns rader, högst HOOK_LINE_PX breda. Stilen serif skrivs och mäts i versaler. Med en egen font
+    (own_font) mäts raden med det bredaste värdet ur båda stilarnas tabeller. Emoji tas bort."""
+    title = NO_GLYPH.sub("", _clean(title))
+    if not (profile.hook_text and title.strip()):
         return []
     if profile.hook_style == "serif":
         title = title.upper()
+    fonts = list(HOOK_WIDTHS) if own_font else [_style_font(profile).name]
     lines = _max_lines(_hook_start(profile, text_on_top), frame)
-    return textwrap.wrap(title, HOOK_LINE_CHARS, max_lines=lines, placeholder="…")
+    return _wrap(title, lambda line: _line_px(line, fonts) <= HOOK_LINE_PX, lines)
 
 
 def _hook_top(profile: Profile, text_on_top: bool, lines: int = 1, frame: str = "") -> int:
@@ -97,11 +158,15 @@ def _overlay_used(profile: Profile, root: Path, overlay: Path | None) -> Path | 
     return overlay if overlay is not None and overlay.exists() else None
 
 
-def top_text_end(profile: Profile, root: Path, title: str, overlay: Path | None = None, frame: str = "") -> int:
+def top_text_end(
+    profile: Profile, root: Path, title: str, overlay: Path | None = None, frame: str = "",
+    font_file: str | None = None,
+) -> int:
     """Raden i bilden där texten uppe slutar: kampanjens text och hooken med sitt svarta fält. 0 när ingen text
-    ritas uppe. Samma läge som build_filter ritar dem på, så att ett klistermärke kan läggas under."""
+    ritas uppe. Samma läge som build_filter ritar dem på, så att ett klistermärke kan läggas under. font_file:
+    samma som till finish_clip, eftersom en egen font kan ge fler rader."""
     on_top = _text_on_top(profile, _overlay_used(profile, root, overlay) is not None)
-    lines = _hook_lines(profile, title, on_top, frame)
+    lines = _hook_lines(profile, title, on_top, frame, font_file is not None)
     if lines:
         return _hook_top(profile, on_top, len(lines), frame) + len(lines) * HOOK_LINE_H
     return _hook_top(profile, on_top) if on_top else 0
@@ -112,9 +177,9 @@ def _hook(
 ) -> list[str]:
     """Titeln vit och centrerad under övre säkra zonen hela klippet, på upp till tre rader (_hook_top). Utom i
     zoom, där bakgrunden redan är svart, ligger ett svart fält i full bredd bakom. font: stilens font om None."""
-    lines = _hook_lines(profile, title, text_on_top, frame)
+    lines = _hook_lines(profile, title, text_on_top, frame, font is not None)
     top = _hook_top(profile, text_on_top, len(lines), frame)
-    font = font or str(HOOK_FONTS["serif" if profile.hook_style == "serif" else "sans"])
+    font = font or str(_style_font(profile))
     parts = []
     if frame != "zoom":
         height = HOOK_PAD + len(lines) * HOOK_LINE_H

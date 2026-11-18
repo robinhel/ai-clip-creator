@@ -116,9 +116,11 @@ Rules:
 - Start on the first word of a sentence and end after the last word of a sentence.
 - The quotes decide where the clip is cut, so copy the words exactly as the transcript has them.
 - If include is false, still fill the times and title with a best estimate.
-- headline is shown on screen for the whole clip. Max 8 words, in the language of the title.
+- headline is shown on screen for the whole clip. Max 8 words and at most 40 characters, in the
+  language of the title. Write it in sentence case, not all capitals. No emoji and no hashtags.
   Give the viewer a reason to watch: a fan's honest reaction, what is at stake, or a tip or fact
   the clip itself shows or says. Do not just describe the picture. No invented facts, numbers or names.
+  The campaign's rules for title also apply to headline.
 - Make the clip as long as the moment needs: end right after the payoff, with no wind-down, outro or next topic.
 """
 

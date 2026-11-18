@@ -170,7 +170,8 @@ def test_v2_asks_for_a_headline_after_the_title_with_its_rules() -> None:
         assert word in headline_rule, word
     assert "rules for title also apply to headline" in headline_rule
     assert "payoff" in rules
-    assert "3-10" not in SCORED_ANSWER_FORMAT  # ordet om antal ord är "Max 8 words", aldrig ett spann
+    # antalet ord står som "Max 8 words", aldrig som ett spann
+    assert "3-10" not in SCORED_ANSWER_FORMAT
     assert "headline" in get_system_prompt("v1", "Campaign rules.", mode="v2")
     assert "headline" not in ANSWER_FORMAT and "headline" not in SYSTEM_PROMPT
 
