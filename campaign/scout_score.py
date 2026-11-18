@@ -24,10 +24,10 @@ MAX_MIN_VIEWS = 10_000
 # Delen Visningar (Robins beslut 18 nov 2026): medianen av de 10 bästa klippens visningar, på log-skala.
 VIEWS_MAX = 40
 # Okänt ger 10 av 40, inte halva: en kampanj utan klipp att räkna på ska få färre poäng än en med bevisat bra klipp
-# (Robins ja, 18 nov 2026). 10 poäng motsvarar en median på cirka 9 500 för de bästa klippen med skalan 2 000–1 000 000.
+# (Robins ja, 18 nov 2026). 10 poäng motsvarar en median på cirka 6 300 för de bästa klippen med skalan 2 000–200 000.
 VIEWS_UNKNOWN = 10
 MIN_CLIPS = 5  # färre klipp, på Twitch eller Content Rewards, visar inget mönster (Robins beslut 18 nov 2026)
-CAMPAIGN_VIEWS = (2_000, 1_000_000)  # kampanjens klipp: 0 poäng vid 2 000 eller lägre, 40 vid 1 000 000 eller högre
+CAMPAIGN_VIEWS = (2_000, 200_000)  # kampanjens klipp: 0 poäng vid 2 000 eller lägre, 40 vid 200 000 eller högre
 TWITCH_VIEWS = (500, 200_000)  # kanalens Twitch-klipp, 30 dagar: 0 vid 500 eller lägre, 40 vid 200 000 eller högre
 MAX_PAYOUT, PAYOUT_MAX = (100, 1_000), 10  # dollar per klipp: 0 poäng vid 100 eller lägre, 10 vid 1 000 eller högre
 # Robins vikter (18 nov 2026). Delarna räknar med maxvärdena från ombyggnad-fas1 och _part skalar till de här.
