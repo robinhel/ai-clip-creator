@@ -214,7 +214,8 @@ def test_a_clip_outside_the_campaigns_length_is_refused_before_rendering(client,
         assert answer.status_code == 400, answer.text
         assert text in answer.json()["detail"]
     assert calls == []
-    assert not list((settings.out_dir / "upload" / ".utkast" / draft_id).glob("*.mp4"))  # inget råklipp heller
+    folder = settings.out_dir / "upload" / ".utkast" / draft_id
+    assert [p.name for p in folder.glob("*.mp4")] == ["source.mp4"]  # inget råklipp heller
     assert ClipLog(settings.data_dir / "klipp.db").list() == []
 
 
