@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -131,19 +132,24 @@ def _wrap(text: str, fits: Callable[[str], bool], max_lines: int) -> list[str]:
     return lines[: max_lines - 1] + [_with_ellipsis(lines[max_lines - 1], fits)]
 
 
-def _hook_lines(
-    profile: Profile, title: str, text_on_top: bool = False, frame: str = "", own_font: bool = False
-) -> list[str]:
-    """Titelns rader, högst HOOK_LINE_PX breda. Stilen serif skrivs och mäts i versaler. Med en egen font
-    (own_font) mäts raden med det bredaste värdet ur båda stilarnas tabeller. Emoji tas bort."""
+def _hook_wrap(profile: Profile, title: str, own_font: bool, max_lines: int) -> list[str]:
+    """Titelns rader, högst HOOK_LINE_PX breda och högst max_lines, också när kampanjen inte visar hooken. Stilen
+    serif skrivs och mäts i versaler. Med en egen font (own_font) mäts raden med det bredaste värdet ur båda
+    stilarnas tabeller. Emoji tas bort."""
     title = hook_clean(title)
-    if not (profile.hook_text and title):
-        return []
     if profile.hook_style == "serif":
         title = title.upper()
     fonts = list(HOOK_WIDTHS) if own_font else [_style_font(profile).name]
-    lines = _max_lines(_hook_start(profile, text_on_top), frame)
-    return _wrap(title, lambda line: _line_px(line, fonts) <= HOOK_LINE_PX, lines)
+    return _wrap(title, lambda line: _line_px(line, fonts) <= HOOK_LINE_PX, max_lines)
+
+
+def _hook_lines(
+    profile: Profile, title: str, text_on_top: bool = False, frame: str = "", own_font: bool = False
+) -> list[str]:
+    """Hookens rader i bilden (_hook_wrap), inga när kampanjen inte visar hooken."""
+    if not profile.hook_text:
+        return []
+    return _hook_wrap(profile, title, own_font, _max_lines(_hook_start(profile, text_on_top), frame))
 
 
 def _hook_top(profile: Profile, text_on_top: bool, lines: int = 1, frame: str = "") -> int:
@@ -173,6 +179,17 @@ def top_text_end(
     if lines:
         return _hook_top(profile, on_top, len(lines), frame) + len(lines) * HOOK_LINE_H
     return _hook_top(profile, on_top) if on_top else 0
+
+
+def hook_fits(
+    profile: Profile, root: Path, title: str, overlay: Path | None = None, frame: str = "",
+    font_file: str | None = None,
+) -> bool:
+    """Texten ryms i bilden utan "…", med samma radbrytning som build_filter och samma argument som top_text_end.
+    Mäts också när kampanjen inte visar hooken (hook_text), eftersom den kan slås på."""
+    on_top = _text_on_top(profile, _overlay_used(profile, root, overlay) is not None)
+    every = _hook_wrap(profile, title, font_file is not None, sys.maxsize)
+    return len(every) <= _max_lines(_hook_start(profile, on_top), frame)
 
 
 def _hook(

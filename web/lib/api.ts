@@ -202,6 +202,9 @@ export const api = {
       /** 201 med den nya versionen som ett eget klipp. Servern renderar först, så det kan ta en minut. */
       createVersion: (id: number, body: VersionCreate) =>
         apiFetch<CampaignClip>(`/campaign/clips/${id}/versions`, { method: "POST", body: JSON.stringify(body) }),
+      /** Claude föreslår en ny hook för versionen (kostar lite budget). Fel 400/502 med svensk text. */
+      suggestVersionHook: (id: number) =>
+        apiFetch<{ hook: string }>(`/campaign/clips/${id}/versions/hook`, { method: "POST" }),
       edit: (id: number) => apiFetch<ClipEditInfo>(`/campaign/clips/${id}/edit`),
       /** headline utelämnad: oförändrad. "": ingen egen text, titeln står i bilden. */
       saveEdit: (id: number, body: { in_s?: number; out_s?: number; title?: string; headline?: string; words?: CaptionWord[] }) =>
