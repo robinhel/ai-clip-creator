@@ -10,6 +10,7 @@ import pytest
 
 from campaign.budget import Budget
 from clipsmith.llm.anthropic_provider import AnthropicProvider
+from clipsmith.llm.base import ClipPick
 from clipsmith.llm.prompts import SYSTEM_PROMPT
 from clipsmith.models.candidates import CandidateMoment
 
@@ -129,12 +130,51 @@ def test_v2_stream_context_names_the_field_title() -> None:
     from clipsmith.llm.prompts import build_stream_context, get_system_prompt
 
     ctx = build_stream_context("timmy", "t", "1h", language="sv", mode="v2")
-    assert "Write title in sv" in ctx and "title_es" not in ctx
+    assert "Write title and headline in sv" in ctx and "title_es" not in ctx
     assert "title_es" not in get_system_prompt("v1", "", mode="v2")
 
 
 def test_v2_asks_for_the_first_and_last_words_as_quotes() -> None:
     from clipsmith.llm.prompts import get_system_prompt
 
-    for prompt in (get_system_prompt("v1", "", mode="v2"), get_system_prompt("v1", "Campaign rules.", mode="v2")):
+    for prompt in (
+        get_system_prompt("v1", "", mode="v2"),
+        get_system_prompt("v1", "Campaign rules.", mode="v2"),
+    ):
         assert '"start_quote"' in prompt and '"end_quote"' in prompt
+
+
+def test_v2_reads_the_headline_and_saves_it_in_picks_json(tmp_path) -> None:
+    provider, _ = _provider(tmp_path, {**_ANSWER, "headline": "This WoW world is beautiful"})
+    pick = provider.pick("text", _candidate(), "ctx")
+    assert pick is not None and pick.headline == "This WoW world is beautiful"
+    assert pick.to_dict()["headline"] == "This WoW world is beautiful"
+    assert ClipPick.from_dict(pick.to_dict()).headline == "This WoW world is beautiful"
+
+
+def test_an_answer_without_headline_gives_an_empty_headline() -> None:
+    assert ClipPick.from_dict({"include": True, "title": "Solo boss"}).headline == ""
+
+
+def test_v2_asks_for_a_headline_after_the_title_with_its_rules() -> None:
+    from clipsmith.llm.prompts import ANSWER_FORMAT, SCORED_ANSWER_FORMAT, get_system_prompt
+
+    assert (
+        SCORED_ANSWER_FORMAT.index('"title"')
+        < SCORED_ANSWER_FORMAT.index('"headline"')
+        < (SCORED_ANSWER_FORMAT.index('"reason"'))
+    )
+    rules = SCORED_ANSWER_FORMAT.split("Rules:")[1]
+    assert "headline is shown on screen for the whole clip. Max 8 words" in rules
+    assert "No invented facts, numbers or names." in rules
+    assert "end right after the payoff, with no wind-down, outro or next topic" in rules
+    assert "3-10" not in SCORED_ANSWER_FORMAT
+    assert "headline" in get_system_prompt("v1", "Campaign rules.", mode="v2")
+    assert "headline" not in ANSWER_FORMAT and "headline" not in SYSTEM_PROMPT
+
+
+def test_legacy_stream_context_still_names_title_es() -> None:
+    from clipsmith.llm.prompts import build_stream_context
+
+    ctx = build_stream_context("timmy", "t", "1h", language="sv")
+    assert "Write title_es in sv" in ctx and "headline" not in ctx
