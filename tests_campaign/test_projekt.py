@@ -231,3 +231,26 @@ def test_undo_takes_the_files_out_of_the_project(client, settings) -> None:  # n
         db.execute("UPDATE runs SET project_id = NULL")  # ångra, som det står i cliplog.py
     assert client.get(f"/campaign/runs/{run_id}").json()["project_id"] is None
     assert _project(client)["files"] == []
+
+
+# ---------- live-klipparens delar ----------
+
+LIVE_PART = f"{TWITCH}_live_2"  # live.part_id: en del av en Twitch-stream, ingen egen fil
+
+
+def test_a_live_part_gets_no_project_and_shows_as_its_own_card(client, settings) -> None:  # noqa: F811
+    run_id = _file(settings, LIVE_PART, origin=None)  # som live.py anropar add_run
+    assert _log(settings).run(run_id)["project_id"] is None
+    assert client.get(f"/campaign/runs/{run_id}").json()["project_id"] is None
+    assert [r["project_id"] for r in client.get("/campaign/runs").json() if r["run_id"] == run_id] == [None]
+    assert client.get("/campaign/projects").json() == []
+
+
+def test_the_migration_leaves_live_parts_outside_the_projects(tmp_path) -> None:
+    path = tmp_path / "klipp.db"
+    _old_cliplog(path)
+    with sqlite3.connect(path) as db:
+        db.execute("INSERT INTO runs (run_id, vod_id, profile, channel_name) VALUES (?,?,?,?)",
+                   (15, LIVE_PART, CAMPAIGN, "SkiiMaskTimmy"))
+    ClipLog(path)
+    assert dict(_rows(path)["project_ids"])[15] is None

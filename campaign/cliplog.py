@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 import json
+import re
 import sqlite3
 from collections.abc import Callable, Hashable
 from datetime import datetime, timezone
@@ -58,12 +59,14 @@ PROJECTS_TABLE = """CREATE TABLE IF NOT EXISTS projects (
 PROJECTS_UNIQUE = "CREATE UNIQUE INDEX IF NOT EXISTS projects_kind ON projects (profile, kind)"
 OWN_FILES = "egna"  # projects.kind: egna filer (python -m campaign local) och uppladdningar (Egna videor)
 UPLOADS = "upload"  # vod_id för klipp från Egna videor, samma som uploads_api.UPLOAD
+LIVE_PART = re.compile(r"\d+_live_\d+")  # vod_id för en del från live-klipparen, samma som live.part_id
 BACKUP_SUFFIX = ".fore-projekt-"  # kopian före migreringen: klipp.db.fore-projekt-<tidsstämpel>
 
 
 def own_file(vod_id: str) -> bool:
-    """En egen fil har filens namn som vod_id. En Twitch-VOD har bara siffror."""
-    return not vod_id.isdigit()
+    """En egen fil har filens namn som vod_id. En Twitch-VOD har bara siffror, och en del från
+    live-klipparen har <VOD>_live_<n> (live.part_id): den hör till streamen, inte till egna filer."""
+    return not vod_id.isdigit() and not LIVE_PART.fullmatch(vod_id)
 
 
 def card_runs(runs: list[dict], key: Callable[[dict], Hashable]) -> dict:
@@ -116,7 +119,7 @@ def _own_runs(db: sqlite3.Connection) -> list[tuple[int, str]]:
 
 def _move_own_files(db: sqlite3.Connection, path: Path) -> None:
     """Ett projekt per kampanj som har egna filer eller uppladdningar, och project_id på egna filers körningar
-    (vod_id som inte bara är siffror). Först en kopia av klipploggen bredvid filen,
+    (own_file: vod_id som inte bara är siffror och inte är en live-del). Först en kopia av klipploggen bredvid filen,
     klipp.db.fore-projekt-<tidsstämpel>, om det finns något att flytta. Inga rader tas bort, och samma resultat
     om den körs två gånger. Ångra: UPDATE runs SET project_id = NULL
     (eller lägg tillbaka kopian medan servern är stoppad)."""
