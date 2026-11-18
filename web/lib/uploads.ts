@@ -1,0 +1,242 @@
+// Rena hjälpfunktioner för Egna videor (/uploads): valen, längden, formuläret och de senaste valen per kampanj.
+import type { StickerPosition } from "./types";
+
+// Samma val som servern (campaign/versions.py och campaign/drafts.py). Servern kontrollerar dem.
+export const SPEEDS = [1, 1.05, 1.1, 1.15, 1.2];
+export const FILTERS: [string, string][] = [
+  ["none", "Inget"],
+  ["fresh", "Fräsch"],
+  ["warm", "Varm"],
+  ["cool", "Kall"],
+  ["punch", "Kraftig"],
+];
+export const FRAMINGS: [string, string, string][] = [
+  ["fill", "Fyll bilden", "Zoomar in och skär bort kanterna."],
+  ["fit", "Hela bilden", "Hela bilden på en suddig bakgrund."],
+];
+const POSITION_VALUES: StickerPosition[] = ["top_left", "top_right", "center", "bottom_left", "bottom_right"];
+
+export const VIDEO_TYPES = [".mp4", ".mov", ".m4v", ".webm", ".mkv"];
+export const ACCEPT = VIDEO_TYPES.join(",");
+
+/** Valen för en video. startS och endS är sekunder i källvideon; endS 0 betyder videons slut. */
+export interface Choices {
+  mirror: boolean;
+  speed: number;
+  filter: string;
+  brightness: number;
+  saturation: number;
+  framing: string;
+  font: string;
+  overlay: string;
+  sticker: string;
+  position: StickerPosition;
+  stickerStart: string;
+  stickerLength: string;
+  startS: number;
+  endS: number;
+}
+
+export const START_CHOICES: Choices = {
+  mirror: false,
+  speed: 1.1,
+  filter: "fresh",
+  brightness: 0,
+  saturation: 0,
+  framing: "fit",
+  font: "",
+  overlay: "",
+  sticker: "",
+  position: "top_right",
+  stickerStart: "0",
+  stickerLength: "3",
+  startS: 0,
+  endS: 0,
+};
+
+/** Sekunder ur ett fält. Robin kan skriva komma. */
+export const seconds = (text: string) => Number(text.replace(",", "."));
+
+const oneDecimal = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
+// Två decimaler när längden är utanför gränserna, så att 45,04 s inte visas som 45 s när taket är 45 s.
+const twoDecimals = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 2 });
+
+/** Sekunder med decimalkomma, högst en decimal: 18,2. */
+export const formatSeconds = (s: number) => oneDecimal.format(s);
+
+/** Klippets längd i sekunder: (slut − start) / hastighet. */
+export function clipLength(c: Choices, durationS: number): number {
+  const end = c.endS > 0 ? c.endS : durationS;
+  return Math.round(((end - c.startS) / c.speed) * 1000) / 1000;
+}
+
+export interface LengthCheck {
+  ok: boolean;
+  text: string;
+}
+
+/** Texten under tidslinjen. ok false: klippet går inte att göra, och texten säger vad Robin ska göra. */
+export function lengthCheck(length: number, min: number, max: number | null | undefined): LengthCheck {
+  if (length < min) {
+    return {
+      ok: false,
+      text: `Klippet blir ${twoDecimals.format(Math.max(length, 0))} s. Kampanjen kräver minst ${twoDecimals.format(min)} s. Flytta starten tidigare eller slutet senare, eller välj lägre hastighet.`,
+    };
+  }
+  if (max != null && length > max) {
+    return {
+      ok: false,
+      text: `Klippet blir ${twoDecimals.format(length)} s. Kampanjen tillåter högst ${twoDecimals.format(max)} s. Flytta starten senare eller slutet tidigare, eller välj högre hastighet.`,
+    };
+  }
+  const limits =
+    max != null ? `Kampanjen tillåter ${twoDecimals.format(min)}–${twoDecimals.format(max)} s.` : `Kampanjen kräver minst ${twoDecimals.format(min)} s.`;
+  return { ok: true, text: `Klippet blir ${oneDecimal.format(length)} s. ${limits}` };
+}
+
+/** Kontrollerar klistermärkets tider. null när de går att använda. */
+export function stickerProblemText(c: Choices): string | null {
+  if (!c.sticker) return null;
+  const startS = seconds(c.stickerStart);
+  const lengthS = seconds(c.stickerLength);
+  if (!Number.isFinite(startS) || startS < 0) return "Klistermärkets start får inte vara negativ.";
+  const tooShortOrLong = lengthS < 0.5 || lengthS > 10;
+  return Number.isFinite(lengthS) && !tooShortOrLong ? null : "Klistermärket ska synas 0,5–10 s.";
+}
+
+/** Valen med serverns namn, som formulärfält. Klistermärket bara när det är valt. */
+function choiceFields(c: Choices, profile: string, title: string): [string, string][] {
+  const fields: [string, string][] = [
+    ["profile", profile],
+    ["title", title],
+    ["mirror", String(c.mirror)],
+    ["speed", String(c.speed)],
+    ["filter", c.filter],
+    ["brightness", String(c.brightness)],
+    ["saturation", String(c.saturation)],
+    ["framing", c.framing],
+    ["font", c.font],
+    ["overlay", c.overlay],
+    ["start_s", String(c.startS)],
+    ["end_s", String(c.endS)],
+  ];
+  if (c.sticker) {
+    fields.push(
+      ["sticker", c.sticker],
+      ["sticker_position", c.position],
+      ["sticker_start_s", String(seconds(c.stickerStart))],
+      ["sticker_duration_s", String(seconds(c.stickerLength))]
+    );
+  }
+  return fields;
+}
+
+/** Det som skickas till render och save för ett utkast. */
+export function choicesForm(c: Choices, profile: string, title: string): FormData {
+  const form = new FormData();
+  for (const [key, value] of choiceFields(c, profile, title)) form.append(key, value);
+  return form;
+}
+
+/** Query för bilden. t är sekunder i det färdiga klippet. */
+export function frameQuery(c: Choices, profile: string, title: string, t: number): string {
+  return new URLSearchParams([["t", String(t)], ...choiceFields(c, profile, title)]).toString();
+}
+
+/** Valen som en sträng, för att se om de har ändrats sedan förhandsvisningen. */
+export const previewKey = (c: Choices, profile: string, title: string) => JSON.stringify(choiceFields(c, profile, title));
+
+/** true när valen inte längre är de som förhandsvisades. Utan förhandsvisning: false. */
+export function previewOutdated(key: string | null | undefined, c: Choices, profile: string, title: string): boolean {
+  return key != null && key !== previewKey(c, profile, title);
+}
+
+/** Videofilerna och namnen på de andra filerna. */
+export function splitVideoFiles<T extends { name: string }>(files: ArrayLike<T> | Iterable<T>): { videos: T[]; rejected: string[] } {
+  const videos: T[] = [];
+  const rejected: string[] = [];
+  for (const file of Array.from(files)) {
+    if (VIDEO_TYPES.some((type) => file.name.toLowerCase().endsWith(type))) videos.push(file);
+    else rejected.push(file.name);
+  }
+  return { videos, rejected };
+}
+
+/** "a.txt och b.png är ingen video …", eller null när alla filer var videor. */
+export function rejectText(rejected: string[]): string | null {
+  if (rejected.length === 0) return null;
+  const names = rejected.length === 1 ? rejected[0] : `${rejected.slice(0, -1).join(", ")} och ${rejected.at(-1)}`;
+  return `${names} är ingen video och togs inte med. Välj mp4, mov, m4v, webm eller mkv.`;
+}
+
+/** Som localStorage. Ett eget gränssnitt, så att testerna kan använda ett i minnet. */
+export interface ChoiceStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+const storageKey = (profile: string) => `egna-videor:val:${profile}`;
+// Start och slut hör till videon, och rubriken skriver Robin per video. De sparas inte.
+const SAVED_KEYS = (Object.keys(START_CHOICES) as (keyof Choices)[]).filter((k) => k !== "startS" && k !== "endS");
+const ALLOWED: Partial<Record<keyof Choices, readonly unknown[]>> = {
+  speed: SPEEDS,
+  filter: FILTERS.map(([value]) => value),
+  framing: FRAMINGS.map(([value]) => value),
+  position: POSITION_VALUES,
+};
+
+/** Sparar valen som de senaste i kampanjen. Utan localStorage händer inget. */
+export function saveLastChoices(storage: ChoiceStorage, profile: string, c: Choices): void {
+  const saved = Object.fromEntries(SAVED_KEYS.map((k) => [k, c[k]]));
+  try {
+    storage.setItem(storageKey(profile), JSON.stringify(saved));
+  } catch {
+    // Blockerad eller full lagring: valen gäller ändå på sidan.
+  }
+}
+
+function usable(key: keyof Choices, value: unknown): boolean {
+  if (typeof value !== typeof START_CHOICES[key]) return false;
+  if (typeof value === "number" && !Number.isFinite(value)) return false;
+  return ALLOWED[key]?.includes(value) ?? true;
+}
+
+/** De senaste valen i kampanjen. Ett trasigt värde, eller ett fält med fel typ, ger startvalet. */
+export function loadLastChoices(storage: ChoiceStorage, profile: string): Choices {
+  let stored: unknown;
+  try {
+    stored = JSON.parse(storage.getItem(storageKey(profile)) ?? "null");
+  } catch {
+    return { ...START_CHOICES };
+  }
+  if (!stored || typeof stored !== "object") return { ...START_CHOICES };
+  const record = stored as Record<string, unknown>;
+  const loaded = SAVED_KEYS.filter((k) => usable(k, record[k])).map((k) => [k, record[k]]);
+  return { ...START_CHOICES, ...Object.fromEntries(loaded) };
+}
+
+/** Använd på alla: valen till en annan video, med start och slut inom den videon. */
+export function copyChoices(from: Choices, durationS: number | null | undefined): Choices {
+  if (durationS == null) return { ...from, endS: 0 };
+  const endS = from.endS > durationS ? 0 : from.endS;
+  const startS = from.startS >= (endS || durationS) ? 0 : from.startS;
+  return { ...from, startS, endS };
+}
+
+/** ", där 2 egna klipp redan väntar" i texten överst. */
+export function alreadyWaiting(approved: number): string {
+  if (approved === 0) return "";
+  return approved === 1 ? ", där 1 eget klipp redan väntar" : `, där ${approved} egna klipp redan väntar`;
+}
+
+/** Storleken på en fil: 12,3 MB. */
+export function formatSize(bytes: number): string {
+  const mb = bytes / 1_000_000;
+  return mb >= 1000 ? `${oneDecimal.format(mb / 1000)} GB` : `${oneDecimal.format(mb)} MB`;
+}
+
+/** Längden på en video: 0:42 eller 12:05. */
+export function formatDuration(s: number): string {
+  const whole = Math.round(s);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
