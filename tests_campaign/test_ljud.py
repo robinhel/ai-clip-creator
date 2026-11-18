@@ -152,8 +152,12 @@ def test_music_from_its_start_time_replaces_or_joins_the_original(client, tmp_pa
     assert high > -45, high
     assert high > low + 20  # musiken från 10 s, inte från början
     assert high > source + 25  # inget av originalet vid 0
-    both, video = _render(client, draft_id, tmp_path, "blandat.mp4", **music, original_volume="1")
-    assert _band(video, 220, 1.0, 3.0) > _band(video, 880, 1.0, 3.0) - 12  # originalet hörs också
+    _, video = _render(client, draft_id, tmp_path, "blandat.mp4", **music, original_volume="1")
+    full = _band(video, 220, 1.0, 3.0) - _band(video, 880, 1.0, 3.0)
+    assert full > -12  # originalet hörs också
+    _, video = _render(client, draft_id, tmp_path, "svagt.mp4", **music, original_volume="0.3")
+    weak = _band(video, 220, 1.0, 3.0) - _band(video, 880, 1.0, 3.0)
+    assert full - 14 < weak < full - 7  # 30 % är cirka 10 dB svagare än 100 %
 
 
 @needs_ffmpeg
