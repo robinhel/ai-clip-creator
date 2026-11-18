@@ -132,7 +132,9 @@ def _music_graph(audio: dict, length: float, has_audio: bool, lufs: float) -> st
         last = "mixed"
     else:
         last = "mus"
-    parts.append(f"[{last}]atrim=end={length:.3f},loudnorm=I={lufs}:TP=-1.5:LRA=11[aout]")
+    # atrim också efter loudnorm: annars blev det blandade ljudet upp till 0,1 s längre än med Behåll.
+    trim = f"atrim=end={length:.3f}"
+    parts.append(f"[{last}]{trim},loudnorm=I={lufs}:TP=-1.5:LRA=11,{trim}[aout]")
     return ";".join(parts)
 
 
