@@ -1,7 +1,18 @@
 import Link from "next/link";
 import { DeleteVod } from "@/components/DeleteVod";
 import { api } from "@/lib/api";
-import { activeFile, countClips, failedFile, firstLine, isRunning, projectSize, stageText, waitingText, type ProjectEntry } from "@/lib/projects";
+import {
+  activeFile,
+  countClips,
+  firstLine,
+  isRunning,
+  projectError,
+  projectMeta,
+  projectSize,
+  stageText,
+  waitingText,
+  type ProjectEntry,
+} from "@/lib/projects";
 import { serverTime } from "@/lib/utils";
 import type { CampaignProject, CampaignRunInfo } from "@/lib/types";
 
@@ -133,30 +144,24 @@ function projectTag(project: CampaignProject): string {
 /** Kampanjens projekt för egna filer och uppladdningar: ett kort i stället för ett per fil. */
 export function CampaignProjectCard({ project }: { project: CampaignProject }) {
   const todo = waitingText(project.clip_counts);
-  const failed = failedFile(project);
-  const when = project.updated ?? project.created;
+  const why = projectError(project);
+  const poster = project.poster_url ? api.campaign.proxied(project.poster_url) : null;
   return (
     <Card
       href={`/projects/${project.id}`}
-      image={<Picture src={project.poster_url ? api.campaign.proxied(project.poster_url) : null} dim={project.active} fallback="Egen fil" />}
+      image={<Picture src={poster} dim={project.active} fallback="Egen fil" />}
       tag={projectTag(project)}
       tagTone="bg-black/70"
       title={project.title || `Egna filer för ${project.streamer || project.profile}`}
       meta={
         <>
-          {[project.active ? projectSize(project) : "Egna filer", when ? `senast ${day.format(serverTime(when))}` : null]
-            .filter(Boolean)
-            .join(", ")}
+          {projectMeta(project)}
           <span className="block">Kampanj: {project.profile}</span>
         </>
       }
     >
       {todo && <p className="text-[13px] font-medium text-brand">{todo}</p>}
-      {failed && (
-        <p className="line-clamp-2 text-[13px] break-words text-[#fca5a5]">
-          {failed.title || failed.vod_id}: {firstLine(failed.error)}
-        </p>
-      )}
+      {why && <p className="line-clamp-2 text-[13px] break-words text-[#fca5a5]">{why}</p>}
       {project.active && <Progress pct={project.pct ?? activeFile(project)?.pct} />}
     </Card>
   );

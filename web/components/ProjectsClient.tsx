@@ -19,23 +19,24 @@ const STATUS_FILTERS = [
 ] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number]["id"];
 
-function runMatches(run: CampaignRunInfo, filter: StatusFilter): boolean {
-  if (filter === "pagar") return isActive(run);
-  if (filter === "granska") return toReview(run.clip_counts) > 0;
-  if (filter === "klara") return run.status === "done";
-  if (filter === "misslyckade") return run.status === "failed";
-  return true;
-}
+const RUN_FILTERS: Record<StatusFilter, (run: CampaignRunInfo) => boolean> = {
+  alla: () => true,
+  pagar: isActive,
+  granska: (run) => toReview(run.clip_counts) > 0,
+  klara: (run) => run.status === "done",
+  misslyckade: (run) => run.status === "failed",
+};
+
+const anyFailed = (project: CampaignProject) => project.files.some((f) => f.status === "failed");
 
 /** Ett projekt för egna filer pågår medan en fil körs, och har misslyckats när en fil har det. */
-function projectMatches(project: CampaignProject, filter: StatusFilter): boolean {
-  const failed = project.files.some((f) => f.status === "failed");
-  if (filter === "pagar") return project.active;
-  if (filter === "granska") return toReview(project.clip_counts) > 0;
-  if (filter === "klara") return !project.active && !failed;
-  if (filter === "misslyckade") return failed;
-  return true;
-}
+const PROJECT_FILTERS: Record<StatusFilter, (project: CampaignProject) => boolean> = {
+  alla: () => true,
+  pagar: (project) => project.active,
+  granska: (project) => toReview(project.clip_counts) > 0,
+  klara: (project) => !project.active && !anyFailed(project),
+  misslyckade: anyFailed,
+};
 
 interface CampaignChoice {
   name: string;
@@ -167,8 +168,8 @@ function campaignChoices(runs: CampaignRunInfo[], projects: CampaignProject[], p
 function projectCards(runs: CampaignRunInfo[], projects: CampaignProject[], campaign: string, status: StatusFilter) {
   const inCampaign = (profile: string) => !campaign || profile === campaign;
   return projectEntries(
-    runs.filter((r) => inCampaign(r.profile) && runMatches(r, status)),
-    projects.filter((p) => inCampaign(p.profile) && projectMatches(p, status))
+    runs.filter((r) => inCampaign(r.profile) && RUN_FILTERS[status](r)),
+    projects.filter((p) => inCampaign(p.profile) && PROJECT_FILTERS[status](p))
   );
 }
 

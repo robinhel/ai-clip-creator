@@ -1,4 +1,4 @@
-import { serverTime } from "./utils";
+import { duration, serverTime } from "./utils";
 import type { CampaignProject, CampaignRunInfo, CampaignStatus, ProjectFile, RunStatus } from "./types";
 
 type Counts = Partial<Record<CampaignStatus, number>>;
@@ -96,4 +96,24 @@ export function latestAttempt(list: CampaignRunInfo[], run: Pick<CampaignRunInfo
     .filter((r) => r.vod_id === run.vod_id && r.profile === run.profile && r.origin !== "chat")
     .map((r) => r.run_id);
   return ids.length ? Math.max(...ids) : null;
+}
+
+const day = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" });
+const dayOf = (iso: string | null | undefined) => (iso ? day.format(serverTime(iso)) : null);
+
+/** "4 min, 17 nov.": filens längd och när den kom. Tom när servern inte vet. */
+export function fileMeta(file: ProjectFile): string {
+  return [file.duration_s ? duration(file.duration_s) : null, dayOf(file.created)].filter(Boolean).join(", ");
+}
+
+/** "Egna filer, senast 17 nov." under kortets rubrik. Medan en fil körs står filerna och klippen här, inte i märket. */
+export function projectMeta(project: CampaignProject): string {
+  const when = dayOf(project.updated ?? project.created);
+  return [project.active ? projectSize(project) : "Egna filer", when && `senast ${when}`].filter(Boolean).join(", ");
+}
+
+/** "klipp.mp4: Berget svarade inte": den senaste filen med fel och felets första rad. */
+export function projectError(project: CampaignProject): string | null {
+  const file = failedFile(project);
+  return file ? `${file.title || file.vod_id}: ${firstLine(file.error)}` : null;
 }

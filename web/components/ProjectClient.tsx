@@ -8,8 +8,8 @@ import { ClipResultRow, ignoreKey } from "@/components/ClipResultRow";
 import { DeleteVod } from "@/components/DeleteVod";
 import { Progress } from "@/components/ProjectCard";
 import { api } from "@/lib/api";
-import { fileState, firstLine, isRunning, projectSize, waitingText } from "@/lib/projects";
-import { cn, duration, serverTime } from "@/lib/utils";
+import { fileMeta, fileState, firstLine, isRunning, projectSize, waitingText } from "@/lib/projects";
+import { cn } from "@/lib/utils";
 import type { CampaignClip, CampaignProfile, CampaignProject, CampaignStatus, ProjectFile } from "@/lib/types";
 
 const FILTERS: { id: string; label: string; statuses?: CampaignStatus[] }[] = [
@@ -120,14 +120,21 @@ function ClipToolbar({
   );
 }
 
+/** "j" eller "k" när tangenten ska flytta mellan klippen, annars null. */
+function moveKey(e: KeyboardEvent, count: number): "j" | "k" | null {
+  const key = e.key.toLowerCase();
+  if (key !== "j" && key !== "k") return null;
+  return ignoreKey(e) || count === 0 ? null : key;
+}
+
 /** J och K flyttar mellan klippen i listan som den visas, rullar dit och markerar raden. */
 function useClipKeys(ids: number[], setActiveId: (update: (current: number | null) => number | null) => void) {
   const order = useRef<number[]>([]);
   order.current = ids;
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const key = e.key.toLowerCase();
-      if ((key !== "j" && key !== "k") || ignoreKey(e) || order.current.length === 0) return;
+      const key = moveKey(e, order.current.length);
+      if (!key) return;
       e.preventDefault();
       setActiveId((current) => {
         const i = current == null ? -1 : order.current.indexOf(current);
@@ -218,7 +225,6 @@ export function ClipsSection({
 }
 
 const POLL_MS = 5000;
-const day = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" });
 const errorText = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 
 /** Kör igen för en fil som stoppade. Sidan läser om projektet när servern har tagit emot det. */
@@ -247,22 +253,26 @@ function RetryFile({ file, onStarted }: { file: ProjectFile; onStarted: () => vo
   );
 }
 
+function ErrorLine({ error }: { error: string | null }) {
+  const line = firstLine(error);
+  return line ? <p className="mt-0.5 line-clamp-2 text-[13px] break-words text-[#fca5a5]">{line}</p> : null;
+}
+
 /** En fil i projektet: läget, felet och knapparna. Filens sida har stegen och bara filens klipp. */
 function FileRow({ file, onChanged }: { file: ProjectFile; onChanged: () => void }) {
   const active = isRunning(file.status);
   const failed = file.status === "failed";
-  const meta = [file.duration_s ? duration(file.duration_s) : null, file.created ? day.format(serverTime(file.created)) : null];
+  const meta = fileMeta(file);
   return (
     <li data-file={file.run_id} className="border-b border-line py-3 last:border-b-0">
       <div className="flex flex-wrap items-start gap-x-4 gap-y-2">
         <div className="min-w-0 flex-[1_1_16rem]">
           <p className="truncate font-medium">{file.title || file.vod_id}</p>
           <p className="text-[13px] text-muted-foreground">
-            {meta.filter(Boolean).join(", ")}
-            {meta.some(Boolean) && ", "}
+            {meta && `${meta}, `}
             <span className={cn(active && "text-brand", failed && "font-medium text-[#fca5a5]")}>{fileState(file)}</span>
           </p>
-          {failed && file.error && <p className="mt-0.5 line-clamp-2 text-[13px] break-words text-[#fca5a5]">{firstLine(file.error)}</p>}
+          {failed && <ErrorLine error={file.error} />}
           {active && <Progress pct={file.pct} />}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -314,16 +324,32 @@ function PageMessage({ error }: { error: string | null }) {
   );
 }
 
-/** Projektet och klippen. Läser om var femte sekund medan en fil körs, som Hem gör. */
+/** Läser om var femte sekund medan `on` gäller, som Hem gör. */
+function usePolling(on: boolean, reload: () => Promise<void>) {
+  // Räknas upp efter varje omläsning, så att nästa startar också när anropet misslyckades.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!on) return;
+    const timer = setTimeout(() => reload().finally(() => setTick((t) => t + 1)), POLL_MS);
+    return () => clearTimeout(timer);
+  }, [on, tick, reload]);
+}
+
+/** Kampanjens format, för raderna med klipp. */
+function useFormats(profile: string | undefined): CampaignProfile["formats"] {
+  const [profiles, setProfiles] = useState<CampaignProfile[]>([]);
+  useEffect(() => {
+    if (profile) api.campaign.profiles().then(setProfiles).catch(() => {});
+  }, [profile]);
+  return profiles.find((p) => p.name === profile)?.formats ?? [];
+}
+
+/** Projektet och klippen. Läser om var femte sekund medan en fil körs. */
 function useProject(id: number) {
   const validId = Number.isInteger(id) && id > 0;
   const [project, setProject] = useState<CampaignProject | null>(null);
   const [clips, setClips] = useState<CampaignClip[] | null>(null);
-  const [profiles, setProfiles] = useState<CampaignProfile[]>([]);
   const [error, setError] = useState<string | null>(validId ? null : "Projektet finns inte. Kontrollera länken.");
-  // Räknas upp efter varje omläsning, så att nästa startar också när anropet misslyckades.
-  const [tick, setTick] = useState(0);
-
   const fetchClips = useCallback(async () => {
     try {
       setClips(await api.campaign.clips.list({ project_id: id }));
@@ -345,18 +371,10 @@ function useProject(id: number) {
 
   useEffect(() => {
     reload();
-    if (validId) api.campaign.profiles().then(setProfiles).catch(() => {});
-  }, [reload, validId]);
+  }, [reload]);
 
-  const active = project?.active ?? false;
-  useEffect(() => {
-    if (!active) return;
-    const timer = setTimeout(() => reload().finally(() => setTick((t) => t + 1)), POLL_MS);
-    return () => clearTimeout(timer);
-  }, [active, tick, reload]);
-
-  const formats = profiles.find((p) => p.name === project?.profile)?.formats ?? [];
-  return { project, clips, setClips, formats, error, reload, fetchClips };
+  usePolling(project?.active ?? false, reload);
+  return { project, clips, setClips, error, reload, fetchClips };
 }
 
 function ProjectHeader({ project }: { project: CampaignProject }) {
@@ -381,7 +399,8 @@ function ProjectHeader({ project }: { project: CampaignProject }) {
 
 /** Kampanjens projekt för egna filer: filerna med Kör igen och Ta bort VOD-filen, och alla klippen. */
 export function ProjectClient({ id }: { id: number }) {
-  const { project, clips, setClips, formats, error, reload, fetchClips } = useProject(id);
+  const { project, clips, setClips, error, reload, fetchClips } = useProject(id);
+  const formats = useFormats(project?.profile);
 
   if (!project) return <PageMessage error={error} />;
 
