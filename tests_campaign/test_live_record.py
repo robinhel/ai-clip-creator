@@ -30,9 +30,7 @@ def _pdt(t: float) -> str:
     )
 
 
-def _media(
-    first_seq: int, start: float, titles: list[str], prefetch: int = 2, ads: str = ""
-) -> str:
+def _media(first_seq: int, start: float, titles: list[str], ads: str = "") -> str:
     """En mediaspellista som Twitchs: delar på 2 s med egen PDT, prefetch-delar sist."""
     lines = [
         "#EXTM3U",
@@ -49,7 +47,7 @@ def _media(
             f"#EXTINF:2.000,{title}",
             f"https://seg/{seq}.ts",
         ]
-    lines += [f"#EXT-X-TWITCH-PREFETCH:https://seg/prefetch{i}.ts" for i in range(prefetch)]
+    lines += [f"#EXT-X-TWITCH-PREFETCH:https://seg/prefetch{i}.ts" for i in range(2)]
     return "\n".join(lines) + "\n"
 
 
@@ -261,7 +259,7 @@ def test_run_saves_new_segments_once_and_skips_ads_and_prefetch(tmp_path):
     fake = FakeTwitch(
         [
             _media(10, T0, ["live", "live", "live"]),
-            _media(11, T0 + 2, ["live", "live", "Amazon|1", "Amazon|1"]),
+            _media(11, T0 + 2, ["live", "live", "Amazon|1"]),
             _media(13, T0 + 6, ["Amazon|1", "live"]),
         ]
     )
@@ -314,6 +312,23 @@ def test_run_asks_for_a_new_url_after_403_and_404_and_waits_longer_each_time(tmp
     assert [int(r[0]) for r in _index(rec.folder)] == [0, 1]
 
 
+def test_run_waits_and_asks_again_when_asking_twitch_fails(tmp_path):
+    fake = FakeTwitch([_media(0, T0, ["live"])])
+    rec = _recorder(tmp_path, fake)
+    calls = []
+
+    def playlist(login):
+        calls.append(login)
+        if len(calls) == 1:
+            raise httpx.ConnectError("nere")
+        return fake.playlist(login)
+
+    rec.playlist = playlist
+    rec.run()
+    assert fake.waits[0] == 1
+    assert [int(r[0]) for r in _index(rec.folder)] == [0]
+
+
 def test_run_keeps_the_url_after_other_errors(tmp_path):
     fake = FakeTwitch([500, _media(0, T0, ["live"])])
     rec = _recorder(tmp_path, fake)
@@ -354,8 +369,8 @@ def test_run_cleans_up_segments_older_than_keep_s(tmp_path):
     rec = _recorder(tmp_path, fake, keep_s=6.0)
     rec.run()
     rows = _index(rec.folder)
-    # sista städningen sker vid T0 + 20: delar som slutade före T0 + 14 är borta
-    assert [int(r[0]) for r in rows] == [6, 7, 8, 9]
+    # varje varv städar först; det sista, med 404, vid T0 + 22: delar som slutade före T0 + 16 är borta
+    assert [int(r[0]) for r in rows] == [7, 8, 9]
     assert sorted(p.name for p in rec.folder.glob("*.ts")) == sorted(r[3] for r in rows)
 
 
@@ -422,7 +437,7 @@ def test_cut_joins_the_segments_that_cover_the_window(buffer, tmp_path):
     assert start == pytest.approx(T0 + 2.0, abs=1e-3)  # början av delen som 3.0 ligger i
     video = out / "del-1.mp4"
     assert video.exists()
-    assert probe(video)["format"]["duration"] == pytest.approx(6.0, abs=0.5)  # delarna 2, 3 och 4
+    assert probe(video)["duration"] == pytest.approx(6.0, abs=0.5)  # delarna 2, 3 och 4
     assert len(list(buffer.glob("*.ts"))) == 6  # bufferten är kvar: delarna länkades
     assert not (out / "segments").exists()
 
@@ -432,7 +447,7 @@ def test_cut_again_in_the_same_folder_works(buffer, tmp_path):
     out = tmp_path / "del-2"
     cut(buffer, T0, T0 + 4.0, out)
     assert cut(buffer, T0 + 4.0, T0 + 8.0, out) == pytest.approx(T0 + 4.0, abs=1e-3)
-    assert probe(out / "del-2.mp4")["format"]["duration"] == pytest.approx(4.0, abs=0.5)
+    assert probe(out / "del-2.mp4")["duration"] == pytest.approx(4.0, abs=0.5)
 
 
 def test_cut_is_not_ready_when_the_end_is_not_recorded_yet(buffer, tmp_path):
