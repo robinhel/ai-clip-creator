@@ -601,7 +601,8 @@ def _public(clip: dict, settings: Settings) -> dict:
     out["reason"] = clip["reason"] or ""
     out["engagement"] = ClipLog.engagement(clip)
     out["content_rewards_url"], out["platforms"], out["audience_countries"] = None, list(PLATFORMS), None
-    out["length_s"] = clip_length(_log(settings), clip)
+    log = _log(settings)
+    out["length_s"] = clip_length(log, clip)
     try:
         profile = load_profile(clip["profile"], settings.profiles_dir)
         out["engagement_min"] = profile.engagement_min(clip["views"] or 0)
@@ -614,20 +615,19 @@ def _public(clip: dict, settings: Settings) -> dict:
         out["min_views"] = None
     # ?v= byts när klippet ändras, så att webbläsaren inte visar en gammal version efter en redigering.
     version = quote(clip.get("updated") or "")
-    out["posts"] = _public_posts(clip, settings)
+    out["posts"] = _public_posts(clip, settings, log)
     out["video_url"] = f"/campaign/clips/{clip['id']}/file?v={version}"
     out["poster_url"] = f"/campaign/clips/{clip['id']}/poster?v={version}"
     return out
 
 
-def _public_posts(clip: dict, settings: Settings) -> list[dict]:
+def _public_posts(clip: dict, settings: Settings, log: ClipLog) -> list[dict]:
     """Klippets inlägg med engagemang, uppskattad intäkt och om kampanjens gräns nåddes inom 7 dagar."""
     try:
         profile = load_profile(clip["profile"], settings.profiles_dir)
         payment, min_views = profile.payment, profile.min_views
     except (SystemExit, Exception):  # kampanjen finns inte längre: ingen uppskattning och ingen gräns
         payment, min_views = {}, 0
-    log = _log(settings)
     return [{**post, "engagement": ClipLog.engagement(post),
              "estimate_usd": _payout(post["views"] or 0, payment) if post["views"] else None,
              "reached_min_7d": reached_min_7d(post["created"], log.views_history(post["id"]), min_views)}

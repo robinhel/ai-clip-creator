@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import shutil
 from pathlib import Path
@@ -264,6 +265,19 @@ def _decimal(value: str) -> float:
         number = float(value.replace(",", "."))
     except ValueError as error:
         raise argparse.ArgumentTypeError(f"{value!r} är inget tal.") from error
+    if not math.isfinite(number):
+        raise argparse.ArgumentTypeError(f"{value!r} är inget tal.")
+    if number < 0:
+        raise argparse.ArgumentTypeError("Talet får inte vara mindre än 0.")
+    return number
+
+
+def _count(value: str) -> int:
+    """Ett heltal, 0 eller mer."""
+    try:
+        number = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"{value!r} är inget heltal.") from error
     if number < 0:
         raise argparse.ArgumentTypeError("Talet får inte vara mindre än 0.")
     return number
@@ -276,27 +290,29 @@ def _percent(value: str) -> float:
     return number
 
 
+def _stats_blocked(posts: list[dict], fields: dict) -> str | None:
+    """Varför siffrorna inte går att spara här, None när de går."""
+    if len(posts) > 1:
+        return "Klippet har flera inlägg. Fyll i siffrorna per inlägg under Statistik i appen."
+    if not posts and set(METRIC_KEYS) & fields.keys():
+        return "Fler mått sparas per inlägg. Spara länken först med python -m campaign posted."
+    return None
+
+
 def cmd_stats(args, settings: Settings) -> int:
     log = _log(settings)
     fields = {k: getattr(args, k) for k in ("views", "likes", "comments", "shares", *METRIC_KEYS)
               if getattr(args, k) is not None}
     posts = log.posts(args.clip_id)
-    if len(posts) > 1:
-        print("Klippet har flera inlägg. Fyll i siffrorna per inlägg under Statistik i appen.")
-        return 1
-    if not posts and set(METRIC_KEYS) & fields.keys():
-        print("Fler mått sparas per inlägg. Spara länken först med python -m campaign posted.")
+    blocked = _stats_blocked(posts, fields)
+    if blocked:
+        print(blocked)
         return 1
     if posts:
         log.update_post(posts[0]["id"], **fields)
     else:
         log.update(args.clip_id, **fields)
-    _print_stats(log, log.get(args.clip_id), settings)
-    return 0
-
-
-def _print_stats(log: ClipLog, clip: dict, settings: Settings) -> None:
-    """Klippets visningar, engagemang mot kampanjens krav och det som återstår att göra."""
+    clip = log.get(args.clip_id)
     profile = load_profile(clip["profile"], settings.profiles_dir)
     rate = log.engagement(clip)
     print(f"#{clip['id']}: {clip['views']} visningar")
@@ -307,6 +323,7 @@ def _print_stats(log: ClipLog, clip: dict, settings: Settings) -> None:
     for item in log.todo(profile.min_views or 2000):
         if item.startswith(f"#{clip['id']} "):
             print(f"  ATT GÖRA: {item}")
+    return 0
 
 
 def cmd_status(args, settings: Settings) -> int:
@@ -407,7 +424,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--fyp-pct", dest="fyp_pct", type=_percent, help="andel visningar från För dig, i procent")
     p.add_argument("--countries-pct", dest="countries_pct", type=_percent,
                    help="andel visningar från kampanjens länder, i procent")
-    p.add_argument("--saves", type=int, help="antal sparningar")
+    p.add_argument("--saves", type=_count, help="antal sparningar")
     p.set_defaults(func=cmd_stats)
 
     p = sub.add_parser("status", help="Klipplogg, att göra-lista och budget")

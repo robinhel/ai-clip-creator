@@ -153,6 +153,12 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _reset_length(fields: dict) -> None:
+    """Ny fil eller nya tider: längden räknas om nästa gång Statistik behöver den."""
+    if {"file", "start_s", "end_s"} & fields.keys():
+        fields["length_s"] = None
+
+
 class UploadRunning(Exception):
     """Ett godkänt klipp laddas upp just nu. Det får inte lämna godkänt förrän uppladdningen är klar. Ger 409."""
 
@@ -192,6 +198,7 @@ class ClipLog:
             )
             db.execute(POSTS_TABLE.format(name="posts"))
             db.execute(POST_VIEWS_TABLE)
+            db.execute("CREATE INDEX IF NOT EXISTS post_views_post ON post_views (post_id)")
             if "account" in {row["name"] for row in db.execute("PRAGMA table_info(posts)")}:
                 db.execute(POSTS_UNIQUE)
             # Klipp från före inläggen: klippets länk blir ett inlägg. Bara en gång (user_version 0 -> 1),
@@ -360,7 +367,7 @@ class ClipLog:
         for key in ("problems", "warnings", "review", "subscores"):
             if key in fields:
                 fields[key] = json.dumps(fields[key], ensure_ascii=False) if fields[key] is not None else None
-        new_length = bool({"file", "start_s", "end_s"} & fields.keys())  # ny fil eller nya tider: räkna om längden
+        _reset_length(fields)
         self.get(clip_id)
         sets = ", ".join(f"{key} = ?" for key in fields)
         # En transaktion med skrivlås: schemaläggaren hinner inte starta en uppladdning mellan kollen och bytet.
@@ -369,8 +376,7 @@ class ClipLog:
             db.execute("BEGIN IMMEDIATE")
             if "status" in fields and fields["status"] not in ("godkand", *POST_STATUSES):
                 _cancel_uploads(db, clip_id)  # här, så att ingen väg som ändrar status glömmer det
-            db.execute(f"UPDATE clips SET {sets}, updated = ?, length_s = CASE WHEN ? THEN NULL ELSE length_s END "
-                       "WHERE id = ?", (*fields.values(), _now(), new_length, clip_id))
+            db.execute(f"UPDATE clips SET {sets}, updated = ? WHERE id = ?", (*fields.values(), _now(), clip_id))
             db.execute("COMMIT")
         finally:
             if db.in_transaction:
@@ -445,13 +451,14 @@ class ClipLog:
     def views_history(self, post_id: int) -> builtins.list[tuple[int, str]]:
         """Inläggets sparade visningar med tiden (UTC) de sparades, äldst först."""
         with self._db() as db:
-            rows = db.execute("SELECT views, at FROM post_views WHERE post_id = ? ORDER BY id", (post_id,))
-            return [(views, at) for views, at in rows]
+            return db.execute("SELECT views, at FROM post_views WHERE post_id = ? ORDER BY id", (post_id,)).fetchall()
 
-    def set_length(self, clip_id: int, length_s: float) -> None:
-        """Spara den färdiga filens längd. Klippets updated ändras inte: filen är densamma."""
+    def set_length(self, clip_id: int, length_s: float, updated: str | None) -> None:
+        """Spara den färdiga filens längd. updated: klippets updated när längden räknades. Bara när längden
+        fortfarande saknas och klippet inte har ändrats sedan dess. Klippets updated ändras inte."""
         with self._db() as db:
-            db.execute("UPDATE clips SET length_s = ? WHERE id = ?", (length_s, clip_id))
+            db.execute("UPDATE clips SET length_s = ? WHERE id = ? AND length_s IS NULL AND updated IS ?",
+                       (length_s, clip_id, updated))
 
     def _sync(self, clip_id: int) -> None:
         """Klippets länk, plattform, siffror och status räknas fram ur inläggen, så att sammanfattningen

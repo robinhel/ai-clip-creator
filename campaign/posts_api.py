@@ -6,11 +6,12 @@ Vägarna registreras på campaign.api.router, som importerar den här modulen si
 
 from __future__ import annotations
 
+import math
 import sqlite3
 from typing import Literal
 
 from fastapi import Depends, HTTPException, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from clipsmith.api.deps import verify_api_key
 
@@ -38,6 +39,8 @@ class NewPost(BaseModel):
 
 
 class PostPatch(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)  # Infinity och NaN ger 422
+
     status: PostStatus | None = None
     url: str | None = Field(default=None, max_length=500)
     views: int | None = Field(default=None, ge=0)
@@ -51,6 +54,15 @@ class PostPatch(BaseModel):
     fyp_pct: float | None = Field(default=None, ge=0, le=100)
     saves: int | None = Field(default=None, ge=0)
     countries_pct: float | None = Field(default=None, ge=0, le=100)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _infinite_as_text(cls, data: object) -> object:
+        """Infinity och NaN som text, så att 422-svaret går att skriva som JSON (annars blir det 500)."""
+        if not isinstance(data, dict):
+            return data
+        return {key: str(value) if isinstance(value, float) and not math.isfinite(value) else value
+                for key, value in data.items()}
 
 
 def _get_post(log: ClipLog, post_id: int) -> dict:
