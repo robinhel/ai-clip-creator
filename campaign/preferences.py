@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import threading
 from pathlib import Path
 
 from .cliplog import ClipLog
@@ -28,6 +29,7 @@ COUNTRIES = {"SE": "Sverige", "NO": "Norge", "DK": "Danmark", "FI": "Finland", "
              "GB": "Storbritannien", "IE": "Irland", "US": "USA", "CA": "Kanada", "AU": "Australien",
              "BR": "Brasilien", "MX": "Mexiko", "IN": "Indien"}
 DEFAULT_COUNTRY = "SE"
+_lock = threading.Lock()
 
 
 def _path(settings: Settings) -> Path:
@@ -44,7 +46,8 @@ def _read(settings: Settings) -> dict:
 
 
 def _save(settings: Settings, **values: object) -> None:
-    write_atomic(_path(settings), json.dumps({**_read(settings), **values}).encode("utf-8"))
+    with _lock:  # läs, ändra och skriv i ett svep, så att två samtidiga val inte skriver över varandra
+        write_atomic(_path(settings), json.dumps({**_read(settings), **values}).encode("utf-8"))
 
 
 def submit_helper(settings: Settings) -> bool:

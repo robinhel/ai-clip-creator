@@ -34,7 +34,8 @@ from . import preferences
 from .config import Settings, load_settings
 from .content_views import (USER_AGENT, campaign_clip_views, channel_from_assets, go_link, resolve_join,
                             twitch_clip_views, twitch_login_from_vod, vod_from_assets)
-from .scout_score import _days, _first, _time, country_note, evaluate, facts, min_views, pay_number
+from .scout_score import (_days, _first, _time, country_note, country_rates, evaluate, excluded_for_country, facts,
+                          min_views, pay_number)
 
 log = logging.getLogger(__name__)
 
@@ -377,20 +378,23 @@ class Scout:
     def _find_pages(self, http: httpx.Client, now: datetime) -> None:
         """/go/ för kampanjer som syns under Kampanjer och inte har kollats, till exempel de som fick sina detaljer
         innan /go/ fanns, eller som ligger utanför de 25 bästa. De bästa först, högst JOINS_PER_RUN per körning, och
-        bara så länge resten av dygnets sökningar fortfarande ryms."""
+        bara så länge resten av dygnets sökningar fortfarande ryms. Första felet (429, 5xx eller nätverket) avbryter
+        rundan, och kampanjen provas igen nästa körning."""
         due = [r for r in self._shown(now) if r["excluded"] is None and _join_due(json.loads(r["data"]))]
         for row in due[:JOINS_PER_RUN]:
             if self.calls_today() + 1 > CALL_LIMIT - reserve(now):
                 return
             data = json.loads(row["data"])
             found = self._join(http, data, now, answered="campaign" in data)
-            if found:
-                self._merge(row["ref"], found)
+            if not found:  # bara vid fel här: due tar inte kollade kampanjer eller sådana utan /go/-länk
+                return
+            self._merge(row["ref"], found)
 
     def _refresh_clip_views(self, now: datetime) -> None:
         """Kampanjens klipp på Content Rewards för kampanjer som syns under Kampanjer, när de är äldre än 6 timmar.
+        Också för dem som är bortsorterade för att de inte betalar för landet, så att nya priser kommer med.
         De bästa först och högst CLIP_VIEWS_PER_RUN per körning. Inga anrop till ClippingAlpha."""
-        due = [r for r in self._shown(now) if r["excluded"] is None and _clip_views_due(json.loads(r["data"]), now)]
+        due = [r for r in self._shown(now) if _clip_views_wanted(r, now)]
         for row in due[:CLIP_VIEWS_PER_RUN]:
             self._merge(row["ref"], _clip_views(json.loads(row["data"]), now))
 
@@ -523,6 +527,12 @@ def _clip_views_due(data: dict, now: datetime) -> bool:
     return bool(data.get("cr_url")) and _older_than(data.get("clip_views_at"), DETAIL_MAX_AGE_S, now)
 
 
+def _clip_views_wanted(row: sqlite3.Row, now: datetime) -> bool:
+    """Inte bortsorterad, eller bortsorterad bara för att den inte betalar för landet, och klippen behövs."""
+    wanted = row["excluded"] is None or excluded_for_country(row["excluded"])
+    return wanted and _clip_views_due(json.loads(row["data"]), now)
+
+
 def _join_due(data: dict) -> bool:
     """/go/ är inte kollad, och det finns en /go/-länk, eller get_campaign har svarat (då kollas den utan anrop)."""
     return "join_checked_at" not in data and ("campaign" in data or go_link(facts(data)["join_url"]) is not None)
@@ -593,17 +603,26 @@ def _body(response: httpx.Response, wanted_id) -> dict | None:
     return body if isinstance(body, dict) else None
 
 
+def _prices(f: dict, data: dict, country: str) -> tuple[float | None, float | None]:
+    """Priset och priset efter avgift för kortet. Med pris per land: det högsta i landet, som Betalning räknar."""
+    rates = country_rates(data.get("geo"), country)
+    if rates:
+        rate = max(rates.values())
+        return rate, round(rate * (1 - f["fee"]), 2)
+    return f["rate"], _first(f["net"], round(f["rate"] * (1 - f["fee"]), 2) if f["rate"] is not None else None)
+
+
 def _view(row: sqlite3.Row, now: datetime, country: str = preferences.DEFAULT_COUNTRY) -> dict:
     data = json.loads(row["data"])
     f = facts(data)
     age = None if f["launched"] is None else round((now - f["launched"]).total_seconds() / 3600, 1)
     drain = _days(f["drain"], now)
     source = f"{f['title']} {f['about']} {' '.join(text for _, text in f['rules'])}".lower()
+    rate, net = _prices(f, data, country)
     return {
         "ref": row["ref"], "title": f["title"], "brand": f["brand"], "score": row["score"],
         "parts": json.loads(row["parts"]), "excluded": row["excluded"], "age_hours": age,
-        "rate_usd": f["rate"],
-        "net_rate_usd": _first(f["net"], round(f["rate"] * (1 - f["fee"]), 2) if f["rate"] is not None else None),
+        "rate_usd": rate, "net_rate_usd": net,
         "budget_left_usd": f["left"], "budget_total_usd": f["total"], "min_views": min_views(f),
         "max_payout_usd": pay_number(f["pay"], "maxPayoutUsd"),
         "drain_days": None if drain is None else round(max(drain, 0), 1),

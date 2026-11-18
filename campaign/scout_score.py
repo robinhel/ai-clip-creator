@@ -38,6 +38,7 @@ LANGUAGES = ("spanish", "german", "french", "portuguese", "italian", "arabic", "
              "swedish", "norwegian", "danish", "finnish", "romanian", "czech", "hungarian", "greek", "hebrew",
              "tagalog", "filipino", "urdu", "bengali", "malay")
 PLATFORM_NAMES = {"tiktok": "TikTok", "youtube": "YouTube", "instagram": "Instagram"}
+NOT_PAID = "Betalar inte för visningar från"  # början på orsaken, landet följer
 OTHER_LANGUAGE = re.compile(rf"\b(?:in|language:?)\s+(?:{'|'.join(LANGUAGES)})\b", re.IGNORECASE)
 
 
@@ -153,12 +154,23 @@ def _platform_rate(geo: dict, country: str, platform: str) -> float:
     tiers, rest = rows(geo["rates"].get("tiers")), rows(geo["rates"].get("restOfWorld"))
     mine = [tier for tier in tiers if country in (tier.get("countries") or [])]
     found = mine or rest or ([] if tiers else rows(geo.get("payout_model")))
-    return _cents(found[0].get("rate")) / 100 if found else 0.0
+    return max((_cents(row.get("rate")) for row in found), default=0) / 100  # landet i flera tiers: det högsta
 
 
 def _geo_priced(geo: dict | None) -> bool:
-    """Kampanjen har pris per land, och priserna gick att läsa."""
+    """Kampanjen har pris per land."""
     return bool(geo) and geo.get("priced") is True and isinstance(geo.get("rates"), dict)
+
+
+def _readable(rates: dict) -> bool:
+    """geoRates har rader i restOfWorld eller tiers, och varje rate där är ett tal."""
+    found = _dict_rows(rates.get("restOfWorld")) + _dict_rows(rates.get("tiers"))
+    return bool(found) and all(pay_number(row, "rate") is not None for row in found)
+
+
+def _country_unknown(geo: dict | None) -> bool:
+    """Ingen kampanjsida, sidan gick inte att läsa, eller priserna per land på den gick inte att läsa."""
+    return geo is None or (_geo_priced(geo) and not _readable(geo["rates"]))
 
 
 def _dict_rows(value: object) -> list[dict]:
@@ -173,8 +185,8 @@ def _platforms(geo: dict) -> list[str]:
 
 def country_rates(geo: dict | None, country: str) -> dict[str, float] | None:
     """Priset i dollar per 1 000 för landet på varje plattform i payoutModel. None när kampanjen inte har pris per
-    land, eller när sidan inte är läst."""
-    if not _geo_priced(geo):
+    land, när sidan inte är läst, eller när priserna per land inte går att läsa (då räknas det vanliga priset)."""
+    if not _geo_priced(geo) or not _readable(geo["rates"]):
         return None
     return {platform: _platform_rate(geo, country, platform) for platform in _platforms(geo)} or None
 
@@ -196,6 +208,11 @@ def _pays_nothing(rates: dict[str, float] | None) -> bool:
     return rates is not None and not any(rate > 0 for rate in rates.values())
 
 
+def excluded_for_country(excluded: str | None) -> bool:
+    """Orsaken är att kampanjen inte betalar för landet. Priserna kan ändras, så sidan läses om ändå."""
+    return (excluded or "").startswith(NOT_PAID)
+
+
 def country_note(data: dict, country: str = DEFAULT_COUNTRY) -> str | None:
     """För webben: vilka plattformar som inte betalar för landet, när några andra gör det. Annars None."""
     unpaid = _unpaid(country_rates(data.get("geo"), country))
@@ -212,7 +229,7 @@ def _pay_part(f: dict, data: dict, cpm_median: float, country: str) -> dict:
     if net is None:
         return _unknown("pay", "Betalning", 10)
     fact = f"{_money(net)} dollar per 1 000 efter avgift{where}, marknaden {_money(cpm_median)}"
-    if data.get("geo") is None:  # ingen kampanjsida, eller den gick inte att läsa
+    if _country_unknown(data.get("geo")):
         fact += ", Land okänt"
     elif unpaid := _unpaid(rates):
         fact += f". {unpaid} betalar inte för {_country_name(country)}."
@@ -368,8 +385,7 @@ def evaluate(data: dict, median: float, cpm_median: float, now: datetime,
     reasons = [
         (f["state"] not in (None, "live"), f"Kampanjen är inte igång ({f['state']})."),
         (f["pay_model"] == "pot_split", "Pott som delas mellan klippare, inte betalning per visning"),
-        (_pays_nothing(country_rates(data.get("geo"), country)),
-         f"Betalar inte för visningar från {_country_name(country)}"),
+        (_pays_nothing(country_rates(data.get("geo"), country)), f"{NOT_PAID} {_country_name(country)}"),
         (f["stalled"], "Kampanjen står still på plattformen."),
         (used is not None and used >= 0.95, "Minst 95 % av budgeten är använd."),
         (f["type"] not in (None, "clipping"), f"Inte en clipping-kampanj ({f['type']})."),
