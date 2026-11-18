@@ -17,11 +17,14 @@ from .media import find_font, need, probe, run
 from .profile import Profile
 
 WIDTH, HEIGHT = 1080, 1920
-HOOK_SECONDS = 3
 HOOK_FONT_SIZE = 64
-HOOK_LINE_CHARS = 22  # ryms i 1080 px vid HOOK_FONT_SIZE
+HOOK_LINE_CHARS = 26  # en vanlig mening blir högst 960 px bred i båda stilarna vid HOOK_FONT_SIZE
+HOOK_MAX_LINES = 3
 HOOK_GAP = 24  # zoom: luft mellan hookens sista rad och bilden
-HOOK_LINE_H = int(HOOK_FONT_SIZE * 1.25)  # en rad hook, med kant och luft
+HOOK_LINE_H = int(HOOK_FONT_SIZE * 1.25)  # en rad hook, med luft
+HOOK_PAD = 24  # det svarta fältets luft ovanför första raden; under sista raden är luften raden ut
+FONTS = Path(__file__).parent / "fonts"
+HOOK_FONTS = {"sans": FONTS / "Montserrat-ExtraBold.ttf", "serif": FONTS / "DMSerifDisplay-Regular.ttf"}
 
 ENCODER_ARGS = {
     "libx264": ["-c:v", "libx264", "-preset", "medium", "-crf", "19"],
@@ -55,15 +58,34 @@ def _text_on_top(profile: Profile, has_overlay: bool) -> bool:
     return bool(profile.text) and not has_overlay and profile.text_position == "top"
 
 
-def _hook_lines(profile: Profile, title: str) -> list[str]:
+def _hook_start(profile: Profile, text_on_top: bool) -> int:
+    """Högsta raden hooken får börja på: under den övre säkra zonen och kampanjens text."""
+    return int(HEIGHT * profile.safe_top) + (int(profile.text_font_size * 1.6) if text_on_top else 0)
+
+
+def _max_lines(start: int, frame: str) -> int:
+    """I zoom bara så många rader som ryms mellan start och bilden, minst en."""
+    if frame != "zoom":
+        return HOOK_MAX_LINES
+    room = ZOOM_TOP - HOOK_GAP - HOOK_FONT_SIZE - start
+    return max(1, min(HOOK_MAX_LINES, 1 + room // HOOK_LINE_H))
+
+
+def _hook_lines(profile: Profile, title: str, text_on_top: bool = False, frame: str = "") -> list[str]:
+    """Titelns rader. Stilen serif skrivs i versaler."""
     title = _clean(title)
-    return textwrap.wrap(title, HOOK_LINE_CHARS, max_lines=3, placeholder="…") if profile.hook_text and title else []
+    if not (profile.hook_text and title):
+        return []
+    if profile.hook_style == "serif":
+        title = title.upper()
+    lines = _max_lines(_hook_start(profile, text_on_top), frame)
+    return textwrap.wrap(title, HOOK_LINE_CHARS, max_lines=lines, placeholder="…")
 
 
 def _hook_top(profile: Profile, text_on_top: bool, lines: int = 1, frame: str = "") -> int:
     """Hookens första rad. I bildläget zoom står den på det svarta precis ovanför bilden, men aldrig i den
     övre säkra zonen."""
-    top = int(HEIGHT * profile.safe_top) + (int(profile.text_font_size * 1.6) if text_on_top else 0)
+    top = _hook_start(profile, text_on_top)
     if frame == "zoom":
         top = max(top, ZOOM_TOP - HOOK_GAP - HOOK_FONT_SIZE - (lines - 1) * HOOK_LINE_H)
     return top
@@ -76,10 +98,10 @@ def _overlay_used(profile: Profile, root: Path, overlay: Path | None) -> Path | 
 
 
 def top_text_end(profile: Profile, root: Path, title: str, overlay: Path | None = None, frame: str = "") -> int:
-    """Raden i bilden där texten uppe slutar: kampanjens text och hooken. 0 när ingen text ritas uppe.
-    Samma läge som build_filter ritar dem på, så att ett klistermärke kan läggas under."""
+    """Raden i bilden där texten uppe slutar: kampanjens text och hooken med sitt svarta fält. 0 när ingen text
+    ritas uppe. Samma läge som build_filter ritar dem på, så att ett klistermärke kan läggas under."""
     on_top = _text_on_top(profile, _overlay_used(profile, root, overlay) is not None)
-    lines = _hook_lines(profile, title)
+    lines = _hook_lines(profile, title, on_top, frame)
     if lines:
         return _hook_top(profile, on_top, len(lines), frame) + len(lines) * HOOK_LINE_H
     return _hook_top(profile, on_top) if on_top else 0
@@ -88,18 +110,21 @@ def top_text_end(profile: Profile, root: Path, title: str, overlay: Path | None 
 def _hook(
     profile: Profile, title: str, font: str | None, last: str, text_on_top: bool, frame: str = ""
 ) -> list[str]:
-    """Titeln centrerad i övre säkra zonen de första sekunderna, på upp till tre rader (_hook_top)."""
-    lines = _hook_lines(profile, title)
+    """Titeln vit och centrerad under övre säkra zonen hela klippet, på upp till tre rader (_hook_top). Utom i
+    zoom, där bakgrunden redan är svart, ligger ett svart fält i full bredd bakom. font: stilens font om None."""
+    lines = _hook_lines(profile, title, text_on_top, frame)
     top = _hook_top(profile, text_on_top, len(lines), frame)
-    font_part = f"fontfile='{_esc(font)}':" if font else ""
+    font = font or str(HOOK_FONTS["serif" if profile.hook_style == "serif" else "sans"])
     parts = []
+    if frame != "zoom":
+        height = HOOK_PAD + len(lines) * HOOK_LINE_H
+        parts.append(f"[{last}]drawbox=x=0:y={top - HOOK_PAD}:w=iw:h={height}:color=black:t=fill[hookbar]")
+        last = "hookbar"
     for i, line in enumerate(lines):
         out = "withhook" if i == len(lines) - 1 else f"hook{i}"
         parts.append(
-            f"[{last}]drawtext={font_part}expansion=none:text={_hook_esc(line)}:"
-            f"fontsize={HOOK_FONT_SIZE}:fontcolor=white:borderw=5:bordercolor=black@0.9:"
-            f"x=(w-text_w)/2:y={top + i * HOOK_LINE_H}:"
-            f"enable='lt(t,{HOOK_SECONDS})'[{out}]"
+            f"[{last}]drawtext=fontfile='{_esc(font)}':expansion=none:text={_hook_esc(line)}:"
+            f"x=(w-text_w)/2:y={top + i * HOOK_LINE_H}:fontsize={HOOK_FONT_SIZE}:fontcolor=white[{out}]"
         )
         last = out
     return parts
@@ -126,14 +151,15 @@ def _pieces(pieces: list[tuple[float, float]], has_audio: bool, cold_open: bool)
 def build_filter(
     profile: Profile, has_overlay: bool, has_audio: bool, font: str | None, title: str = "",
     subtitles: Path | None = None, pieces: list[tuple[float, float]] | None = None, cold_open: bool = False,
-    sticker: dict | None = None, look: str = "", speed: float = 1.0, frame: str = "",
+    sticker: dict | None = None, look: str = "", speed: float = 1.0, frame: str = "", hook_font: str | None = None,
 ) -> str:
     """Filtergrafen. Ingång 0 är klippet, sedan hooken (cold_open), overlay-bilden och klistermärket om de finns.
     Med bitar (tidskartan) sätts de ihop först. Undertexten bränns in sedan, så att overlayen ligger ovanpå den.
     sticker: {w, h, x, y, start_s, end_s}, en ny versions klistermärke ovanpå overlayen under en stund.
     look: filter (",hflip,eq=...") på bilden före undertexten, så att texten inte speglas. speed: hela klippet
     snabbare sist, så att undertexten och hooken följer med. frame: råklippets bildläge (ordfilens reframe.mode),
-    som bestämmer var hooken står."""
+    som bestämmer var hooken står. hook_font: en egen font till hooken; None ger stilens (profile.hook_style).
+    font är kampanjens vita text."""
     burn = f",subtitles=filename='{_esc(str(subtitles))}'" if subtitles else ""
     parts = _pieces(pieces, has_audio, cold_open) if pieces else []
     ov = 2 if pieces and cold_open else 1
@@ -169,7 +195,7 @@ def build_filter(
         )
         last = "withtext"
     if _hook_lines(profile, title):
-        parts += _hook(profile, title, font, last, _text_on_top(profile, has_overlay), frame)
+        parts += _hook(profile, title, hook_font, last, _text_on_top(profile, has_overlay), frame)
         last = "withhook"
     fast = (f",setpts=PTS/{speed:g}", f",atempo={speed:g}") if speed != 1.0 else ("", "")
     parts.append(f"[{last}]format=yuv420p{fast[0]}[vout]")
@@ -185,8 +211,8 @@ def finish_clip(
     frame: str = "",
 ) -> dict:
     """Rendera den kampanjklara versionen. plan är tidskartan (campaign.timemap). En ny version kan ge en egen
-    overlay, en fontfil till texten på skärmen och ett klistermärke (med path). Returnerar ett manifest om vad
-    som gjordes."""
+    overlay, en fontfil till texten på skärmen och hooken, och ett klistermärke (med path). Utan fontfil får
+    hooken stilens font. Returnerar ett manifest om vad som gjordes."""
     info = probe(src)
     overlay = _overlay_used(profile, root, overlay)
     has_overlay = overlay is not None
@@ -205,7 +231,7 @@ def finish_clip(
     cmd += [
         "-filter_complex",
         build_filter(profile, has_overlay, info["has_audio"], font, title, subtitles,
-                     plan["pieces"] if plan else None, cold_open, sticker, look, speed, frame),
+                     plan["pieces"] if plan else None, cold_open, sticker, look, speed, frame, font_file),
         "-map",
         "[vout]",
     ]

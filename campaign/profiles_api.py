@@ -147,7 +147,8 @@ def _detail(profile_id: str, settings: Settings) -> dict:
     connected = _connected(settings)
     out.update(
         overlay=_overlay_info(profile, profile_id, settings),
-        on_screen_text={"text": profile.text, "position": profile.text_position, "required": profile.text_required},
+        on_screen_text={"text": profile.text, "position": profile.text_position, "required": profile.text_required,
+                        "hook_style": profile.hook_style},
         safe_zone={"top": profile.safe_top, "bottom": profile.safe_bottom},
         caption={"template": profile.caption_template, "hashtags": profile.hashtags,
                  "must_include": profile.caption_must_include, "tag_line": profile.caption_tag_line or None,
@@ -567,6 +568,7 @@ class CampaignSettings(NoControl):
     must_include: list[str] | None = None
     on_screen_text: str | None = Field(default=None, max_length=200)
     text_position: Literal["top", "bottom"] | None = None
+    hook_style: Literal["sans", "serif"] | None = None
     allowed_min_s: int | None = None  # det kampanjen tillåter (profilens clip)
     allowed_max_s: int | None = None
     clip_min_s: int | None = None  # det appen klipper (config-filens clip)
@@ -582,8 +584,8 @@ class CampaignSettings(NoControl):
 _TEXT_FIELDS = ("streamer", "campaign", "language")
 _PLAIN_FIELDS = (("caption_template", "caption.template"), ("hashtags", "caption.hashtags"),
                  ("must_include", "caption.must_include"), ("on_screen_text", "on_screen_text.text"),
-                 ("text_position", "on_screen_text.position"), ("allowed_min_s", "clip.min_seconds"),
-                 ("allowed_max_s", "clip.max_seconds"))
+                 ("text_position", "on_screen_text.position"), ("hook_style", "on_screen_text.hook_style"),
+                 ("allowed_min_s", "clip.min_seconds"), ("allowed_max_s", "clip.max_seconds"))
 _PAYMENT_FIELDS = ("cpm_usd", "min_views", "max_payout_per_clip_usd")
 
 

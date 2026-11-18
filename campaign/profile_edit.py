@@ -644,7 +644,7 @@ def new_profile_text(profile_id: str, body: dict, config_name: str) -> str:
         "overlay": {"file": f"overlays/{profile_id}.png", "required": body["overlay_required"],
                     "mode": body["overlay_mode"]},
         "facecam": {"required": body["facecam_required"]},
-        "safe_zone": {"top": 0.07, "bottom": 0.20},
+        "safe_zone": {"top": 0.125, "bottom": 0.20},
         "caption": _new_caption(body, profile_id, link),
         "audio": {"lufs": -14},
         "payment": payment,

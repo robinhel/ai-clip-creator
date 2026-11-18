@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml
 
 PLATFORMS = ("tiktok", "youtube_shorts", "instagram_reels")
+HOOK_STYLES = ("sans", "serif")
 
 
 @dataclass
@@ -23,8 +24,9 @@ class Profile:
     text_position: str = "top"  # top | bottom
     text_font_size: int = 46
     text_font_file: str | None = None
-    # titeln överst de första sekunderna; None = på när text inte krävs
+    # titeln överst hela klippet; None = på när text inte krävs
     hook_text: bool | None = None
+    hook_style: str = "sans"  # rubrikens stil: sans | serif (versaler)
     overlay_file: str | None = None
     overlay_required: bool = False
     overlay_mode: str = "full"  # full | top | bottom
@@ -110,10 +112,10 @@ class Profile:
                 f"Overlay-bilden saknas: {self.overlay_file}. "
                 "Ladda ner den från kampanjen. Ladda upp den under Overlay."
             )
-        if self.text_position not in ("top", "bottom"):
-            found.append("on_screen_text.position måste vara top eller bottom.")
-        if self.overlay_mode not in ("full", "top", "bottom"):
-            found.append("overlay.mode måste vara full, top eller bottom.")
+        choices = ((self.text_position, ("top", "bottom"), "on_screen_text.position måste vara top eller bottom."),
+                   (self.hook_style, HOOK_STYLES, "on_screen_text.hook_style måste vara sans eller serif."),
+                   (self.overlay_mode, ("full", "top", "bottom"), "overlay.mode måste vara full, top eller bottom."))
+        found += [message for value, allowed, message in choices if value not in allowed]
         if self.min_seconds >= self.max_seconds:
             found.append("clip.min_seconds måste vara mindre än clip.max_seconds.")
         if self.max_posts_per_day < 1 or self.min_gap_minutes < 0:
@@ -203,6 +205,7 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
         text_font_size=_number(text, "font_size", 46, "on_screen_text.font_size", int),
         text_font_file=text.get("font_file"),
         hook_text=None if text.get("hook_text") is None else bool(text["hook_text"]),
+        hook_style=text.get("hook_style", "sans"),
         overlay_file=overlay.get("file"),
         overlay_required=bool(overlay.get("required", False)),
         overlay_mode=overlay.get("mode", "full"),
