@@ -3,6 +3,10 @@
 Betyget följer rapporten "Vad är en bra kampanj" (Jarvis, Klippverktyget, 13 nov 2026), plus delen Visningar
 (40 av 100): hur många visningar klipp av kampanjens innehåll brukar få (campaign/content_views.py), och delen
 Max payout per klipp (10 av 100): hur mycket ett klipp högst kan betala.
+
+Priset per land (Robins beslut 18 nov 2026): många kampanjer betalar olika per land (geo på Content Rewards
+kampanjsida, campaign/examples.py). Betalning räknar då med bästa priset i Robins land (Inställningar, Sverige som
+standard), och en kampanj som inte betalar något där sorteras bort.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ import statistics
 from datetime import UTC, datetime
 
 from .content_views import TOP_CLIPS
+from .preferences import COUNTRIES, DEFAULT_COUNTRY
 
 MAX_MIN_VIEWS = 10_000
 
@@ -32,6 +37,8 @@ LANGUAGES = ("spanish", "german", "french", "portuguese", "italian", "arabic", "
              "dutch", "russian", "japanese", "korean", "chinese", "mandarin", "indonesian", "vietnamese", "thai",
              "swedish", "norwegian", "danish", "finnish", "romanian", "czech", "hungarian", "greek", "hebrew",
              "tagalog", "filipino", "urdu", "bengali", "malay")
+PLATFORM_NAMES = {"tiktok": "TikTok", "youtube": "YouTube", "instagram": "Instagram"}
+NOT_PAID = "Betalar inte för visningar från"  # början på orsaken, landet följer
 OTHER_LANGUAGE = re.compile(rf"\b(?:in|language:?)\s+(?:{'|'.join(LANGUAGES)})\b", re.IGNORECASE)
 
 
@@ -129,6 +136,103 @@ def _number(value: float) -> str:
     return f"{value:,.0f}".replace(",", " ")
 
 
+def _money(value: float) -> str:
+    """Två decimaler med decimalkomma: 1,80."""
+    return f"{value:.2f}".replace(".", ",")
+
+
+def _cents(value: object) -> float:
+    return value if isinstance(value, int | float) and not isinstance(value, bool) else 0
+
+
+def _platform_rate(geo: dict, country: str, platform: str) -> float:
+    """Dollar per 1 000 för landet på plattformen: först en tier med landet, sedan restOfWorld, och när plattformen
+    inte finns i geoRates alls payoutModel. Annars 0."""
+    def rows(where: list[dict]) -> list[dict]:
+        return [row for row in where if row.get("platform") == platform]
+
+    tiers, rest = rows(geo["rates"].get("tiers", [])), rows(geo["rates"].get("restOfWorld", []))
+    mine = [tier for tier in tiers if country in (tier.get("countries") or [])]
+    found = mine or rest or ([] if tiers else rows(geo.get("payout_model", [])))
+    return max((_cents(row.get("rate")) for row in found), default=0) / 100  # landet i flera tiers: det högsta
+
+
+def _geo_priced(geo: object) -> bool:
+    """Kampanjen har pris per land. geo kommer från examples.parse: rates är None eller har tiers och restOfWorld
+    som listor med dicts."""
+    return isinstance(geo, dict) and geo.get("priced") is True and geo.get("rates") is not None
+
+
+def _readable(rates: dict) -> bool:
+    """geoRates har rader i restOfWorld eller tiers, och varje rate där är ett tal."""
+    found = rates.get("restOfWorld", []) + rates.get("tiers", [])
+    return bool(found) and all(pay_number(row, "rate") is not None for row in found)
+
+
+def _country_unknown(geo: dict | None) -> bool:
+    """Ingen kampanjsida, sidan gick inte att läsa, eller priserna per land på den gick inte att läsa."""
+    return geo is None or (_geo_priced(geo) and not _readable(geo["rates"]))
+
+
+def _platforms(geo: dict) -> list[str]:
+    """Kampanjens plattformar: de i payoutModel, i ordning och en gång var."""
+    names = (str(row.get("platform") or "") for row in geo.get("payout_model", []))
+    return list(dict.fromkeys(name for name in names if name))
+
+
+def country_rates(geo: dict | None, country: str) -> dict[str, float] | None:
+    """Priset i dollar per 1 000 för landet på varje plattform i payoutModel. None när kampanjen inte har pris per
+    land, när sidan inte är läst, eller när priserna per land inte går att läsa (då räknas det vanliga priset)."""
+    if not _geo_priced(geo) or not _readable(geo["rates"]):
+        return None
+    return {platform: _platform_rate(geo, country, platform) for platform in _platforms(geo)} or None
+
+
+def _country_name(country: str) -> str:
+    return COUNTRIES.get(country, country)
+
+
+def _unpaid(rates: dict[str, float] | None) -> str | None:
+    """Plattformarna som inte betalar, som text, när några men inte alla betalar. Annars None."""
+    rates = rates or {}
+    unpaid = [PLATFORM_NAMES.get(p, p.capitalize()) for p, rate in rates.items() if rate <= 0]
+    if not 0 < len(unpaid) < len(rates):
+        return None
+    return " och ".join([", ".join(unpaid[:-1]), unpaid[-1]] if len(unpaid) > 1 else unpaid)
+
+
+def _pays_nothing(rates: dict[str, float] | None) -> bool:
+    return rates is not None and not any(rate > 0 for rate in rates.values())
+
+
+def excluded_for_country(excluded: str | None) -> bool:
+    """Orsaken är att kampanjen inte betalar för landet. Priserna kan ändras, så sidan läses om ändå."""
+    return (excluded or "").startswith(NOT_PAID)
+
+
+def country_note(data: dict, country: str) -> str | None:
+    """För webben: vilka plattformar som inte betalar för landet, när några andra gör det. Annars None."""
+    unpaid = _unpaid(country_rates(data.get("geo"), country))
+    return unpaid and f"{unpaid} betalar inte för visningar från {_country_name(country)}."
+
+
+def _pay_part(f: dict, data: dict, cpm_median: float, country: str) -> dict:
+    """Betalning efter avgift mot marknadens median. Med pris per land: bästa priset i landet."""
+    rates = country_rates(data.get("geo"), country)
+    net = _first(f["net"], f["rate"] * (1 - f["fee"]) if f["rate"] is not None else None)
+    where = ""
+    if rates:
+        net, where = max(rates.values()) * (1 - f["fee"]), f" i {_country_name(country)}"
+    if net is None:
+        return _unknown("pay", "Betalning", 10)
+    fact = f"{_money(net)} dollar per 1 000 efter avgift{where}, marknaden {_money(cpm_median)}"
+    if _country_unknown(data.get("geo")):
+        fact += ", Land okänt"
+    elif unpaid := _unpaid(rates):
+        fact += f". {unpaid} betalar inte för {_country_name(country)}."
+    return _part("pay", "Betalning", min(10.0, 5 * min(net / cpm_median, 3)), 10, fact)
+
+
 def _top_median(views: list[int]) -> tuple[float, int]:
     """Medianen av de högst 10 bästa, och hur många de var."""
     top = sorted(views, reverse=True)[:TOP_CLIPS]
@@ -189,25 +293,48 @@ def _fresh_part(f: dict, drain_days: float | None, now: datetime) -> dict:
     return _part("fresh", "Färskhet och konkurrens", max(0.0, points - minus), 25, fact)
 
 
-def evaluate(data: dict, median: float, cpm_median: float, now: datetime) -> tuple[int, list[dict], str | None]:
-    """Betyg 0–100, delarna med svensk förklaring, och orsaken om kampanjen sorteras bort."""
+def _minimum_unknown(f: dict, views: int | None) -> bool:
+    """analytics saknas, eller det finns en minsta utbetalning i dollar men inget pris att räkna visningar med."""
+    if f["pay"] is None:
+        return True
+    return views is None and bool(pay_number(f["pay"], "minPayoutUsd")) and not f["rate"]
+
+
+def _minimum_part(f: dict, views: int | None, median: float) -> dict:
+    """Chans att nå minimum: Robins median mot visningarna som krävs för betalning."""
+    label = "Chans att nå minimum"
+    if _minimum_unknown(f, views):
+        return _unknown("minimum", label, 20)
+    if views is None:
+        return _part("minimum", label, 20, 20, "Ingen minsta utbetalning")
+    ratio = views / max(median, 1)
+    points = 20 if ratio <= 1 else 0 if ratio >= 5 else 20 * (1 - math.log(ratio) / math.log(5))
+    return _part("minimum", label, points, 20,
+                 f"{_number(views)} visningar för betalning, din median är {_number(median)}")
+
+
+def _budget_part(f: dict, drain_days: float | None) -> dict:
+    """Budgeten räcker: prognosen, annars hur mycket som är kvar."""
+    label = "Budgeten räcker"
+    if drain_days is not None:
+        return _part("budget", label, 15 * min(max(drain_days, 0), 7) / 7, 15,
+                     f"Räcker cirka {max(drain_days, 0):.0f} dagar till")
+    if f["left"] is not None:
+        return _part("budget", label, 10 * min(f["left"], 1000) / 1000, 15,
+                     f"Ingen prognos, {_number(f['left'])} dollar kvar")
+    return _unknown("budget", label, 15)
+
+
+def evaluate(data: dict, median: float, cpm_median: float, now: datetime,
+             country: str = DEFAULT_COUNTRY) -> tuple[int, list[dict], str | None]:
+    """Betyg 0–100, delarna med svensk förklaring, och orsaken om kampanjen sorteras bort. country är Robins land."""
     f = facts(data)
     texts = " ".join([f["about"], *(text for _, text in f["rules"])])
     drain_days = _days(f["drain"], now)
     views = min_views(f)
     parts = [_views_part(data), _fresh_part(f, drain_days, now)]  # 1. Visningar, 40 av 100, och 2. Färskhet
 
-    # 3. Chans att nå minimum.
-    label = "Chans att nå minimum"
-    if f["pay"] is None or (views is None and (pay_number(f["pay"], "minPayoutUsd") and not f["rate"])):
-        parts.append(_unknown("minimum", label, 20))
-    elif views is None:
-        parts.append(_part("minimum", label, 20, 20, "Ingen minsta utbetalning"))
-    else:
-        ratio = views / max(median, 1)
-        points = 20 if ratio <= 1 else 0 if ratio >= 5 else 20 * (1 - math.log(ratio) / math.log(5))
-        parts.append(_part("minimum", label, points, 20,
-                           f"{_number(views)} visningar för betalning, din median är {_number(median)}"))
+    parts.append(_minimum_part(f, views, median))  # 3. Chans att nå minimum
 
     # 4. Källan.
     source = f"{f['title']} {texts}"
@@ -219,25 +346,10 @@ def evaluate(data: dict, median: float, cpm_median: float, now: datetime) -> tup
     said = [word for word, yes in (("Twitch", twitch), ("stream", stream), ("engelska", not other)) if yes]
     parts.append(_part("source", "Källan", points, 15, ", ".join(said) or "Varken Twitch eller stream"))
 
-    # 5. Budgeten räcker.
-    label = "Budgeten räcker"
-    if drain_days is not None:
-        parts.append(_part("budget", label, 15 * min(max(drain_days, 0), 7) / 7, 15,
-                           f"Räcker cirka {max(drain_days, 0):.0f} dagar till"))
-    elif f["left"] is not None:
-        parts.append(_part("budget", label, 10 * min(f["left"], 1000) / 1000, 15,
-                           f"Ingen prognos, {_number(f['left'])} dollar kvar"))
-    else:
-        parts.append(_unknown("budget", label, 15))
+    parts.append(_budget_part(f, drain_days))  # 5. Budgeten räcker
 
     # 6. Betalning efter avgift mot marknadens median.
-    net = _first(f["net"], f["rate"] * (1 - f["fee"]) if f["rate"] is not None else None)
-    if net is None:
-        parts.append(_unknown("pay", "Betalning", 10))
-    else:
-        ratio = min(net / cpm_median, 3)
-        parts.append(_part("pay", "Betalning", min(10.0, 5 * ratio), 10,
-                           f"{net:.2f} dollar per 1 000 efter avgift, marknaden {cpm_median:.2f}"))
+    parts.append(_pay_part(f, data, cpm_median, country))
 
     # 7. Max payout per klipp, direkt efter betalningen.
     parts.append(_max_payout_part(f["pay"]))
@@ -270,6 +382,7 @@ def evaluate(data: dict, median: float, cpm_median: float, now: datetime) -> tup
     reasons = [
         (f["state"] not in (None, "live"), f"Kampanjen är inte igång ({f['state']})."),
         (f["pay_model"] == "pot_split", "Pott som delas mellan klippare, inte betalning per visning"),
+        (_pays_nothing(country_rates(data.get("geo"), country)), f"{NOT_PAID} {_country_name(country)}"),
         (f["stalled"], "Kampanjen står still på plattformen."),
         (used is not None and used >= 0.95, "Minst 95 % av budgeten är använd."),
         (f["type"] not in (None, "clipping"), f"Inte en clipping-kampanj ({f['type']})."),

@@ -189,8 +189,10 @@ def chat_clips(chat_id: int, body: HitIds, request: Request, background_tasks: B
     try:
         for run, vod_id in zip(runs, groups, strict=True):
             source = sources[vod_id]
+            # origin chat: körningen tar inte över videons kort. En egen fil hamnar i kampanjens projekt.
             log.add_run(run.id, vod_id, profile.name, source["game"], focus=focus or None, title=source["title"],
-                        channel_name=profile.streamer, thumbnail_url=None, duration_s=source["duration_s"])
+                        channel_name=profile.streamer, thumbnail_url=None, duration_s=source["duration_s"],
+                        origin="chat")
         store.set_hits([hit_id for ids in groups.values() for hit_id in ids], status="vald", problem=None)
     except Exception:  # annars står körningen som pågående tills servern startas om
         for run in runs:

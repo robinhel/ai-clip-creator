@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import builtins
 import json
+import re
 import sqlite3
+from collections.abc import Callable, Hashable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,6 +50,92 @@ NEW_COLUMNS = {
              "start_s": "REAL", "end_s": "REAL"},
     "posts": {"prev_status": "TEXT"},  # statusen före den senaste, så att Ångra på Betald går tillbaka dit
 }
+# Kampanjens enda projekt för egna filer: filerna från python -m campaign local och uppladdningarna.
+# Tabellen och körningarnas kolumner kommer i _add_projects, efter kopian av klipploggen.
+PROJECT_COLUMNS = {"project_id": "INTEGER",  # kampanjens projekt för egna filer, NULL för Twitch
+                   "origin": "TEXT"}  # "chat" när kampanjens chatt gjorde körningen, annars NULL
+PROJECTS_TABLE = """CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, profile TEXT NOT NULL, kind TEXT NOT NULL, title TEXT, created TEXT)"""
+PROJECTS_UNIQUE = "CREATE UNIQUE INDEX IF NOT EXISTS projects_kind ON projects (profile, kind)"
+OWN_FILES = "egna"  # projects.kind: egna filer (python -m campaign local) och uppladdningar (Egna videor)
+UPLOADS = "upload"  # vod_id för klipp från Egna videor, samma som uploads_api.UPLOAD
+LIVE_PART = re.compile(r"\d+_live_\d+")  # vod_id för en del från live-klipparen, samma som live.part_id
+BACKUP_SUFFIX = ".fore-projekt-"  # kopian före migreringen: klipp.db.fore-projekt-<tidsstämpel>
+
+
+def own_file(vod_id: str) -> bool:
+    """En egen fil har filens namn som vod_id. En Twitch-VOD har bara siffror, och en del från
+    live-klipparen har <VOD>_live_<n> (live.part_id): den hör till streamen, inte till egna filer."""
+    return not vod_id.isdigit() and not LIVE_PART.fullmatch(vod_id)
+
+
+def card_runs(runs: list[dict], key: Callable[[dict], Hashable]) -> dict:
+    """Körningen som visas per nyckel, till exempel (vod_id, kampanj): den senaste, men inte en från chatten om
+    det finns en annan."""
+    # Chattens körningar först och de andra sist, var för sig i ordning efter run_id: den sista vinner.
+    return {key(meta): meta for meta in sorted(runs, key=lambda m: (m["origin"] != "chat", m["run_id"]))}
+
+
+def _project_id(db: sqlite3.Connection, profile: str, streamer: str) -> int:
+    """Kampanjens projekt för egna filer. Skapas första gången, med streamerns namn i titeln."""
+    db.execute("INSERT OR IGNORE INTO projects (profile, kind, title, created) VALUES (?, ?, ?, ?)",
+               (profile, OWN_FILES, f"Egna filer för {streamer}", _now()))
+    return db.execute("SELECT id FROM projects WHERE profile = ? AND kind = ?", (profile, OWN_FILES)).fetchone()[0]
+
+
+def _backup(path: Path) -> Path:
+    """En kopia av hela klipploggen bredvid filen, med sqlite3-backup. Ett nytt namn varje gång. Läses med en
+    egen anslutning: den som migrerar har skrivlåset (BEGIN IMMEDIATE), och då kan backup på samma anslutning
+    vänta för evigt. En läsare får läsa medan skrivlåset hålls, så länge inget är skrivet."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    target = path.with_name(f"{path.name}{BACKUP_SUFFIX}{stamp}")
+    n = 1
+    while target.exists():
+        n += 1
+        target = path.with_name(f"{path.name}{BACKUP_SUFFIX}{stamp}-{n}")
+    source, copy = sqlite3.connect(path), sqlite3.connect(target)
+    try:
+        source.backup(copy)
+    finally:
+        copy.close()
+        source.close()
+    return target
+
+
+def _add_project_columns(db: sqlite3.Connection) -> None:
+    have = {row[1] for row in db.execute("PRAGMA table_info(runs)")}
+    for name, kind in PROJECT_COLUMNS.items():
+        if name not in have:
+            db.execute(f"ALTER TABLE runs ADD COLUMN {name} {kind}")
+    db.execute(PROJECTS_TABLE)
+    db.execute(PROJECTS_UNIQUE)
+
+
+def _own_runs(db: sqlite3.Connection) -> list[tuple[int, str]]:
+    """Egna filers körningar: run_id och kampanj."""
+    rows = db.execute("SELECT run_id, vod_id, profile FROM runs ORDER BY run_id")
+    return [(run_id, profile) for run_id, vod_id, profile in rows if own_file(vod_id or "")]
+
+
+def _move_own_files(db: sqlite3.Connection, path: Path) -> None:
+    """Ett projekt per kampanj som har egna filer eller uppladdningar, och project_id på egna filers körningar
+    (own_file: vod_id som inte bara är siffror och inte är en live-del). Först en kopia av klipploggen bredvid filen,
+    klipp.db.fore-projekt-<tidsstämpel>, om det finns något att flytta. Inga rader tas bort, och samma resultat
+    om den körs två gånger. Ångra: UPDATE runs SET project_id = NULL
+    (eller lägg tillbaka kopian medan servern är stoppad)."""
+    runs = _own_runs(db)
+    uploads = [row[0] for row in db.execute("SELECT DISTINCT profile FROM clips WHERE vod_id = ?", (UPLOADS,))]
+    profiles = list(dict.fromkeys([*(profile for _, profile in runs), *uploads]))
+    if profiles:
+        _backup(path)
+    _add_project_columns(db)
+    # Projektets titel har streamerns namn från kampanjens körningar, också Twitch-körningarna.
+    streamers = dict(db.execute("SELECT profile, channel_name FROM runs WHERE channel_name IS NOT NULL "
+                                "ORDER BY run_id"))
+    for profile in profiles:
+        _project_id(db, profile, streamers.get(profile, profile))
+    db.executemany("UPDATE runs SET project_id = (SELECT id FROM projects WHERE profile = ? AND kind = ?) "
+                   "WHERE run_id = ? AND project_id IS NULL", [(profile, OWN_FILES, run_id) for run_id, profile in runs])
 
 
 def _now() -> str:
@@ -109,6 +198,23 @@ class ClipLog:
                         except sqlite3.OperationalError as error:  # en annan process hann före
                             if "duplicate column" not in str(error):
                                 raise
+        self._add_projects()
+
+    def _add_projects(self) -> None:
+        """user_version 2 -> 3, i en transaktion: se _move_own_files. Ångra: UPDATE runs SET project_id = NULL"""
+        db = sqlite3.connect(self.db_path, isolation_level=None)
+        try:
+            db.execute("BEGIN IMMEDIATE")  # en process i taget; den andra ser user_version 3 och gör inget
+            if db.execute("PRAGMA user_version").fetchone()[0] < 3:
+                _move_own_files(db, self.db_path)
+                db.execute("PRAGMA user_version = 3")
+            db.execute("COMMIT")
+        except BaseException:
+            if db.in_transaction:
+                db.execute("ROLLBACK")
+            raise
+        finally:
+            db.close()
 
     @staticmethod
     def _move_links_to_posts(db: sqlite3.Connection) -> None:
@@ -385,15 +491,18 @@ class ClipLog:
                 focus: str | None = None, min_s: int | None = None, max_s: int | None = None,
                 title: str | None = None, channel_name: str | None = None,
                 thumbnail_url: str | None = None, duration_s: int | None = None,
-                start_s: float = 0.0, end_s: float = 0.0) -> None:
-        """Spara vilken kampanj en körning i appen hör till, och fakta om VOD:en."""
+                start_s: float = 0.0, end_s: float = 0.0, origin: str | None = None) -> None:
+        """Spara vilken kampanj en körning i appen hör till, och fakta om VOD:en. En egen fil hamnar i
+        kampanjens projekt för egna filer, med streamerns namn (channel_name) i titeln. origin: "chat" när
+        kampanjens chatt gör körningen."""
         with self._db() as db:
+            project_id = _project_id(db, profile, channel_name or profile) if own_file(vod_id) else None
             db.execute(
                 """INSERT OR REPLACE INTO runs (run_id, vod_id, profile, game, focus, min_s, max_s,
-                   title, channel_name, thumbnail_url, duration_s, created, start_s, end_s)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   title, channel_name, thumbnail_url, duration_s, created, start_s, end_s, project_id, origin)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (run_id, vod_id, profile, game, focus, min_s, max_s, title, channel_name,
-                 thumbnail_url, duration_s, _now(), start_s, end_s))
+                 thumbnail_url, duration_s, _now(), start_s, end_s, project_id, origin))
 
     def set_run_facts(self, run_id: int, *, title: str, channel_name: str, thumbnail_url: str | None,
                       duration_s: int) -> None:
@@ -408,3 +517,19 @@ class ClipLog:
 
     def run(self, run_id: int) -> dict | None:
         return next((r for r in self.runs() if r["run_id"] == run_id), None)
+
+    # ---------- projekt för egna filer ----------
+
+    def project(self, profile: str, streamer: str) -> int:
+        """Kampanjens projekt för egna filer och uppladdningar. Skapas första gången."""
+        with self._db() as db:
+            return _project_id(db, profile, streamer)
+
+    def projects(self) -> builtins.list[dict]:  # builtins: list är också en metod i klassen
+        with self._db() as db:
+            return [dict(r) for r in db.execute("SELECT * FROM projects ORDER BY id").fetchall()]
+
+    def get_project(self, project_id: int) -> dict | None:
+        with self._db() as db:
+            row = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        return dict(row) if row else None

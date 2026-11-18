@@ -1,30 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Bell, Check, Keyboard, Loader2, RotateCcw, Sparkles, Square, X } from "lucide-react";
+import { Bell, Check, FolderOpen, Loader2, RotateCcw, Sparkles, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ClipResultRow, ignoreKey } from "@/components/ClipResultRow";
 import { DeleteVod } from "@/components/DeleteVod";
-import { clipTotal } from "@/components/ProjectCard";
+import { ClipsSection } from "@/components/ProjectClient";
 import { api, cancelRun } from "@/lib/api";
+import { countClips, latestAttempt } from "@/lib/projects";
 import { rejectedFix } from "@/lib/steps";
 import { clock, cn, duration, serverTime, usd } from "@/lib/utils";
-import type { CampaignClip, CampaignProfile, CampaignRunDetail, CampaignStatus, Run, RunStep } from "@/lib/types";
+import type { CampaignClip, CampaignProfile, CampaignRunDetail, Run, RunStep } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 3000;
 const day = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" });
-
-const FILTERS: { id: string; label: string; statuses?: CampaignStatus[] }[] = [
-  { id: "alla", label: "Alla" },
-  { id: "granska", label: "Att granska", statuses: ["renderad"] },
-  { id: "godkanda", label: "Godkända", statuses: ["godkand"] },
-  // Allt efter Markera som postad, så att ett postat klipp inte försvinner ur flikarna.
-  { id: "postade", label: "Postade", statuses: ["postad", "inskickad", "analytics_inskickad", "betald"] },
-  { id: "nekade", label: "Nekade", statuses: ["nekad"] },
-  { id: "underkanda", label: "Underkända", statuses: ["underkand"] },
-];
 
 /** Nycklar läggs in under Inställningar. Texten kommer från servern, till exempel "Berget-nyckeln (BERGET_API_KEY) saknas. Lägg in den under Inställningar. Den behövs för transkriberingen." */
 function KeyFix({ text }: { text?: string | null }) {
@@ -36,16 +26,8 @@ function KeyFix({ text }: { text?: string | null }) {
   );
 }
 
-type Sort = "score" | "time";
-
 /** Alltid t:mm:ss, som "0:00:00". */
 const hms = (s: number) => `${Math.floor(s / 3600)}:${clock(s % 3600).padStart(5, "0")}`;
-
-/** Betyg först, klipp utan betyg sist. Tidsordning efter start i VOD:en. */
-function sortClips(clips: CampaignClip[], sort: Sort): CampaignClip[] {
-  const key = (c: CampaignClip) => (sort === "score" ? -(c.score ?? -1) : (c.start_s ?? Infinity));
-  return [...clips].sort((a, b) => key(a) - key(b) || a.id - b.id);
-}
 
 function stepTime(step: RunStep, now: number): string {
   if (step.status === "waiting") return step.estimate_s ? `cirka ${duration(step.estimate_s)}` : "";
@@ -76,15 +58,6 @@ function PartBar({ message }: { message?: string | null }) {
     </div>
   );
 }
-
-const KEYS: [string, string][] = [
-  ["J", "nästa klipp"],
-  ["K", "föregående klipp"],
-  ["Y", "ja"],
-  ["N", "nej"],
-  ["E", "redigera"],
-  ["C", "kopiera caption"],
-];
 
 /** Notisens läge i webbläsaren, eller null om webbläsaren saknar notiser. */
 function notifyPermission(): NotificationPermission | null {
@@ -187,6 +160,26 @@ function SupersededNote({ latestRunId }: { latestRunId: number | null }) {
         Öppna det senaste försöket
       </Link>
       .
+    </p>
+  );
+}
+
+/** En egen fil hör till kampanjens projekt för egna filer. Länken dit, med projektets titel när den går att hämta. */
+function ProjectLink({ projectId }: { projectId: number }) {
+  const [title, setTitle] = useState<string | null>(null);
+  useEffect(() => {
+    api.campaign.projects
+      .get(projectId)
+      .then((p) => setTitle(p.title))
+      .catch(() => setTitle(null));
+  }, [projectId]);
+  return (
+    <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
+      <FolderOpen className="size-4 shrink-0" aria-hidden />
+      Del av projektet:{" "}
+      <Link href={`/projects/${projectId}`} className="font-medium text-foreground underline underline-offset-4">
+        {title ?? `projekt ${projectId}`}
+      </Link>
     </p>
   );
 }
@@ -336,87 +329,6 @@ function FailedBox({ run, superseded, ...retry }: RetryProps & { run: CampaignRu
   );
 }
 
-function KeysHelp() {
-  return (
-    <details className="relative">
-      <summary className="flex cursor-pointer items-center gap-1.5 rounded-[9px] border border-line px-3 py-1.5 text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
-        <Keyboard className="size-3.5" aria-hidden />
-        Tangenter
-      </summary>
-      <dl className="absolute right-0 z-10 mt-1.5 grid w-56 grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 rounded-xl border border-line bg-panel p-3 shadow-lg">
-        {KEYS.map(([key, label]) => (
-          <div key={key} className="contents">
-            <dt>
-              <kbd className="inline-grid min-w-6 place-items-center rounded-md border border-line bg-background px-1.5 font-mono text-xs">{key}</kbd>
-            </dt>
-            <dd className="text-muted-foreground">{label}</dd>
-          </div>
-        ))}
-        <p className="col-span-2 mt-1 text-xs text-muted-foreground">Inte när du skriver i ett fält.</p>
-      </dl>
-    </details>
-  );
-}
-
-const filterCount = (f: (typeof FILTERS)[number], clips: CampaignClip[]) =>
-  f.statuses ? clips.filter((c) => f.statuses?.includes(c.status)).length : clips.length;
-
-/** Flikarna, tangenterna och sorteringen ovanför klippen. */
-function ClipToolbar({
-  clips,
-  filter,
-  onFilter,
-  sort,
-  onSort,
-}: {
-  clips: CampaignClip[];
-  filter: string;
-  onFilter: (id: string) => void;
-  sort: Sort;
-  onSort: (s: Sort) => void;
-}) {
-  return (
-    <div className="mb-2 flex flex-wrap items-center gap-3 text-[13px]">
-      {/* flex-wrap: på en smal skärm går flikarna på två rader i stället för att skäras av. */}
-      <div role="tablist" aria-label="Visa klipp" className="flex max-w-full flex-wrap overflow-hidden rounded-[9px] border border-line">
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            role="tab"
-            aria-selected={filter === f.id}
-            onClick={() => onFilter(f.id)}
-            className="px-3 py-1.5 whitespace-nowrap text-muted-foreground hover:text-foreground aria-selected:bg-panel aria-selected:text-foreground"
-          >
-            {f.label} <span className="tabular-nums">{filterCount(f, clips)}</span>
-          </button>
-        ))}
-      </div>
-      <span className="flex-1" />
-      <KeysHelp />
-      <span className="flex items-center gap-3">
-        <span className="text-muted-foreground">Sortera:</span>
-        <div className="flex overflow-hidden rounded-[9px] border border-line">
-          {(
-            [
-              ["score", "Betyg"],
-              ["time", "Tidsordning"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              aria-pressed={sort === id}
-              onClick={() => onSort(id)}
-              className="px-3 py-1.5 text-muted-foreground hover:text-foreground aria-pressed:bg-panel aria-pressed:text-foreground"
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </span>
-    </div>
-  );
-}
-
 /** Resultatet och felet för Gör klippen kampanjklara igen, och texten medan det pågår. */
 function FinishNotes({ result, error, running }: { result: string | null; error: string | null; running: boolean }) {
   return (
@@ -457,7 +369,7 @@ function useDoneNotice(run: CampaignRunDetail | null, isActive: boolean) {
     const previous = document.title;
     document.title = title;
     if (notifyPermission() === "granted") {
-      new Notification(title, { body: done ? `${name}: ${clipTotal(run)} klipp att granska.` : `${name}: projektet stoppade. Öppna projektet för att se varför.` });
+      new Notification(title, { body: done ? `${name}: ${countClips(run.clip_counts)} klipp att granska.` : `${name}: projektet stoppade. Öppna projektet för att se varför.` });
     }
     // Fliktiteln visar resultatet tills du tittar på sidan igen.
     function restore() {
@@ -471,45 +383,6 @@ function useDoneNotice(run: CampaignRunDetail | null, isActive: boolean) {
       document.title = previous;
     };
   }, [run, isActive]);
-}
-
-/** J och K flyttar mellan klippen i listan som den visas, rullar dit och markerar raden. */
-function useClipKeys(ids: number[], setActiveId: (update: (current: number | null) => number | null) => void) {
-  const order = useRef<number[]>([]);
-  order.current = ids;
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      const key = e.key.toLowerCase();
-      if ((key !== "j" && key !== "k") || ignoreKey(e) || order.current.length === 0) return;
-      e.preventDefault();
-      setActiveId((current) => {
-        const i = current == null ? -1 : order.current.indexOf(current);
-        const next = key === "j" ? Math.min(i + 1, order.current.length - 1) : Math.max(i - 1, 0);
-        const id = order.current[next];
-        document.querySelector(`[data-clip-id="${id}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" });
-        return id;
-      });
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [setActiveId]);
-}
-
-/** Fliken i adressen (?filter=granska), så att andra sidor kan länka till rätt flik. */
-function useFilterInUrl(): [string, (id: string) => void] {
-  const [filter, setFilter] = useState("alla");
-  useEffect(() => {
-    const wanted = new URLSearchParams(window.location.search).get("filter");
-    if (wanted && FILTERS.some((f) => f.id === wanted)) setFilter(wanted);
-  }, []);
-  function chooseFilter(id: string) {
-    setFilter(id);
-    const url = new URL(window.location.href);
-    if (id === "alla") url.searchParams.delete("filter");
-    else url.searchParams.set("filter", id);
-    window.history.replaceState(null, "", url);
-  }
-  return [filter, chooseFilter];
 }
 
 const errorText = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
@@ -531,61 +404,6 @@ function PageMessage({ error }: { error: string | null }) {
         Till alla projekt
       </Link>
     </main>
-  );
-}
-
-/** Klippen. De syns medan projektet pågår: de kommer ett i taget i sista steget. */
-function ClipsSection({
-  run,
-  clips,
-  formats,
-  onUpdate,
-  onReload,
-}: {
-  run: CampaignRunDetail;
-  clips: CampaignClip[];
-  formats: CampaignProfile["formats"];
-  onUpdate: (clip: CampaignClip) => void;
-  onReload: () => void;
-}) {
-  const [filter, chooseFilter] = useFilterInUrl();
-  const [sort, setSort] = useState<Sort>("score");
-  const [activeId, setActiveId] = useState<number | null>(null);
-  const sorted = useMemo(() => sortClips(clips, sort), [clips, sort]);
-  const active = FILTERS.find((f) => f.id === filter) ?? FILTERS[0];
-  const visible = sorted.filter((c) => !active.statuses || active.statuses.includes(c.status));
-  useClipKeys(
-    visible.map((c) => c.id),
-    setActiveId
-  );
-  const isActive = run.status === "pending" || run.status === "running";
-  return (
-    <section className="mt-8">
-      {isActive && (
-        <p className="mb-3 text-sm text-muted-foreground">
-          {clips.length === 1 ? "1 klipp är klart." : `${clips.length} klipp är klara.`} Fler kan komma medan projektet pågår.
-        </p>
-      )}
-      {clips.length > 0 && <ClipToolbar clips={clips} filter={filter} onFilter={chooseFilter} sort={sort} onSort={setSort} />}
-      {visible.length === 0 ? (
-        <p className="mt-4 rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted-foreground">
-          {clips.length === 0 ? "Inga klipp i det här projektet." : "Inga klipp med den statusen."}
-        </p>
-      ) : (
-        visible.map((clip) => (
-          <ClipResultRow
-            // Ny nyckel när servern har sparat, så att fälten visar det sparade.
-            key={`${clip.id}-${clip.updated}`}
-            clip={clip}
-            number={sorted.indexOf(clip) + 1}
-            formats={formats}
-            active={clip.id === activeId}
-            onUpdate={onUpdate}
-            onReload={onReload}
-          />
-        ))
-      )}
-    </section>
   );
 }
 
@@ -638,7 +456,7 @@ function useFinishAgain(runId: number, run: CampaignRunDetail | null, clips: Cam
   return { running, error, result, start, poll };
 }
 
-/** Projektet och dess klipp, och om det finns ett senare försök i samma projekt (samma stream och kampanj). */
+/** Projektet och dess klipp, och om det finns ett senare försök i samma projekt (samma stream och kampanj, inte chatten). */
 function useRun(runId: number) {
   const validId = Number.isInteger(runId) && runId > 0;
   const [run, setRun] = useState<CampaignRunDetail | null>(null);
@@ -681,9 +499,9 @@ function useRun(runId: number) {
     if (!run) return;
     api.campaign.runs
       .list()
-      .then((list) => setLatestRunId(list.find((r) => r.vod_id === run.vod_id && r.profile === run.profile)?.run_id ?? null))
+      .then((list) => setLatestRunId(latestAttempt(list, run)))
       .catch(() => {});
-  }, [run?.vod_id, run?.profile]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [run?.vod_id, run?.profile, run?.origin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { run, clips, setClips, profiles, error, latestRunId, fetchRun, fetchClips };
 }
@@ -776,6 +594,7 @@ export default function RunDetailPage() {
       <Link href="/projects" className="text-sm text-muted-foreground hover:text-foreground">
         ← Alla projekt
       </Link>
+      {run.project_id != null && <ProjectLink projectId={run.project_id} />}
       {superseded && <SupersededNote latestRunId={latestRunId} />}
       <div className="mt-2 flex flex-wrap items-start gap-4">
         {/* basis 20rem: på en smal skärm hamnar knappen under rubriken i stället för att trycka ihop den. */}
@@ -808,7 +627,7 @@ export default function RunDetailPage() {
       )}
 
       {clips && (clips.length > 0 || run.status === "done") && (
-        <ClipsSection run={run} clips={clips} formats={formats} onUpdate={handleUpdate} onReload={fetchClips} />
+        <ClipsSection running={isActive} clips={clips} formats={formats} onUpdate={handleUpdate} onReload={fetchClips} />
       )}
     </main>
   );

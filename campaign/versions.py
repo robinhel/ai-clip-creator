@@ -261,7 +261,8 @@ def _sticker(settings: Settings, profile: Profile, sticker: dict | None, length:
     except (TypeError, ValueError) as error:
         raise VersionError("Klistermärkets tider måste vara tal.") from error
     if not 0 <= start < length:
-        raise VersionError(f"Klistermärket måste börja inom klippet, mellan 0 och {length:.1f} s.")
+        shown = format(length, ".1f").replace(".", ",")
+        raise VersionError(f"Klistermärket måste börja inom klippet, mellan 0 och {shown} s.")
     if not STICKER_S[0] <= duration <= STICKER_S[1]:
         raise VersionError("Klistermärket får synas 0,5–10 sekunder.")
     try:

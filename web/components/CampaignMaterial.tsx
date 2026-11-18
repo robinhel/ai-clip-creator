@@ -25,7 +25,30 @@ function Tag({ children, tone = "plain" }: { children: React.ReactNode; tone?: "
   );
 }
 
-function Item({ item }: { item: MaterialItem }) {
+/** Projekten för materialets körningar: run_id → project_id. Materialet säger bara det senaste projektet med källan. */
+function useProjectIds(material: MaterialItem[] | null): Map<number, number> {
+  const [ids, setIds] = useState<Map<number, number>>(new Map());
+  const hasRuns = material?.some((m) => m.run_id != null) ?? false;
+  useEffect(() => {
+    if (!hasRuns) return;
+    api.campaign.runs
+      .list()
+      .then((runs) => setIds(new Map(runs.flatMap((r) => (r.project_id != null ? [[r.run_id, r.project_id]] : [])))))
+      .catch(() => {}); // utan listan går länken till körningen, som förut
+  }, [hasRuns]);
+  return ids;
+}
+
+/** Projektet för egna filer när materialet hör till ett, annars körningens sida. */
+function itemLink(item: MaterialItem, projectIds: Map<number, number>): { href: string; label: string } | null {
+  if (item.run_id == null) return null;
+  const projectId = projectIds.get(item.run_id);
+  if (projectId != null) return { href: `/projects/${projectId}`, label: "projekt för egna filer" };
+  return { href: `/runs/${item.run_id}`, label: `projekt #${item.run_id}` };
+}
+
+function Item({ item, projectIds }: { item: MaterialItem; projectIds: Map<number, number> }) {
+  const target = itemLink(item, projectIds);
   const Icon = item.kind === "twitch" ? Radio : Film;
   const body = (
     <>
@@ -36,7 +59,7 @@ function Item({ item }: { item: MaterialItem }) {
           {item.kind === "twitch" ? "Twitch-stream" : "Egen video"}
           {item.created && `, ${day.format(new Date(item.created))}`}
           {item.duration_s != null && `, ${duration(item.duration_s)}`}
-          {item.run_id != null && `, projekt #${item.run_id}`}
+          {target && `, ${target.label}`}
         </p>
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -48,9 +71,9 @@ function Item({ item }: { item: MaterialItem }) {
   );
   return (
     <li data-material={item.vod_id} className="border-b border-line last:border-b-0">
-      {item.run_id != null ? (
+      {target ? (
         <Link
-          href={`/runs/${item.run_id}`}
+          href={target.href}
           aria-label={`Öppna projektet för ${item.title || item.vod_id}`}
           className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3 hover:bg-panel/60"
         >
@@ -134,6 +157,7 @@ export function CampaignMaterial({ profile, material, error }: {
   error: string | null;
 }) {
   const { recent, older } = groupByWeek(material ?? [], Date.now());
+  const projectIds = useProjectIds(material);
   const local = profile.source === "local" || !profile.channel;
   const uploads = `/uploads?kampanj=${profile.name}`;
   return (
@@ -191,7 +215,7 @@ export function CampaignMaterial({ profile, material, error }: {
                 </div>
                 <ul>
                   {group.items.map((item) => (
-                    <Item key={item.vod_id} item={item} />
+                    <Item key={item.vod_id} item={item} projectIds={projectIds} />
                   ))}
                 </ul>
               </div>
@@ -204,7 +228,7 @@ export function CampaignMaterial({ profile, material, error }: {
               </summary>
               <ul className="border-t border-line">
                 {older.map((item) => (
-                  <Item key={item.vod_id} item={item} />
+                  <Item key={item.vod_id} item={item} projectIds={projectIds} />
                 ))}
               </ul>
             </details>
