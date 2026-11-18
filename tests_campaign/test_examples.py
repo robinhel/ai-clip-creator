@@ -122,6 +122,25 @@ def test_a_new_campaign_with_empty_top_clips_is_not_an_error() -> None:
     assert out == {"clips": [], "earners": [], "geo": {"priced": False, "rates": None, "payout_model": []}}
 
 
+def test_a_key_with_the_wrong_type_before_the_real_one_is_skipped() -> None:
+    clips = json.dumps(CLIPS[:1])
+    rates = '{"restOfWorld":[{"platform":"tiktok","rate":200}],"tiers":[]}'
+    out = examples.parse(_flight_page(
+        '3:{"topClips":null,"topEarners":"x","geoRates":[],"payoutModel":{}}\n'
+        f'4:{{"campaign":{{"topEarners":{json.dumps(EARNERS)},"topClips":{clips},"geoPriced":true,'
+        f'"geoRates":{rates},"payoutModel":[{{"platform":"tiktok","rate":0}}]}}}}'))
+    assert [(c["views"], c["name"]) for c in out["clips"]] == [(17800, "cree3")]
+    assert [e["name"] for e in out["earners"]] == ["cree3", "snorre haanæs"]
+    assert out["geo"] == {"priced": True, "rates": {"restOfWorld": [{"platform": "tiktok", "rate": 200}], "tiers": []},
+                          "payout_model": [{"platform": "tiktok", "rate": 0}]}
+
+
+def test_a_field_that_is_not_json_only_empties_that_field() -> None:
+    clips = json.dumps(CLIPS[:1])
+    out = examples.parse(_flight_page(f'4:{{"campaign":{{"topEarners":[oops],"topClips":{clips}}}}}'))
+    assert ([c["views"] for c in out["clips"]], out["earners"]) == ([17800], [])
+
+
 def test_a_page_with_price_per_country_turned_off() -> None:
     out = examples.parse(_campaign_page('"geoRates":null,"payoutModel":[{"platform":"tiktok","rate":150}]},'
                                         '"geoPriced":false'))
