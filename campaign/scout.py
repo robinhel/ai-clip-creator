@@ -67,6 +67,9 @@ MIN_CLIPS = 5  # färre klipp, på Twitch eller Content Rewards, visar inget mö
 CAMPAIGN_VIEWS = (2_000, 1_000_000)  # kampanjens klipp: 0 poäng vid 2 000 eller lägre, 40 vid 1 000 000 eller högre
 TWITCH_VIEWS = (500, 200_000)  # kanalens Twitch-klipp, 30 dagar: 0 vid 500 eller lägre, 40 vid 200 000 eller högre
 TWITCH_MAX_AGE_S = 24 * 3600
+MAX_PAYOUT, PAYOUT_MAX = (100, 1_000), 10  # dollar per klipp: 0 poäng vid 100 eller lägre, 10 vid 1 000 eller högre
+# Robins vikter (18 nov 2026). Delarna räknar med maxvärdena från ombyggnad-fas1 och _part skalar till de här.
+PART_MAX = {"fresh": 12, "minimum": 10, "source": 8, "budget": 8, "pay": 5, "proof": 5, "hassle": 2}
 # Kampanjens klipp på Content Rewards för kampanjer som syns: högst 25 sidor per körning, 1 sekund mellan sidorna
 CLIP_VIEWS_PER_RUN, CLIP_PAGE_GAP_S = 25, 1.0
 
@@ -213,7 +216,9 @@ def _days(moment: datetime | None, now: datetime) -> float | None:
 
 
 def _part(key: str, label: str, points: float, most: int, fact: str) -> dict:
-    return {"key": key, "label": label, "points": round(points, 1), "max": most, "fact": fact}
+    """En del av betyget. points är räknat mot most och skalas här till delens max i PART_MAX, om den finns där."""
+    new = PART_MAX.get(key, most)
+    return {"key": key, "label": label, "points": round(points * new / most, 1), "max": new, "fact": fact}
 
 
 def _unknown(key: str, label: str, most: int, why: str = "") -> dict:
@@ -230,10 +235,10 @@ def _top_median(views: list[int]) -> tuple[float, int]:
     return statistics.median(top), len(top)
 
 
-def _log_points(median: float, low: int, high: int) -> float:
+def _log_points(median: float, low: int, high: int, most: int = VIEWS_MAX) -> float:
     if median <= low:
         return 0.0
-    return min(VIEWS_MAX, VIEWS_MAX * math.log(median / low) / math.log(high / low))
+    return min(most, most * math.log(median / low) / math.log(high / low))
 
 
 def _views_part(data: dict) -> dict:
@@ -252,96 +257,110 @@ def _views_part(data: dict) -> dict:
     return _unknown("views", "Visningar", VIEWS_MAX, have if twitch or clips else "inga klipp att räkna på ännu")
 
 
+def _max_payout_part(pay: dict | None) -> dict:
+    """Hur mycket ett klipp högst kan ge (maxPayoutUsd), på log-skala. Utan tak: full poäng."""
+    if pay is None:  # analytics är inte hämtad
+        return _unknown("max_payout", "Max payout per klipp", PAYOUT_MAX)
+    cap = pay.get("maxPayoutUsd")
+    points = PAYOUT_MAX if cap is None else _log_points(cap, *MAX_PAYOUT, PAYOUT_MAX)
+    fact = "Inget tak per klipp" if cap is None else f"Högst {_number(cap)} dollar per klipp"
+    return _part("max_payout", "Max payout per klipp", points, PAYOUT_MAX, fact)
+
+
+def _fresh_part(f: dict, drain_days: float | None, now: datetime) -> dict:
+    """Färskhet och konkurrens. Antal klippare finns inte i ClippingAlpha."""
+    if f["launched"] is None:
+        return _unknown("fresh", "Färskhet och konkurrens", 25)
+    age = (now - f["launched"]).total_seconds() / 3600
+    if age < 48:
+        points = 25.0
+    elif age <= 21 * 24:
+        points = 25 - 20 * (age - 48) / (21 * 24 - 48)
+    elif age <= 30 * 24:
+        points = 5 * (30 * 24 - age) / (9 * 24)
+    else:
+        points = 0.0
+    minus = {"Fast": 10, "Fair": 5}.get(f["fill"], 0)
+    if drain_days is not None:
+        minus = max(minus, 10 if drain_days < 3 else 5 if drain_days < 7 else 0)
+    fact = f"{age / 24:.0f} dagar sedan start" if age >= 48 else f"{age:.0f} timmar sedan start"
+    if minus:
+        fact += ", budgeten går åt snabbt"
+    return _part("fresh", "Färskhet och konkurrens", max(0.0, points - minus), 25, fact)
+
+
 def evaluate(data: dict, median: float, cpm_median: float, now: datetime) -> tuple[int, list[dict], str | None]:
     """Betyg 0–100, delarna med svensk förklaring, och orsaken om kampanjen sorteras bort."""
     f = facts(data)
     texts = " ".join([f["about"], *(text for _, text in f["rules"])])
     drain_days = _days(f["drain"], now)
     views = min_views(f)
-    parts = [_views_part(data)]  # 1. Visningar, 40 av 100
-
-    # 2. Färskhet och konkurrens. Antal klippare finns inte i ClippingAlpha.
-    if f["launched"] is None:
-        parts.append(_unknown("fresh", "Färskhet och konkurrens", 15))
-    else:
-        age = (now - f["launched"]).total_seconds() / 3600
-        if age < 48:
-            points = 15.0
-        elif age <= 21 * 24:
-            points = 15 - 12 * (age - 48) / (21 * 24 - 48)
-        elif age <= 30 * 24:
-            points = 3 * (30 * 24 - age) / (9 * 24)
-        else:
-            points = 0.0
-        minus = {"Fast": 6, "Fair": 3}.get(f["fill"], 0)
-        if drain_days is not None:
-            minus = max(minus, 6 if drain_days < 3 else 3 if drain_days < 7 else 0)
-        fact = f"{age / 24:.0f} dagar sedan start" if age >= 48 else f"{age:.0f} timmar sedan start"
-        if minus:
-            fact += ", budgeten går åt snabbt"
-        parts.append(_part("fresh", "Färskhet och konkurrens", max(0.0, points - minus), 15, fact))
+    parts = [_views_part(data), _fresh_part(f, drain_days, now)]  # 1. Visningar, 40 av 100, och 2. Färskhet
 
     # 3. Chans att nå minimum.
     label = "Chans att nå minimum"
     if f["pay"] is None or (views is None and (f["pay"].get("minPayoutUsd") and not f["rate"])):
-        parts.append(_unknown("minimum", label, 12))
+        parts.append(_unknown("minimum", label, 20))
     elif views is None:
-        parts.append(_part("minimum", label, 12, 12, "Ingen minsta utbetalning"))
+        parts.append(_part("minimum", label, 20, 20, "Ingen minsta utbetalning"))
     else:
         ratio = views / max(median, 1)
-        points = 12 if ratio <= 1 else 0 if ratio >= 5 else 12 * (1 - math.log(ratio) / math.log(5))
-        parts.append(_part("minimum", label, points, 12,
+        points = 20 if ratio <= 1 else 0 if ratio >= 5 else 20 * (1 - math.log(ratio) / math.log(5))
+        parts.append(_part("minimum", label, points, 20,
                            f"{_number(views)} visningar för betalning, din median är {_number(median)}"))
 
     # 4. Källan.
     source = f"{f['title']} {texts}"
     twitch, stream = "twitch" in source.lower(), bool(re.search(r"\bstream", source, re.IGNORECASE))
     other = bool(OTHER_LANGUAGE.search(texts))
-    points = 4.8 * twitch + 2.4 * stream + 1.8 * (not other)
+    points = 8 * twitch + 4 * stream + 3 * (not other)
     if f["niche"] in ("streams", "gaming"):
-        points = max(points, 2.4)
+        points = max(points, 4)
     said = [word for word, yes in (("Twitch", twitch), ("stream", stream), ("engelska", not other)) if yes]
-    parts.append(_part("source", "Källan", points, 9, ", ".join(said) or "Varken Twitch eller stream"))
+    parts.append(_part("source", "Källan", points, 15, ", ".join(said) or "Varken Twitch eller stream"))
 
     # 5. Budgeten räcker.
     label = "Budgeten räcker"
     if drain_days is not None:
-        parts.append(_part("budget", label, 9 * min(max(drain_days, 0), 7) / 7, 9,
+        parts.append(_part("budget", label, 15 * min(max(drain_days, 0), 7) / 7, 15,
                            f"Räcker cirka {max(drain_days, 0):.0f} dagar till"))
     elif f["left"] is not None:
-        parts.append(_part("budget", label, 6 * min(f["left"], 1000) / 1000, 9,
+        parts.append(_part("budget", label, 10 * min(f["left"], 1000) / 1000, 15,
                            f"Ingen prognos, {_number(f['left'])} dollar kvar"))
     else:
-        parts.append(_unknown("budget", label, 9))
+        parts.append(_unknown("budget", label, 15))
 
     # 6. Betalning efter avgift mot marknadens median.
     net = _first(f["net"], f["rate"] * (1 - f["fee"]) if f["rate"] is not None else None)
     if net is None:
-        parts.append(_unknown("pay", "Betalning", 6))
+        parts.append(_unknown("pay", "Betalning", 10))
     else:
         ratio = min(net / cpm_median, 3)
-        parts.append(_part("pay", "Betalning", min(6.0, 3 * ratio), 6,
+        parts.append(_part("pay", "Betalning", min(10.0, 5 * ratio), 10,
                            f"{net:.2f} dollar per 1 000 efter avgift, marknaden {cpm_median:.2f}"))
 
-    # 7. Bevis på utbetalning.
+    # 7. Max payout per klipp, direkt efter betalningen.
+    parts.append(_max_payout_part(f["pay"]))
+
+    # 8. Bevis på utbetalning.
     if f["verified"] is None and f["adjustments"] is None:
-        parts.append(_unknown("proof", "Bevis på utbetalning", 6))
+        parts.append(_unknown("proof", "Bevis på utbetalning", 10))
     else:
         paid = any(x.get("key") == "payout" and re.search(r"24 hours|7 days", str(x.get("label")))
                    for x in f["adjustments"] or [])
-        points = 2.4 * bool(f["verified"]) + 2.4 * paid + 1.2 * (not f["stalled"])
+        points = 4 * bool(f["verified"]) + 4 * paid + 2 * (not f["stalled"])
         said = [text for text, yes in (("verifierad organisatör", f["verified"]), ("betalat ut nyligen", paid))
                 if yes]
-        parts.append(_part("proof", "Bevis på utbetalning", points, 6, ", ".join(said) or "Ingen utbetalning syns"))
+        parts.append(_part("proof", "Bevis på utbetalning", points, 10, ", ".join(said) or "Ingen utbetalning syns"))
 
-    # 8. Krångel.
+    # 9. Krångel.
     if f["open_join"] is None:
-        parts.append(_unknown("hassle", "Krångel", 3))
+        parts.append(_unknown("hassle", "Krångel", 5))
     else:
         captions = sum(kind in ("caption", "disclosure") for kind, _ in f["rules"])
         is_open = bool(f["open_join"]) and f["gate"] in (None, "none")
-        points = max(0, (3 if is_open else 0) - 0.6 * max(0, captions - 3))
-        parts.append(_part("hassle", "Krångel", points, 3,
+        points = max(0, (5 if is_open else 0) - max(0, captions - 3))
+        parts.append(_part("hassle", "Krångel", points, 5,
                            f"{'Fri anslutning' if is_open else 'Ansökan krävs'}, {captions} krav på caption"))
 
     total = round(sum(part["points"] for part in parts))
