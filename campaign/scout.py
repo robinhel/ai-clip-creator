@@ -32,13 +32,14 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from .config import Settings, load_settings
-from .content_views import campaign_clip_views, channel_from_assets, go_link, resolve_join, twitch_clip_views
+from .content_views import (TOP_CLIPS, USER_AGENT, campaign_clip_views, channel_from_assets, go_link, resolve_join,
+                            twitch_clip_views, twitch_login_from_vod, vod_from_assets)
 
 log = logging.getLogger(__name__)
 
 MCP_URL = "https://clippingalpha.com/mcp"
 HEADERS = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
-           "User-Agent": "klipp-bevakning/0.1 (low rate, read only)"}
+           "User-Agent": USER_AGENT}
 PROTOCOL = "2025-06-18"
 BASE = {"board": "content-rewards", "type": "clipping", "platforms": ["tiktok", "youtube"]}
 NEWEST = {**BASE, "new_within_hours": 72, "sort": "newest", "limit": 25}
@@ -54,7 +55,7 @@ DETAILS_PER_RUN = 10  # högst 40 anrop per körning för detaljer (get_campaign
 TOP = 25
 SHOW_S = 72 * 3600  # en kampanj som inte syns i någon sökning på 72 timmar visas inte längre
 REFRESH_GAP_S = 120
-NOTIFY_SCORE, NOTIFY_AGE_H = 70, 48
+NOTIFY_SCORE, NOTIFY_AGE_H = 65, 48
 DEFAULT_MEDIAN_VIEWS = 1260  # medianklippet för ett nytt konto, enligt rapporten
 POSTS_FOR_MEDIAN = 20
 DEFAULT_CPM = 1.05
@@ -62,11 +63,11 @@ MAX_MIN_VIEWS = 10_000
 
 # Delen Visningar (Robins beslut 18 nov 2026): medianen av de 10 bästa klippens visningar, på log-skala.
 VIEWS_MAX = 40
-TOP_CLIPS = 10
 MIN_CAMPAIGN_CLIPS = 5  # färre klipp på Content Rewards säger för lite
 CAMPAIGN_VIEWS = (2_000, 50_000)  # kampanjens klipp: 0 poäng vid 2 000 eller lägre, 40 vid 50 000 eller högre
 TWITCH_VIEWS = (100, 10_000)  # kanalens Twitch-klipp, 30 dagar: 0 vid 100 eller lägre, 40 vid 10 000 eller högre
 TWITCH_MAX_AGE_S = 24 * 3600
+CLIP_VIEWS_PER_RUN = 25  # kampanjens klipp på Content Rewards för kampanjer som syns, högst så många per körning
 
 BLOCK_S = 3600  # efter ClippingAlphas -32001: försök igen om en timme (när deras dygn börjar är okänt)
 STOCKHOLM = ZoneInfo("Europe/Stockholm")
@@ -544,6 +545,7 @@ class Scout:
                 self._put(last_best=_iso(now))
             self._save_items(items, now)
             self._details(http, items, now)
+        self._refresh_clip_views(now)
         self._rescore(now)
         self._notify(now)
 
@@ -591,10 +593,22 @@ class Scout:
             if join:
                 fresh.update(self._join(http, join, now))
             fresh.update(_content_views({**saved, **fresh}, now))
-            with self._db() as db:
-                data = json.loads(db.execute("SELECT data FROM scout_campaigns WHERE ref = ?", (ref,)).fetchone()[0])
-                data.update(fresh, detail_at=_iso(now))
-                db.execute("UPDATE scout_campaigns SET data = ? WHERE ref = ?", (json.dumps(data), ref))
+            self._merge(ref, {**fresh, "detail_at": _iso(now)})
+
+    def _merge(self, ref: str, fresh: dict) -> None:
+        """Lägg till fresh i kampanjens sparade data, läst på nytt så att inget annat skrivs över."""
+        with self._db() as db:
+            data = json.loads(db.execute("SELECT data FROM scout_campaigns WHERE ref = ?", (ref,)).fetchone()[0])
+            data.update(fresh)
+            db.execute("UPDATE scout_campaigns SET data = ? WHERE ref = ?", (json.dumps(data), ref))
+
+    def _refresh_clip_views(self, now: datetime) -> None:
+        """Kampanjens klipp på Content Rewards för kampanjer som syns under Kampanjer, när de är äldre än 6 timmar.
+        De bästa först och högst CLIP_VIEWS_PER_RUN per körning. Inga anrop till ClippingAlpha."""
+        due = [row for row in self._shown(now)
+               if row["excluded"] is None and _clip_views_due(json.loads(row["data"]), now)]
+        for row in due[:CLIP_VIEWS_PER_RUN]:
+            self._merge(row["ref"], _clip_views(json.loads(row["data"]), now))
 
     def _fetch_tool(self, http: httpx.Client, name: str, ref: str) -> dict | None:
         """Ett verktyg för en kampanj. None vid fel: en trasig kampanj får inte stoppa de andra. Gränsen stoppar."""
@@ -615,8 +629,8 @@ class Scout:
             return {}
         fresh = {"campaign": campaign.get("campaign") or {}, "analytics": analytics}
         found = self._fetch_tool(http, "get_assets", ref) if assets else None
-        if found is not None:
-            fresh.update(twitch_login=channel_from_assets(found), assets_at=_iso(now))
+        if found is not None:  # VOD:en används bara när kanalen saknas
+            fresh.update(twitch_login=channel_from_assets(found), twitch_vod=vod_from_assets(found), assets_at=_iso(now))
         return fresh
 
     def _join(self, http: httpx.Client, url: str, now: datetime) -> dict:
@@ -656,14 +670,17 @@ class Scout:
 
     # ---------- för webben ----------
 
+    def _shown(self, now: datetime) -> list[sqlite3.Row]:
+        """Kampanjerna som syns under Kampanjer, också de bortsorterade, bäst först."""
+        with self._db() as db:
+            return db.execute("SELECT * FROM scout_campaigns WHERE dismissed = 0 AND score IS NOT NULL "
+                              "AND updated >= ? ORDER BY score DESC, first_seen DESC",
+                              (_iso(now - timedelta(seconds=SHOW_S)),)).fetchall()
+
     def overview(self) -> dict:
         now = _now()
         median, source = self.median()
-        with self._db() as db:
-            rows = db.execute("SELECT * FROM scout_campaigns WHERE dismissed = 0 AND score IS NOT NULL "
-                              "AND updated >= ? ORDER BY score DESC, first_seen DESC",
-                              (_iso(now - timedelta(seconds=SHOW_S)),)).fetchall()
-        views = [_view(row, now) for row in rows]
+        views = [_view(row, now) for row in self._shown(now)]
         return {
             "enabled": os.environ.get("KLIPP_SCOUT") != "0",
             "updated_at": self._get("updated_at"), "error": self._get("error"),
@@ -695,28 +712,54 @@ class Scout:
                               (int(dismissed), ref)).rowcount > 0
 
 
+def _older_than(value: str | None, seconds: float, now: datetime) -> bool:
+    moment = _time(value)
+    return moment is None or (now - moment).total_seconds() > seconds
+
+
 def _twitch_due(data: dict, now: datetime) -> bool:
-    """Kampanjen har en Twitch-kanal, och Twitch har inte frågats eller frågades för mer än ett dygn sedan."""
-    if not data.get("twitch_login"):
-        return False
-    twitch_at = _time(data.get("twitch_at"))
-    return twitch_at is None or (now - twitch_at).total_seconds() > TWITCH_MAX_AGE_S
+    """Kampanjen har en Twitch-kanal eller en VOD, och Twitch har inte frågats det senaste dygnet."""
+    has_twitch = bool(data.get("twitch_login") or data.get("twitch_vod"))
+    return has_twitch and _older_than(data.get("twitch_at"), TWITCH_MAX_AGE_S, now)
 
 
-def _content_views(data: dict, now: datetime) -> dict:
-    """Visningarna för kampanjens klipp vid varje detaljuppdatering, och för kanalens Twitch-klipp högst en gång
-    per dygn. Ett fel (None) loggas i content_views och ändrar inget: det som fanns behålls."""
-    found: dict = {}
-    clip_views = campaign_clip_views(data["cr_url"]) if data.get("cr_url") else None
+def _clip_views_due(data: dict, now: datetime) -> bool:
+    """Kampanjen har en Content Rewards-sida, och klippen hämtades inte eller för mer än 6 timmar sedan."""
+    return bool(data.get("cr_url")) and _older_than(data.get("clip_views_at"), DETAIL_MAX_AGE_S, now)
+
+
+def _clip_views(data: dict, now: datetime) -> dict:
+    """Kampanjens klipp på Content Rewards. clip_views_at sätts också när sidan inte går att läsa, så att sidan
+    provas igen först efter 6 timmar. Felet loggas i content_views och de gamla clip_views behålls."""
+    if not data.get("cr_url"):
+        return {}
+    found: dict = {"clip_views_at": _iso(now)}
+    clip_views = campaign_clip_views(data["cr_url"])
     if clip_views is not None:
         found["clip_views"] = clip_views
+    return found
+
+
+def _twitch(data: dict, now: datetime) -> dict:
+    """Kanalens Twitch-klipp högst en gång per dygn. Saknas kanalen men finns en VOD slås kanalen först upp i Helix.
+    twitch_at sätts före anropen, så Twitch provas tidigast efter ett dygn, också efter ett fel eller när nycklarna
+    saknas. Vid fel behålls de gamla twitch_views."""
     if not _twitch_due(data, now):
+        return {}
+    found: dict = {"twitch_at": _iso(now)}
+    login = data.get("twitch_login") or twitch_login_from_vod(data["twitch_vod"])
+    if login is None:
         return found
-    found["twitch_at"] = _iso(now)
-    twitch_views = twitch_clip_views(data["twitch_login"], now)
+    found["twitch_login"] = login
+    twitch_views = twitch_clip_views(login, now)
     if twitch_views is not None:
         found["twitch_views"] = twitch_views
     return found
+
+
+def _content_views(data: dict, now: datetime) -> dict:
+    """Kampanjens klipp vid varje detaljuppdatering, och kanalens Twitch-klipp högst en gång per dygn."""
+    return {**_clip_views(data, now), **_twitch(data, now)}
 
 
 def _ref(item: dict) -> str | None:

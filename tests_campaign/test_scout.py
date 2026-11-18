@@ -1051,15 +1051,16 @@ def _page(ref: str) -> str:
     return f"https://contentrewards.com/c/campaigns/{ref}"
 
 
-def _seed_with_page(settings, ref: str, score: int, clip_age_h: float, **row) -> None:
-    _seed(settings, ref, score, cr_url=_page(ref), clip_views=[1_000] * 5, detail_at=scout._iso(NOW - timedelta(hours=7)),
+def _seed_with_page(settings, ref: str, score: int, clip_age_h: float, detail_age_h: float = 0, **row) -> None:
+    _seed(settings, ref, score, cr_url=_page(ref), clip_views=[1_000] * 5,
+          detail_at=scout._iso(NOW - timedelta(hours=detail_age_h)),
           clip_views_at=scout._iso(NOW - timedelta(hours=clip_age_h)), **row)
 
 
 def test_a_shown_campaign_outside_the_best_gets_new_clip_views_without_clippingalpha(settings, fake) -> None:
     for i in range(scout.TOP):  # de 25 bästa: färska detaljer och klipp yngre än 6 timmar
-        _seed_with_page(settings, f"best/c{i}", 90, clip_age_h=5, detail_at=scout._iso(NOW))
-    _seed_with_page(settings, "low/streams", 10, clip_age_h=7)
+        _seed_with_page(settings, f"best/c{i}", 90, clip_age_h=5)
+    _seed_with_page(settings, "low/streams", 10, clip_age_h=7, detail_age_h=7)  # utanför de 25: inga nya detaljer
     fake.clip_views = [9_000] * 5
     scout.Scout(settings).run_once()
 
