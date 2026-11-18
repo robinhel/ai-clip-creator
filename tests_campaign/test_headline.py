@@ -6,15 +6,19 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from campaign import editor, finish, workflow
+from campaign import editor, finish, versions, workflow
 from campaign.caption import build_caption
 from campaign.cliplog import ClipLog
-from campaign.profile import load_profile
+from campaign.profile import Profile, load_profile
+from campaign.versions import NO_OWN
 from campaign.workflow import finish_vod
 
-from .conftest import make_clip, make_overlay, needs_ffmpeg
+from .conftest import make_clip, make_overlay, needs_ffmpeg, needs_subtitles
 from .test_editor import WORDS, _paths, _words, setup  # noqa: F401  (fixture)
 from .test_mcp_server import _call, app  # noqa: F401  (fixture)
+from .test_foresla_hook import _claude_hook
+from .test_ny_version import _hook_on as _version_hook_on
+from .test_ny_version import _make, _options, _png, _spy, vclip  # noqa: F401  (fixture)
 
 pytestmark = needs_ffmpeg
 
@@ -187,3 +191,86 @@ def test_edit_clip_in_mcp_sends_the_headline(app) -> None:  # noqa: F811
     (request,) = app.requests
     assert (request.url.path, json.loads(request.content)) == ("/campaign/clips/7/edit", {"headline": "Big play"})
 
+
+
+# ---------- ny version ----------
+
+
+STICKER_TOP = {"file": "fire.png", "position": "top_right", "start_s": 0, "duration_s": 3}
+TWO_LINES = "Ett galet skott från andra sidan banan"  # två rader i bilden, titeln "No way" en
+
+
+def test_the_sticker_goes_below_the_lines_the_versions_font_makes(settings) -> None:
+    _png(settings.root / "stickers" / "fire.png")
+    profile = Profile(name="x", streamer="y", safe_top=0.07, safe_bottom=0.20, hook_text=True, hook_style="serif")
+    title = "Nobody saw that coming"  # en rad i stilens font, två med en egen font
+    assert versions._sticker(settings, profile, STICKER_TOP, 10, title)["y"] == 134 + 80 + 20
+    placed = versions._sticker(settings, profile, STICKER_TOP, 10, title, None, "", "/fonts/Impact.ttf")
+    assert placed["y"] == 134 + 160 + 20
+
+
+def test_a_version_places_its_sticker_with_its_font(vclip, settings, monkeypatch) -> None:  # noqa: F811
+    client, _, clip_id = vclip
+    fonts: list = []
+    real = versions.top_text_end
+
+    def spy(profile, root, title, overlay=None, frame="", font_file=None):
+        fonts.append(font_file)
+        return real(profile, root, title, overlay, frame, font_file)
+
+    monkeypatch.setattr(versions, "top_text_end", spy)
+    answer = _make(client, clip_id, font="Impact", sticker=STICKER_TOP)
+    assert answer.status_code == 201, answer.text
+    assert fonts == [str(settings.root / "fonts" / "Impact.ttf")]
+
+
+@needs_subtitles
+def test_a_version_without_a_hook_shows_and_saves_the_originals_headline(vclip, settings,  # noqa: F811
+                                                                         monkeypatch) -> None:
+    client, log, clip_id = vclip
+    _version_hook_on(settings)
+    log.update(clip_id, headline=TWO_LINES)
+    root = log.get(clip_id)
+    seen = _spy(monkeypatch)
+    answer = _make(client, clip_id, sticker=STICKER_TOP)
+    assert answer.status_code == 201, answer.text
+    assert seen[-1]["title"] == TWO_LINES
+    assert seen[-1]["sticker"]["y"] == 134 + 160 + 20  # under rubrikens två rader
+    version = log.get(answer.json()["id"])
+    assert (version["title"], version["caption"], version["headline"]) == ("No way", root["caption"], TWO_LINES)
+
+
+@needs_subtitles
+def test_a_version_with_its_own_hook_shows_and_saves_the_hook(vclip, settings, monkeypatch) -> None:  # noqa: F811
+    client, log, clip_id = vclip
+    _version_hook_on(settings)
+    log.update(clip_id, headline="Big play")
+    seen = _spy(monkeypatch)
+    answer = _make(client, clip_id, hook="Nobody expected that ending")
+    assert answer.status_code == 201, answer.text
+    assert seen[-1]["title"] == "Nobody expected that ending"
+    version = log.get(answer.json()["id"])
+    assert (version["title"], version["headline"]) == ("Nobody expected that ending", "Nobody expected that ending")
+
+
+@needs_subtitles
+def test_the_options_and_the_used_hooks_are_the_text_on_the_picture(vclip, settings) -> None:  # noqa: F811
+    client, log, clip_id = vclip
+    _version_hook_on(settings)
+    log.update(clip_id, headline="Big play")
+    options = _options(client, clip_id)
+    assert (options["hook"], options["hooks_used"]) == ("Big play", ["Big play"])
+    answer = _make(client, clip_id, hook="big PLAY")
+    assert answer.status_code == 201, answer.text
+    assert NO_OWN in answer.json()["warnings"]  # samma text som i bilden: inget eget bidrag
+    assert _options(client, clip_id)["hooks_used"] == ["Big play", "big PLAY"]
+
+
+def test_a_suggested_hook_is_not_the_text_on_the_picture(vclip, monkeypatch) -> None:  # noqa: F811
+    client, log, clip_id = vclip
+    log.update(clip_id, headline="Big play")
+    fake = _claude_hook(monkeypatch, "big PLAY", "Bodycam never felt this tense")
+    answer = client.post(f"/campaign/clips/{clip_id}/versions/hook")
+    assert answer.status_code == 200, answer.text
+    assert answer.json() == {"hook": "Bodycam never felt this tense"} and len(fake.messages.calls) == 2
+    assert "Big play" in str(fake.messages.calls[0]["messages"])  # texten i bilden skickas som använd
