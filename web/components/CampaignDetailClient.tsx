@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ExternalLink } from "lucide-react";
 import { CampaignChat } from "@/components/CampaignChat";
 import { CampaignChecklist } from "@/components/CampaignChecklist";
 import { checklist } from "@/lib/checklist";
@@ -182,6 +182,27 @@ export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat,
         <ReadyBadge profile={profile} />
       </div>
       <p className="mt-1.5 text-muted-foreground">{profile.campaign}</p>
+      {/* Kampanjens egen sida på Content Rewards, ett klick bort från alla flikar. */}
+      <p className="mt-1.5 text-sm">
+        {profile.links.content_rewards ? (
+          <a
+            href={profile.links.content_rewards}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 font-medium text-foreground underline underline-offset-4 hover:text-brand"
+          >
+            Öppna kampanjen på Content Rewards
+            <ExternalLink className="size-3.5 shrink-0" aria-hidden />
+          </a>
+        ) : (
+          <Link
+            href={`/campaigns/${profile.name}?tab=installningar&del=oversikt#lankar`}
+            className="text-muted-foreground underline underline-offset-4 hover:text-foreground"
+          >
+            Lägg in länken till kampanjen
+          </Link>
+        )}
+      </p>
       <p className="mt-1 text-sm text-muted-foreground">
         Källa: {sourceText(profile)}. {lengthText(profile)}
       </p>
