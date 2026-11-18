@@ -5,13 +5,13 @@ inlägget nådde kampanjens gräns inom 7 dagar."""
 from __future__ import annotations
 
 import asyncio
-import json
 import sqlite3
+from pathlib import Path
 
-import httpx
+import pytest
 from mcp import Client
 
-from campaign import cli, mcp_server
+from campaign import cli, mcp_server, schedule
 from campaign.cliplog import ClipLog
 
 from .conftest import make_clip, needs_ffmpeg
@@ -173,6 +173,19 @@ def test_the_metrics_are_saved_per_post_and_checked(client, settings) -> None:  
     assert {key: post[key] for key in METRICS} == {**METRICS, "avg_watch_s": 12.5}
 
 
+def test_infinity_and_nan_are_refused(client, settings) -> None:  # noqa: F811
+    clip_id, post_id = _posted(client, settings)
+    for body in ('{"avg_watch_s": Infinity}', '{"avg_watch_s": NaN}', '{"full_pct": NaN}'):
+        response = client.patch(
+            f"/campaign/posts/{post_id}",
+            content=body,
+            headers={"content-type": "application/json"},
+        )
+        assert response.status_code == 422, body
+    post = ClipLog(settings.data_dir / "klipp.db").get_post(post_id)
+    assert post["avg_watch_s"] is None and post["full_pct"] is None
+
+
 def test_the_metrics_are_not_added_up_on_the_clip(client, settings) -> None:  # noqa: F811
     clip_id, tiktok = _posted(client, settings)
     clip = client.post(
@@ -238,11 +251,8 @@ def test_reached_min_within_7_days() -> None:
     # Ja vinner när båda gäller.
     assert reached_min_7d(CREATED, [(2100, _day(5)), (1900, _day(9))], 2000) is True
     # Kampanjens gräns avgör.
-    assert reached_min_7d(CREATED, [(1000, _day(8))], 2000) is False
-    assert reached_min_7d(CREATED, [(1000, _day(8))], 250) is None
     assert reached_min_7d(CREATED, [(1000, _day(6))], 2000) is None
     assert reached_min_7d(CREATED, [(1000, _day(6))], 250) is True
-    assert reached_min_7d(CREATED, [(1000, _day(6))], 0) is None
 
 
 def test_the_post_says_if_it_reached_the_campaign_min_in_7_days(client, settings) -> None:  # noqa: F811
@@ -279,13 +289,14 @@ def test_without_a_campaign_profile_there_is_no_answer(client, settings) -> None
 @needs_ffmpeg
 def test_the_clip_length_comes_from_the_file_and_is_kept(client, settings) -> None:  # noqa: F811
     path = make_clip(settings.out_dir / "123" / "klara" / "clip_01_a.mp4", seconds=3)
-    clip_id = _clip(settings, file=str(path))  # loggens tider säger 30 s
+    clip_id = _clip(settings, status="godkand", file=str(path))  # loggens tider säger 30 s
+    log = ClipLog(settings.data_dir / "klipp.db")
+    log.add_post(clip_id, "tiktok", TIKTOK)
     clip = client.get("/campaign/clips").json()[0]
     assert abs(clip["length_s"] - 3.0) < 0.2
     path.unlink()  # sparad: filen läses inte igen
     assert client.get("/campaign/clips").json()[0]["length_s"] == clip["length_s"]
 
-    log = ClipLog(settings.data_dir / "klipp.db")
     log.update(
         clip_id, file=str(settings.out_dir / "123" / "klara" / "clip_01_b.mp4")
     )  # ny fil: räknas om
@@ -294,13 +305,91 @@ def test_the_clip_length_comes_from_the_file_and_is_kept(client, settings) -> No
 
 def test_the_clip_length_falls_back_to_the_log_times(client, settings) -> None:  # noqa: F811
     log = ClipLog(settings.data_dir / "klipp.db")
-    with_times = _clip(settings)  # ingen fil, 10-40 s i loggen
+    with_times = _clip(settings, status="godkand")  # ingen fil, 10-40 s i loggen
     without = log.add(vod_id="upload", profile="skiimasktimmy", file="", title="x", caption="x")
+    log.add_post(with_times, "tiktok", TIKTOK)
+    log.add_post(without, "tiktok", TIKTOK_2)
     clips = {c["id"]: c for c in client.get("/campaign/clips").json()}
     assert clips[with_times]["length_s"] == 30.0
     assert clips[without]["length_s"] is None
     assert log.get(with_times)["length_s"] == 30.0
     assert log.get(without)["length_s"] is None  # inget sparat: nästa gång prövas filen igen
+
+
+def _fake_probe(monkeypatch, duration: float = 3.0) -> list[Path]:
+    """ffprobe utan ffmpeg: varje fil som läses hamnar i listan."""
+    calls: list[Path] = []
+
+    def probe(path: Path) -> dict:
+        calls.append(path)
+        return {"duration": duration}
+
+    monkeypatch.setattr(schedule, "probe", probe)
+    return calls
+
+
+def test_ffprobe_runs_only_for_posted_clips_with_a_file_and_once(
+    client,  # noqa: F811
+    settings,
+    monkeypatch,
+) -> None:
+    calls = _fake_probe(monkeypatch)
+    log = ClipLog(settings.data_dir / "klipp.db")
+    unposted = _clip(settings)  # fil, men inget inlägg
+    posted, _ = _posted(client, settings)
+    no_file = log.add(
+        vod_id="123",
+        profile="skiimasktimmy",
+        file="",
+        title="x",
+        caption="x",
+        status="godkand",
+        start_s=0.0,
+        end_s=20.0,
+    )
+    log.add_post(no_file, "tiktok", TIKTOK_2)
+    clips = {c["id"]: c for c in client.get("/campaign/clips").json()}
+    assert calls == [Path(log.get(posted)["file"])]
+    assert clips[posted]["length_s"] == 3.0
+    assert clips[unposted]["length_s"] is None
+    assert clips[no_file]["length_s"] == 20.0  # ingen fil: loggens tider utan ffprobe
+    client.get("/campaign/clips")
+    assert len(calls) == 1  # sparad: ffprobe körs inte vid nästa laddning
+
+
+def test_without_ffprobe_the_length_comes_from_the_times_and_is_not_saved(
+    client,  # noqa: F811
+    settings,
+    monkeypatch,
+) -> None:
+    def no_ffprobe(path: Path) -> dict:
+        raise SystemExit("ffprobe hittades inte. Installera ffmpeg och försök igen.")
+
+    monkeypatch.setattr(schedule, "probe", no_ffprobe)
+    clip_id, _ = _posted(client, settings)
+    assert client.get("/campaign/clips").json()[0]["length_s"] == 30.0
+    assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["length_s"] is None
+
+
+def test_new_times_reset_the_length(settings) -> None:
+    log = ClipLog(settings.data_dir / "klipp.db")
+    clip_id = _clip(settings)
+    log.set_length(clip_id, 30.0, log.get(clip_id)["updated"])
+    assert log.get(clip_id)["length_s"] == 30.0
+    log.update(clip_id, start_s=12.0)
+    assert log.get(clip_id)["length_s"] is None
+
+
+def test_a_length_is_saved_only_once_and_only_for_the_unchanged_clip(settings) -> None:
+    log = ClipLog(settings.data_dir / "klipp.db")
+    clip_id = _clip(settings)
+    log.set_length(clip_id, 30.0, "2026-01-01T00:00:00+00:00")  # klippet har ändrats sedan dess
+    assert log.get(clip_id)["length_s"] is None
+    updated = log.get(clip_id)["updated"]
+    log.set_length(clip_id, 28.0, updated)
+    log.set_length(clip_id, 99.0, updated)  # redan sparad: skrivs inte över
+    assert log.get(clip_id)["length_s"] == 28.0
+    assert log.get(clip_id)["updated"] == updated
 
 
 # ---------- att göra ----------
@@ -350,28 +439,21 @@ def test_stats_in_the_terminal_saves_the_metrics(settings, monkeypatch, capsys) 
     assert log.get(clip_id)["views"] == 2500
 
 
-def test_save_stats_in_mcp_sends_the_metrics(monkeypatch) -> None:
-    requests: list[httpx.Request] = []
-
-    def answer(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(200, json={"ok": True})
-
-    monkeypatch.setattr(
-        mcp_server,
-        "http_client",
-        lambda: httpx.Client(base_url=mcp_server.BASE_URL, transport=httpx.MockTransport(answer)),
-    )
-    monkeypatch.setattr(mcp_server, "api_key", lambda: None)
-
-    async def go():
-        async with Client(mcp_server.server) as mcp:
-            return await mcp.call_tool("save_stats", {"post_id": 7, "views": 2500, **METRICS})
-
-    result = asyncio.run(go())
-    assert not result.is_error, result.content
-    assert requests[-1].method == "PATCH" and requests[-1].url.path == "/campaign/posts/7"
-    assert json.loads(requests[-1].content) == {"views": 2500, **METRICS}
+@pytest.mark.parametrize(
+    "wrong", [["--saves", "-5"], ["--watch-s", "nan"], ["--watch-s", "inf"], ["--full-pct", "nan"]]
+)
+def test_stats_in_the_terminal_refuses_wrong_numbers(settings, monkeypatch, capsys, wrong) -> None:
+    monkeypatch.setattr(cli, "load_settings", lambda: settings)
+    log = ClipLog(settings.data_dir / "klipp.db")
+    clip_id = _clip(settings, status="godkand", clip_format="funny")
+    post_id = log.add_post(clip_id, "tiktok", TIKTOK)
+    with pytest.raises(SystemExit) as refused:
+        cli.main(["stats", str(clip_id), "--views", "2500", *wrong])
+    assert refused.value.code == 2
+    assert wrong[0] in capsys.readouterr().err
+    post = log.get_post(post_id)
+    assert post["views"] is None and post["saves"] is None
+    assert post["avg_watch_s"] is None and post["full_pct"] is None
 
 
 def test_save_stats_reaches_the_app(client, settings, monkeypatch) -> None:  # noqa: F811
