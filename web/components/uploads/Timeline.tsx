@@ -35,11 +35,13 @@ interface Props {
 }
 
 /** Där slutet får ligga för kampanjens gränser, givet starten och hastigheten. */
-function allowedEnd(startS: number, speed: number, min: number, max: number | null | undefined, duration: number) {
+function allowedEnd({ startS, speed, min, max, duration }: Pick<Props, "startS" | "speed" | "min" | "max" | "duration">) {
   const lo = clamp(startS + (min - EXTRA_S) * speed, 0, duration);
   const hi = max == null ? duration : clamp(startS + (max - EXTRA_S) * speed, 0, duration);
   return { lo, hi };
 }
+
+const isArrow = (key: string) => key === "ArrowLeft" || key === "ArrowRight";
 
 function LimitStrip({ lo, hi, pct, min, max }: { lo: number; hi: number; pct: (t: number) => string; min: number; max: number | null | undefined }) {
   const limits = max == null ? `minst ${formatSeconds(min)} s` : `${formatSeconds(min)}–${formatSeconds(max)} s`;
@@ -54,14 +56,15 @@ function LimitStrip({ lo, hi, pct, min, max }: { lo: number; hi: number; pct: (t
 }
 
 /** Tidslinjen för en video: start, slut och markören för bildens tid. */
-export function Timeline({ duration, startS, endS, atS, speed, min, max, check, disabled, onTimes, onAt }: Props) {
+export function Timeline(props: Props) {
+  const { duration, startS, endS, atS, min, max, check, disabled, onTimes, onAt } = props;
   const end = endS > 0 ? endS : duration;
   const total = tenth(duration);
   const track = useRef<HTMLDivElement>(null);
   const drag = useRef<Handle | "seek" | null>(null);
   const [selected, setSelected] = useState<Handle>("start");
   const pct = (t: number) => `${(clamp(t, 0, duration) / duration) * 100}%`;
-  const { lo, hi } = allowedEnd(startS, speed, min, max, duration);
+  const { lo, hi } = allowedEnd(props);
 
   function setHandle(handle: Handle, t: number) {
     if (handle === "start") {
@@ -101,7 +104,7 @@ export function Timeline({ duration, startS, endS, atS, speed, min, max, check, 
   }
 
   function onKeyDown(e: React.KeyboardEvent, handle: Handle) {
-    if (disabled || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+    if (disabled || !isArrow(e.key)) return;
     e.preventDefault();
     const delta = (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 1 : STEP);
     setHandle(handle, (handle === "start" ? startS : end) + delta);

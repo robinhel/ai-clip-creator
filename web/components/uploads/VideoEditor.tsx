@@ -2,7 +2,7 @@
 
 import { Copy, Eye, Loader2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { frameQuery, previewOutdated, type Choices } from "@/lib/uploads";
+import { frameQuery, previewOutdated, type Choices, type LengthCheck } from "@/lib/uploads";
 import { uploadsApi, type DraftOptions } from "@/lib/uploadsApi";
 import { CampaignFields, PictureFields, type SetChoice } from "./ChoiceFields";
 import { PreviewPane } from "./PreviewPane";
@@ -78,57 +78,84 @@ function Saved({ item }: { item: Item }) {
   );
 }
 
+function frameUrlFor(item: Item, profile: string): string | null {
+  if (!item.draft || !profile) return null;
+  return uploadsApi.frameUrl(item.draft.draft_id, frameQuery(item.choices, profile, item.title, clipTime(item)));
+}
+
+/** Tidslinjen när videon är uppladdad och kampanjens gränser är kända. */
+function EditorTimeline({ item, opts, check, locked, actions }: { item: Item; opts: DraftOptions | null; check: LengthCheck | null; locked: boolean; actions: EditorActions }) {
+  // check finns bara när utkastet och kampanjens val finns (itemProblem).
+  if (!check) return <p className="text-sm text-muted-foreground">Tidslinjen visas när videon är uppladdad.</p>;
+  return (
+    <Timeline
+      duration={item.draft!.duration_s}
+      startS={item.choices.startS}
+      endS={item.choices.endS}
+      atS={item.atS}
+      speed={item.choices.speed}
+      min={opts!.min_seconds}
+      max={opts!.max_seconds}
+      check={check}
+      disabled={locked}
+      onTimes={(startS, endS, atS) => actions.setTimes(item.key, startS, endS, atS)}
+      onAt={(atS) => actions.setAt(item.key, atS)}
+    />
+  );
+}
+
+/** Valen i två kolumner: bilden till vänster, det kampanjen styr till höger. */
+function EditorFields({ item, opts, locked, actions }: { item: Item; opts: DraftOptions | null; locked: boolean; actions: EditorActions }) {
+  const set: SetChoice = (name, value) => actions.setChoice(item.key, name, value);
+  const fieldProps = { choices: item.choices, set, busy: locked };
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <div className="min-w-0 space-y-4">
+        <PictureFields {...fieldProps} />
+      </div>
+      <div className="min-w-0 space-y-4">{opts && <CampaignFields opts={opts} {...fieldProps} />}</div>
+    </div>
+  );
+}
+
+/** Det som bestämmer vad redigeraren visar och tillåter. */
+function editorState(item: Item, opts: DraftOptions | null, profile: string, busy: boolean) {
+  const { check, problem } = itemProblem(item, opts);
+  return {
+    locked: busy || item.state === "busy" || item.previewing,
+    check,
+    problem,
+    // Längden står redan under tidslinjen; här bara klistermärkets fel.
+    otherProblem: check?.ok === false ? null : problem,
+    outdated: previewOutdated(item.preview?.key, item.choices, profile, item.title),
+  };
+}
+
 /** Den valda videon: 9:16-bilden, tidslinjen, valen och knapparna. */
 export function VideoEditor({ item, profile, opts, optsError, onOptsRetry, busy, others, showSafe, onShowSafe, actions }: Props) {
   if (item.state === "done") return <Saved item={item} />;
-  const locked = busy || item.state === "busy" || item.previewing;
-  const set: SetChoice = (name, value) => actions.setChoice(item.key, name, value);
-  const { check, problem } = itemProblem(item, opts);
-  const outdated = previewOutdated(item.preview?.key, item.choices, profile, item.title);
-  const frameUrl = item.draft && profile ? uploadsApi.frameUrl(item.draft.draft_id, frameQuery(item.choices, profile, item.title, clipTime(item))) : null;
-  const fieldProps = { choices: item.choices, set, busy: locked };
+  const { locked, check, problem, otherProblem, outdated } = editorState(item, opts, profile, busy);
   return (
-    <section className="mt-6 rounded-2xl border border-line bg-panel p-5" aria-label={`Valen för ${item.file.name}`}>
+    <section className="mt-6 rounded-2xl border border-line bg-panel p-4 sm:p-5" aria-label={`Valen för ${item.file.name}`}>
       <h2 className="text-lg font-semibold break-words">{item.file.name}</h2>
       <div className="mt-4 grid gap-6 md:grid-cols-[240px_minmax(0,1fr)]">
         <div className="space-y-3">
           <PreviewPane
-            frameUrl={frameUrl}
-            render={item.preview?.render ?? null}
+            frameUrl={frameUrlFor(item, profile)}
+            render={item.preview?.render}
             outdated={outdated}
             previewing={item.previewing}
-            safe={opts?.safe_zone ?? null}
+            safe={opts?.safe_zone}
             showSafe={showSafe}
             onShowSafe={onShowSafe}
           />
           <Actions item={item} blocked={!!problem} locked={locked} others={others} outdated={outdated} actions={actions} />
         </div>
         <div className="min-w-0 space-y-4">
-          {item.draft && check ? (
-            <Timeline
-              duration={item.draft.duration_s}
-              startS={item.choices.startS}
-              endS={item.choices.endS}
-              atS={item.atS}
-              speed={item.choices.speed}
-              min={opts!.min_seconds}
-              max={opts!.max_seconds}
-              check={check}
-              disabled={locked}
-              onTimes={(startS, endS, atS) => actions.setTimes(item.key, startS, endS, atS)}
-              onAt={(atS) => actions.setAt(item.key, atS)}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">Tidslinjen visas när videon är uppladdad.</p>
-          )}
-          {problem && check?.ok !== false && <p className="text-xs text-[#fca5a5]">{problem}</p>}
+          <EditorTimeline item={item} opts={opts} check={check} locked={locked} actions={actions} />
+          {otherProblem && <p className="text-xs text-[#fca5a5]">{otherProblem}</p>}
           {optsError && <LoadError error={optsError} onRetry={onOptsRetry} className="" />}
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="min-w-0 space-y-4">
-              <PictureFields {...fieldProps} />
-            </div>
-            <div className="min-w-0 space-y-4">{opts && <CampaignFields opts={opts} {...fieldProps} />}</div>
-          </div>
+          <EditorFields item={item} opts={opts} locked={locked} actions={actions} />
         </div>
       </div>
     </section>

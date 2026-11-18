@@ -74,10 +74,10 @@ interface Props {
   /** Bildens adress med valen, eller null utan utkast. */
   frameUrl: string | null;
   /** Förhandsvisningen när den gäller valen som är valda nu. */
-  render: DraftRender | null;
+  render?: DraftRender;
   outdated: boolean;
   previewing: boolean;
-  safe: { top: number; bottom: number } | null;
+  safe?: { top: number; bottom: number } | null;
   showSafe: boolean;
   onShowSafe: (on: boolean) => void;
 }
@@ -100,8 +100,35 @@ function Frame({ frameUrl }: { frameUrl: string | null }) {
   );
 }
 
+function Caption({ render, outdated, safe, showSafe, onShowSafe }: Omit<Props, "frameUrl" | "previewing">) {
+  const playing = render && !outdated;
+  return (
+    <figcaption className="mt-2 space-y-1.5 text-xs text-muted-foreground">
+      {safe && (
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={showSafe} onChange={(e) => onShowSafe(e.target.checked)} className="size-3.5 accent-[var(--brand,#7c5cff)]" />
+          Visa TikToks säkra zon
+        </label>
+      )}
+      <p>{playing ? "Hela klippet, precis som det sparas." : "Bilden ändras med valen. Förhandsvisa gör hela klippet."}</p>
+      {render && outdated && <p className="text-warn">Valen har ändrats. Förhandsvisa igen.</p>}
+      {playing && <Notes render={render} />}
+    </figcaption>
+  );
+}
+
+function Busy() {
+  return (
+    <div role="status" className="absolute inset-0 grid place-content-center gap-2 bg-black/70 p-4 text-center text-xs text-white">
+      <Loader2 className="mx-auto size-6 animate-spin" aria-hidden />
+      Gör hela klippet. Det tar en dryg minut.
+    </div>
+  );
+}
+
 /** 9:16-rutan: bilden som ändras med valen, eller hela klippet efter Förhandsvisa. */
-export function PreviewPane({ frameUrl, render, outdated, previewing, safe, showSafe, onShowSafe }: Props) {
+export function PreviewPane(props: Props) {
+  const { frameUrl, render, outdated, previewing, safe, showSafe } = props;
   const playing = render && !outdated;
   return (
     <figure className="mx-auto w-full max-w-[230px] md:max-w-none">
@@ -112,24 +139,9 @@ export function PreviewPane({ frameUrl, render, outdated, previewing, safe, show
           <Frame frameUrl={frameUrl} />
         )}
         {showSafe && safe && <SafeZone top={safe.top} bottom={safe.bottom} />}
-        {previewing && (
-          <div role="status" className="absolute inset-0 grid place-content-center gap-2 bg-black/70 p-4 text-center text-xs text-white">
-            <Loader2 className="mx-auto size-6 animate-spin" aria-hidden />
-            Gör hela klippet. Det tar en dryg minut.
-          </div>
-        )}
+        {previewing && <Busy />}
       </div>
-      <figcaption className="mt-2 space-y-1.5 text-xs text-muted-foreground">
-        {safe && (
-          <label className="flex items-center gap-2">
-            <input type="checkbox" checked={showSafe} onChange={(e) => onShowSafe(e.target.checked)} className="size-3.5 accent-[var(--brand,#7c5cff)]" />
-            Visa TikToks säkra zon
-          </label>
-        )}
-        <p>{playing ? "Hela klippet, precis som det sparas." : "Bilden ändras med valen. Förhandsvisa gör hela klippet."}</p>
-        {render && outdated && <p className="text-warn">Valen har ändrats. Förhandsvisa igen.</p>}
-        {playing && <Notes render={render} />}
-      </figcaption>
+      <Caption {...props} />
     </figure>
   );
 }
