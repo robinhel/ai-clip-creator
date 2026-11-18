@@ -191,23 +191,22 @@ def read_chat(channel: str, timeout_s: float = READ_TIMEOUT_S) -> Iterator[tuple
             b"CAP REQ :twitch.tv/tags\r\nNICK justinfan31415\r\n"
             + f"JOIN #{channel.lower()}\r\n".encode()
         )
-        buffer = b""
-        while True:
-            data = conn.recv(4096)
-            if not data:
+        for line in _lines(conn):
+            if line.startswith("PING"):
+                conn.sendall(b"PONG :tmi.twitch.tv\r\n")
+            elif line.split(" ")[1:2] == ["RECONNECT"]:  # Twitch startar om servern
                 return
-            buffer += data
-            *lines, buffer = buffer.split(b"\r\n")
-            for raw in lines:
-                line = raw.decode("utf-8", "replace")
-                if line.startswith("PING"):
-                    conn.sendall(b"PONG :tmi.twitch.tv\r\n")
-                elif line.split(" ")[1:2] == [
-                    "RECONNECT"
-                ]:  # Twitch startar om servern: anslut igen
-                    return
-                elif (msg := parse_irc(line)) is not None:
-                    yield msg
+            elif (msg := parse_irc(line)) is not None:
+                yield msg
+
+
+def _lines(conn: socket.socket) -> Iterator[str]:
+    """Raderna från Twitch tills anslutningen stängs."""
+    buffer = b""
+    while data := conn.recv(4096):
+        buffer += data
+        *lines, buffer = buffer.split(b"\r\n")
+        yield from (raw.decode("utf-8", "replace") for raw in lines)
 
 
 # ---------- läget: vilka kampanjer som bevakas, och topparna i den senaste streamen ----------
@@ -316,6 +315,7 @@ QUEUE_S = 10.0  # en annan körning pågår: försök igen efter så här lång 
 MAX_WAIT_S = 60.0  # längsta väntan innan chatten ansluts igen
 NO_BUDGET = "Budgeten är slut."
 NOT_READY = "Delen fanns inte hos Twitch efter tre minuter."
+NOT_WATCHABLE = "Kampanjen är avstängd, inte redo eller saknar kanal."
 
 LATEST_QUERY = (
     '{{ user(login: "{login}") {{ videos(first: 1, type: ARCHIVE, sort: TIME) {{ edges {{ node {{ '
@@ -369,34 +369,70 @@ class Job:
         return (self.vod.get("game") or {}).get("name")
 
 
-class Watcher:
-    """Frågar Twitch var 60:e sekund, läser chatten medan kanalen är live, och gör en körning per topp.
-    Allt som går mot nätverket eller tid skickas in, så att testerna kan byta det."""
+@dataclass
+class Stream:
+    """En stream vars chatt läses: toppsökningen, chatten de senaste tio minuterna, och topparna vars del
+    inte är slut än. Bara chattens tråd ändrar den."""
 
-    def __init__(
-        self,
-        settings: Settings,
-        app: Any,
-        *,
-        latest: Callable = latest_vod,
-        chat: Callable = read_chat,
-        run: Callable = run_campaign_vod,
-        notify: Callable = notify_mac,
-        now: Callable = time.time,
-        sleep: Callable = time.sleep,
-        spawn: Callable = _spawn,
-        part: Any = None,
-    ) -> None:
+    profile: str
+    channel: str
+    vod: dict
+    finder: PeakFinder = field(default_factory=PeakFinder)
+    recent: deque[ChatMessage] = field(default_factory=deque)
+    open: list[Job] = field(default_factory=list)
+
+    @property
+    def vod_id(self) -> str:
+        return str(self.vod["id"])
+
+    def add(self, msg: ChatMessage) -> float | None:
+        """Lägg till ett meddelande. Returnerar toppens tid när en ny topp börjar, annars None."""
+        t = msg.time_in_seconds
+        self.recent.append(msg)
+        while self.recent[0].time_in_seconds < t - BASELINE_S:
+            self.recent.popleft()
+        self.open = [job for job in self.open if t < job.end_s]
+        for job in self.open:
+            job.messages.append(msg)
+        return self.finder.add(msg)
+
+    def job(self, n: int, peak_s: float) -> Job:
+        """Toppen n som ett jobb, med chatten från delens början. Chatten som kommer sedan läggs till."""
+        start_s = part_window(peak_s)[0]
+        job = Job(
+            self.profile,
+            self.channel,
+            self.vod,
+            n,
+            peak_s,
+            [m for m in self.recent if m.time_in_seconds >= start_s],
+        )
+        self.open.append(job)
+        return job
+
+
+def _can_watch(described: dict) -> bool:
+    """Kampanjen är på, redo och har en Twitch-kanal."""
+    return bool(described["active"] and described["ready"] and described["channel"])
+
+
+class Watcher:
+    """Frågar Twitch var 60:e sekund, läser chatten medan kanalen är live, och gör en körning per topp."""
+
+    def __init__(self, settings: Settings, app: Any) -> None:
         self.settings, self.app = settings, app
-        self.latest, self.chat, self.run, self.notify = latest, chat, run, notify
-        self.now, self.sleep, self.spawn, self.part = now, sleep, spawn, part
+        # Det som går mot nätverket eller tid. Testerna byter dem.
+        self.latest: Callable[[str], dict | None] = latest_vod
+        self.chat: Callable[..., Iterator[tuple[str, str, int]]] = read_chat
+        self.run: Callable[..., None] = run_campaign_vod
+        self.notify: Callable[..., None] = notify_mac
+        self.now: Callable[[], float] = time.time
+        self.sleep: Callable[[float], None] = time.sleep
+        self.spawn: Callable[..., None] = _spawn
+        self.part: Any = None  # campaign.live_part, som importeras när den behövs
         self.reading: dict[str, str] = {}  # kampanj -> VOD vars chatt läses
-        self.jobs: queue.Queue[Job] = queue.Queue()  # utan tak; topparna körs i tur och ordning
-        self._buffer_lock = threading.Lock()
-        self._recent: dict[str, deque[ChatMessage]] = {}
-        self._open: dict[
-            str, list[Job]
-        ] = {}  # toppar vars del inte är slut än får chatten som kommer
+        # Utan tak. Topparna körs i tur och ordning.
+        self.jobs: queue.Queue[Job] = queue.Queue()
 
     # ----- Twitch och chatten -----
 
@@ -409,10 +445,7 @@ class Watcher:
         for profile in watched:
             try:
                 self._check_one(state, profile)
-            except (
-                SystemExit,
-                Exception,
-            ) as error:  # en kampanj som inte går att läsa stoppar inte de andra
+            except (SystemExit, Exception) as error:  # en kampanj stoppar inte de andra
                 log.warning("Livebevakningen av %s", profile, exc_info=True)
                 state.set_channel(
                     profile, error=f"Kanalen gick inte att fråga ({type(error).__name__})."
@@ -421,11 +454,9 @@ class Watcher:
     def _check_one(self, state: LiveState, profile: str) -> None:
         described = _describe_profile(profile, self.settings)
         channel = described["channel"]
-        if not (described["active"] and described["ready"] and channel):
+        if not _can_watch(described):
             self.reading.pop(profile, None)
-            state.set_channel(
-                profile, live=False, error="Kampanjen är avstängd, inte redo eller saknar kanal."
-            )
+            state.set_channel(profile, live=False, error=NOT_WATCHABLE)
             return
         vod = self.latest(channel)
         live = vod is not None and vod.get("status") == "RECORDING"
@@ -435,62 +466,50 @@ class Watcher:
             self.reading.pop(profile, None)
         elif self.reading.get(profile) != vod_id:
             self.reading[profile] = vod_id
-            self.spawn(self._read, profile, channel, vod)
+            self.spawn(self._read, Stream(profile, channel, vod))
 
-    def _read(self, profile: str, channel: str, vod: dict) -> None:
-        """Läser chatten tills kanalen inte är live längre. Bryts anslutningen ansluts den igen."""
-        vod_id = str(vod["id"])
-        finder = PeakFinder()
-        with self._buffer_lock:
-            self._recent[profile], self._open[profile] = deque(), []
+    def _read(self, stream: Stream) -> None:
+        """Läser chatten tills kanalen inte är live längre. Bryts anslutningen ansluts den igen, efter
+        1 s som dubblas upp till 60 s. Väntan börjar om på 1 s när meddelanden kommer."""
         wait = 1.0
         try:
-            while self.reading.get(profile) == vod_id:
-                try:
-                    for author, text, sent_ms in self.chat(channel, READ_TIMEOUT_S):
-                        wait = 1.0
-                        self._feed(
-                            profile,
-                            channel,
-                            vod,
-                            finder,
-                            message(vod_seconds(sent_ms, vod["createdAt"]), text, author),
-                        )
-                        if self.reading.get(profile) != vod_id:
-                            break
-                except OSError as error:  # nätverket, eller tyst längre än tidsgränsen
-                    log.info("Chatten för %s bröts (%s)", channel, type(error).__name__)
+            while self._still_reading(stream):
+                wait = 1.0 if self._read_once(stream) else wait
                 self.sleep(wait)
                 wait = min(wait * 2, MAX_WAIT_S)
         except Exception:
-            log.exception("Chatten för %s", channel)
+            log.exception("Chatten för %s", stream.channel)
         finally:
-            if self.reading.get(profile) == vod_id:
-                self.reading.pop(profile, None)
+            if self._still_reading(stream):
+                self.reading.pop(stream.profile, None)
 
-    def _feed(
-        self, profile: str, channel: str, vod: dict, finder: PeakFinder, msg: ChatMessage
-    ) -> None:
-        t = msg.time_in_seconds
-        with self._buffer_lock:
-            recent = self._recent[profile]
-            recent.append(msg)
-            while recent[0].time_in_seconds < t - BASELINE_S:
-                recent.popleft()
-            self._open[profile] = [job for job in self._open[profile] if t < job.end_s]
-            for job in self._open[profile]:
-                job.messages.append(msg)
-            peak = finder.add(msg)
-            if peak is None:
-                return
-            at = dt.datetime.fromtimestamp(_started(vod["createdAt"]) + peak, dt.UTC).isoformat(
-                timespec="seconds"
-            )
-            n = LiveState(self.settings).add_peak(profile, str(vod["id"]), peak, at)
-            job = Job(profile, channel, vod, n, peak)
-            job.messages = [m for m in recent if m.time_in_seconds >= job.start_s]
-            self._open[profile].append(job)
-        self.jobs.put(job)
+    def _still_reading(self, stream: Stream) -> bool:
+        return self.reading.get(stream.profile) == stream.vod_id
+
+    def _read_once(self, stream: Stream) -> bool:
+        """En anslutning. Svarar om några meddelanden kom."""
+        got = False
+        try:
+            for author, text, sent_ms in self.chat(stream.channel, READ_TIMEOUT_S):
+                got = True
+                self._feed(
+                    stream, message(vod_seconds(sent_ms, stream.vod["createdAt"]), text, author)
+                )
+                if not self._still_reading(stream):
+                    break
+        except OSError as error:  # nätverket, eller tyst längre än tidsgränsen
+            log.info("Chatten för %s bröts (%s)", stream.channel, type(error).__name__)
+        return got
+
+    def _feed(self, stream: Stream, msg: ChatMessage) -> None:
+        peak = stream.add(msg)
+        if peak is None:
+            return
+        at = dt.datetime.fromtimestamp(_started(stream.vod["createdAt"]) + peak, dt.UTC)
+        n = LiveState(self.settings).add_peak(
+            stream.profile, stream.vod_id, peak, at.isoformat(timespec="seconds")
+        )
+        self.jobs.put(stream.job(n, peak))
 
     # ----- från topp till körning -----
 
@@ -634,9 +653,15 @@ class Watcher:
 _thread: list[threading.Thread] = []
 
 
+def _off() -> bool:
+    return (
+        os.environ.get("KLIPP_LIVE") == "0" or "PYTEST_CURRENT_TEST" in os.environ or bool(_thread)
+    )
+
+
 def start(app: Any, settings: Settings | None = None) -> threading.Thread | None:
     """Starta bevakningen med servern. KLIPP_LIVE=0 stänger av den. Startar aldrig i tester."""
-    if os.environ.get("KLIPP_LIVE") == "0" or "PYTEST_CURRENT_TEST" in os.environ or _thread:
+    if _off():
         return None
     settings = settings or load_settings()
     LiveState(settings).after_restart()

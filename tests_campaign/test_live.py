@@ -135,12 +135,12 @@ def test_one_spammer_is_not_a_peak() -> None:
     assert peaks == []
 
 
-def _steps(finder: PeakFinder, start: float, end: float, every: float, prefix: str) -> list[float]:
+def _steps(finder: PeakFinder, start: float, end: float, every: float) -> list[float]:
     """Jämn chatt med nya avsändare varje gång. Returnerar topparna."""
     peaks = []
     # Heltal: summerade flyttal kan ge två meddelanden på samma sekund.
     for n in range(round((end - start) / every)):
-        if (peak := finder.add(message(start + n * every, "nice", f"{prefix}{n}"))) is not None:
+        if (peak := finder.add(message(start + n * every, "nice", f"{start}_{n}"))) is not None:
             peaks.append(peak)
     return peaks
 
@@ -149,13 +149,13 @@ def test_a_sudden_jump_is_a_peak_but_the_same_level_reached_slowly_is_not() -> N
     # Plötsligt: från lugn chatt till 8 meddelanden per 15 sekunder på en gång.
     sudden = PeakFinder(multiplier=3.0)
     _calm(sudden, 0, 600)
-    assert _steps(sudden, 600, 615, 15 / 8, "s") != []
+    assert _steps(sudden, 600, 615, 15 / 8) != []
     # Långsamt: chatten ökar steg för steg till samma nivå. Då är det ingen topp.
     slow = PeakFinder(multiplier=3.0)
     _calm(slow, 0, 600)
     peaks = []
     for i, every in enumerate((15 / 4, 15 / 5, 15 / 6, 15 / 7, 15 / 8)):
-        peaks += _steps(slow, 600 + 15 * i, 615 + 15 * i, every, f"r{i}_")
+        peaks += _steps(slow, 600 + 15 * i, 615 + 15 * i, every)
     assert peaks == []
 
 
@@ -233,10 +233,12 @@ class World:
         (folder / f"{folder.name}.mp4").write_bytes(b"mp4")
         return start_s - 4.0  # delen börjar vid en del i spellistan, lite före
 
-    def run(self, run_id, vod_id, profile_name, game, settings, **kwargs) -> None:
+    def run(self, *args, **kwargs) -> None:
+        """Samma argument som run_campaign_vod."""
         from clipsmith.db.models import Run, RunStatus
         from clipsmith.db.session import get_session
 
+        run_id, vod_id, profile_name, game, settings = args
         app = kwargs["app"]
         self.runs.append(
             {
@@ -290,17 +292,20 @@ def world(settings, tmp_path, monkeypatch) -> World:
     init_db(tmp_path / "clipsmith.db")
     found = World()
     app = SimpleNamespace(state=SimpleNamespace(active_run_id=None))
-    found.watcher = live.Watcher(
-        settings,
-        app,
-        latest=found.latest,
-        chat=found.read_chat,
-        run=found.run,
-        notify=found.notify,
-        now=found.now,
-        sleep=found.sleep,
-        spawn=lambda target, *args: target(*args),
-        part=SimpleNamespace(fetch_part=found.fetch_part, PartNotReady=NotReady, PartFailed=Failed),
+    found.watcher = watcher = live.Watcher(settings, app)
+    watcher.latest, watcher.chat, watcher.run, watcher.notify = (
+        found.latest,
+        found.read_chat,
+        found.run,
+        found.notify,
+    )
+    watcher.now, watcher.sleep, watcher.spawn = (
+        found.now,
+        found.sleep,
+        lambda target, *args: target(*args),
+    )
+    watcher.part = SimpleNamespace(
+        fetch_part=found.fetch_part, PartNotReady=NotReady, PartFailed=Failed
     )
     live.LiveState(settings).set_watching(PROFILE, True)
     return found
