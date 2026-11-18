@@ -24,7 +24,7 @@ from clipsmith.db.models import Run, RunStatus
 from . import editor, estimate, pipeline, preferences, runinfo, streams, vodfiles
 from .budget import BudgetExceeded, budget_from_settings
 from .caption import check_caption
-from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, UPLOADS, ClipLog, UploadRunning, card_runs
+from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog, UploadRunning, card_runs
 from .config import Settings, load_settings
 from .media import need, probe, run
 from .pipeline import finish_run, run_campaign_vod
@@ -461,13 +461,6 @@ def list_runs(db: Session = Depends(get_db), settings: Settings = Depends(get_se
 # ---------- projekt för egna filer ----------
 
 
-def _streamer(name: str, settings: Settings) -> str:
-    try:
-        return load_profile(name, settings.profiles_dir).streamer
-    except (SystemExit, Exception):  # en trasig profil: kampanjens namn
-        return name
-
-
 def _describe_project(project: dict, log: ClipLog, db: Session, settings: Settings) -> dict:
     runs, clips = log.runs(), log.list()
     files = runinfo.project_files([m for m in runs if m["project_id"] == project["id"]], db, clips, settings)
@@ -479,9 +472,6 @@ def _describe_project(project: dict, log: ClipLog, db: Session, settings: Settin
 def list_projects(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> list[dict]:
     log = _log(settings)
     off = _turned_off(settings)
-    uploads = (c["profile"] for c in log.list() if c["vod_id"] == UPLOADS and c["profile"] not in off)
-    for name in dict.fromkeys(uploads):
-        log.project(name, _streamer(name, settings))  # bara uppladdningar: projektet skapas nu
     found = [_describe_project(project, log, db, settings) for project in log.projects()
              if project["profile"] not in off]
     return sorted(found, key=lambda p: (p["updated"] or "", p["id"]), reverse=True)

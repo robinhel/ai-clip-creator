@@ -32,6 +32,12 @@ def _clip(settings, vod_id: str, profile: str = CAMPAIGN) -> int:
                               title=f"Klipp {vod_id}", caption="c", start_s=1.0, end_s=15.0)
 
 
+def _upload(settings, profile: str = CAMPAIGN) -> int:
+    """En uppladdning, som drafts.store sparar den: projektet först, sedan klippet."""
+    _log(settings).project(profile, "SkiiMaskTimmy")
+    return _clip(settings, "upload", profile)
+
+
 def _project(client, profile: str = CAMPAIGN) -> dict:  # noqa: F811
     [project] = [p for p in client.get("/campaign/projects").json() if p["profile"] == profile]
     return project
@@ -60,12 +66,18 @@ def test_two_own_files_and_an_upload_are_one_project(client, settings) -> None: 
 
 
 def test_a_campaign_with_only_uploads_gets_a_project_without_files(client, settings) -> None:  # noqa: F811
-    upload = _clip(settings, "upload")
+    upload = _upload(settings)
     project = _project(client)
     assert (project["files"], project["clip_counts"], project["title"]) == ([], {"renderad": 1},
                                                                             "Egna filer för SkiiMaskTimmy")
     assert _project(client)["id"] == project["id"]  # samma projekt nästa gång
     assert [c["id"] for c in client.get("/campaign/clips", params={"project_id": project["id"]}).json()] == [upload]
+
+
+def test_reading_the_projects_writes_nothing(client, settings) -> None:  # noqa: F811
+    _clip(settings, "upload")  # en uppladdning utan projekt
+    assert client.get("/campaign/projects").json() == []
+    assert _log(settings).projects() == []
 
 
 def test_an_unknown_project_is_404_in_swedish(client) -> None:  # noqa: F811
