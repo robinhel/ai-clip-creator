@@ -19,10 +19,10 @@ def _log(settings) -> ClipLog:
     return ClipLog(settings.data_dir / "klipp.db")
 
 
-def _file(settings, vod_id: str, profile: str = CAMPAIGN, status: str = "done", **extra) -> int:
+def _file(settings, vod_id: str, status: str = "done", **extra) -> int:
     """En körning som python -m campaign local skapar den."""
     run_id = _run(status, vod_id)
-    _log(settings).add_run(run_id, vod_id, profile, "Bodycam", title=vod_id.replace("_", " "),
+    _log(settings).add_run(run_id, vod_id, CAMPAIGN, "Bodycam", title=vod_id.replace("_", " "),
                            channel_name="SkiiMaskTimmy", thumbnail_url=None, duration_s=20, **extra)
     return run_id
 

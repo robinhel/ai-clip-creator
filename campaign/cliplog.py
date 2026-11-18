@@ -66,13 +66,9 @@ def own_file(vod_id: str) -> bool:
 
 def card_runs(runs: list[dict], key) -> dict:
     """Körningen som visas per nyckel, till exempel (vod_id, kampanj): den senaste, men inte en från chatten om
-    det finns en annan. `runs` i ordning efter run_id."""
-    cards: dict = {}
-    for meta in runs:
-        old = cards.get(key(meta))
-        if old is None or meta["origin"] != "chat" or old["origin"] == "chat":
-            cards[key(meta)] = meta
-    return cards
+    det finns en annan."""
+    # Chattens körningar först och de andra sist, var för sig i ordning efter run_id: den sista vinner.
+    return {key(meta): meta for meta in sorted(runs, key=lambda m: (m["origin"] != "chat", m["run_id"]))}
 
 
 def _project_id(db: sqlite3.Connection, profile: str, streamer: str) -> int:
@@ -101,29 +97,40 @@ def _backup(path: Path) -> Path:
     return target
 
 
-def _move_own_files(db: sqlite3.Connection, path: Path) -> None:
-    """Ett projekt per kampanj som har egna filer eller uppladdningar, och project_id på egna filers körningar
-    (vod_id som inte bara är siffror). Först en kopia av klipploggen bredvid filen,
-    klipp.db.fore-projekt-<tidsstämpel>, om det finns något att flytta. Inga rader tas bort, och samma resultat
-    om den körs två gånger. Ångra: UPDATE runs SET project_id = NULL
-    (eller lägg tillbaka kopian medan servern är stoppad)."""
-    runs = [row for row in db.execute("SELECT run_id, vod_id, profile, channel_name FROM runs ORDER BY run_id")
-            if own_file(row[1] or "")]
-    uploads = [row[0] for row in db.execute("SELECT DISTINCT profile FROM clips WHERE vod_id = ?", (UPLOADS,))]
-    if runs or uploads:
-        _backup(path)
+def _add_project_columns(db: sqlite3.Connection) -> None:
     have = {row[1] for row in db.execute("PRAGMA table_info(runs)")}
     for name, kind in PROJECT_COLUMNS.items():
         if name not in have:
             db.execute(f"ALTER TABLE runs ADD COLUMN {name} {kind}")
     db.execute(PROJECTS_TABLE)
     db.execute(PROJECTS_UNIQUE)
-    streamers = {profile: channel for _, _, profile, channel in runs if channel}
-    for profile in dict.fromkeys([*(row[2] for row in runs), *uploads]):
+
+
+def _own_runs(db: sqlite3.Connection) -> list[tuple[int, str]]:
+    """Egna filers körningar: run_id och kampanj."""
+    rows = db.execute("SELECT run_id, vod_id, profile FROM runs ORDER BY run_id")
+    return [(run_id, profile) for run_id, vod_id, profile in rows if own_file(vod_id or "")]
+
+
+def _move_own_files(db: sqlite3.Connection, path: Path) -> None:
+    """Ett projekt per kampanj som har egna filer eller uppladdningar, och project_id på egna filers körningar
+    (vod_id som inte bara är siffror). Först en kopia av klipploggen bredvid filen,
+    klipp.db.fore-projekt-<tidsstämpel>, om det finns något att flytta. Inga rader tas bort, och samma resultat
+    om den körs två gånger. Ångra: UPDATE runs SET project_id = NULL
+    (eller lägg tillbaka kopian medan servern är stoppad)."""
+    runs = _own_runs(db)
+    uploads = [row[0] for row in db.execute("SELECT DISTINCT profile FROM clips WHERE vod_id = ?", (UPLOADS,))]
+    profiles = list(dict.fromkeys([*(profile for _, profile in runs), *uploads]))
+    if profiles:
+        _backup(path)
+    _add_project_columns(db)
+    # Projektets titel har streamerns namn från kampanjens körningar, också Twitch-körningarna.
+    streamers = dict(db.execute("SELECT profile, channel_name FROM runs WHERE channel_name IS NOT NULL "
+                                "ORDER BY run_id"))
+    for profile in profiles:
         _project_id(db, profile, streamers.get(profile, profile))
-    for run_id, _, profile, _ in runs:
-        db.execute("UPDATE runs SET project_id = (SELECT id FROM projects WHERE profile = ? AND kind = ?) "
-                   "WHERE run_id = ? AND project_id IS NULL", (profile, OWN_FILES, run_id))
+    db.executemany("UPDATE runs SET project_id = (SELECT id FROM projects WHERE profile = ? AND kind = ?) "
+                   "WHERE run_id = ? AND project_id IS NULL", [(profile, OWN_FILES, run_id) for run_id, profile in runs])
 
 
 def _now() -> str:

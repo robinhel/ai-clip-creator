@@ -22,6 +22,7 @@ from campaign.subtitles import words_path
 
 from .conftest import PAKET, make_clip, needs_subtitles, set_profile
 from .test_api import client  # noqa: F401  (fixture)
+from .test_natt_lage import _run
 
 SEGMENTS = {  # vodA: tre meningar med tystnad mellan
     "vodA": [(0.0, 10.0, "In this video we talk about the weather today"),
@@ -364,6 +365,8 @@ def test_a_twitch_vod_without_video_downloads_only_the_part(client, chatapp, set
     monkeypatch.setattr(download, "_resolve_quality", lambda vod_id, quality: quality)  # frågar annars Twitch
     monkeypatch.setattr(pipeline, "cut_all_clips", cut)
     monkeypatch.setattr(pipeline, "finish", lambda *a, **k: [])
+    for _ in range(9):  # körningarna 1-9 finns i clipsmiths databas, så chattens körning blir nyare än 9
+        _run("done", vod)
     answer = client.post("/campaign/chats/1/clips", json={"hit_ids": [hit["id"]]})
     assert answer.status_code == 202, answer.text
     cmd = state.cmd
@@ -375,6 +378,7 @@ def test_a_twitch_vod_without_video_downloads_only_the_part(client, chatapp, set
     del SEGMENTS[vod]
     # Chattens körning gör inget nytt kort: projektet för VOD:en är den gamla körningen.
     run_id = answer.json()["run_id"]
+    assert run_id == 10
     assert (chatapp.log.run(run_id)["origin"], chatapp.log.run(run_id)["project_id"]) == ("chat", None)
     assert [r["run_id"] for r in client.get("/campaign/runs").json() if r["vod_id"] == vod] == [9]
     assert client.get(f"/campaign/runs/{run_id}").json()["origin"] == "chat"
@@ -385,6 +389,8 @@ def test_a_chat_run_for_an_own_file_lands_in_the_campaigns_project(client, chata
     shutil.copy(PAKET / "config.timmy.yaml", settings.root / "config.timmy.yaml")
     (settings.work_dir / "vodA" / "vodA.mp4").write_bytes(b"video")
     [hit] = _chat_with_hits(client, chatapp, _hit())
+    for run_id in range(1, 5):  # körningarna i fixturen finns också i clipsmiths databas, som i appen
+        assert _run("done", "vodA") == run_id
     seen = {}
     monkeypatch.setattr(pipeline, "cut_picks", lambda mp4, transcript, picks, run_dir, cfg: seen.update(dir=run_dir))
     monkeypatch.setattr(pipeline, "finish", lambda *a, **k: [])
