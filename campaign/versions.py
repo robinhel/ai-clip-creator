@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from . import editor
-from .caption import PLACEHOLDER
+from .caption import headline_text
 from .cliplog import POST_STATUSES, ClipLog
 from .config import Settings
 from .finish import HEIGHT, WIDTH, finish_clip, hook_fits, top_text_end
@@ -140,15 +140,10 @@ def hook_problem(hook: str, fits: Callable[[str], bool]) -> str | None:
     return None
 
 
-def _shown(title: str | None) -> str:
-    """Hooken i bilden: titeln, men snabblägets platshållare ("Moment 0:01:40") blir ingen hook."""
-    title = title or ""
-    return "" if PLACEHOLDER.search(title) else title
-
-
 def hooks_used(log: ClipLog, root: dict) -> list[str]:
-    """Hookarna (title) på originalet och alla dess versioner, utan platshållare och dubbletter."""
-    titles = (_shown(log.get(clip_id)["title"]) for clip_id in log.family(root["id"]))
+    """Texten i bilden (caption.headline_text) på originalet och alla dess versioner, utan platshållare och
+    dubbletter."""
+    titles = (headline_text(log.get(clip_id)) for clip_id in log.family(root["id"]))
     return list(dict.fromkeys(title for title in titles if title))
 
 
@@ -207,7 +202,7 @@ def _own_options(log: ClipLog, ready: dict | None) -> dict:
     # Hundradelar inåt: trimningen kan ha fler decimaler, och gränsen ska alltid gå att göra.
     return {"min_start_cut_s": math.ceil(earliest * 100 - 1e-6) / 100,
             "max_start_cut_s": math.floor(latest * 100 + 1e-6) / 100, "new_start_s": NEW_START_S,
-            "hook": _shown(root["title"]), "hooks_used": hooks_used(log, root),
+            "hook": headline_text(root), "hooks_used": hooks_used(log, root),
             "original_url": f"/campaign/clips/{root['id']}/original", "in_s": ready["in_s"]}
 
 
@@ -251,9 +246,9 @@ def _overlay(settings: Settings, profile: Profile, overlay: str | None) -> Path 
 
 
 def _sticker(settings: Settings, profile: Profile, sticker: dict | None, length: float, title: str = "",
-             overlay: Path | None = None, frame: str = "") -> dict | None:
-    """Klistermärket kontrollerat och placerat. title, overlay och frame (bildläget) är klippets: texten uppe
-    ska synas."""
+             overlay: Path | None = None, frame: str = "", font_file: str | None = None) -> dict | None:
+    """Klistermärket kontrollerat och placerat. title, overlay, frame (bildläget) och font_file är klippets:
+    texten uppe ska synas."""
     if sticker is None:
         return None
     path = sticker_path(settings.root, sticker.get("file"))
@@ -271,7 +266,7 @@ def _sticker(settings: Settings, profile: Profile, sticker: dict | None, length:
     except RuntimeError as error:
         raise VersionError(f"Klistermärket {path.name} går inte att läsa.") from error
     height = round(STICKER_W * info["height"] / info["width"])
-    text_end = top_text_end(profile, settings.root, title, overlay, frame)
+    text_end = top_text_end(profile, settings.root, title, overlay, frame, font_file)
     x, y = sticker_box(str(sticker.get("position")), STICKER_W, height, profile, text_end)
     return {"path": path, "w": STICKER_W, "h": height, "x": x, "y": y, "start_s": start, "end_s": start + duration}
 
@@ -350,8 +345,8 @@ def make(settings: Settings, log: ClipLog, clip: dict, platform: str, account: s
     hook = _hook(hook, partial(hook_fits, profile, settings.root, overlay=own, frame=data["reframe"]["mode"],
                                font_file=font_file))
     title = (root["title"] or "") if hook is None else hook
-    shown = _shown(title)
-    placed = _sticker(settings, profile, sticker, length, shown, own, data["reframe"]["mode"])
+    shown = headline_text({"headline": hook} if hook else root)  # texten i bilden, sparas som headline
+    placed = _sticker(settings, profile, sticker, length, shown, own, data["reframe"]["mode"], font_file)
     caption = root["caption"] if hook is None else editor._caption(root, hook, profile, editor._game(log, root))
     new_start = abs(start - ready["in_s"]) >= NEW_START_S - 1e-6  # verklig flytt, efter klämningen i _start
     style = {**data["caption"], **({"font": font} if font else {})}  # bara versionens undertext
@@ -378,7 +373,7 @@ def make(settings: Settings, log: ClipLog, clip: dict, platform: str, account: s
     out.with_suffix(".txt").write_text(caption + "\n", encoding="utf-8")
     problems, warnings = check_clip(probe(out), manifest, profile, caption, root["format"], root["review"])
     return log.add(
-        vod_id=root["vod_id"], profile=root["profile"], file=str(out), title=title, caption=caption,
+        vod_id=root["vod_id"], profile=root["profile"], file=str(out), title=title, caption=caption, headline=shown,
         status="underkand" if problems else "renderad",
         start_s=None if root["start_s"] is None else round(root["start_s"] + start - ready["in_s"], 3),
         end_s=root["end_s"], clip_format=root["format"], signals=root["signals"], problems=problems,
