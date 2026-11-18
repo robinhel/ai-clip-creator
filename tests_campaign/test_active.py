@@ -78,7 +78,8 @@ def test_an_off_campaign_is_hidden_everywhere_but_under_campaigns(client, settin
 
 def _off_campaign_with_posts(settings) -> dict[str, int]:
     """En påslagen kampanj med ett godkänt klipp och ett postat, och en avstängd med ett postat, ett inskickat och
-    ett godkänt klipp. Det postade klippet i den avstängda kampanjen har 5 000 visningar, över min_views."""
+    ett godkänt klipp. Det postade och det godkända klippet i den avstängda kampanjen har 5 000 visningar, över
+    min_views."""
     _second_campaign(settings, "annan", "annankanal")
     log = ClipLog(settings.data_dir / "klipp.db")
     ids = {
@@ -94,6 +95,7 @@ def _off_campaign_with_posts(settings) -> dict[str, int]:
                                 status="godkand"),
     }
     log.update(ids["off_posted"], views=5000)
+    log.update(ids["off_approved"], views=5000)  # över min_views, men det godkända klippet räknas inte i intäkterna
     path = settings.profiles_dir / "annan.yaml"
     path.write_text(path.read_text() + "active: false\n")
     return ids
@@ -108,6 +110,19 @@ def test_statistics_shows_posted_clips_from_an_off_campaign(client, settings) ->
     # Utan posted_off döljs den avstängda kampanjens klipp som förut.
     plain = {c["id"]: c["campaign_off"] for c in client.get("/campaign/clips").json()}
     assert plain == {ids["on_approved"]: False, ids["on_posted"]: False}
+
+
+def test_saving_a_post_keeps_campaign_off_on_the_clip(client, settings) -> None:  # noqa: F811
+    ids = _off_campaign_with_posts(settings)
+    log = ClipLog(settings.data_dir / "klipp.db")
+    off_post = log.add_post(ids["off_posted"], "tiktok", "https://www.tiktok.com/@me/video/1")
+    on_post = log.add_post(ids["on_posted"], "tiktok", "https://www.tiktok.com/@me/video/2")
+
+    # Webben byter ut klippet mot svaret, så att märket Avstängd står kvar efter att visningar sparats.
+    off = client.patch(f"/campaign/posts/{off_post}", json={"views": 6000})
+    assert off.status_code == 200, off.text
+    assert off.json()["campaign_off"] is True
+    assert client.patch(f"/campaign/posts/{on_post}", json={"views": 300}).json()["campaign_off"] is False
 
 
 def test_posted_off_does_not_change_a_run_or_a_campaign(client, settings) -> None:  # noqa: F811
