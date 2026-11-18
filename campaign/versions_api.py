@@ -1,4 +1,5 @@
-"""Vägar för en ny version av ett godkänt klipp för ett annat konto, och bilderna versionen kan använda.
+"""Vägar för en ny version av ett godkänt klipp för ett annat konto, förslag på ny hook och bilderna versionen kan
+använda.
 
 Vägarna registreras på campaign.api.router, som importerar den här modulen sist.
 """
@@ -9,11 +10,11 @@ from typing import Literal
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from clipsmith.api.deps import verify_api_key
 
-from . import editor, versions
+from . import editor, variant, versions
 from .api import _get, _log, _public, _start_lock, get_settings, router
 from .config import Settings
 
@@ -24,7 +25,7 @@ class VersionBody(BaseModel):
     platform: Platform
     account: str  # TikToks open_id eller YouTubes channel_id
     font: str | None = None  # None: samma font som originalet
-    start_cut_s: float = 0.0
+    start_cut_s: float = 0.0  # startpunkten från originalets start: negativ tidigare, positiv senare
     overlay: str | None = None  # None: kampanjens overlay
     sticker: dict | None = None  # {file, position, start_s, duration_s}; kontrolleras i versions.make
     mirror: bool = False
@@ -32,6 +33,7 @@ class VersionBody(BaseModel):
     filter: str = "none"  # en av versions.FILTERS
     brightness: float = 0.0
     saturation: float = 0.0
+    hook: str | None = Field(default=None, max_length=120)  # None: originalets hook, rubrik och caption
 
 
 @router.get("/clips/{clip_id}/versions/options", summary="Valen för en ny version till ett annat konto")
@@ -54,7 +56,7 @@ def make_version(clip_id: int, body: VersionBody, request: Request, settings: Se
         clip = _get(log, clip_id)
         new_id = versions.make(settings, log, clip, body.platform, body.account, body.font, body.start_cut_s,
                                body.overlay, body.sticker, body.mirror, body.speed, body.filter,
-                               body.brightness, body.saturation)
+                               body.brightness, body.saturation, body.hook)
     except versions.VersionError as error:
         raise HTTPException(error.status, str(error)) from error
     except RuntimeError as error:  # ffmpeg misslyckades
@@ -63,6 +65,16 @@ def make_version(clip_id: int, body: VersionBody, request: Request, settings: Se
         editor.editing = None
         editor.lock.release()
     return _public(log.get(new_id), settings)
+
+
+@router.post("/clips/{clip_id}/versions/hook", summary="Föreslå en ny hook för en ny version av klippet (Claude)",
+             dependencies=[Depends(verify_api_key)])
+def suggest_version_hook(clip_id: int, settings: Settings = Depends(get_settings)) -> dict:
+    clip = _get(_log(settings), clip_id)
+    try:
+        return variant.suggest_hook(settings, clip)
+    except variant.VariantError as error:
+        raise HTTPException(error.status, str(error)) from error
 
 
 def _image(settings: Settings, folder: str, name: str) -> FileResponse:

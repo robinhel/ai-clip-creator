@@ -215,7 +215,7 @@ import subprocess  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from campaign import api, subtitles  # noqa: E402
+from campaign import api, editor_api, subtitles  # noqa: E402
 from campaign.workflow import finish_vod  # noqa: E402
 from clipsmith.settings import CaptionConfig, ReframeConfig  # noqa: E402
 
@@ -287,6 +287,23 @@ def _spy(monkeypatch) -> list:
 
     monkeypatch.setattr(versions, "finish_clip", spy)
     return seen
+
+
+def _trimmed(client, log, clip_id) -> None:
+    """Trimma originalet till 4–10 s i redigeraren, så att originalfilen är längre än klippet. Godkänt igen."""
+    client.app.include_router(editor_api.router)
+    answer = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 4.0, "out_s": 10.0})
+    assert answer.status_code == 200, answer.text
+    log.update(clip_id, status="godkand", problems=[])
+
+
+def _length(path: Path) -> float:
+    return float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+                                 str(path)], capture_output=True, text=True, check=True).stdout)
+
+
+def _hook_on(settings) -> None:
+    set_profile(settings, on_screen_text={"text": "twitch.tv/skiimasktimmy", "required": True, "hook_text": True})
 
 
 @needs_ffmpeg
@@ -392,7 +409,7 @@ def test_bad_choices_are_refused_and_nothing_is_made(vclip, settings, body, text
 @needs_subtitles
 def test_a_versions_sticker_at_the_top_goes_below_the_burned_in_title(vclip, settings, monkeypatch) -> None:
     client, _, clip_id = vclip
-    set_profile(settings, on_screen_text={"text": "twitch.tv/skiimasktimmy", "required": True, "hook_text": True})
+    _hook_on(settings)
     seen = _spy(monkeypatch)
     answer = _make(client, clip_id, sticker={"file": "fire.png", "position": "top_right", "start_s": 0,
                                              "duration_s": 3})
@@ -411,9 +428,7 @@ def test_a_version_can_be_mirrored_filtered_and_sped_up(vclip, settings, monkeyp
     (call,) = seen
     assert call["look"].startswith(",hflip,eq=") and call["speed"] == 1.2
     out = settings.out_dir / "123" / "klara" / "clip_01_no_way.v1.mp4"
-    length = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
-                                   "csv=p=0", str(out)], capture_output=True, text=True, check=True).stdout)
-    assert length == pytest.approx(10.0 / 1.2, abs=0.15)
+    assert _length(out) == pytest.approx(10.0 / 1.2, abs=0.15)
     options = _options(client, clip_id)
     assert options["speeds"] == [1.0, 1.05, 1.1, 1.15, 1.2]
     assert options["filters"] == ["none", "fresh", "warm", "cool", "punch"]
@@ -543,29 +558,11 @@ def test_the_original_lists_the_account_of_its_version(sched, settings) -> None:
 
 # ---------- 5. eget bidrag: ny hook eller ny startpunkt ----------
 
-from campaign import editor_api  # noqa: E402
 from campaign.brain import Brain  # noqa: E402
 from campaign.caption import build_caption  # noqa: E402
 
 NONE_OWN = ("Versionen har ingen ny hook och ingen ny startpunkt. Bara spegling, hastighet, filter eller font kan "
             "ge strike på YouTube och stoppa klippet från För dig på TikTok.")
-
-
-def _trimmed(client, log, clip_id, in_s=4.0, out_s=10.0) -> None:
-    """Trimma originalet i redigeraren, så att originalfilen är längre än klippet. Godkänt igen efteråt."""
-    client.app.include_router(editor_api.router)
-    answer = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": in_s, "out_s": out_s})
-    assert answer.status_code == 200, answer.text
-    log.update(clip_id, status="godkand", problems=[])
-
-
-def _length(path: Path) -> float:
-    return float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
-                                 str(path)], capture_output=True, text=True, check=True).stdout)
-
-
-def _hook_on(settings) -> None:
-    set_profile(settings, on_screen_text={"text": "twitch.tv/skiimasktimmy", "required": True, "hook_text": True})
 
 
 @needs_subtitles
@@ -715,6 +712,7 @@ def test_the_options_tell_the_start_range_and_the_hooks(vclip, settings) -> None
 
 
 def _claude_hook(monkeypatch, *hooks):
+    """En låtsad Claude som svarar hookarna i tur och ordning, sedan den sista om och om igen."""
     from campaign import variant
 
     from .conftest import FakeClient

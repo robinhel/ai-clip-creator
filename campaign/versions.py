@@ -1,11 +1,15 @@
-"""Ny version av ett godkänt klipp för ett annat konto: annan font, klipp i början, egen overlay och klistermärke,
-spegling, färgfilter, ljusstyrka, mättnad och hastighet.
+"""Ny version av ett godkänt klipp för ett annat konto: ny hook, ny startpunkt (tidigare eller senare), annan font,
+egen overlay och klistermärke, spegling, färgfilter, ljusstyrka, mättnad och hastighet.
+
+Eget bidrag är en ny hook eller en startpunkt flyttad minst NEW_START_S. Utan något av dem får versionen en varning:
+bara spegling och hastighet kan ge strike på YouTube och stoppa klippet från För dig på TikTok.
 """
 
 from __future__ import annotations
 
 import math
 import os
+import textwrap
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -14,12 +18,12 @@ from . import editor
 from .caption import PLACEHOLDER
 from .cliplog import POST_STATUSES, ClipLog
 from .config import Settings
-from .finish import HEIGHT, WIDTH, finish_clip, top_text_end
+from .finish import HEIGHT, HOOK_LINE_CHARS, WIDTH, finish_clip, top_text_end
 from .media import probe
 from .profile import Profile, load_profile
 from .profile_edit import overlay_target
 from .rules import check_clip
-from .schedule import NAMES, Schedule, ScheduleError
+from .schedule import NAMES, Schedule, ScheduleError, _norm
 from .subtitles import load_words
 from .timemap import prepare
 
@@ -28,9 +32,17 @@ FONT_DIRS = (Path("/System/Library/Fonts/Supplemental"), Path("/Library/Fonts"))
 FONTS = {"Arial": "Arial Bold.ttf", "Arial Black": "Arial Black.ttf", "Impact": "Impact.ttf",
          "Verdana": "Verdana Bold.ttf", "Trebuchet MS": "Trebuchet MS Bold.ttf", "Georgia": "Georgia Bold.ttf",
          "Comic Sans MS": "Comic Sans MS Bold.ttf"}
-MAX_CUT_S = 5.0
+MAX_CUT_S = 5.0  # uploads_api.py använder den; make() har ingen spärr på 5 s längre
+NEW_START_S = 3.0  # så långt flyttad startpunkt, tidigare eller senare, är ett eget bidrag
+ROUNDING_S = 0.01  # webben avrundar: en startpunkt så nära originalfilens början räknas som början
 STICKER_S = (0.5, 10.0)
 NO_WORDS = "Ny version kräver ett klipp som appen har skurit med ordfil."
+HOOK_LINES = 3
+HOOK_EMPTY = "Hooken är tom. Skriv en hook, eller lämna fältet tomt för originalets hook."
+HOOK_CONTROL = "Hooken får inte ha radbrytningar eller andra styrtecken."
+HOOK_TOO_LONG = f"Hooken ryms inte i bilden. Skriv högst {HOOK_LINES} rader med {HOOK_LINE_CHARS} tecken."
+NO_OWN = ("Versionen har ingen ny hook och ingen ny startpunkt. Bara spegling, hastighet, filter eller font kan ge "
+          "strike på YouTube och stoppa klippet från För dig på TikTok.")
 
 FILTERS: dict[str, str | None] = {
     "none": None,
@@ -111,6 +123,30 @@ def fonts() -> dict[str, str]:
     return found
 
 
+def hook_problem(hook: str) -> str | None:
+    """Varför hooken inte går att använda, eller None. Samma radbrytning som hooken i bilden (finish), men utan
+    att korta: det som inte ryms på HOOK_LINES rader stoppas."""
+    if not hook:
+        return HOOK_EMPTY
+    if not hook.isprintable():
+        return HOOK_CONTROL
+    if len(textwrap.wrap(hook, HOOK_LINE_CHARS)) > HOOK_LINES:
+        return HOOK_TOO_LONG
+    return None
+
+
+def _shown(title: str | None) -> str:
+    """Hooken i bilden: titeln, men snabblägets platshållare ("Moment 0:01:40") blir ingen hook."""
+    title = title or ""
+    return "" if PLACEHOLDER.search(title) else title
+
+
+def hooks_used(log: ClipLog, root: dict) -> list[str]:
+    """Hookarna (title) på originalet och alla dess versioner, utan platshållare och dubbletter."""
+    titles = (_shown(log.get(clip_id)["title"]) for clip_id in log.family(root["id"]))
+    return list(dict.fromkeys(title for title in titles if title))
+
+
 def _files(folder: Path, url: str, prefix: str = "") -> list[dict]:
     return [{"file": f"{prefix}{p.name}", "url": f"{url}/{quote(p.name)}"}
             for p in sorted(folder.glob("*.png")) if p.is_file()]
@@ -152,6 +188,20 @@ def _style(settings: Settings, profile: Profile | None, platform: str, account: 
     return next((style for key, style in profile.accounts_style.items() if key.lstrip("@").lower() in names), {})
 
 
+def _own_options(log: ClipLog, ready: dict | None) -> dict:
+    """Valen för eget bidrag: startpunkten (negativ är tidigare än originalet) och hookarna. Tomma när versionen
+    inte går att göra."""
+    if ready is None:
+        return {"min_start_cut_s": 0.0, "max_start_cut_s": 0.0, "new_start_s": NEW_START_S, "hook": "",
+                "hooks_used": [], "original_url": None, "in_s": 0.0}
+    root, profile = ready["root"], ready["profile"]
+    length = ready["out_s"] - ready["in_s"]
+    return {"min_start_cut_s": round(min(0.0, max(-ready["in_s"], length - profile.max_seconds)), 2),
+            "max_start_cut_s": round(max(0.0, length - profile.min_seconds), 2), "new_start_s": NEW_START_S,
+            "hook": _shown(root["title"]), "hooks_used": hooks_used(log, root),
+            "original_url": f"/campaign/clips/{root['id']}/original", "in_s": ready["in_s"]}
+
+
 def options(settings: Settings, log: ClipLog, clip: dict, platform: str, account: str) -> dict:
     try:
         ready: dict | None = _ready(settings, log, clip, platform, account)
@@ -163,14 +213,12 @@ def options(settings: Settings, log: ClipLog, clip: dict, platform: str, account
     except SystemExit:
         profile = None
     style = _style(settings, profile, platform, account)
-    length = ready["out_s"] - ready["in_s"] if ready else 0.0
-    min_s = profile.min_seconds if profile else 0.0
     return {"allowed": ready is not None, "reason": reason,
             "fonts": [{"name": name, "label": name} for name in fonts()],
             "stickers": _files(settings.root / "stickers", "/campaign/stickers"),
             "overlays": _files(settings.root / "overlays", "/campaign/overlays", "overlays/"),
             "overlay_locked": bool(profile and profile.overlay_required),
-            "max_start_cut_s": round(max(0.0, min(MAX_CUT_S, length - min_s)), 2),
+            **_own_options(log, ready), "hook_text": bool(profile and profile.hook_text),
             "speeds": list(SPEEDS), "filters": list(FILTERS),
             "defaults": {"font": style.get("font") or (ready["data"]["caption"].get("font") if ready else None),
                          "overlay": style.get("overlay"), "sticker": style.get("sticker"),
@@ -217,56 +265,101 @@ def _sticker(settings: Settings, profile: Profile, sticker: dict | None, length:
     return {"path": path, "w": STICKER_W, "h": height, "x": x, "y": y, "start_s": start, "end_s": start + duration}
 
 
+def _start(ready: dict, start_cut_s: float, speed: float) -> tuple[float, float]:
+    """Versionens start i originalfilen och längd före hastigheten. start_cut_s är startpunkten räknad från
+    originalets start: negativ är tidigare, positiv senare. Slutet (out_s) ligger kvar. En start före
+    originalfilen, eller en längd efter hastigheten utanför kampanjens gränser, ger 400."""
+    profile = ready["profile"]
+    if start_cut_s < -ready["in_s"] - ROUNDING_S:
+        raise VersionError(f"Startpunkten ligger före början av originalfilen. Den kan flyttas högst "
+                           f"{ready['in_s']:.1f} s tidigare.")
+    start = max(0.0, ready["in_s"] + start_cut_s)
+    seconds = (ready["out_s"] - start) / speed
+    if seconds < profile.min_seconds:
+        raise VersionError(f"Versionen blir {max(0.0, seconds):.1f} s. Kampanjen kräver minst "
+                           f"{profile.min_seconds:g} s.")
+    if seconds > profile.max_seconds:
+        raise VersionError(f"Versionen blir {seconds:.1f} s. Kampanjen tillåter högst {profile.max_seconds:g} s.")
+    return start, ready["out_s"] - start
+
+
+def _hook(hook: str | None) -> str | None:
+    """Versionens hook utan blanksteg runt, eller None för originalets. Fel hook ger 400."""
+    if hook is None:
+        return None
+    hook = hook.strip()
+    if problem := hook_problem(hook):
+        raise VersionError(problem)
+    return hook
+
+
+def _new_hook(log: ClipLog, ready: dict, shown: str) -> bool:
+    """Hooken i bilden är ny: den finns inte på originalet eller en version (_norm, som schemat). Visar kampanjen
+    ingen hook räknas den inte."""
+    if not (ready["profile"].hook_text and shown):
+        return False
+    return _norm(shown) not in {_norm(hook) for hook in hooks_used(log, ready["root"])}
+
+
+def _next_file(raw: Path) -> Path:
+    """Nästa lediga clip_NN.vN.mp4 i klara/."""
+    done = raw.parent / "klara" / raw.name
+    number = 1
+    while (out := done.with_name(f"{raw.stem}.v{number}.mp4")).exists():
+        number += 1
+    return out
+
+
 def make(settings: Settings, log: ClipLog, clip: dict, platform: str, account: str, font: str | None = None,
          start_cut_s: float = 0.0, overlay: str | None = None, sticker: dict | None = None, mirror: bool = False,
-         speed: float = 1.0, filter: str = "none", brightness: float = 0.0, saturation: float = 0.0) -> int:
+         speed: float = 1.0, filter: str = "none", brightness: float = 0.0, saturation: float = 0.0,
+         hook: str | None = None) -> int:
     """Rendera en ny version och spara den som ett eget klipp med version_of. Anroparen håller editor.lock.
-    Råklippet, originalets klara fil och ordfilen ändras inte."""
+    Råklippet, originalets klara fil och ordfilen ändras inte. hook None: originalets hook, rubrik och caption."""
     ready = _ready(settings, log, clip, platform, account)
     root, profile, raw, data = ready["root"], ready["profile"], ready["raw"], ready["data"]
     found = fonts()
     if font is not None and font not in found:
         raise VersionError(f"Fonten {font} finns inte. Välj en ur listan.")
-    if not 0 <= start_cut_s <= MAX_CUT_S:
-        raise VersionError(f"Klipp i början får vara 0–{MAX_CUT_S:g} sekunder.")
+    hook = _hook(hook)
     if speed not in SPEEDS:
         raise VersionError(f"Hastigheten {speed:g} går inte. Välj {', '.join(f'{s:g}' for s in SPEEDS)}.")
     filters = look(mirror, filter, brightness, saturation)
-    length = ready["out_s"] - ready["in_s"] - start_cut_s
-    if length / speed < profile.min_seconds:
-        raise VersionError(f"Versionen blir {length / speed:.1f} s. Kampanjen kräver minst {profile.min_seconds:g} s.")
+    start, length = _start(ready, start_cut_s, speed)
     own = _overlay(settings, profile, overlay)
-    title = root["title"] or ""
-    hook = "" if PLACEHOLDER.search(title) else title
-    placed = _sticker(settings, profile, sticker, length, hook, own, data["reframe"]["mode"])
+    title = (root["title"] or "") if hook is None else hook
+    shown = _shown(title)
+    placed = _sticker(settings, profile, sticker, length, shown, own, data["reframe"]["mode"])
+    caption = root["caption"] if hook is None else editor._caption(root, hook, profile, editor._game(log, root))
+    new_start = abs(start_cut_s) >= NEW_START_S
+    style = {**data["caption"], **({"font": font} if font else {})}  # bara versionens undertext
+    # Ny startpunkt: ordfilen utan hook, så att ingen cold open görs. Versionen ska börja där Robin valde.
+    words = {**data, "caption": style, **({"hook": None} if new_start else {})}
 
-    done = raw.parent / "klara" / raw.name
-    number = 1
-    while (out := done.with_name(f"{raw.stem}.v{number}.mp4")).exists():
-        number += 1
+    out = _next_file(raw)
     tmp_src, tmp_out = editor._tmp(raw, "version"), editor._tmp(out, "render")
     ass = raw.with_name(f".{raw.stem}.version.ass")  # punkt först, som _tmp
     try:
         src = raw
-        if start_cut_s > 0:  # råklippet börjar vid in_s; versionen börjar start_cut_s senare
-            editor._trim(raw, tmp_src, start_cut_s, probe(raw)["duration"], settings.encoder)
+        if start_cut_s:  # klipp ur originalfilen, så att en tidigare start också går
+            editor._trim(editor.source_path(raw), tmp_src, start, ready["out_s"], settings.encoder)
             src = tmp_src
-        caption = {**data["caption"], **({"font": font} if font else {})}  # bara versionens undertext
-        plan = prepare(src, {**data, "caption": caption}, ready["in_s"] + start_cut_s, ready["out_s"], profile, ass)
+        plan = prepare(src, words, start, ready["out_s"], profile, ass)
         manifest = finish_clip(src, tmp_out, profile, settings.root, settings.encoder,
-                               title=hook, subtitles=ass, plan=plan,
+                               title=shown, subtitles=ass, plan=plan,
                                overlay=own, font_file=found.get(font or ""), sticker=placed, look=filters,
                                speed=speed, frame=data["reframe"]["mode"])
         os.replace(tmp_out, out)
     finally:
         for path in (tmp_src, tmp_out, ass):
             path.unlink(missing_ok=True)
-    out.with_suffix(".txt").write_text(root["caption"] + "\n", encoding="utf-8")
-    problems, warnings = check_clip(probe(out), manifest, profile, root["caption"], root["format"], root["review"])
+    out.with_suffix(".txt").write_text(caption + "\n", encoding="utf-8")
+    problems, warnings = check_clip(probe(out), manifest, profile, caption, root["format"], root["review"])
     return log.add(
-        vod_id=root["vod_id"], profile=root["profile"], file=str(out), title=title, caption=root["caption"],
+        vod_id=root["vod_id"], profile=root["profile"], file=str(out), title=title, caption=caption,
         status="underkand" if problems else "renderad",
         start_s=None if root["start_s"] is None else round(root["start_s"] + start_cut_s, 3), end_s=root["end_s"],
-        clip_format=root["format"], signals=root["signals"], problems=problems, warnings=warnings,
+        clip_format=root["format"], signals=root["signals"], problems=problems,
+        warnings=warnings if new_start or _new_hook(log, ready, shown) else [*warnings, NO_OWN],
         review=root["review"], score=root["score"], reason=root["reason"] or "", subscores=root["subscores"],
         version_of=root["id"])
