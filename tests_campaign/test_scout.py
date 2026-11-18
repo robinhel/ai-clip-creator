@@ -1490,6 +1490,41 @@ def test_a_campaign_excluded_for_the_country_gets_its_page_read_again(settings, 
         ["france/c"], ["fresh/c"])
 
 
+def test_a_campaign_page_read_before_the_price_per_country_gets_it_within_two_runs(settings, fake,
+                                                                                   monkeypatch) -> None:
+    refs = [f"old/c{i}" for i in range(scout.CLIP_VIEWS_PER_RUN + 3)]
+    for i, ref in enumerate(refs):  # sidan lästes för en timme sedan, innan geo sparades
+        _seed_with_page(settings, ref, 90 - i, clip_age_h=1)
+    fake.clip_views, fake.geo = [9_000] * 5, PARTLY
+    scout.Scout(settings).run_once()
+    assert fake.clip_calls == [_page(ref) for ref in refs[:scout.CLIP_VIEWS_PER_RUN]]  # taket gäller som förut
+    assert [_saved(settings, ref).get("geo") for ref in refs] == [PARTLY] * scout.CLIP_VIEWS_PER_RUN + [None] * 3
+    assert scout.Scout(settings).calls_today() == 4  # bara initialize och sökningarna
+
+    _later(monkeypatch, minutes=10)  # nästa körning tar resten
+    scout.Scout(settings).run_once()
+    assert fake.clip_calls == [_page(ref) for ref in refs]
+    assert all(_saved(settings, ref)["geo"] == PARTLY for ref in refs)
+    assert scout.Scout(settings).calls_today() == 4 + 1  # bara sökningen
+
+
+def test_a_campaign_page_that_cannot_be_read_waits_six_hours_also_without_a_price(settings, fake,
+                                                                                    monkeypatch) -> None:
+    _seed_with_page(settings, "timmy/streams", 50, clip_age_h=1)  # utan geo
+    fake.clip_views = None  # sidan går inte att läsa
+    scout.Scout(settings).run_once()
+    assert fake.clip_calls == [_page("timmy/streams")]
+    assert ("geo" in _saved(settings), _saved(settings).get("geo")) == (True, None)  # Land okänt
+
+    _later(monkeypatch, minutes=10)
+    scout.Scout(settings).run_once()
+    assert fake.clip_calls == [_page("timmy/streams")]  # inte var 10:e minut
+
+    _later(monkeypatch, hours=7)
+    scout.Scout(settings).run_once()
+    assert fake.clip_calls == [_page("timmy/streams")] * 2
+
+
 # ---------- landet i Inställningar ----------
 
 
@@ -1564,6 +1599,16 @@ def test_no_go_when_the_rest_of_the_day_needs_the_calls(settings, fake) -> None:
     scout.Scout(settings)._count(scout.CALL_LIMIT - scout.reserve(NOW) - 4)  # sökningarna tar resten
     scout.Scout(settings).run_once()
     assert fake.go == [] and scout.Scout(settings).calls_today() == scout.CALL_LIMIT - scout.reserve(NOW)
+
+
+@pytest.mark.parametrize(("left", "go"), [(0, 0), (1, 1)])  # anrop kvar ovanför marginalen efter sökningarna
+def test_go_leaves_room_for_the_details_of_new_campaigns_later_in_the_day(settings, fake, left, go) -> None:
+    _seed_without_page(settings, 5)
+    room = scout.CALL_LIMIT - scout.reserve(NOW) - 20  # 20: detaljerna till fem nya kampanjer à fyra anrop
+    scout.Scout(settings)._count(room - 4 - left)  # 4 för initialize och sökningarna
+    scout.Scout(settings).run_once()
+    assert len(fake.go) == go and scout.Scout(settings).calls_today() == room - left + go
+    assert scout.JOIN_SLACK == 20
 
 
 @pytest.mark.parametrize("stop", [{"down": True}, {"limit_at": "search_campaigns"}])
