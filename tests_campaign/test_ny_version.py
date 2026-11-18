@@ -602,6 +602,19 @@ def test_an_earlier_start_of_three_seconds_is_new_and_has_no_cold_open(vclip, se
 
 
 @needs_subtitles
+def test_a_start_moved_less_than_three_seconds_is_not_new_after_the_clamp(vclip, settings, monkeypatch) -> None:
+    client, log, clip_id = vclip
+    _trimmed(client, log, clip_id, (2.98, 10.0))
+    raw = settings.out_dir / "123" / RAW
+    subtitles.save_words(raw, WORDS, CaptionConfig(enabled=True, style="box"), ReframeConfig(mode="center"),
+                         editor.source_path(raw), hook=[6.0, 7.5])
+    seen = _spy(monkeypatch)
+    answer = _make(client, clip_id, start_cut_s=-3.0)  # kläms till filens början: verklig flytt 2,98 s
+    assert answer.status_code == 201, answer.text
+    assert seen[-1]["plan"] and seen[-1]["plan"]["cold_open"] and NO_OWN in answer.json()["warnings"]
+
+
+@needs_subtitles
 def test_a_later_start_beyond_five_seconds_is_allowed(vclip, settings) -> None:
     client, _, clip_id = vclip
     answer = _make(client, clip_id, start_cut_s=6)
@@ -616,6 +629,22 @@ def test_the_edge_from_the_options_is_accepted(vclip, settings) -> None:
     set_profile(settings, clip={"min_seconds": 7, "max_seconds": 60})
     edge = _options(client, clip_id)["max_start_cut_s"]
     assert edge == 1.28
+    answer = _make(client, clip_id, start_cut_s=edge)
+    assert answer.status_code == 201, answer.text
+
+
+@needs_subtitles
+@pytest.mark.parametrize("case", [  # trimning, kampanjens gränser, gränsen i options
+    ((4.125, 9.13), {"min_seconds": 2, "max_seconds": 60}, "max_start_cut_s", 3.0),  # 5,005 - 2 = 3,005
+    ((4.125, 9.12), {"min_seconds": 3, "max_seconds": 8}, "min_start_cut_s", -3.0),  # 4,995 - 8 = -3,005
+])
+def test_the_edge_from_the_options_is_rounded_inwards(vclip, settings, case) -> None:
+    client, log, clip_id = vclip
+    span, limits, key, expected = case
+    _trimmed(client, log, clip_id, span)  # redigeraren avrundar inte: tre decimaler
+    set_profile(settings, clip=limits)
+    edge = _options(client, clip_id)[key]
+    assert edge == expected
     answer = _make(client, clip_id, start_cut_s=edge)
     assert answer.status_code == 201, answer.text
 

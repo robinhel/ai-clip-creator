@@ -3,6 +3,8 @@ en ny. Ingen riktig Claude."""
 
 from __future__ import annotations
 
+import pytest
+
 from campaign.brain import Brain
 from campaign.caption import build_caption
 from campaign.profile import load_profile
@@ -44,6 +46,9 @@ def test_an_empty_hook_is_the_originals_and_a_hard_space_is_a_space(vclip, setti
     answer = _make(client, clip_id, hook="Nobody\u00a0saw that coming")  # hårt blanksteg från en kopierad text
     assert answer.status_code == 201, answer.text
     assert answer.json()["title"] == "Nobody saw that coming"
+    answer = _make(client, clip_id, hook="Nobody\u202fexpected that")  # smalt hårt blanksteg
+    assert answer.status_code == 201, answer.text
+    assert answer.json()["title"] == "Nobody expected that"
 
 
 @needs_subtitles
@@ -91,6 +96,16 @@ def test_a_suggested_hook_differs_from_the_used_ones_and_fits(vclip, settings, m
     assert len(fake.messages.calls) == 2
     sent = str(fake.messages.calls[0]["messages"])
     assert "No way" in sent and "Nobody saw that coming" in sent  # hookarna som redan finns skickas med
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("space", ["\u00a0", "\u202f"])  # hårt och smalt hårt blanksteg
+def test_a_suggested_hook_with_a_hard_space_is_accepted(vclip, monkeypatch, space) -> None:  # noqa: F811
+    client, _, clip_id = vclip
+    fake = _claude_hook(monkeypatch, f"Nobody{space}saw that coming")
+    answer = _suggest(client, clip_id)
+    assert answer.status_code == 200, answer.text
+    assert answer.json() == {"hook": "Nobody saw that coming"} and len(fake.messages.calls) == 1
 
 
 @needs_ffmpeg
