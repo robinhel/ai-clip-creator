@@ -4,6 +4,9 @@ Sidan (https://contentrewards.com/c/campaigns/<id>) är en Next.js-sida. Datan l
 self.__next_f.push([1,"..."]) och har topClips (de 10 klippen med flest visningar, med mp4 på Content
 Rewards CDN) och topEarners (de 3 klipparna som tjänat mest). Vi läser bara den publika sidan, aldrig /api/,
 som robots.txt stänger. En hämtning per kampanj och timme.
+
+Sidan har också priset per land: geoPriced, geoRates (tiers och restOfWorld, cent per 1 000 visningar) och
+payoutModel. Det ges som geo, för kampanjbetyget (campaign/scout_score.py). En ny kampanj utan klipp är inget fel.
 """
 
 from __future__ import annotations
@@ -20,6 +23,8 @@ HOSTS = {"contentrewards.com", "www.contentrewards.com"}
 CDN = "cdn.contentrewards.com"
 CACHE_S = 3600
 TITLE_MAX = 300
+# fälten ur sidan och deras typ
+FIELDS = {"topClips": list, "topEarners": list, "geoPriced": bool, "geoRates": dict, "payoutModel": list}
 _PUSH = re.compile(r'self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)')
 _cache: dict[str, tuple[float, dict]] = {}
 _lock = threading.Lock()
@@ -54,54 +59,73 @@ def _https(value: object, host: str | None = None) -> str | None:
     return value
 
 
-def _array(text: str, key: str) -> list:
-    match = re.search(rf'"{key}"\s*:\s*\[', text)
-    if not match:
-        return []
-    value, _ = json.JSONDecoder().raw_decode(text, match.end() - 1)
-    return value if isinstance(value, list) else []
+def _value(text: str, key: str, kind: type) -> object:
+    """Det första värdet för key i flight-datan som är av typen kind, eller None. Träffar av en annan typ, till exempel
+    null, och träffar som inte går att läsa som JSON hoppas över."""
+    for match in re.finditer(rf'"{key}"\s*:\s*', text):
+        try:
+            value, _ = json.JSONDecoder().raw_decode(text, match.end())
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, kind):
+            return value
+    return None
+
+
+def _dicts(value: object) -> list[dict]:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
 
 
 def _int(value: object) -> int:
     return int(value) if isinstance(value, (int, float)) else 0
 
 
+def _earner(e: dict) -> dict:
+    return {"rank": _int(e.get("rank")), "name": str(e.get("username") or e.get("whopUsername") or "Okänd"),
+            "earned_usd": round(_int(e.get("earnedCents")) / 100, 2), "views": _int(e.get("totalViews")),
+            "approved": _int(e.get("approvedSubmissionCount"))}
+
+
+def _clip(c: dict, earner: dict | None) -> dict:
+    return {
+        "rank": _int(c.get("rank")),
+        "platform": str(c.get("platform") or ""),
+        "views": _int(c.get("totalViews")),
+        "name": c.get("username") or (earner and earner["name"]) or None,
+        "earner_rank": earner and earner["rank"],
+        "post_url": _https(c.get("postUrl")),
+        "video_url": _https(c.get("videoUrl"), CDN),
+        "thumbnail_url": _https(c.get("thumbnailUrl"), CDN),
+        "title": str(c.get("title") or "")[:TITLE_MAX],
+    }
+
+
 def parse(html: str) -> dict:
-    """Klippen och klipparna ur sidan. ValueError när sidan saknar dem."""
+    """Klippen, klipparna och priset per land ur sidan. Tomma listor för en kampanj utan klipp. ValueError när sidan
+    saknar kampanjdata helt."""
     try:
         flight = "".join(json.loads(m.group(1)) for m in _PUSH.finditer(html))
-        clips, earners = _array(flight, "topClips"), _array(flight, "topEarners")
     except json.JSONDecodeError as error:
         raise ValueError("Kampanjsidan gick inte att läsa. Content Rewards kan ha ändrat sidan.") from error
-    if not clips and not earners:
+    found = {key: _value(flight, key, kind) for key, kind in FIELDS.items()}
+    if all(value is None for value in found.values()):
         raise ValueError("Kampanjsidan hittade inga klipp. Content Rewards kan ha ändrat sidan.")
-    by_user = {}
-    out_earners = []
-    for e in earners:
-        if not isinstance(e, dict):
-            continue
-        row = {"rank": _int(e.get("rank")), "name": str(e.get("username") or e.get("whopUsername") or "Okänd"),
-               "earned_usd": round(_int(e.get("earnedCents")) / 100, 2), "views": _int(e.get("totalViews")),
-               "approved": _int(e.get("approvedSubmissionCount"))}
-        out_earners.append(row)
-        by_user[e.get("userId")] = row
-    out_clips = []
-    for c in clips:
-        if not isinstance(c, dict):
-            continue
-        earner = by_user.get(c.get("userId"))
-        out_clips.append({
-            "rank": _int(c.get("rank")),
-            "platform": str(c.get("platform") or ""),
-            "views": _int(c.get("totalViews")),
-            "name": c.get("username") or (earner and earner["name"]) or None,
-            "earner_rank": earner and earner["rank"],
-            "post_url": _https(c.get("postUrl")),
-            "video_url": _https(c.get("videoUrl"), CDN),
-            "thumbnail_url": _https(c.get("thumbnailUrl"), CDN),
-            "title": str(c.get("title") or "")[:TITLE_MAX],
-        })
-    return {"clips": out_clips, "earners": out_earners}
+    top_earners = _dicts(found["topEarners"])
+    earners = [_earner(e) for e in top_earners]
+    by_user = {e.get("userId"): earner for e, earner in zip(top_earners, earners, strict=True)}
+    return {
+        "clips": [_clip(c, by_user.get(c.get("userId"))) for c in _dicts(found["topClips"])],
+        "earners": earners,
+        "geo": _geo(found),
+    }
+
+
+def _geo(found: dict) -> dict:
+    """Priset per land. rates är None eller har tiers och restOfWorld som listor med dicts."""
+    rates = found["geoRates"]
+    if isinstance(rates, dict):  # _value ger en dict eller None
+        rates = {"tiers": _dicts(rates.get("tiers")), "restOfWorld": _dicts(rates.get("restOfWorld"))}
+    return {"priced": found["geoPriced"] is True, "rates": rates, "payout_model": _dicts(found["payoutModel"])}
 
 
 def fetch(url: str) -> dict:

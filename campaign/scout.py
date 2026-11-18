@@ -30,10 +30,12 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from . import preferences
 from .config import Settings, load_settings
-from .content_views import (USER_AGENT, campaign_clip_views, channel_from_assets, go_link, resolve_join,
+from .content_views import (USER_AGENT, campaign_page, channel_from_assets, go_link, resolve_join,
                             twitch_clip_views, twitch_login_from_vod, vod_from_assets)
-from .scout_score import _days, _first, _time, evaluate, facts, min_views, pay_number
+from .scout_score import (_days, _first, _time, country_note, country_rates, evaluate, excluded_for_country, facts,
+                          min_views, pay_number)
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +54,7 @@ STEP_S = 60  # tråden sover högst så länge innan den räknar om väntan
 BEST_EVERY_S = 3600  # sökningen på Alpha-betyg en gång i timmen
 DETAIL_MAX_AGE_S = 6 * 3600
 DETAILS_PER_RUN = 10  # högst 40 anrop per körning för detaljer (get_campaign, analytics, get_assets och /go/)
+JOINS_PER_RUN = 10  # /go/ för kampanjer som syns men inte fick det i detaljerna: högst 10 anrop per körning
 TOP = 25
 SHOW_S = 72 * 3600  # en kampanj som inte syns i någon sökning på 72 timmar visas inte längre
 REFRESH_GAP_S = 120
@@ -304,6 +307,7 @@ class Scout:
                     self._put(last_best=_iso(now))
                 self._save_items(items, now)
                 self._details(http, items, now)
+                self._find_pages(http, now)
         except BaseException:  # också när ClippingAlpha stoppar körningen: klippen kommer från Content Rewards
             self._after_alpha(now, alpha_failed=True)
             raise
@@ -347,9 +351,10 @@ class Scout:
         with self._db() as db:
             rows = {row["ref"]: row for row in db.execute("SELECT * FROM scout_campaigns")}
         median, cpm = self.median()[0], float(self._get("cpm_median") or DEFAULT_CPM)
+        country = preferences.country(self.settings)
         new = [ref for ref in dict.fromkeys(_ref(item) for item in items)
                if "detail_at" not in json.loads(rows[ref]["data"])
-               and evaluate(json.loads(rows[ref]["data"]), median, cpm, now)[2] is None]
+               and evaluate(json.loads(rows[ref]["data"]), median, cpm, now, country)[2] is None]
         best = [row["ref"] for row in sorted(rows.values(), key=lambda r: -(r["score"] or 0))
                 if row["excluded"] is None and row["score"] is not None][:TOP]
         old = [ref for ref in best if ref not in new and (now - (_time(json.loads(rows[ref]["data"]).get(
@@ -370,10 +375,26 @@ class Scout:
             data.update(fresh)
             db.execute("UPDATE scout_campaigns SET data = ? WHERE ref = ?", (json.dumps(data), ref))
 
+    def _find_pages(self, http: httpx.Client, now: datetime) -> None:
+        """/go/ för kampanjer som syns under Kampanjer och inte har kollats, till exempel de som fick sina detaljer
+        innan /go/ fanns, eller som ligger utanför de 25 bästa. De bästa först, högst JOINS_PER_RUN per körning, och
+        bara så länge resten av dygnets sökningar fortfarande ryms. Första felet (429, 5xx eller nätverket) avbryter
+        rundan, och kampanjen provas igen nästa körning."""
+        due = [r for r in self._shown(now) if r["excluded"] is None and _join_due(json.loads(r["data"]))]
+        for row in due[:JOINS_PER_RUN]:
+            if self.calls_today() + 1 > CALL_LIMIT - reserve(now):
+                return
+            data = json.loads(row["data"])
+            found = self._join(http, data, now, answered="campaign" in data)
+            if not found:  # bara vid fel här: due tar inte kollade kampanjer eller sådana utan /go/-länk
+                return
+            self._merge(row["ref"], found)
+
     def _refresh_clip_views(self, now: datetime) -> None:
         """Kampanjens klipp på Content Rewards för kampanjer som syns under Kampanjer, när de är äldre än 6 timmar.
+        Också för dem som är bortsorterade för att de inte betalar för landet, så att nya priser kommer med.
         De bästa först och högst CLIP_VIEWS_PER_RUN per körning. Inga anrop till ClippingAlpha."""
-        due = [r for r in self._shown(now) if r["excluded"] is None and _clip_views_due(json.loads(r["data"]), now)]
+        due = [r for r in self._shown(now) if _clip_views_wanted(r, now)]
         for row in due[:CLIP_VIEWS_PER_RUN]:
             self._merge(row["ref"], _clip_views(json.loads(row["data"]), now))
 
@@ -418,11 +439,16 @@ class Scout:
             _last_call[0] = time.monotonic()
         return {"cr_url": cr_url, "join_checked_at": _iso(now)}
 
+    def rescore(self) -> None:
+        """Nya betyg ur det som är sparat, till exempel när Robin byter land. Inga anrop."""
+        self._rescore(_now())
+
     def _rescore(self, now: datetime) -> None:
         median, cpm = self.median()[0], float(self._get("cpm_median") or DEFAULT_CPM)
+        country = preferences.country(self.settings)
         with self._db() as db:
             for row in db.execute("SELECT ref, data FROM scout_campaigns").fetchall():
-                score, parts, excluded = evaluate(json.loads(row["data"]), median, cpm, now)
+                score, parts, excluded = evaluate(json.loads(row["data"]), median, cpm, now, country)
                 db.execute("UPDATE scout_campaigns SET score = ?, parts = ?, excluded = ? WHERE ref = ?",
                            (score, json.dumps(parts), excluded, row["ref"]))
 
@@ -452,7 +478,8 @@ class Scout:
     def overview(self) -> dict:
         now = _now()
         median, source = self.median()
-        views = [_view(row, now) for row in self._shown(now)]
+        country = preferences.country(self.settings)
+        views = [_view(row, now, country) for row in self._shown(now)]
         return {
             "enabled": os.environ.get("KLIPP_SCOUT") != "0",
             "updated_at": self._get("updated_at"), "error": self._get("error"),
@@ -500,20 +527,32 @@ def _clip_views_due(data: dict, now: datetime) -> bool:
     return bool(data.get("cr_url")) and _older_than(data.get("clip_views_at"), DETAIL_MAX_AGE_S, now)
 
 
+def _clip_views_wanted(row: sqlite3.Row, now: datetime) -> bool:
+    """Inte bortsorterad, eller bortsorterad bara för att den inte betalar för landet, och klippen behövs."""
+    wanted = row["excluded"] is None or excluded_for_country(row["excluded"])
+    return wanted and _clip_views_due(json.loads(row["data"]), now)
+
+
+def _join_due(data: dict) -> bool:
+    """/go/ är inte kollad, och det finns en /go/-länk, eller get_campaign har svarat (då kollas den utan anrop)."""
+    return "join_checked_at" not in data and ("campaign" in data or go_link(facts(data)["join_url"]) is not None)
+
+
 def _clip_views(data: dict, now: datetime) -> dict:
-    """Kampanjens klipp på Content Rewards. clip_views_at sätts också när sidan inte går att läsa, så att sidan
-    provas igen först efter 6 timmar. Felet loggas i content_views och de gamla clip_views behålls."""
+    """Kampanjens klipp och priset per land på Content Rewards. clip_views_at sätts också när sidan inte går att
+    läsa, så att sidan provas igen först efter 6 timmar. Felet loggas i content_views och de gamla clip_views och geo
+    behålls."""
     if not data.get("cr_url"):
         return {}
     found: dict = {"clip_views_at": _iso(now)}
     # minst CLIP_PAGE_GAP_S mellan två sidor, också från den sista i _details till den första i _refresh_clip_views
     time.sleep(max(0.0, CLIP_PAGE_GAP_S - (time.monotonic() - _last_page[0])))
     try:
-        clip_views = campaign_clip_views(data["cr_url"])
+        page = campaign_page(data["cr_url"])
     finally:
         _last_page[0] = time.monotonic()
-    if clip_views is not None:
-        found["clip_views"] = clip_views
+    if page is not None:
+        found.update(page)
     return found
 
 
@@ -564,22 +603,33 @@ def _body(response: httpx.Response, wanted_id) -> dict | None:
     return body if isinstance(body, dict) else None
 
 
-def _view(row: sqlite3.Row, now: datetime) -> dict:
-    f = facts(json.loads(row["data"]))
+def _prices(f: dict, data: dict, country: str) -> tuple[float | None, float | None]:
+    """Priset och priset efter avgift för kortet. Med pris per land: det högsta i landet, som Betalning räknar."""
+    rates = country_rates(data.get("geo"), country)
+    if rates:
+        rate = max(rates.values())
+        return rate, round(rate * (1 - f["fee"]), 2)
+    return f["rate"], _first(f["net"], round(f["rate"] * (1 - f["fee"]), 2) if f["rate"] is not None else None)
+
+
+def _view(row: sqlite3.Row, now: datetime, country: str) -> dict:
+    data = json.loads(row["data"])
+    f = facts(data)
     age = None if f["launched"] is None else round((now - f["launched"]).total_seconds() / 3600, 1)
     drain = _days(f["drain"], now)
     source = f"{f['title']} {f['about']} {' '.join(text for _, text in f['rules'])}".lower()
+    rate, net = _prices(f, data, country)
     return {
         "ref": row["ref"], "title": f["title"], "brand": f["brand"], "score": row["score"],
         "parts": json.loads(row["parts"]), "excluded": row["excluded"], "age_hours": age,
-        "rate_usd": f["rate"],
-        "net_rate_usd": _first(f["net"], round(f["rate"] * (1 - f["fee"]), 2) if f["rate"] is not None else None),
+        "rate_usd": rate, "net_rate_usd": net,
         "budget_left_usd": f["left"], "budget_total_usd": f["total"], "min_views": min_views(f),
         "max_payout_usd": pay_number(f["pay"], "maxPayoutUsd"),
         "drain_days": None if drain is None else round(max(drain, 0), 1),
         "platforms": f["platforms"], "mentions_twitch": "twitch" in source, "open_join": f["open_join"],
         "page_url": _safe(f["page_url"]), "join_url": _safe(f["join_url"]), "first_seen": row["first_seen"],
         "is_new": age is not None and age < NOTIFY_AGE_H,
+        "country_note": country_note(data, country),
     }
 
 
