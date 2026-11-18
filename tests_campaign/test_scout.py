@@ -136,7 +136,7 @@ def test_no_details_gives_half_points_and_okant() -> None:
     assert excluded is None
     assert (parts["minimum"]["points"], parts["minimum"]["fact"]) == (6, "Okänt")
     assert (parts["proof"]["points"], parts["proof"]["fact"]) == (3, "Okänt")
-    assert (parts["views"]["points"], parts["views"]["fact"]) == (20, "Okänt")
+    assert (parts["views"]["points"], parts["views"]["fact"]) == (20, "Okänt: inga klipp att räkna på ännu")
     assert parts["fresh"]["points"] == 15  # åldern finns i sökträffen
 
 
@@ -332,6 +332,7 @@ def fake(monkeypatch) -> FakeAlpha:
     fake = FakeAlpha()
     monkeypatch.setattr(scout, "http_client", lambda: httpx.Client(transport=httpx.MockTransport(fake)))
     monkeypatch.setattr(scout, "MIN_GAP_S", 0)
+    monkeypatch.setattr(scout, "CLIP_PAGE_GAP_S", 0)
     monkeypatch.setattr(scout, "_session", {"id": None})
     monkeypatch.setattr(scout, "_now", lambda: NOW)
     monkeypatch.setattr(scout, "campaign_clip_views", fake.campaign_clip_views)
@@ -844,11 +845,16 @@ def test_no_twitch_clips_gives_the_campaign_clips(twitch) -> None:
     assert (part["points"], part["fact"]) == (40, "Median 1 000 000 visningar för kampanjens 5 bästa klipp")
 
 
-@pytest.mark.parametrize("data", [{"clip_views": [2_000_000] * 4}, {"clip_views": None}, {"twitch_views": []}, {},
-                                  {"twitch_views": [200_000] * 4, "clip_views": [2_000_000] * 4}])
-def test_fewer_than_five_clips_on_twitch_and_in_the_campaign_is_unknown(data) -> None:
+@pytest.mark.parametrize(("data", "fact"), [
+    ({"twitch_views": [200_000] * 3, "clip_views": [2_000_000] * 4},
+     "Okänt: 3 Twitch-klipp och 4 kampanjklipp, minst 5 behövs"),
+    ({"clip_views": [2_000_000] * 4}, "Okänt: 0 Twitch-klipp och 4 kampanjklipp, minst 5 behövs"),
+    ({"clip_views": None}, "Okänt: inga klipp att räkna på ännu"),
+    ({"twitch_views": []}, "Okänt: inga klipp att räkna på ännu"),
+    ({}, "Okänt: inga klipp att räkna på ännu")])
+def test_fewer_than_five_clips_on_twitch_and_in_the_campaign_is_unknown(data, fact) -> None:
     part = _views(**data)
-    assert (part["points"], part["max"], part["fact"]) == (20, 40, "Okänt")
+    assert (part["points"], part["max"], part["fact"]) == (20, 40, fact)
 
 
 CHANNEL = {"videos": [{"kind": "channel", "platform": "twitch", "channel": None,
@@ -986,6 +992,45 @@ def test_the_limit_in_get_assets_stops_the_run(settings, fake) -> None:
     assert fake.go == []
 
 
+def test_go_comes_from_get_campaign_when_the_search_hit_has_no_join_url(settings, fake) -> None:
+    fake.add("timmy/streams")
+    del fake.newest[0]["joinUrl"]  # bara whereToJoin i get_campaign har länken
+    scout.Scout(settings).run_once()
+    assert len(fake.go) == 1 and _saved(settings)["cr_url"] == CR
+    assert scout.Scout(settings).calls_today() == len(fake.requests) + 1  # /go/ räknas i scout_calls
+
+
+@pytest.mark.parametrize("body", [{"data": [{"view_count": "x"}]}, {"data": "x"}])
+def test_an_unexpected_twitch_answer_still_saves_the_campaign(settings, fake, monkeypatch, body) -> None:
+    class Helix:  # svarar 200, men i en annan form
+        def __init__(self, *args):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return None
+
+        def get_user_id(self, login: str) -> str:
+            return "42"
+
+        def _get(self, path: str, params: dict) -> dict:
+            return body
+
+    monkeypatch.setattr(scout, "twitch_clip_views", content_views.twitch_clip_views)
+    monkeypatch.setattr(content_views, "TwitchClient", Helix)
+    monkeypatch.setattr(content_views, "load_secrets",
+                        lambda: SimpleNamespace(twitch_client_id="id", twitch_client_secret="secret"))
+    fake.add("timmy/streams")
+    fake.assets["timmy/streams"] = CHANNEL
+    scout.Scout(settings).run_once()
+    assert scout.Scout(settings).overview()["error"] is None
+    data = _saved(settings)
+    assert (data["twitch_login"], data["detail_at"], data["cr_url"]) == ("timmy_tv", scout._iso(NOW), CR)
+    assert "twitch_views" not in data
+
+
 def test_no_get_assets_or_go_when_the_rest_of_the_day_needs_the_calls(settings, fake) -> None:
     fake.add("timmy/streams")
     # 4 för initialize och sökningarna, sedan 3 kvar: get_campaign och analytics ryms, men inte get_assets och /go/
@@ -1104,3 +1149,35 @@ def test_the_clip_views_are_capped_per_run_and_a_failure_keeps_the_old(settings,
     _later(monkeypatch, minutes=10)  # nästa körning tar resten
     scout.Scout(settings).run_once()
     assert fake.clip_calls[scout.CLIP_VIEWS_PER_RUN:] == [_page(ref) for ref in refs[scout.CLIP_VIEWS_PER_RUN:]]
+
+
+@pytest.mark.parametrize(("stop", "requests", "error"), [
+    ({"limit_at": "search_campaigns"}, 3, "ClippingAlpha tar inte emot fler anrop just nu."),
+    ({"down": True}, 1, "ClippingAlpha svarade 500.")])
+def test_the_clip_views_are_refreshed_when_clippingalpha_stops_the_run(settings, fake, stop, requests,
+                                                                       error) -> None:
+    _seed_with_page(settings, "timmy/streams", 50, clip_age_h=7)
+    vars(fake).update(stop)
+    fake.clip_views = [1_000_000] * 5
+    scout.Scout(settings).run_once()
+
+    overview = scout.Scout(settings).overview()
+    assert overview["error"].startswith(error)  # felet sparas och visas som förut
+    assert (len(fake.requests), fake.go) == (requests, [])  # inga fler anrop till ClippingAlpha
+    data = _saved(settings)
+    assert (data["clip_views"], data["clip_views_at"]) == ([1_000_000] * 5, scout._iso(NOW))
+    (view,) = overview["campaigns"]
+    assert view["score"] == scout.evaluate(data, 1260, 1.05, NOW)[0] != 50
+    assert next(p for p in view["parts"] if p["key"] == "views")["points"] == 40
+
+
+def test_a_pause_between_the_pages_from_content_rewards(settings, fake, monkeypatch) -> None:
+    for i in range(3):
+        _seed_with_page(settings, f"brand/c{i}", 90 - i, clip_age_h=7)
+    events: list[str | float] = []
+    monkeypatch.setattr(scout, "CLIP_PAGE_GAP_S", 1.0)
+    monkeypatch.setattr(scout, "_last_call", [100.0])  # ingen väntan före anropen till ClippingAlpha
+    monkeypatch.setattr(scout, "time", SimpleNamespace(monotonic=lambda: 100.0, sleep=events.append))
+    monkeypatch.setattr(scout, "campaign_clip_views", events.append)
+    scout.Scout(settings).run_once()
+    assert events == [_page("brand/c0"), 1.0, _page("brand/c1"), 1.0, _page("brand/c2")]
