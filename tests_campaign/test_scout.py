@@ -1180,4 +1180,4 @@ def test_a_pause_between_the_pages_from_content_rewards(settings, fake, monkeypa
     monkeypatch.setattr(scout, "time", SimpleNamespace(monotonic=lambda: 100.0, sleep=events.append))
     monkeypatch.setattr(scout, "campaign_clip_views", events.append)
     scout.Scout(settings).run_once()
-    assert events == [_page("brand/c0"), 1.0, _page("brand/c1"), 1.0, _page("brand/c2")]
+    assert events == [0, _page("brand/c0"), 1.0, _page("brand/c1"), 1.0, _page("brand/c2")]

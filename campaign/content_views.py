@@ -12,6 +12,7 @@ import logging
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import TypeVar
 from urllib.parse import urlparse
 
 import httpx
@@ -32,6 +33,7 @@ VOD_PATH = re.compile(r"/videos/(\d+)")
 TWITCH_DAYS = 30
 TOP_CLIPS = 10  # betyget räknar de tio bästa klippen; Helix sorterar efter visningar, så en sida räcker
 USER_AGENT = "klipp-bevakning/0.1 (low rate, read only)"
+T = TypeVar("T")
 
 
 def _login(value: object) -> str | None:
@@ -114,8 +116,9 @@ def _rfc3339(moment: datetime) -> str:
     return moment.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _helix(request: Callable[[TwitchClient], dict], what: str) -> dict | None:
-    """Ett svar från Twitch Helix med appens nycklar. None utan nycklar och vid fel; what säger vad som då uteblir."""
+def _helix(request: Callable[[TwitchClient], T], what: str) -> T | None:
+    """Ett svar från Twitch Helix med appens nycklar, tolkat av request. None utan nycklar, vid fel och när svaret
+    har en oväntad form; what säger vad som då uteblir."""
     secrets = load_secrets()
     if not (secrets.twitch_client_id and secrets.twitch_client_secret):
         log.warning("TWITCH_CLIENT_ID eller TWITCH_CLIENT_SECRET saknas: %s", what)
@@ -123,8 +126,8 @@ def _helix(request: Callable[[TwitchClient], dict], what: str) -> dict | None:
     try:
         with TwitchClient(secrets.twitch_client_id, secrets.twitch_client_secret) as client:
             return request(client)
-    except Exception as error:  # nätverk, nycklar, kanalen finns inte: betyget räknas ändå
-        log.warning("Twitch Helix svarade inte (%s): %s", type(error).__name__, what)
+    except Exception as error:  # nätverk, nycklar, kanalen finns inte, oväntat svar: betyget räknas ändå
+        log.warning("Twitch Helix svarade inte som väntat (%s): %s", type(error).__name__, what)
         return None
 
 
@@ -133,18 +136,21 @@ def twitch_clip_views(login: str, now: datetime) -> list[int] | None:
     None utan nycklar, när kanalen inte finns och vid fel."""
     window = {"started_at": _rfc3339(now - timedelta(days=TWITCH_DAYS)), "ended_at": _rfc3339(now)}
 
-    def clips(client: TwitchClient) -> dict:
+    def clips(client: TwitchClient) -> list[int]:
         # En sida. get_clips bläddrar upp till tio sidor, och de bästa klippen ligger redan på den första.
         user_id = client.get_user_id(login)
-        return client._get("/clips", {"broadcaster_id": user_id, "first": TOP_CLIPS, **window})
+        body = client._get("/clips", {"broadcaster_id": user_id, "first": TOP_CLIPS, **window})
+        return [int(clip.get("view_count") or 0) for clip in body.get("data") or []]
 
-    body = _helix(clips, f"Twitch-visningarna räknas inte för {login}")
-    return None if body is None else [int(clip.get("view_count") or 0) for clip in body.get("data") or []]
+    return _helix(clips, f"Twitch-visningarna räknas inte för {login}")
 
 
 def twitch_login_from_vod(video_id: str) -> str | None:
     """Kanalen som har VOD:en, ur Helix GET /videos?id=<id>. None utan nycklar, när videon inte finns, vid fel och
     när user_login inte är en giltig inloggning (samma regel som för kanalen i get_assets)."""
-    body = _helix(lambda client: client._get("/videos", {"id": video_id}), f"kanalen för VOD {video_id} slås inte upp")
-    data = (body or {}).get("data") or []
-    return _login(data[0].get("user_login")) if data else None
+
+    def login(client: TwitchClient) -> str | None:
+        data = client._get("/videos", {"id": video_id}).get("data") or []
+        return _login(data[0].get("user_login")) if data else None
+
+    return _helix(login, f"kanalen för VOD {video_id} slås inte upp")

@@ -67,7 +67,8 @@ MIN_CLIPS = 5  # färre klipp, på Twitch eller Content Rewards, visar inget mö
 CAMPAIGN_VIEWS = (2_000, 1_000_000)  # kampanjens klipp: 0 poäng vid 2 000 eller lägre, 40 vid 1 000 000 eller högre
 TWITCH_VIEWS = (500, 200_000)  # kanalens Twitch-klipp, 30 dagar: 0 vid 500 eller lägre, 40 vid 200 000 eller högre
 TWITCH_MAX_AGE_S = 24 * 3600
-CLIP_VIEWS_PER_RUN = 25  # kampanjens klipp på Content Rewards för kampanjer som syns, högst så många per körning
+# Kampanjens klipp på Content Rewards för kampanjer som syns: högst 25 sidor per körning, 1 sekund mellan sidorna
+CLIP_VIEWS_PER_RUN, CLIP_PAGE_GAP_S = 25, 1.0
 
 BLOCK_S = 3600  # efter ClippingAlphas -32001: försök igen om en timme (när deras dygn börjar är okänt)
 STOCKHOLM = ZoneInfo("Europe/Stockholm")
@@ -215,8 +216,8 @@ def _part(key: str, label: str, points: float, most: int, fact: str) -> dict:
     return {"key": key, "label": label, "points": round(points, 1), "max": most, "fact": fact}
 
 
-def _unknown(key: str, label: str, most: int) -> dict:
-    return _part(key, label, most / 2, most, "Okänt")
+def _unknown(key: str, label: str, most: int, why: str = "") -> dict:
+    return _part(key, label, most / 2, most, f"Okänt: {why}" if why else "Okänt")
 
 
 def _number(value: float) -> str:
@@ -247,7 +248,8 @@ def _views_part(data: dict) -> dict:
         median, count = _top_median(clips)
         return _part("views", "Visningar", _log_points(median, *CAMPAIGN_VIEWS), VIEWS_MAX,
                      f"Median {_number(median)} visningar för kampanjens {count} bästa klipp")
-    return _unknown("views", "Visningar", VIEWS_MAX)
+    have = f"{len(twitch)} Twitch-klipp och {len(clips)} kampanjklipp, minst {MIN_CLIPS} behövs"
+    return _unknown("views", "Visningar", VIEWS_MAX, have if twitch or clips else "inga klipp att räkna på ännu")
 
 
 def evaluate(data: dict, median: float, cpm_median: float, now: datetime) -> tuple[int, list[dict], str | None]:
@@ -537,16 +539,18 @@ class Scout:
 
     def _run(self) -> None:
         now = _now()
-        with http_client() as http:
-            items = self._search(http, NEWEST)
-            last_best = _time(self._get("last_best"))
-            if last_best is None or (now - last_best).total_seconds() >= BEST_EVERY_S:
-                items += self._search(http, BEST)
-                self._put(last_best=_iso(now))
-            self._save_items(items, now)
-            self._details(http, items, now)
-        self._refresh_clip_views(now)
-        self._rescore(now)
+        try:
+            with http_client() as http:
+                items = self._search(http, NEWEST)
+                last_best = _time(self._get("last_best"))
+                if last_best is None or (now - last_best).total_seconds() >= BEST_EVERY_S:
+                    items += self._search(http, BEST)
+                    self._put(last_best=_iso(now))
+                self._save_items(items, now)
+                self._details(http, items, now)
+        finally:  # också när ClippingAlpha stoppar körningen: klippen kommer från Content Rewards
+            self._refresh_clip_views(now)
+            self._rescore(now)
         self._notify(now)
 
     def _search(self, http: httpx.Client, arguments: dict) -> list[dict]:
@@ -574,8 +578,7 @@ class Scout:
         Bara så länge resten av dygnets sökningar fortfarande ryms."""
         with self._db() as db:
             rows = {row["ref"]: row for row in db.execute("SELECT * FROM scout_campaigns")}
-        cpm = float(self._get("cpm_median") or DEFAULT_CPM)
-        median = self.median()[0]
+        median, cpm = self.median()[0], float(self._get("cpm_median") or DEFAULT_CPM)
         new = [ref for ref in dict.fromkeys(_ref(item) for item in items)
                if "detail_at" not in json.loads(rows[ref]["data"])
                and evaluate(json.loads(rows[ref]["data"]), median, cpm, now)[2] is None]
@@ -585,15 +588,12 @@ class Scout:
             "detail_at")) or now)).total_seconds() > DETAIL_MAX_AGE_S]
         for ref in (new + old)[:DETAILS_PER_RUN]:
             saved = json.loads(rows[ref]["data"])
-            assets = "assets_at" not in saved  # get_assets och /go/ en gång per kampanj
-            join = None if "join_checked_at" in saved else go_link(facts(saved)["join_url"])
-            if self.calls_today() + 2 + assets + (join is not None) > CALL_LIMIT - reserve(now):
+            assets, go = "assets_at" not in saved, "join_checked_at" not in saved  # en gång per kampanj
+            if self.calls_today() + 2 + assets + go > CALL_LIMIT - reserve(now):
                 return
             fresh = self._fetch(http, ref, assets, now)
-            if join:
-                fresh.update(self._join(http, join, now))
-            fresh.update(_content_views({**saved, **fresh}, now))
-            self._merge(ref, {**fresh, "detail_at": _iso(now)})
+            fresh.update(self._join(http, {**saved, **fresh}, now))
+            self._merge(ref, {**fresh, **_content_views({**saved, **fresh}, now), "detail_at": _iso(now)})
 
     def _merge(self, ref: str, fresh: dict) -> None:
         """Lägg till fresh i kampanjens sparade data, läst på nytt så att inget annat skrivs över."""
@@ -605,9 +605,9 @@ class Scout:
     def _refresh_clip_views(self, now: datetime) -> None:
         """Kampanjens klipp på Content Rewards för kampanjer som syns under Kampanjer, när de är äldre än 6 timmar.
         De bästa först och högst CLIP_VIEWS_PER_RUN per körning. Inga anrop till ClippingAlpha."""
-        due = [row for row in self._shown(now)
-               if row["excluded"] is None and _clip_views_due(json.loads(row["data"]), now)]
-        for row in due[:CLIP_VIEWS_PER_RUN]:
+        due = [r for r in self._shown(now) if r["excluded"] is None and _clip_views_due(json.loads(r["data"]), now)]
+        for i, row in enumerate(due[:CLIP_VIEWS_PER_RUN]):
+            time.sleep(CLIP_PAGE_GAP_S if i else 0)  # ingen paus före den första sidan
             self._merge(row["ref"], _clip_views(json.loads(row["data"]), now))
 
     def _fetch_tool(self, http: httpx.Client, name: str, ref: str) -> dict | None:
@@ -633,8 +633,11 @@ class Scout:
             fresh.update(twitch_login=channel_from_assets(found), twitch_vod=vod_from_assets(found), assets_at=_iso(now))
         return fresh
 
-    def _join(self, http: httpx.Client, url: str, now: datetime) -> dict:
+    def _join(self, http: httpx.Client, data: dict, now: datetime) -> dict:
         """Content Rewards-sidan bakom /go/-länken. Ett anrop till ClippingAlpha, räknat innan det görs."""
+        # En gång per kampanj, med joinUrl ur get_campaign när den finns.
+        if "join_checked_at" in data or not (url := go_link(facts(data)["join_url"])):
+            return {}
         self._count()
         _wait_gap()
         try:
