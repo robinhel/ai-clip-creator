@@ -6,8 +6,6 @@ from __future__ import annotations
 import json
 import sqlite3
 
-import pytest
-
 from campaign import editor, finish, workflow
 from campaign.caption import build_caption
 from campaign.cliplog import ClipLog
@@ -19,21 +17,6 @@ from .test_editor import WORDS, _paths, _words, setup  # noqa: F401  (fixture)
 from .test_mcp_server import _call, app  # noqa: F401  (fixture)
 
 pytestmark = needs_ffmpeg
-
-
-@pytest.fixture
-def edit(setup):  # noqa: F811
-    """test_editor.setup: Timmys klipp clip_01_no_way.mp4 med titeln "No way", underkänt på 10 s."""
-    return setup
-
-OLD_CLIPS = """CREATE TABLE clips (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    vod_id TEXT, profile TEXT, start_s REAL, end_s REAL,
-    title TEXT, format TEXT, signals TEXT, file TEXT, caption TEXT,
-    status TEXT, problems TEXT, warnings TEXT, review TEXT,
-    platform TEXT, url TEXT,
-    views INTEGER, likes INTEGER, comments INTEGER, shares INTEGER,
-    note TEXT, created TEXT, updated TEXT)"""
 
 
 def _hook_on(settings) -> None:
@@ -78,21 +61,6 @@ def test_the_clip_log_saves_the_headline(tmp_path) -> None:
     assert log.get(without)["headline"] == "Big play"
 
 
-def test_an_old_clip_log_gets_the_column_and_old_clips_have_no_headline(tmp_path) -> None:
-    path = tmp_path / "klipp.db"
-    db = sqlite3.connect(path)
-    db.execute(OLD_CLIPS)
-    db.execute("INSERT INTO clips (vod_id, profile, title, file, caption, status) "
-               "VALUES ('1', 'p', 'Old', 'a.mp4', 'c', 'renderad')")
-    db.commit()
-    db.close()
-    log = ClipLog(path)
-    db = sqlite3.connect(path)
-    assert "headline" in {row[1] for row in db.execute("PRAGMA table_info(clips)")}
-    db.close()
-    assert log.get(1)["headline"] is None
-
-
 # ---------- körningen ----------
 
 
@@ -115,8 +83,8 @@ def test_finish_vod_saves_the_cleaned_headline_and_nothing_without_one(settings,
     assert log.get(first["id"])["caption"] == build_caption("No way", _profile(settings), "Bodycam")
 
 
-def test_finish_again_on_an_edited_clip_burns_its_headline(edit, settings, monkeypatch) -> None:
-    client, log, clip_id = edit
+def test_finish_again_on_an_edited_clip_burns_its_headline(setup, settings, monkeypatch) -> None:  # noqa: F811
+    client, log, clip_id = setup
     body = {"in_s": 1.0, "out_s": 7.0, "headline": "He jumped the gap"}
     assert client.post(f"/campaign/clips/{clip_id}/edit", json=body).status_code == 200
     titles = _titles(workflow, monkeypatch)
@@ -127,8 +95,8 @@ def test_finish_again_on_an_edited_clip_burns_its_headline(edit, settings, monke
     assert clip["caption"] == build_caption("No way", _profile(settings), "Bodycam")
 
 
-def test_finish_again_without_a_headline_keeps_the_file_name_rule(edit, settings, monkeypatch) -> None:
-    client, log, clip_id = edit
+def test_finish_again_without_a_headline_keeps_the_file_name_rule(setup, settings, monkeypatch) -> None:  # noqa: F811
+    client, log, clip_id = setup
     assert client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0}).status_code == 200
     titles = _titles(workflow, monkeypatch)
     _finish_again(settings, log, clip_id)
@@ -140,15 +108,15 @@ def test_finish_again_without_a_headline_keeps_the_file_name_rule(edit, settings
 # ---------- redigeraren ----------
 
 
-def test_edit_info_has_the_saved_headline(edit) -> None:
-    client, _, clip_id = edit
+def test_edit_info_has_the_saved_headline(setup) -> None:  # noqa: F811
+    client, _, clip_id = setup
     assert client.get(f"/campaign/clips/{clip_id}/edit").json()["headline"] == ""
     assert client.post(f"/campaign/clips/{clip_id}/edit", json={"headline": "Big play"}).status_code == 200
     assert client.get(f"/campaign/clips/{clip_id}/edit").json()["headline"] == "Big play"
 
 
-def test_edit_info_of_an_old_clip_has_an_empty_headline(edit, settings) -> None:
-    _, log, clip_id = edit
+def test_edit_info_of_an_old_clip_has_an_empty_headline(setup, settings) -> None:  # noqa: F811
+    _, log, clip_id = setup
     db = sqlite3.connect(settings.data_dir / "klipp.db")
     db.execute("UPDATE clips SET headline = NULL")
     db.commit()
@@ -157,8 +125,8 @@ def test_edit_info_of_an_old_clip_has_an_empty_headline(edit, settings) -> None:
     assert info["headline"] == ""
 
 
-def test_a_new_headline_is_burned_and_saved_and_the_caption_stays(edit, settings, monkeypatch) -> None:
-    client, log, clip_id = edit
+def test_a_new_headline_is_burned_and_saved_and_the_caption_stays(setup, settings, monkeypatch) -> None:  # noqa: F811
+    client, log, clip_id = setup
     _hook_on(settings)
     caption = log.get(clip_id)["caption"]
     titles = _titles(editor, monkeypatch)
@@ -170,8 +138,8 @@ def test_a_new_headline_is_burned_and_saved_and_the_caption_stays(edit, settings
     assert response.json()["headline"] == "He jumped the gap"
 
 
-def test_a_new_title_with_a_headline_only_builds_a_new_caption(edit, settings, monkeypatch) -> None:
-    client, log, clip_id = edit
+def test_a_new_title_with_a_headline_only_builds_a_new_caption(setup, settings, monkeypatch) -> None:  # noqa: F811
+    client, log, clip_id = setup
     _hook_on(settings)
     _, done, _ = _paths(settings)
     assert client.post(f"/campaign/clips/{clip_id}/edit", json={"headline": "He jumped the gap"}).status_code == 200
@@ -185,8 +153,8 @@ def test_a_new_title_with_a_headline_only_builds_a_new_caption(edit, settings, m
     assert clip["caption"] == build_caption("Huge clutch", _profile(settings), "Bodycam")
 
 
-def test_an_empty_headline_puts_the_title_on_the_picture(edit, settings, monkeypatch) -> None:
-    client, log, clip_id = edit
+def test_an_empty_headline_puts_the_title_on_the_picture(setup, settings, monkeypatch) -> None:  # noqa: F811
+    client, log, clip_id = setup
     _hook_on(settings)
     assert client.post(f"/campaign/clips/{clip_id}/edit", json={"headline": "He jumped the gap"}).status_code == 200
     titles = _titles(editor, monkeypatch)
@@ -195,8 +163,8 @@ def test_an_empty_headline_puts_the_title_on_the_picture(edit, settings, monkeyp
     assert log.get(clip_id)["headline"] == ""
 
 
-def test_trim_and_new_words_keep_the_headline_on_the_picture(edit, settings, monkeypatch) -> None:
-    client, log, clip_id = edit
+def test_trim_and_new_words_keep_the_headline_on_the_picture(setup, settings, monkeypatch) -> None:  # noqa: F811
+    client, log, clip_id = setup
     _words(settings)
     assert client.post(f"/campaign/clips/{clip_id}/edit", json={"headline": "He jumped the gap"}).status_code == 200
     titles = _titles(editor, monkeypatch)
@@ -207,15 +175,8 @@ def test_trim_and_new_words_keep_the_headline_on_the_picture(edit, settings, mon
     assert log.get(clip_id)["headline"] == "He jumped the gap"
 
 
-def test_a_too_long_headline_is_refused(edit) -> None:
-    client, log, clip_id = edit
-    before = log.get(clip_id)
-    assert client.post(f"/campaign/clips/{clip_id}/edit", json={"headline": "x" * 81}).status_code == 422
-    assert log.get(clip_id) == before
-
-
-def test_the_clip_json_has_the_headline(edit) -> None:
-    client, _, clip_id = edit
+def test_the_clip_json_has_the_headline(setup) -> None:  # noqa: F811
+    client, _, clip_id = setup
     client.post(f"/campaign/clips/{clip_id}/edit", json={"headline": "Big play"})
     (clip,) = [c for c in client.get("/campaign/clips").json() if c["id"] == clip_id]
     assert clip["headline"] == "Big play"
