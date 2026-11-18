@@ -349,7 +349,8 @@ def version_options(clip_id: int, platform: Literal["tiktok", "youtube"], accoun
     klistermärken, overlays och kontots fasta stil (defaults). Startpunkten får vara min_start_cut_s–max_start_cut_s
     sekunder från originalets start (negativ är tidigare, positiv senare). new_start_s (3 s) är hur långt den måste
     flyttas för att räknas som ny. hook är originalets hook, hooks_used hookarna på originalet och dess versioner,
-    hook_text om kampanjen visar hooken i bilden."""
+    hook_text om kampanjen visar hooken i bilden. account_warning är en varning när klippet har ett inlägg utan konto
+    på plattformen (det kan redan ligga på kontot); den stoppar inte versionen."""
     return _send("GET", f"/campaign/clips/{clip_id}/versions/options", params={"platform": platform, "account": account})
 
 

@@ -34,15 +34,15 @@ FONTS = {"Arial": "Arial Bold.ttf", "Arial Black": "Arial Black.ttf", "Impact": 
          "Comic Sans MS": "Comic Sans MS Bold.ttf"}
 MAX_CUT_S = 5.0  # uploads_api.py använder den; make() har ingen spärr på 5 s längre
 NEW_START_S = 3.0  # så långt flyttad startpunkt, tidigare eller senare, är ett eget bidrag
-ROUNDING_S = 0.01  # webben avrundar: en startpunkt så nära originalfilens början räknas som början
 STICKER_S = (0.5, 10.0)
 NO_WORDS = "Ny version kräver ett klipp som appen har skurit med ordfil."
 HOOK_LINES = 3
-HOOK_EMPTY = "Hooken är tom. Skriv en hook, eller lämna fältet tomt för originalets hook."
 HOOK_CONTROL = "Hooken får inte ha radbrytningar eller andra styrtecken."
 HOOK_TOO_LONG = f"Hooken ryms inte i bilden. Skriv högst {HOOK_LINES} rader med {HOOK_LINE_CHARS} tecken."
 NO_OWN = ("Versionen har ingen ny hook och ingen ny startpunkt. Bara spegling, hastighet, filter eller font kan ge "
           "strike på YouTube och stoppa klippet från För dig på TikTok.")
+NO_ACCOUNT = ("Klippet har ett inlägg utan konto på {}. Det kan redan ligga på det här kontot. Kontrollera innan "
+              "du postar.")
 
 FILTERS: dict[str, str | None] = {
     "none": None,
@@ -126,8 +126,6 @@ def fonts() -> dict[str, str]:
 def hook_problem(hook: str) -> str | None:
     """Varför hooken inte går att använda, eller None. Samma radbrytning som hooken i bilden (finish), men utan
     att korta: det som inte ryms på HOOK_LINES rader stoppas."""
-    if not hook:
-        return HOOK_EMPTY
     if not hook.isprintable():
         return HOOK_CONTROL
     if len(textwrap.wrap(hook, HOOK_LINE_CHARS)) > HOOK_LINES:
@@ -173,11 +171,12 @@ def _ready(settings: Settings, log: ClipLog, clip: dict, platform: str, account:
         schedule.check_account(root, platform, account, datetime.now(UTC), counts=False)
     except ScheduleError as error:
         raise VersionError(str(error), error.status) from error
-    if account in schedule._uses(root["id"], platform):
+    uses = schedule._uses(root["id"], platform)
+    if account in uses:
         raise VersionError("Kontot har redan klippet eller en version av det.", 409)
     state = editor._state(root, raw)  # originalets trimning: råklippet börjar vid in_s
     return {"root": root, "profile": profile, "raw": raw, "data": data, "in_s": state["in_s"],
-            "out_s": state["out_s"]}
+            "out_s": state["out_s"], "account_warning": NO_ACCOUNT.format(name) if None in uses else None}
 
 
 def _style(settings: Settings, profile: Profile | None, platform: str, account: str) -> dict:
@@ -214,6 +213,7 @@ def options(settings: Settings, log: ClipLog, clip: dict, platform: str, account
         profile = None
     style = _style(settings, profile, platform, account)
     return {"allowed": ready is not None, "reason": reason,
+            "account_warning": ready["account_warning"] if ready else None,
             "fonts": [{"name": name, "label": name} for name in fonts()],
             "stickers": _files(settings.root / "stickers", "/campaign/stickers"),
             "overlays": _files(settings.root / "overlays", "/campaign/overlays", "overlays/"),
@@ -268,26 +268,28 @@ def _sticker(settings: Settings, profile: Profile, sticker: dict | None, length:
 def _start(ready: dict, start_cut_s: float, speed: float) -> tuple[float, float]:
     """Versionens start i originalfilen och längd före hastigheten. start_cut_s är startpunkten räknad från
     originalets start: negativ är tidigare, positiv senare. Slutet (out_s) ligger kvar. En start före
-    originalfilen, eller en längd efter hastigheten utanför kampanjens gränser, ger 400."""
+    originalfilen, för kort efter hastigheten, eller för lång med en tidigare start, ger 400. Utan tidigare start
+    bedömer regelkontrollen längden, som förut. Längden avrundas, så att gränserna i options alltid går."""
     profile = ready["profile"]
-    if start_cut_s < -ready["in_s"] - ROUNDING_S:
+    if start_cut_s < -ready["in_s"] - editor.ROUNDING_S:
         raise VersionError(f"Startpunkten ligger före början av originalfilen. Den kan flyttas högst "
                            f"{ready['in_s']:.1f} s tidigare.")
     start = max(0.0, ready["in_s"] + start_cut_s)
-    seconds = (ready["out_s"] - start) / speed
+    seconds = round((ready["out_s"] - start) / speed, 3)
     if seconds < profile.min_seconds:
         raise VersionError(f"Versionen blir {max(0.0, seconds):.1f} s. Kampanjen kräver minst "
                            f"{profile.min_seconds:g} s.")
-    if seconds > profile.max_seconds:
+    if start < ready["in_s"] and seconds > profile.max_seconds:
         raise VersionError(f"Versionen blir {seconds:.1f} s. Kampanjen tillåter högst {profile.max_seconds:g} s.")
     return start, ready["out_s"] - start
 
 
 def _hook(hook: str | None) -> str | None:
-    """Versionens hook utan blanksteg runt, eller None för originalets. Fel hook ger 400."""
-    if hook is None:
+    """Versionens hook utan blanksteg runt, eller None för originalets (också när den är tom). Ett hårt blanksteg
+    blir ett vanligt. Fel hook ger 400."""
+    hook = (hook or "").replace("\xa0", " ").strip()
+    if not hook:
         return None
-    hook = hook.strip()
     if problem := hook_problem(hook):
         raise VersionError(problem)
     return hook
@@ -299,6 +301,13 @@ def _new_hook(log: ClipLog, ready: dict, shown: str) -> bool:
     if not (ready["profile"].hook_text and shown):
         return False
     return _norm(shown) not in {_norm(hook) for hook in hooks_used(log, ready["root"])}
+
+
+def _own_warnings(log: ClipLog, ready: dict, shown: str, new_start: bool) -> list[str]:
+    """Versionens egna varningar: inget eget bidrag (ingen ny startpunkt och ingen ny hook), och ett inlägg utan
+    konto på plattformen (_ready)."""
+    found = [] if new_start or _new_hook(log, ready, shown) else [NO_OWN]
+    return [*found, ready["account_warning"]] if ready["account_warning"] else found
 
 
 def _next_file(raw: Path) -> Path:
@@ -358,8 +367,8 @@ def make(settings: Settings, log: ClipLog, clip: dict, platform: str, account: s
     return log.add(
         vod_id=root["vod_id"], profile=root["profile"], file=str(out), title=title, caption=caption,
         status="underkand" if problems else "renderad",
-        start_s=None if root["start_s"] is None else round(root["start_s"] + start_cut_s, 3), end_s=root["end_s"],
-        clip_format=root["format"], signals=root["signals"], problems=problems,
-        warnings=warnings if new_start or _new_hook(log, ready, shown) else [*warnings, NO_OWN],
+        start_s=None if root["start_s"] is None else round(root["start_s"] + start - ready["in_s"], 3),
+        end_s=root["end_s"], clip_format=root["format"], signals=root["signals"], problems=problems,
+        warnings=[*warnings, *_own_warnings(log, ready, shown, new_start)],
         review=root["review"], score=root["score"], reason=root["reason"] or "", subscores=root["subscores"],
         version_of=root["id"])

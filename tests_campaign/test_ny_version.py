@@ -289,10 +289,11 @@ def _spy(monkeypatch) -> list:
     return seen
 
 
-def _trimmed(client, log, clip_id, in_s: float = 4.0, out_s: float = 10.0) -> None:
-    """Trimma originalet till 4–10 s i redigeraren, så att originalfilen är längre än klippet. Godkänt igen."""
+def _trimmed(client, log, clip_id, span: tuple[float, float] = (4.0, 10.0)) -> None:
+    """Trimma originalet till span (4–10 s) i redigeraren, så att originalfilen är längre än klippet. Godkänt
+    igen."""
     client.app.include_router(editor_api.router)
-    answer = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": in_s, "out_s": out_s})
+    answer = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": span[0], "out_s": span[1]})
     assert answer.status_code == 200, answer.text
     log.update(clip_id, status="godkand", problems=[])
 
@@ -558,7 +559,6 @@ def test_the_original_lists_the_account_of_its_version(sched, settings) -> None:
 
 # ---------- 5. eget bidrag: ny hook eller ny startpunkt ----------
 
-from campaign.caption import build_caption  # noqa: E402
 from campaign.versions import NO_OWN  # noqa: E402
 
 NO_ACCOUNT = ("Klippet har ett inlägg utan konto på TikTok. Det kan redan ligga på det här kontot. Kontrollera "
@@ -612,7 +612,7 @@ def test_a_later_start_beyond_five_seconds_is_allowed(vclip, settings) -> None:
 @needs_subtitles
 def test_the_edge_from_the_options_is_accepted(vclip, settings) -> None:
     client, log, clip_id = vclip
-    _trimmed(client, log, clip_id, 0.0, 8.28)  # 8,28 - 1,28 blir 6,9999… s i flyttal
+    _trimmed(client, log, clip_id, (0.0, 8.28))  # 8,28 - 1,28 blir 6,9999… s i flyttal
     set_profile(settings, clip={"min_seconds": 7, "max_seconds": 60})
     edge = _options(client, clip_id)["max_start_cut_s"]
     assert edge == 1.28
@@ -656,49 +656,7 @@ def test_a_new_start_turns_off_the_cold_open_and_a_small_one_keeps_it(vclip, set
 
 
 @needs_subtitles
-def test_a_new_hook_goes_into_the_picture_the_title_and_the_caption(vclip, settings, monkeypatch) -> None:
-    client, log, clip_id = vclip
-    _hook_on(settings)
-    profile = load_profile("skiimasktimmy", settings.profiles_dir)
-    assert log.get(clip_id)["caption"] == build_caption("No way", profile, "Bodycam")  # mallens caption
-    seen = _spy(monkeypatch)
-    answer = _make(client, clip_id, hook="  Nobody expected that ending ")
-    assert answer.status_code == 201, answer.text
-    version = answer.json()
-    caption = build_caption("Nobody expected that ending", profile, "Bodycam")
-    assert seen[-1]["title"] == "Nobody expected that ending"
-    assert (version["title"], version["caption"]) == ("Nobody expected that ending", caption)
-    txt = settings.out_dir / "123" / "klara" / "clip_01_no_way.v1.txt"
-    assert txt.read_text(encoding="utf-8") == caption + "\n"
-    assert NO_OWN not in version["warnings"]
-
-
-@needs_subtitles
-def test_an_empty_hook_is_the_originals_and_a_hard_space_is_a_space(vclip, settings, monkeypatch) -> None:
-    client, log, clip_id = vclip
-    _hook_on(settings)
-    seen = _spy(monkeypatch)
-    answer = _make(client, clip_id, hook="   ")
-    assert answer.status_code == 201, answer.text
-    assert (answer.json()["title"], answer.json()["caption"]) == ("No way", log.get(clip_id)["caption"])
-    assert seen[-1]["title"] == "No way" and NO_OWN in answer.json()["warnings"]
-    answer = _make(client, clip_id, hook="Nobody\u00a0saw that coming")  # hårt blanksteg från en kopierad text
-    assert answer.status_code == 201, answer.text
-    assert answer.json()["title"] == "Nobody saw that coming"
-
-
-@needs_subtitles
-def test_a_handwritten_caption_is_kept_with_a_new_hook(vclip, settings) -> None:
-    client, log, clip_id = vclip
-    log.update(clip_id, caption="Min egen text #bodycam")
-    answer = _make(client, clip_id, hook="Nobody expected that ending")
-    assert answer.status_code == 201, answer.text
-    assert (answer.json()["title"], answer.json()["caption"]) == ("Nobody expected that ending",
-                                                                  "Min egen text #bodycam")
-
-
-@needs_subtitles
-@pytest.mark.parametrize(("hook_text", "bodies", "warned"), [
+@pytest.mark.parametrize("case", [  # hook_text, versionerna i tur och ordning, varning på den sista
     (True, [{"mirror": True, "speed": 1.1}], True),
     (True, [{"start_cut_s": 2.9}], True),
     (True, [{"start_cut_s": 3}], False),
@@ -708,8 +666,9 @@ def test_a_handwritten_caption_is_kept_with_a_new_hook(vclip, settings) -> None:
     (False, [{"hook": "Nobody saw that coming"}], True),  # Timmys hook_text är falskt: kanalens text står uppe
     (False, [{"start_cut_s": 4}], False),
 ])
-def test_the_warning_comes_without_a_new_hook_or_a_new_start(vclip, settings, hook_text, bodies, warned) -> None:
+def test_the_warning_comes_without_a_new_hook_or_a_new_start(vclip, settings, case) -> None:
     client, _, clip_id = vclip
+    hook_text, bodies, warned = case
     if hook_text:
         _hook_on(settings)
     for body in bodies:
@@ -756,4 +715,5 @@ def test_the_options_tell_the_start_range_and_the_hooks(vclip, settings) -> None
     blocked = _options(client, clip_id, "okänt")
     assert (blocked["allowed"], blocked["hook"], blocked["hooks_used"], blocked["min_start_cut_s"]) == (
         False, "", [], 0.0)
+
 

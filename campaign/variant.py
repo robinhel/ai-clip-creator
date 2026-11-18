@@ -114,8 +114,8 @@ def _clean_hook(answer: dict) -> str:
 
 
 def _new_hook(hook: str, taken: list[str]) -> bool:
-    """Hooken ryms i bilden och finns inte redan (samma jämförelse som schemat, _norm)."""
-    return hook_problem(hook) is None and _norm(hook) not in {_norm(text) for text in taken}
+    """Hooken är inte tom, ryms i bilden och finns inte redan (samma jämförelse som schemat, _norm)."""
+    return bool(hook) and hook_problem(hook) is None and _norm(hook) not in {_norm(text) for text in taken}
 
 
 def suggest_hook(settings: Settings, clip: dict) -> dict:

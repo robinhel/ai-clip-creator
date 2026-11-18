@@ -10,7 +10,7 @@ from typing import Literal
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from clipsmith.api.deps import verify_api_key
 
@@ -33,7 +33,7 @@ class VersionBody(BaseModel):
     filter: str = "none"  # en av versions.FILTERS
     brightness: float = 0.0
     saturation: float = 0.0
-    hook: str | None = Field(default=None, max_length=120)  # None: originalets hook, rubrik och caption
+    hook: str | None = None  # None eller tom: originalets hook, rubrik och caption; för lång ger 400
 
 
 @router.get("/clips/{clip_id}/versions/options", summary="Valen för en ny version till ett annat konto")

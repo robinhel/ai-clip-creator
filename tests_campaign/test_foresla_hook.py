@@ -1,11 +1,59 @@
-"""Föreslå hook: Claude föreslår en ny hook för en ny version av klippet. Ingen riktig Claude."""
+"""Hooken i en ny version: en egen hook i bilden, rubriken och captionen, och Föreslå hook där Claude föreslår
+en ny. Ingen riktig Claude."""
 
 from __future__ import annotations
 
 from campaign.brain import Brain
+from campaign.caption import build_caption
+from campaign.profile import load_profile
+from campaign.versions import NO_OWN
 
 from .conftest import needs_ffmpeg, needs_subtitles
-from .test_ny_version import _hook_on, _make, vclip  # noqa: F401
+from .test_ny_version import _hook_on, _make, _spy, vclip  # noqa: F401
+
+
+@needs_subtitles
+def test_a_new_hook_goes_into_the_picture_the_title_and_the_caption(vclip, settings,  # noqa: F811
+                                                                   monkeypatch) -> None:
+    client, log, clip_id = vclip
+    _hook_on(settings)
+    profile = load_profile("skiimasktimmy", settings.profiles_dir)
+    assert log.get(clip_id)["caption"] == build_caption("No way", profile, "Bodycam")  # mallens caption
+    seen = _spy(monkeypatch)
+    answer = _make(client, clip_id, hook="  Nobody expected that ending ")
+    assert answer.status_code == 201, answer.text
+    version = answer.json()
+    caption = build_caption("Nobody expected that ending", profile, "Bodycam")
+    assert seen[-1]["title"] == "Nobody expected that ending"
+    assert (version["title"], version["caption"]) == ("Nobody expected that ending", caption)
+    txt = settings.out_dir / "123" / "klara" / "clip_01_no_way.v1.txt"
+    assert txt.read_text(encoding="utf-8") == caption + "\n"
+    assert NO_OWN not in version["warnings"]
+
+
+@needs_subtitles
+def test_an_empty_hook_is_the_originals_and_a_hard_space_is_a_space(vclip, settings,  # noqa: F811
+                                                                   monkeypatch) -> None:
+    client, log, clip_id = vclip
+    _hook_on(settings)
+    seen = _spy(monkeypatch)
+    answer = _make(client, clip_id, hook="   ")
+    assert answer.status_code == 201, answer.text
+    assert (answer.json()["title"], answer.json()["caption"]) == ("No way", log.get(clip_id)["caption"])
+    assert seen[-1]["title"] == "No way" and NO_OWN in answer.json()["warnings"]
+    answer = _make(client, clip_id, hook="Nobody\u00a0saw that coming")  # hårt blanksteg från en kopierad text
+    assert answer.status_code == 201, answer.text
+    assert answer.json()["title"] == "Nobody saw that coming"
+
+
+@needs_subtitles
+def test_a_handwritten_caption_is_kept_with_a_new_hook(vclip, settings) -> None:  # noqa: F811
+    client, log, clip_id = vclip
+    log.update(clip_id, caption="Min egen text #bodycam")
+    answer = _make(client, clip_id, hook="Nobody expected that ending")
+    assert answer.status_code == 201, answer.text
+    assert (answer.json()["title"], answer.json()["caption"]) == ("Nobody expected that ending",
+                                                                  "Min egen text #bodycam")
 
 
 def _claude_hook(monkeypatch, *hooks):
