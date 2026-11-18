@@ -55,6 +55,7 @@ BEST_EVERY_S = 3600  # sökningen på Alpha-betyg en gång i timmen
 DETAIL_MAX_AGE_S = 6 * 3600
 DETAILS_PER_RUN = 10  # högst 40 anrop per körning för detaljer (get_campaign, analytics, get_assets och /go/)
 JOINS_PER_RUN = 10  # /go/ för kampanjer som syns men inte fick det i detaljerna: högst 10 anrop per körning
+JOIN_SLACK = 20  # /go/ lämnar plats för detaljerna till fem nya kampanjer à fyra anrop senare samma dygn
 TOP = 25
 SHOW_S = 72 * 3600  # en kampanj som inte syns i någon sökning på 72 timmar visas inte längre
 REFRESH_GAP_S = 120
@@ -382,7 +383,7 @@ class Scout:
         rundan, och kampanjen provas igen nästa körning."""
         due = [r for r in self._shown(now) if r["excluded"] is None and _join_due(json.loads(r["data"]))]
         for row in due[:JOINS_PER_RUN]:
-            if self.calls_today() + 1 > CALL_LIMIT - reserve(now):
+            if self.calls_today() + 1 > CALL_LIMIT - reserve(now) - JOIN_SLACK:
                 return
             data = json.loads(row["data"])
             found = self._join(http, data, now, answered="campaign" in data)
@@ -523,8 +524,10 @@ def _twitch_due(data: dict, now: datetime) -> bool:
 
 
 def _clip_views_due(data: dict, now: datetime) -> bool:
-    """Kampanjen har en Content Rewards-sida, och klippen hämtades inte eller för mer än 6 timmar sedan."""
-    return bool(data.get("cr_url")) and _older_than(data.get("clip_views_at"), DETAIL_MAX_AGE_S, now)
+    """Kampanjen har en Content Rewards-sida, och klippen hämtades inte eller för mer än 6 timmar sedan, eller
+    sidan lästes innan priset per land (geo) sparades."""
+    return bool(data.get("cr_url")) and (
+        "geo" not in data or _older_than(data.get("clip_views_at"), DETAIL_MAX_AGE_S, now))
 
 
 def _clip_views_wanted(row: sqlite3.Row, now: datetime) -> bool:
@@ -541,7 +544,7 @@ def _join_due(data: dict) -> bool:
 def _clip_views(data: dict, now: datetime) -> dict:
     """Kampanjens klipp och priset per land på Content Rewards. clip_views_at sätts också när sidan inte går att
     läsa, så att sidan provas igen först efter 6 timmar. Felet loggas i content_views och de gamla clip_views och geo
-    behålls."""
+    behålls. Saknas geo sätts den till None (Land okänt), så att en trasig sida inte hämtas varje körning."""
     if not data.get("cr_url"):
         return {}
     found: dict = {"clip_views_at": _iso(now)}
@@ -553,6 +556,8 @@ def _clip_views(data: dict, now: datetime) -> dict:
         _last_page[0] = time.monotonic()
     if page is not None:
         found.update(page)
+    else:
+        found["geo"] = data.get("geo")  # nyckeln finns, så _clip_views_due väntar 6 timmar
     return found
 
 

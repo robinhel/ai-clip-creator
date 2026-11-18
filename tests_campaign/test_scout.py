@@ -1224,7 +1224,7 @@ def _seed_with_page(settings, ref: str, score: int, clip_age_h: float, detail_ag
 
 def test_a_shown_campaign_outside_the_best_gets_new_clip_views_without_clippingalpha(settings, fake) -> None:
     for i in range(scout.TOP):  # de 25 bästa: färska detaljer och klipp yngre än 6 timmar
-        _seed_with_page(settings, f"best/c{i}", 90, clip_age_h=5)
+        _seed_with_page(settings, f"best/c{i}", 90, clip_age_h=5, geo=None)  # geo: sidan lästes med priset
     _seed_with_page(settings, "low/streams", 10, clip_age_h=7, detail_age_h=7)  # utanför de 25: inga nya detaljer
     fake.clip_views = [9_000] * 5
     scout.Scout(settings).run_once()
