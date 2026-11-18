@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { AccountList, pickAccount, useClipAccounts } from "@/components/ClipAccounts";
 import { api } from "@/lib/api";
 import { allows, cn } from "@/lib/utils";
-import { hasOwn, isNewStart, NO_OWN, startLabel } from "@/lib/versionOwn";
+import { hasOwn, isNewStart, NO_OWN, sec, startLabel, startReach } from "@/lib/versionOwn";
 import type { CampaignClip, StickerPosition, VersionCreate, VersionOptions } from "@/lib/types";
 
 type Platform = "tiktok" | "youtube";
@@ -34,7 +34,6 @@ const POSITION_CLASS: Record<StickerPosition, string> = {
 
 const FILTER_LABEL: Record<string, string> = { none: "Inget", fresh: "Fräsch", warm: "Varm", cool: "Kall", punch: "Kraftig" };
 
-const sec = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
 const num = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const field = "mt-1 h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand disabled:opacity-60 [&>option]:bg-panel";
 const alert = "rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]";
@@ -91,7 +90,7 @@ function PreviewLayers({ hook, font, overlayUrl, stickerUrl, position }: {
           {hook}
         </p>
       )}
-      {/* Utan vald font syns originalets undertext redan i videon. */}
+      {/* Bara ett prov på den valda fonten. Originalfilen har ingen undertext, servern lägger på den när versionen görs. */}
       {font && (
         <p
           aria-hidden
@@ -105,8 +104,8 @@ function PreviewLayers({ hook, font, overlayUrl, stickerUrl, position }: {
   );
 }
 
-/** Förhandsvisningen: originalfilen från versionens startpunkt, med valen ritade ovanpå. */
-function VersionPreview({ clip, opts, cut, hook, ...layers }: {
+/** Förhandsvisningen: originalfilen från versionens startpunkt, med valen ritade ovanpå. hook är den hook som syns, tom när kampanjen inte visar någon. */
+function VersionPreview({ clip, opts, cut, ...layers }: {
   clip: CampaignClip;
   opts: VersionOptions | null;
   cut: number;
@@ -138,43 +137,65 @@ function VersionPreview({ clip, opts, cut, hook, ...layers }: {
           onLoadedMetadata={(e) => (e.currentTarget.currentTime = at)}
           className="h-full w-full object-contain"
         />
-        <PreviewLayers hook={opts?.hook_text ? hook.trim() : ""} {...layers} />
+        <PreviewLayers {...layers} />
       </div>
       <p className="text-xs text-muted-foreground">
         Förhandsvisningen är ungefärlig: den ritar valen ovanpå {original ? "originalfilen från startpunkten" : "det färdiga klippet"}. Servern gör den riktiga filen.
       </p>
+      {original && <p className="text-xs text-muted-foreground">Undertexten läggs på när versionen görs.</p>}
     </div>
   );
 }
 
-/** Fältet Hook med Föreslå (Claude, kostar lite budget). */
-function HookField({ clipId, value, onChange, busy }: { clipId: number; value: string; onChange: (hook: string) => void; busy: boolean }) {
+/** Föreslå (Claude, kostar lite budget). Ett svar som kommer efter byte av klipp, plattform eller konto (scope) skrivs inte i fältet. */
+function useSuggestHook(clipId: number, scope: string, onHook: (hook: string) => void) {
+  const round = useRef(0);
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    round.current += 1;
+    setAsking(false);
+    setError(null);
+  }, [clipId, scope]);
+
   async function suggest() {
+    const mine = ++round.current;
     setAsking(true);
     setError(null);
     try {
-      onChange((await api.campaign.clips.suggestVersionHook(clipId)).hook);
+      const { hook } = await api.campaign.clips.suggestVersionHook(clipId);
+      if (mine === round.current) onHook(hook);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunde inte föreslå en hook");
+      if (mine === round.current) setError(err instanceof Error ? err.message : "Kunde inte föreslå en hook");
     } finally {
-      setAsking(false);
+      if (mine === round.current) setAsking(false);
     }
   }
 
+  return { asking, error, suggest };
+}
+
+/** Fältet Hook med Föreslå. */
+function HookField({ value, onChange, busy, asking, error, onSuggest }: {
+  value: string;
+  onChange: (hook: string) => void;
+  busy: boolean;
+  asking: boolean;
+  error: string | null;
+  onSuggest: () => void;
+}) {
   return (
     <div className="space-y-1.5">
       {label("Hook", "version-hook")}
       <div className="flex gap-2">
         <input id="version-hook" value={value} onChange={(e) => onChange(e.target.value)} disabled={busy || asking} className={field} />
-        <Button variant="outline" className="mt-1 h-9 shrink-0" disabled={busy || asking} onClick={suggest}>
+        <Button variant="outline" className="mt-1 h-9 shrink-0" disabled={busy || asking} onClick={onSuggest}>
           {asking ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
           {asking ? "Skriver…" : "Föreslå"}
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">Högst 3 rader med 22 tecken. En ny hook gör versionen till ett eget klipp.</p>
+      <p className="text-xs text-muted-foreground">Högst 3 rader med 22 tecken. En ny hook gör versionen till ett eget klipp. Tom: originalets hook.</p>
       {error && (
         <p role="alert" className={alert}>
           {error}
@@ -188,6 +209,7 @@ function HookField({ clipId, value, onChange, busy }: { clipId: number; value: s
 function StartField({ opts, cut, onChange, busy }: { opts: VersionOptions; cut: number; onChange: (cut: number) => void; busy: boolean }) {
   const [lo, hi] = startRange(opts);
   const fresh = isNewStart(cut, opts.new_start_s);
+  const reach = startReach(lo, hi);
   return (
     <div>
       <p className="flex justify-between gap-3">
@@ -209,7 +231,8 @@ function StartField({ opts, cut, onChange, busy }: { opts: VersionOptions; cut: 
         className="w-full accent-[var(--brand,#7c5cff)]"
       />
       <p className="text-xs text-muted-foreground">
-        Versionen börjar tidigare eller senare än originalet. Slutet ligger kvar. Högst {sec.format(Math.abs(lo))} s tidigare och {sec.format(hi)} s senare, så att klippet håller kampanjens längd. Minst {sec.format(opts.new_start_s)} s åt något håll är en ny startpunkt. Då visas inte höjdpunkten först.
+        Versionen börjar tidigare eller senare än originalet. Slutet ligger kvar.{" "}
+        {reach ? `${reach}, så att klippet håller kampanjens längd.` : "Här går startpunkten inte att flytta, för då håller klippet inte kampanjens längd."} Minst {sec.format(opts.new_start_s)} s åt något håll är en ny startpunkt. Då visas inte höjdpunkten först.
       </p>
     </div>
   );
@@ -449,6 +472,32 @@ function VersionWarnings({ own, accountWarning }: { own: boolean; accountWarning
   );
 }
 
+/** Fel i klistermärkets start eller längd, eller null. */
+function stickerProblem(startS: number, lengthS: number): string | null {
+  const within = (value: number, lo: number, hi: number) => Number.isFinite(value) && value >= lo && value <= hi;
+  if (!within(startS, 0, Infinity)) return "Klistermärkets start får inte vara negativ.";
+  if (!within(lengthS, 0.5, 10)) return "Klistermärket ska synas 0,5–10 s.";
+  return null;
+}
+
+/** Varför Gör versionen inte går just nu, eller null. Medan Föreslå skriver väntar knappen, annars skickas den gamla hooken. */
+function blockReason({ account, optsError, opts, sticker, startS, lengthS, asking }: {
+  account: string;
+  optsError: string | null;
+  opts: VersionOptions | null;
+  sticker: string;
+  startS: number;
+  lengthS: number;
+  asking: boolean;
+}): string | null {
+  if (!account) return "Inget av kampanjens konton är ledigt för klippet.";
+  if (optsError) return null;
+  if (!opts) return "Läser valen…";
+  if (!opts.allowed) return opts.reason ?? "Servern tillåter ingen ny version här.";
+  if (asking) return "Väntar på hooken från Föreslå…";
+  return sticker ? stickerProblem(startS, lengthS) : null;
+}
+
 function VersionDialog({ clip, start, onClose }: {
   clip: CampaignClip;
   /** Valen per plattform utan konto, från knappen. */
@@ -496,9 +545,9 @@ function VersionDialog({ clip, start, onClose }: {
         const d = o.defaults;
         setFont(d.font ?? "");
         setHook(o.hook);
-        // Kontots förval, inom reglagets gränser så att servern godtar det.
+        // Kontots förval i tiondelar som reglaget, inom reglagets gränser så att servern godtar det.
         const [lo, hi] = startRange(o);
-        setCut(Math.min(hi, Math.max(lo, d.start_cut_s)));
+        setCut(Math.min(hi, Math.max(lo, Math.round(d.start_cut_s * 10) / 10)));
         setOverlay(d.overlay ?? "");
         setSticker(d.sticker?.file ?? "");
         setPosition(d.sticker?.position ?? "top_right");
@@ -511,21 +560,13 @@ function VersionDialog({ clip, start, onClose }: {
     };
   }, [clip.id, platform, account]);
 
+  const suggester = useSuggestHook(clip.id, `${platform}/${account}`, setHook);
+
+  // Hooken som syns och som skickas: servern gör en tom hook till originalets.
+  const shownHook = hook.trim() || (opts?.hook ?? "").trim();
   const startS = Number(stickerStart.replace(",", "."));
   const lengthS = Number(stickerLength.replace(",", "."));
-  const reason = !account
-    ? "Inget av kampanjens konton är ledigt för klippet."
-    : optsError
-      ? null
-      : !opts
-        ? "Läser valen…"
-        : !opts.allowed
-          ? (opts.reason ?? "Servern tillåter ingen ny version här.")
-          : sticker && (!Number.isFinite(startS) || startS < 0)
-            ? "Klistermärkets start får inte vara negativ."
-            : sticker && (!Number.isFinite(lengthS) || lengthS < 0.5 || lengthS > 10)
-              ? "Klistermärket ska synas 0,5–10 s."
-              : null;
+  const reason = blockReason({ account, optsError, opts, sticker, startS, lengthS, asking: suggester.asking });
 
   async function create() {
     if (reason || !opts) return;
@@ -535,7 +576,7 @@ function VersionDialog({ clip, start, onClose }: {
       font: font || null,
       start_cut_s: cut,
       // null: originalets hook, rubrik och caption.
-      hook: hook.trim() !== opts.hook.trim() ? hook.trim() : null,
+      hook: shownHook !== opts.hook.trim() ? shownHook : null,
       overlay: overlay || null,
       sticker: sticker ? { file: sticker, position, start_s: startS, duration_s: lengthS } : null,
       mirror,
@@ -565,7 +606,7 @@ function VersionDialog({ clip, start, onClose }: {
         <div>
           <DialogTitle className="text-lg font-semibold">Ny version för ett annat konto</DialogTitle>
           <DialogDescription className="mt-1">
-            Ge versionen en ny hook eller en ny startpunkt, så räknas den som ett eget klipp. Du kan också byta font, overlay, klistermärke, spegling, filter och hastighet. Versionen blir ett eget klipp som du granskar.
+            Ge versionen {(opts ?? start[platform])?.hook_text ? "en ny hook eller en ny startpunkt" : "en ny startpunkt"}, så räknas den som ett eget klipp. Du kan också byta font, overlay, klistermärke, spegling, filter och hastighet. Versionen blir ett eget klipp som du granskar.
           </DialogDescription>
         </div>
 
@@ -574,7 +615,7 @@ function VersionDialog({ clip, start, onClose }: {
             clip={clip}
             opts={opts}
             cut={cut}
-            hook={hook}
+            hook={opts?.hook_text ? shownHook : ""}
             font={font}
             overlayUrl={overlayUrl}
             stickerUrl={stickerUrl}
@@ -616,7 +657,16 @@ function VersionDialog({ clip, start, onClose }: {
 
                 {opts?.allowed && (
                   <>
-                    {opts.hook_text && <HookField clipId={clip.id} value={hook} onChange={setHook} busy={busy} />}
+                    {opts.hook_text && (
+                      <HookField
+                        value={hook}
+                        onChange={setHook}
+                        busy={busy}
+                        asking={suggester.asking}
+                        error={suggester.error}
+                        onSuggest={suggester.suggest}
+                      />
+                    )}
 
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div>
@@ -639,7 +689,7 @@ function VersionDialog({ clip, start, onClose }: {
                           disabled={busy || opts.overlay_locked}
                           className={field}
                         >
-                          {/* null hos servern: den overlay klippet redan har, så förhandsvisningen ritar ingen extra. */}
+                          {/* null hos servern: kampanjens overlay. Förhandsvisningen ritar den inte: originalfilen har ingen, det färdiga klippet har den redan. */}
                           <option value="">Kampanjens overlay</option>
                           {opts.overlays.map((o) => (
                             <option key={o.file} value={o.file}>
@@ -690,7 +740,7 @@ function VersionDialog({ clip, start, onClose }: {
 
                 {opts?.allowed && (
                   <VersionWarnings
-                    own={hasOwn({ ...opts, hook, start_cut_s: cut })}
+                    own={hasOwn({ ...opts, hook: shownHook, start_cut_s: cut })}
                     accountWarning={opts.account_warning}
                   />
                 )}

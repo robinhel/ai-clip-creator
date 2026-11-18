@@ -1,13 +1,14 @@
 /** Eget bidrag i en ny version: samma regler som campaign/versions.py, så att dialogen varnar som servern. */
 
-const sec = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
+/** Sekunder med högst en decimal och decimalkomma. */
+export const sec = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
 
 /** Samma text som NO_OWN i campaign/versions.py. */
 export const NO_OWN =
   "Versionen har ingen ny hook och ingen ny startpunkt. Bara spegling, hastighet, filter eller font kan ge strike på YouTube och stoppa klippet från För dig på TikTok.";
 
 /** Som _norm i campaign/schedule.py: gemener, utan blanksteg och utan hashtaggar först och sist. */
-export function norm(text: string): string {
+function norm(text: string): string {
   const words = text.toLowerCase().split(/\s+/).filter(Boolean);
   while (words.length && words[0].startsWith("#")) words.shift();
   while (words.length && words[words.length - 1].startsWith("#")) words.pop();
@@ -31,4 +32,10 @@ export function hasOwn(v: { hook_text: boolean; hook: string; hooks_used: string
 export function startLabel(startCutS: number): string {
   if (Math.abs(startCutS) < 0.05) return "Samma start som originalet";
   return `${sec.format(Math.abs(startCutS))} s ${startCutS < 0 ? "tidigare" : "senare"}`;
+}
+
+/** Hur långt reglaget går, bara åt de håll som går: "Högst 4,5 s tidigare och 2 s senare". Tom när inget håll går. */
+export function startReach(lo: number, hi: number): string {
+  const parts = [lo < 0 ? `${sec.format(-lo)} s tidigare` : "", hi > 0 ? `${sec.format(hi)} s senare` : ""].filter(Boolean);
+  return parts.length ? `Högst ${parts.join(" och ")}` : "";
 }
