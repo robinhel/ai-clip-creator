@@ -157,7 +157,7 @@ export function CampaignProjectCard({ project }: { project: CampaignProject }) {
       meta={
         <>
           {projectMeta(project)}
-          <span className="block">Kampanj: {project.profile}</span>
+          <span className="block">Kampanj: {campaignLabel(project.profile)}</span>
         </>
       }
     >
