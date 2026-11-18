@@ -99,7 +99,7 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
   // Slutet längst ut är originalets exakta längd; tidslinjen visar den avrundad till 0,1 s.
   // En egen video spelas snabbare, så klippet blir kortare än råtiden (som servern).
   const outExact = outS >= total ? exact : outS;
-  const length = trimLength(inS, outExact, info.speed);
+  const length = trimLength(inS, outExact, info.speed, info.length_extra_s);
   const problem = lengthProblem(length, info.min_s, info.max_s);
   // Bara en ny rubrik: servern kontrollerar inte längden, så den stoppar inte heller här.
   const block =

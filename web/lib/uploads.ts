@@ -19,6 +19,17 @@ const POSITION_VALUES: StickerPosition[] = ["top_left", "top_right", "center", "
 export const VIDEO_TYPES = [".mp4", ".mov", ".m4v", ".webm", ".mkv"];
 export const ACCEPT = VIDEO_TYPES.join(",");
 
+/** Ljudet i klippet: originalljudet, tyst eller musik ur kampanjens mapp. */
+export type Audio = "keep" | "mute" | "music";
+export const AUDIOS: [Audio, string][] = [
+  ["keep", "Behåll ljudet"],
+  ["mute", "Tyst"],
+  ["music", "Musik"],
+];
+// Samma filer som servern tar emot i POST /campaign/uploads/music: ljudfiler och videor.
+export const MUSIC_TYPES = [".mp3", ".m4a", ".aac", ".wav", ".ogg", ".flac", ...VIDEO_TYPES];
+export const MUSIC_ACCEPT = MUSIC_TYPES.join(",");
+
 /** Valen för en video. startS och endS är sekunder i källvideon; endS 0 betyder videons slut. */
 export interface Choices {
   mirror: boolean;
@@ -35,12 +46,19 @@ export interface Choices {
   stickerLength: string;
   startS: number;
   endS: number;
+  audio: Audio;
+  /** Filnamnet i kampanjens musik. Används bara när audio är music. */
+  music: string;
+  /** Musiken börjar vid, sekunder i musikfilen. Text, så att Robin kan skriva komma. */
+  musicStart: string;
+  /** Originalljudet under musiken, 0–100 %. */
+  originalVolume: number;
 }
 
 export const START_CHOICES: Choices = {
   mirror: false,
-  speed: 1.1,
-  filter: "fresh",
+  speed: 1,
+  filter: "none",
   brightness: 0,
   saturation: 0,
   framing: "fit",
@@ -52,6 +70,10 @@ export const START_CHOICES: Choices = {
   stickerLength: "3",
   startS: 0,
   endS: 0,
+  audio: "keep",
+  music: "",
+  musicStart: "0",
+  originalVolume: 30,
 };
 
 /** Sekunder ur ett fält. Robin kan skriva komma. */
@@ -107,6 +129,32 @@ export function stickerProblemText(c: Choices): string | null {
   return Number.isFinite(lengthS) && !tooShortOrLong ? null : "Klistermärket ska synas 0,5–10 s.";
 }
 
+/** Kontrollerar musikens val. null när de går att använda. */
+export function audioProblemText(c: Choices): string | null {
+  if (c.audio !== "music") return null;
+  if (!c.music) return "Välj en låt under Ljud, eller lägg till musik.";
+  const startS = seconds(c.musicStart);
+  return Number.isFinite(startS) && startS >= 0 ? null : "Starten i musiken ska vara 0 s eller mer.";
+}
+
+/** Texterna vid reglaget när originalljudet är 0 %. Tom lista när det hörs. */
+export function volumeWarning(originalVolume: number, rules: string[] | null | undefined): string[] {
+  if (originalVolume > 0) return [];
+  const warning = ["Originalljudet hörs inte i klippet."];
+  return rules?.length ? [...warning, "Läs kampanjens regel ovan."] : warning;
+}
+
+/** Ljudet med serverns namn. Musikens fält bara när Musik är valt. Bilden har inget ljud, så frame får dem inte. */
+function audioFields(c: Choices): [string, string][] {
+  if (c.audio !== "music") return [["audio", c.audio]];
+  return [
+    ["audio", c.audio],
+    ["music", c.music],
+    ["music_start_s", String(seconds(c.musicStart))],
+    ["original_volume", String(c.originalVolume / 100)],
+  ];
+}
+
 /** Valen med serverns namn, som formulärfält. Klistermärket bara när det är valt. */
 function choiceFields(c: Choices, profile: string, title: string): [string, string][] {
   const fields: [string, string][] = [
@@ -137,7 +185,7 @@ function choiceFields(c: Choices, profile: string, title: string): [string, stri
 /** Det som skickas till render och save för ett utkast. */
 export function choicesForm(c: Choices, profile: string, title: string): FormData {
   const form = new FormData();
-  for (const [key, value] of choiceFields(c, profile, title)) form.append(key, value);
+  for (const [key, value] of [...choiceFields(c, profile, title), ...audioFields(c)]) form.append(key, value);
   return form;
 }
 
@@ -147,7 +195,7 @@ export function frameQuery(c: Choices, profile: string, title: string, t: number
 }
 
 /** Valen som en sträng, för att se om de har ändrats sedan förhandsvisningen. */
-export const previewKey = (c: Choices, profile: string, title: string) => JSON.stringify(choiceFields(c, profile, title));
+export const previewKey = (c: Choices, profile: string, title: string) => JSON.stringify([...choiceFields(c, profile, title), ...audioFields(c)]);
 
 /** true när valen inte längre är de som förhandsvisades. Utan förhandsvisning: false. */
 export function previewOutdated(key: string | null | undefined, c: Choices, profile: string, title: string): boolean {
@@ -163,6 +211,12 @@ export function splitVideoFiles<T extends { name: string }>(files: ArrayLike<T> 
     else rejected.push(file.name);
   }
   return { videos, rejected };
+}
+
+/** Texten när filen inte är en ljudfil eller video, innan den laddas upp. null när den går att använda. */
+export function musicFileProblem(name: string): string | null {
+  if (MUSIC_TYPES.some((type) => name.toLowerCase().endsWith(type))) return null;
+  return `${name} är ingen ljudfil eller video. Välj mp3, m4a, aac, wav, ogg, flac, mp4, mov, m4v, webm eller mkv.`;
 }
 
 /** "a.txt och b.png är ingen video …", eller null när alla filer var videor. */
@@ -186,6 +240,7 @@ const ALLOWED: Partial<Record<keyof Choices, readonly unknown[]>> = {
   filter: FILTERS.map(([value]) => value),
   framing: FRAMINGS.map(([value]) => value),
   position: POSITION_VALUES,
+  audio: AUDIOS.map(([value]) => value),
 };
 
 /** Sparar valen som de senaste i kampanjen. Utan localStorage händer inget. */
@@ -201,11 +256,21 @@ export function saveLastChoices(storage: ChoiceStorage, profile: string, c: Choi
 function usable(key: keyof Choices, value: unknown): boolean {
   if (typeof value !== typeof START_CHOICES[key]) return false;
   if (typeof value === "number" && !Number.isFinite(value)) return false;
+  if (key === "originalVolume" && ((value as number) < 0 || (value as number) > 100)) return false;
   return ALLOWED[key]?.includes(value) ?? true;
 }
 
-/** De senaste valen i kampanjen. Ett trasigt värde, eller ett fält med fel typ, ger startvalet. */
-export function loadLastChoices(storage: ChoiceStorage, profile: string): Choices {
+/** Musik som inte finns i kampanjens lista längre ger Behåll. Annars samma val. */
+export function withKnownMusic(c: Choices, music: string[]): Choices {
+  if (c.audio !== "music" || music.includes(c.music)) return c;
+  return { ...c, audio: "keep", music: "" };
+}
+
+/**
+ * De senaste valen i kampanjen. Ett trasigt värde, eller ett fält med fel typ, ger startvalet.
+ * music: kampanjens musikfiler, när de är kända. En sparad låt som inte finns där ger Behåll.
+ */
+export function loadLastChoices(storage: ChoiceStorage, profile: string, music?: string[]): Choices {
   let stored: unknown;
   try {
     stored = JSON.parse(storage.getItem(storageKey(profile)) ?? "null");
@@ -215,7 +280,8 @@ export function loadLastChoices(storage: ChoiceStorage, profile: string): Choice
   if (!stored || typeof stored !== "object") return { ...START_CHOICES };
   const record = stored as Record<string, unknown>;
   const loaded = SAVED_KEYS.filter((k) => usable(k, record[k])).map((k) => [k, record[k]]);
-  return { ...START_CHOICES, ...Object.fromEntries(loaded) };
+  const choices = { ...START_CHOICES, ...Object.fromEntries(loaded) };
+  return music ? withKnownMusic(choices, music) : choices;
 }
 
 /** Använd på alla: valen till en annan video. Start och slut hör till varje video och följer inte med. */

@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { uploadsApi, type DraftOptions } from "@/lib/uploadsApi";
-import type { CampaignClip, CampaignProfile } from "@/lib/types";
+import type { CampaignClip, CampaignProfile, MusicFile } from "@/lib/types";
 import { errorText } from "./ui";
 
 /** Kampanjerna och de egna klippen. ?kampanj=<id> väljer kampanjen, till exempel från kampanjsidan. */
@@ -40,12 +40,20 @@ export function useUploadData() {
   return { profiles, profile, setProfile, clips, setClips, loadError, profilesLoaded, load, loadClips };
 }
 
+/** En låt som är uppladdad till kampanjen `to`. */
+export interface UploadedMusic {
+  to: string;
+  music: MusicFile;
+}
+
 /** Valen som kampanjen erbjuder, med tak och säker zon. Ett fel visas med Försök igen. */
 export function useUploadOptions(profile: string) {
   const [opts, setOpts] = useState<DraftOptions | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tries, setTries] = useState(0);
+  const shown = useRef(profile); // kampanjen som visas nu, för en uppladdning som blir klar efter ett byte
   useEffect(() => {
+    shown.current = profile;
     if (!profile) return;
     let live = true;
     setOpts(null);
@@ -58,5 +66,12 @@ export function useUploadOptions(profile: string) {
       live = false;
     };
   }, [profile, tries]);
-  return { opts, error, retry: () => setTries((n) => n + 1) };
+  /** En uppladdad låt i kampanjens lista, utan att hämta valen igen. Byttes kampanjen under uppladdningen ligger
+   * låten i den gamla kampanjens mapp: listan ändras inte. Returnerar om låten lades till. */
+  const addMusic = useCallback(({ to, music }: UploadedMusic) => {
+    if (to !== shown.current) return false;
+    setOpts((o) => o && { ...o, music: [...(o.music ?? []), music] });
+    return true;
+  }, []);
+  return { opts, error, retry: () => setTries((n) => n + 1), addMusic };
 }

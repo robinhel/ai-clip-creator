@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { DeleteVod } from "@/components/DeleteVod";
 import { api } from "@/lib/api";
+import { campaignLabel } from "@/lib/campaignName";
 import {
   activeFile,
   countClips,
@@ -123,7 +124,7 @@ export function ProjectCard({ run }: { run: CampaignRunInfo }) {
       meta={
         <>
           {metaLine(run)}
-          <span className="block">Kampanj: {run.profile}</span>
+          <span className="block">Kampanj: {campaignLabel(run.profile)}</span>
         </>
       }
     >
@@ -156,7 +157,7 @@ export function CampaignProjectCard({ project }: { project: CampaignProject }) {
       meta={
         <>
           {projectMeta(project)}
-          <span className="block">Kampanj: {project.profile}</span>
+          <span className="block">Kampanj: {campaignLabel(project.profile)}</span>
         </>
       }
     >

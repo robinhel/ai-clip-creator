@@ -10,6 +10,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Progress } from "@/components/ui/progress";
 import { CampaignStatusBadge, PLATFORM_LABEL, STATUS_LABEL, STATUS_ORDER } from "@/components/CampaignStatusBadge";
 import { api } from "@/lib/api";
+import { campaignLabel, hasCampaign } from "@/lib/campaignName";
 import {
   buildPatch,
   changed,
@@ -335,7 +336,7 @@ function RowTitle({ row, runId, streamer, error }: { row: Row; runId?: number; s
         )}
       </p>
       <p className="mt-0.5 text-xs text-muted-foreground">
-        {streamer ?? clip.profile} · {clip.vod_id === UPLOAD ? "Egen video" : `VOD ${clip.vod_id}`}
+        {streamer ?? campaignLabel(clip.profile)} · {clip.vod_id === UPLOAD ? "Egen video" : `VOD ${clip.vod_id}`}
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
         {post && (
@@ -756,7 +757,7 @@ function useCampaigns(profiles: string[]): Campaigns {
   const [campaigns, setCampaigns] = useState<Campaigns>({});
   const key = profiles.join(",");
   useEffect(() => {
-    for (const name of key ? key.split(",") : []) {
+    for (const name of key ? key.split(",").filter(hasCampaign) : []) {
       api.campaign.profile
         .get(name)
         .then((d) => setCampaigns((prev) => ({ ...prev, [name]: { streamer: d.streamer, analyticsForm: d.links?.analytics_form ?? null } })))
@@ -830,7 +831,7 @@ function ListHeader({ shown, total, profiles, campaigns, f }: { shown: number; t
             <option value="">Alla kampanjer</option>
             {profiles.map((name) => (
               <option key={name} value={name}>
-                {campaigns[name]?.streamer ?? name}
+                {campaigns[name]?.streamer ?? campaignLabel(name)}
               </option>
             ))}
           </NativeSelect>

@@ -36,3 +36,6 @@ candidates.json
 # Kampanjlagret
 klippdata/
 profiles/.*.yaml.bak
+# Musik till egna videor: bara instruktionen checkas in
+musik/*
+!musik/LAS-MIG.md

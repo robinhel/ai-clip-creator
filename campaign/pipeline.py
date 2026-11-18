@@ -36,6 +36,7 @@ from .download import download_vod
 from .media import probe
 from .memory import selection_memory
 from .profile import Profile, load_profile
+from .rules import NO_CAMPAIGN
 from .subtitles import pick_words, save_words
 from .timemap import hook_span
 from .transcribe import berget_post, transcribe_vod
@@ -114,8 +115,9 @@ def signals_mode(profile: Profile, settings: Settings) -> bool:
 
 def finish(vod_id: str, profile: Profile, settings: Settings, game: str | None,
            run_id: int | None = None, stop: Callable[[], None] = lambda: None) -> list[dict]:
-    """I snabbläget ingen bildgranskning och ingen Claude-budget, också när klippen görs klara igen."""
-    review = not signals_mode(profile, settings)
+    """I snabbläget ingen bildgranskning och ingen Claude-budget, också när klippen görs klara igen. Inte heller
+    utan kampanj (_ingen): den har inga bildregler att granska mot."""
+    review = profile.name != NO_CAMPAIGN and not signals_mode(profile, settings)
     log = ClipLog(settings.data_dir / "klipp.db")
     brain = Brain(settings, budget_from_settings(settings)) if review else None
     subdir = f"run_{run_id}"
@@ -154,6 +156,13 @@ def _twitch_ids(vod_id: str, channel: str, secrets) -> tuple[str, str]:
         log.warning("Twitch svarade inte (%s): tittarnas klipp räknas inte för %s", type(error).__name__, vod_id)
         return "", ""
     return user_id, created_at
+
+
+def _channel(cfg, profile: Profile, meta: dict) -> str:
+    """Kanalen som körningen gäller. Liveklipp utan kampanj: kanalen som bevakas, sparad i körningen."""
+    if profile.name == NO_CAMPAIGN and meta.get("channel_name"):
+        return meta["channel_name"]
+    return cfg.channels[0] if cfg.channels else profile.streamer.lower()
 
 
 def _with_memory(focus: str, profile: Profile, settings: Settings) -> str:
@@ -198,8 +207,8 @@ def make_clips(
         clip = cfg.clip.model_copy(update={"min_seconds": min_s or cfg.clip.min_seconds,
                                            "max_seconds": max_s or cfg.clip.max_seconds})
         cfg = cfg.model_copy(update={"clip": clip})
-    channel = cfg.channels[0] if cfg.channels else profile.streamer.lower()
     meta = (ClipLog(settings.data_dir / "klipp.db").run(run_id) if run_id is not None else None) or {}
+    channel = _channel(cfg, profile, meta)
     title = meta.get("title") or vod_id  # VOD-fakta sparades när körningen startade
     duration = _duration(meta["duration_s"]) if meta.get("duration_s") else ""
 

@@ -17,6 +17,7 @@ from clipsmith.api.deps import verify_api_key
 
 from .api import (
     NEXT_STATUS,
+    _check_campaign,
     _check_min_views,
     _get,
     _link_problem,
@@ -85,6 +86,7 @@ def add_post(clip_id: int, body: NewPost, response: Response, settings: Settings
     clip = _get(log, clip_id)
     if clip["status"] not in ("godkand", "postad", "inskickad", "analytics_inskickad", "betald"):
         raise HTTPException(400, "Klippet måste vara godkänt innan det postas.")
+    _check_campaign(clip)
     if clip["problems"]:
         raise HTTPException(400, "Klippet har problem. Det får inte postas.")
     url = body.url.strip()

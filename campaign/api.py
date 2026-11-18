@@ -31,6 +31,7 @@ from .metrics import clip_length, reached_min_7d
 from .pipeline import finish_run, run_campaign_vod
 from .profile import PLATFORMS, Profile, load_profile
 from .rules import NO_FORMAT
+from .schedule import ScheduleError, _require_campaign
 from .vodinfo import VodNotFound, vod_facts
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
@@ -322,6 +323,8 @@ def create_run(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
+    if body.profile.startswith("_"):  # dold kampanj, som _ingen: bara livebevakningen kör den
+        raise HTTPException(404, f"Kampanjen {body.profile} finns inte.")
     return _create_run(body, request, background_tasks, db, settings)
 
 
@@ -768,6 +771,17 @@ def patch_clip(clip_id: int, body: ClipPatch, settings: Settings = Depends(get_s
             editor.lock.release()
 
 
+def _check_campaign(clip: dict, status: str = "postad") -> None:
+    """Ett klipp utan kampanj (_ingen) blir aldrig godkänt eller postat, oavsett problemlistan.
+    Samma spärr som schemat."""
+    if status not in ("godkand", *POST_STATUSES):
+        return
+    try:
+        _require_campaign(clip)
+    except ScheduleError as error:
+        raise HTTPException(400, str(error)) from error
+
+
 def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
     log = _log(settings)
     clip = _get(log, clip_id)
@@ -800,6 +814,7 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
     if new and new != status:
         if new not in NEXT_STATUS[status]:
             raise HTTPException(400, f"Ett klipp med status {status} kan inte bli {new}.")
+        _check_campaign(clip, new)
         if new == "godkand":
             if problems:
                 raise HTTPException(400, "Klippet har problem. Rätta dem innan du godkänner.")

@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import {
   EXTRA_S,
   START_CHOICES,
+  audioProblemText,
   choicesForm,
   clipLength,
   copyChoices,
@@ -14,6 +15,7 @@ import {
   saveLastChoices,
   splitVideoFiles,
   stickerProblemText,
+  withKnownMusic,
   type Choices,
   type LengthCheck,
 } from "@/lib/uploads";
@@ -54,10 +56,10 @@ function storage() {
   }
 }
 
-/** De senaste valen i kampanjen, eller startvalen. */
-export function lastChoices(profile: string): Choices {
+/** De senaste valen i kampanjen, eller startvalen. music: kampanjens musikfiler, när de är kända. */
+export function lastChoices(profile: string, music?: string[]): Choices {
   const s = storage();
-  return profile && s ? loadLastChoices(s, profile) : { ...START_CHOICES };
+  return profile && s ? loadLastChoices(s, profile, music) : { ...START_CHOICES };
 }
 
 /** Sparar valen som kampanjens senaste. */
@@ -71,15 +73,15 @@ export function itemProblem(item: Item, opts: DraftOptions | null): { check: Len
   const check =
     item.draft && opts ? lengthCheck(clipLength(item.choices, item.draft.duration_s) + EXTRA_S, opts.min_seconds, opts.max_seconds) : null;
   const lengthText = check && !check.ok ? check.text : null;
-  return { check, problem: lengthText ?? stickerProblemText(item.choices) };
+  return { check, problem: lengthText ?? stickerProblemText(item.choices) ?? audioProblemText(item.choices) };
 }
 
 /** Bildens tid i det färdiga klippet: markören i källvideon, efter starten och hastigheten. */
 export const clipTime = (item: Item) => Math.round((Math.max(item.atS - item.choices.startS, 0) / item.choices.speed) * 100) / 100;
 
-function newItem(file: File, profile: string): Item {
+function newItem(file: File, profile: string, music?: string[]): Item {
   const key = `${file.name}-${file.size}-${Math.random()}`;
-  return { key, file, title: "", choices: lastChoices(profile), fresh: true, upload: "uploading", percent: 0, state: "waiting", atS: 0, previewing: false };
+  return { key, file, title: "", choices: lastChoices(profile, music), fresh: true, upload: "uploading", percent: 0, state: "waiting", atS: 0, previewing: false };
 }
 
 /** Videorna i listan och det som går att göra med dem. */
@@ -87,6 +89,8 @@ export function useItems() {
   const [items, setItems] = useState<Item[]>([]);
   const [rejected, setRejected] = useState<string | null>(null);
   const aborts = useRef(new Map<string, () => void>());
+  // Kampanjens musikfiler när de är hämtade, annars undefined.
+  const knownMusic = useRef<string[] | undefined>(undefined);
 
   const update = useCallback(
     (key: string, change: Partial<Item> | ((item: Item) => Partial<Item>)) =>
@@ -115,7 +119,7 @@ export function useItems() {
     (files: ArrayLike<File> | null, profile: string): Item[] => {
       const { videos, rejected: names } = splitVideoFiles(files ?? []);
       setRejected(rejectText(names));
-      const added = videos.map((file) => newItem(file, profile));
+      const added = videos.map((file) => newItem(file, profile, knownMusic.current));
       setItems((list) => [...list, ...added]);
       added.forEach(startUpload);
       return added;
@@ -153,11 +157,24 @@ export function useItems() {
 
   /** Byte av kampanj: overlayn börjar om, och videor med kampanjens senaste val får den nya kampanjens. */
   const changeProfile = useCallback((profile: string) => {
+    // Den nya kampanjens musik är inte hämtad än.
+    knownMusic.current = undefined;
     setItems((list) =>
       list.map((item) => {
         if (item.state === "done") return item;
         if (item.fresh) return { ...item, choices: lastChoices(profile) };
         return { ...item, choices: { ...item.choices, overlay: "" } };
+      })
+    );
+  }, []);
+
+  /** Kampanjens musik är hämtad: en vald låt som inte finns i listan ger Behåll. */
+  const setMusicFiles = useCallback((music: string[]) => {
+    knownMusic.current = music;
+    setItems((list) =>
+      list.map((item) => {
+        const choices = withKnownMusic(item.choices, music);
+        return item.state === "done" || choices === item.choices ? item : { ...item, choices };
       })
     );
   }, []);
@@ -192,5 +209,5 @@ export function useItems() {
 
   const setAt = (key: string, atS: number) => update(key, { atS });
 
-  return { items, rejected, add, remove, removeDone, update, setChoice, setTimes, setAt, applyToAll, changeProfile, preview, save, retryUpload: startUpload };
+  return { items, rejected, add, remove, removeDone, update, setChoice, setTimes, setAt, applyToAll, changeProfile, setMusicFiles, preview, save, retryUpload: startUpload };
 }

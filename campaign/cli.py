@@ -17,6 +17,7 @@ from .media import probe
 from .profile import Profile, load_profile
 from .transcribe import EUR_PER_MINUTE, berget_post, transcribe_vod
 from .workflow import finish_vod, load_picks
+from .schedule import ScheduleError, _require_campaign  # efter workflow: schedule och editor importerar varandra
 
 
 def _budget(settings: Settings) -> Budget:
@@ -35,6 +36,27 @@ def _profile(settings: Settings, name: str | None) -> Profile:
             raise SystemExit("Ange profil med --profile, eller sätt KLIPP_PROFILE i .env.")
         name = found[0]
     return load_profile(name, settings.profiles_dir)
+
+
+def _campaign_problem(clip: dict) -> str | None:
+    """Felet för ett klipp utan kampanj (_ingen), som aldrig blir godkänt eller postat. Samma spärr som schemat."""
+    try:
+        _require_campaign(clip)
+    except ScheduleError as error:
+        return f"#{clip['id']}: {error}"
+    return None
+
+
+def _with_campaign(clips: list[dict]) -> list[dict]:
+    """Klippen som går att godkänna: inte de utan kampanj. De nekas i appen eller med mark."""
+    return [clip for clip in clips if not _campaign_problem(clip)]
+
+
+def _post_problem(clip: dict) -> str | None:
+    """Varför klippet inte får markeras som postat, annars None."""
+    if clip["status"] not in ("godkand", *POST_STATUSES):  # samma regel som webben: bara godkända klipp postas
+        return f"#{clip['id']} är {clip['status']}. Godkänn klippet innan det markeras som postat."
+    return _campaign_problem(clip)
 
 
 def _print_budget(budget: Budget) -> None:
@@ -178,7 +200,7 @@ def cmd_local(args, settings: Settings) -> int:
 
 def cmd_approve(args, settings: Settings) -> int:
     log = _log(settings)
-    waiting = log.list("renderad")
+    waiting = _with_campaign(log.list("renderad"))
     if not waiting:
         print("Inga klipp väntar.")
         return 0
@@ -209,9 +231,9 @@ def cmd_approve(args, settings: Settings) -> int:
 
 def cmd_posted(args, settings: Settings) -> int:
     log = _log(settings)
-    status = log.get(args.clip_id)["status"]
-    if status not in ("godkand", *POST_STATUSES):  # samma regel som webben: bara godkända klipp postas
-        print(f"#{args.clip_id} är {status}. Godkänn klippet innan det markeras som postat.")
+    problem = _post_problem(log.get(args.clip_id))
+    if problem:
+        print(problem)
         return 1
     platform = args.platform or "tiktok"
     same = [p for p in log.posts(args.clip_id) if p["platform"] == platform]
@@ -249,6 +271,10 @@ def cmd_reframe(args, settings: Settings) -> int:
 
 def cmd_mark(args, settings: Settings) -> int:
     log = _log(settings)
+    problem = _campaign_problem(log.get(args.clip_id)) if args.status in ("godkand", *POST_STATUSES) else None
+    if problem:
+        print(problem)
+        return 1
     posts = log.posts(args.clip_id)
     if posts and args.status in POST_STATUSES:  # steget gäller alla klippets inlägg
         for post in posts:

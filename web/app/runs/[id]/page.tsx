@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { DeleteVod } from "@/components/DeleteVod";
 import { ClipsSection } from "@/components/ProjectClient";
 import { api, cancelRun } from "@/lib/api";
+import { campaignLabel } from "@/lib/campaignName";
 import { countClips, latestAttempt } from "@/lib/projects";
 import { rejectedFix } from "@/lib/steps";
 import { clock, cn, duration, serverTime, usd } from "@/lib/utils";
@@ -143,7 +144,7 @@ function RunHeader({ run, clips }: { run: CampaignRunDetail; clips: CampaignClip
       </h1>
       <p className="mt-1.5 text-muted-foreground">{runMeta(run)}</p>
       <p className="text-sm text-muted-foreground">
-        Kampanj: {run.profile}, VOD {run.vod_id}
+        Kampanj: {campaignLabel(run.profile)}, VOD {run.vod_id}
       </p>
       {part && <p className="text-sm text-muted-foreground tabular-nums">Del av VOD:en: {part}</p>}
       {run.focus && <p className="mt-1 text-sm text-muted-foreground">Letade efter: {run.focus}</p>}

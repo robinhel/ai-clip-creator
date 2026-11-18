@@ -8,6 +8,7 @@ import { ClipResultRow, ignoreKey } from "@/components/ClipResultRow";
 import { DeleteVod } from "@/components/DeleteVod";
 import { Progress } from "@/components/ProjectCard";
 import { api } from "@/lib/api";
+import { campaignLabel } from "@/lib/campaignName";
 import { fileMeta, fileState, firstLine, isRunning, projectSize, waitingText } from "@/lib/projects";
 import { cn } from "@/lib/utils";
 import type { CampaignClip, CampaignProfile, CampaignProject, CampaignStatus, ProjectFile } from "@/lib/types";
@@ -387,7 +388,7 @@ function ProjectHeader({ project }: { project: CampaignProject }) {
           {projectSize(project)}
           {todo && <span className="font-medium text-brand">, {todo}</span>}
         </p>
-        <p className="text-sm text-muted-foreground">Kampanj: {project.profile}</p>
+        <p className="text-sm text-muted-foreground">Kampanj: {campaignLabel(project.profile)}</p>
       </div>
       <Link href={`/uploads?kampanj=${encodeURIComponent(project.profile)}`} className={buttonVariants({ variant: "outline" })}>
         <Upload aria-hidden />

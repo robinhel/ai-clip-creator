@@ -100,10 +100,19 @@ def test_part_starts_before_the_peak_and_ends_after() -> None:
 
 def test_chat_for_the_part_has_times_from_the_part_start() -> None:
     msgs = [message(t, "KEKW", "a") for t in (100.0, 3640.0, 3700.0, 3760.0)]
-    log = chat_for_part(msgs, 3633.0, 3753.0, "2927104410_live_3")
+    log = chat_for_part(msgs, [(3633.0, 3753.0)], "2927104410_live_3")
     assert log.video_id == "2927104410_live_3"
     assert [m.time_in_seconds for m in log.messages] == [7.0, 67.0]
     assert ChatLog.from_json(log.to_json()).messages[0].hype_emote_count == 1
+
+
+def test_chat_for_a_part_with_a_hole_leaves_the_hole_out_and_moves_the_chat_after_it() -> None:
+    # Hålet 110-120 är inte med i mp4-filen: bilden efter det börjar vid 10 s.
+    msgs = [
+        message(t, "KEKW", "a") for t in (99.0, 100.0, 105.0, 110.0, 115.0, 120.0, 125.0, 130.0)
+    ]
+    log = chat_for_part(msgs, [(100.0, 110.0), (120.0, 130.0)], "p")
+    assert [m.time_in_seconds for m in log.messages] == [0.0, 5.0, 10.0, 15.0]
 
 
 def test_irc_line_becomes_a_message_with_its_time() -> None:
@@ -166,14 +175,6 @@ STARTED = dt.datetime.fromisoformat(CREATED.replace("Z", "+00:00")).timestamp()
 PROFILE = "skiimasktimmy"
 
 
-class NotReady(Exception):
-    pass
-
-
-class Failed(Exception):
-    pass
-
-
 class World:
     """Låtsas-Twitch, låtsas-klocka och låtsas-körning. Inget går mot nätverket och inget sover på riktigt."""
 
@@ -197,6 +198,7 @@ class World:
         self.notes: list[tuple] = []
         self.on_sleep = None
         self.watcher: live.Watcher | None = None
+        self.key = PROFILE  # nyckeln i LiveState för kanalen vars chatt läses
 
     def now(self) -> float:
         return self.t
@@ -215,7 +217,7 @@ class World:
         assert timeout_s > 300  # över Twitchs PING-intervall
         self.connects += 1
         if not self.chats:  # inget mer att läsa: streamen är slut
-            self.watcher.reading.pop(PROFILE, None)
+            self.watcher.reading.pop(self.key, None)
             return
         chat = self.chats.pop(0)
         if isinstance(chat, Exception):
@@ -228,9 +230,9 @@ class World:
         (folder / "segments" / "00001.ts").write_bytes(b"ts")
         if self.not_ready:
             self.not_ready -= 1
-            raise NotReady("inte inspelat än")
+            raise live.live_part.PartNotReady("inte inspelat än")
         if self.failed:
-            raise Failed(self.failed)
+            raise live.live_part.PartFailed(self.failed)
         folder.mkdir(parents=True, exist_ok=True)
         (folder / f"{folder.name}.mp4").write_bytes(b"mp4")
         return start_s - 4.0  # delen börjar vid en del i spellistan, lite före
@@ -306,9 +308,7 @@ def world(settings, tmp_path, monkeypatch) -> World:
         found.sleep,
         lambda target, *args: target(*args),
     )
-    watcher.part = SimpleNamespace(
-        fetch_part=found.fetch_part, PartNotReady=NotReady, PartFailed=Failed
-    )
+    watcher.part = SimpleNamespace(fetch_part=found.fetch_part)
     live.LiveState(settings).set_watching(PROFILE, True)
     return found
 

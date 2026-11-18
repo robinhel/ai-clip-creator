@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { EntryCard, isActive } from "@/components/ProjectCard";
 import { api } from "@/lib/api";
+import { campaignLabel } from "@/lib/campaignName";
 import { projectEntries, toReview } from "@/lib/projects";
 import type { CampaignProfile, CampaignProject, CampaignRunInfo } from "@/lib/types";
 
@@ -161,7 +162,7 @@ function useProjects() {
 /** Kampanjerna som har projekt, med streamerns namn som i resten av appen. */
 function campaignChoices(runs: CampaignRunInfo[], projects: CampaignProject[], profiles: CampaignProfile[]): CampaignChoice[] {
   const names = new Set([...runs.map((r) => r.profile), ...projects.map((p) => p.profile)]);
-  return [...names].sort().map((name) => ({ name, label: profiles.find((p) => p.name === name)?.streamer || name }));
+  return [...names].sort().map((name) => ({ name, label: profiles.find((p) => p.name === name)?.streamer || campaignLabel(name) }));
 }
 
 /** Korten som passar filtren, senaste först. */

@@ -10,6 +10,7 @@ import { freePlatforms, type Posting, type PublishRequest } from "@/components/P
 import { RemoveFromQueue } from "@/components/RemoveFromQueue";
 import { ScheduledList } from "@/components/ScheduledList";
 import { api } from "@/lib/api";
+import { hasCampaign } from "@/lib/campaignName";
 import { pollWhileVisible } from "@/lib/poll";
 import { bySubmitTime, countByStatus, defaultStep, isStep, STEP_STATUSES, stepCount, stepOrder, submitDeadline, type ClipStep } from "@/lib/steps";
 import { cn, SUMMARY_CHANGED } from "@/lib/utils";
@@ -84,7 +85,7 @@ const noticeFor = (prev: CampaignClip, next: CampaignClip): Notice | null =>
 
 /** Reglerna för kampanjerna som har klipp att granska, posta eller skicka in. En kampanj som inte går att läsa hoppas över. */
 async function profileDetails(clips: CampaignClip[]): Promise<CampaignProfileDetail[]> {
-  const names = [...new Set(clips.filter((c) => c.status !== "nekad").map((c) => c.profile))];
+  const names = [...new Set(clips.filter((c) => c.status !== "nekad").map((c) => c.profile))].filter(hasCampaign);
   const list = await Promise.all(names.map((name) => api.campaign.profile.get(name).catch(() => null)));
   return list.filter((d): d is CampaignProfileDetail => d !== null);
 }

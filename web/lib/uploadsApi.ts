@@ -1,5 +1,5 @@
 // Anropen för utkast på Egna videor. Allt går via proxyn /api, som lägger på API-nyckeln på servern.
-import type { CampaignClip, UploadOptions } from "./types";
+import type { CampaignClip, MusicFile, UploadOptions } from "./types";
 
 const PROXY = "/api";
 const BASE = "/campaign/uploads";
@@ -66,21 +66,34 @@ export class UploadAborted extends Error {
   }
 }
 
-/** Laddar upp videon som ett utkast, med förloppet i procent. abort avbryter och ger UploadAborted. */
-export function uploadDraft(file: File, onProgress: (percent: number) => void): { done: Promise<Draft>; abort: () => void } {
+/** Laddar upp ett formulär till drafts eller music, med förloppet i procent. abort avbryter och ger UploadAborted. */
+function uploadForm<T>(to: "drafts" | "music", form: FormData, onProgress: (percent: number) => void): { done: Promise<T>; abort: () => void } {
   const xhr = new XMLHttpRequest();
-  const done = new Promise<Draft>((resolve, reject) => {
-    xhr.open("POST", `${PROXY}${BASE}/drafts`);
+  const done = new Promise<T>((resolve, reject) => {
+    xhr.open("POST", `${PROXY}${BASE}/${to}`);
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(Math.round((e.loaded / e.total) * 100));
     xhr.onload = () =>
-      xhr.status >= 200 && xhr.status < 300 ? resolve(JSON.parse(xhr.responseText) as Draft) : reject(errorFor(xhr.status, xhr.responseText));
+      xhr.status >= 200 && xhr.status < 300 ? resolve(JSON.parse(xhr.responseText) as T) : reject(errorFor(xhr.status, xhr.responseText));
     xhr.onerror = () => reject(new Error(DOWN));
     xhr.onabort = () => reject(new UploadAborted());
-    const form = new FormData();
-    form.append("file", file);
     xhr.send(form);
   });
   return { done, abort: () => xhr.abort() };
+}
+
+/** Laddar upp videon som ett utkast, med förloppet i procent. abort avbryter och ger UploadAborted. */
+export function uploadDraft(file: File, onProgress: (percent: number) => void): { done: Promise<Draft>; abort: () => void } {
+  const form = new FormData();
+  form.append("file", file);
+  return uploadForm<Draft>("drafts", form, onProgress);
+}
+
+/** POST /campaign/uploads/music: en ljudfil eller video till kampanjens mapp musik/<kampanj>/. */
+export function uploadMusic(music: { file: File; profile: string }, onProgress: (percent: number) => void): { done: Promise<MusicFile>; abort: () => void } {
+  const form = new FormData();
+  form.append("file", music.file);
+  form.append("profile", music.profile);
+  return uploadForm<MusicFile>("music", form, onProgress);
 }
 
 export const uploadsApi = {

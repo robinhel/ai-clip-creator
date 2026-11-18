@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, FolderOpen, Link2, Loader2, Send, Upload, X } from "lucide-react";
 import { ProblemFix, readyText } from "@/components/CampaignsClient";
+import { LiveChannelCard } from "@/components/LiveChannelCard";
 import { EntryCard, isActive } from "@/components/ProjectCard";
 import { ScoutMiniCard } from "@/components/ScoutCard";
 import { api } from "@/lib/api";
@@ -805,6 +806,7 @@ export function HomeClient() {
           </Link>
         </nav>
       </section>
+      <LiveChannelCard />
 
       {loadError && (
         <div role="alert" className="mt-8 flex flex-wrap items-center gap-3 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">
