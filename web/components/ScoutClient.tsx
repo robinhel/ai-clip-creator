@@ -76,8 +76,9 @@ export function ScoutClient({ campaigns = null }: { campaigns?: CampaignProfile[
   return (
     <section aria-label="Nya kampanjer">
       <p className="max-w-[640px] text-muted-foreground">
-        Nya clipping-kampanjer från ClippingAlpha med betyg. Färska kampanjer med få klippare, låg gräns för betalning och
-        budget som räcker hamnar högst. Lägg in kampanjen fyller i Ny kampanj åt dig.
+        Nya clipping-kampanjer från ClippingAlpha med betyg. Mest väger hur många visningar klipp av kampanjens innehåll
+        brukar få. Sedan kommer färska kampanjer med få klippare, låg gräns för betalning och budget som räcker. Lägg in
+        kampanjen fyller i Ny kampanj åt dig.
       </p>
 
       {off && !status && (

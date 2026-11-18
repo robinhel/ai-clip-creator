@@ -3,7 +3,7 @@ och skickar en notis på Macen när en ny, bra kampanj kommer. Robin lägger sj�
 
 Källa: ClippingAlphas MCP (POST https://clippingalpha.com/mcp, JSON-RPC) utan inloggning. ClippingAlpha tar
 500 anrop per dag och nätverk; vi tar högst 300 per dygn (UTC), räknat i databasen, och högst ett i sekunden.
-Betyget följer rapporten "Vad är en bra kampanj" (Jarvis, Klippverktyget, 13 nov 2026).
+Betyget räknas i campaign/scout_score.py.
 
 Formen på en sökträff kommer från market.similar i get_campaign_analytics. Ett riktigt search_campaigns-svar
 med träffar gick inte att se när detta byggdes (gränsen var nådd), så alla fält läses med reserv.
@@ -31,12 +31,15 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from .config import Settings, load_settings
+from .content_views import (USER_AGENT, campaign_clip_views, channel_from_assets, go_link, resolve_join,
+                            twitch_clip_views, twitch_login_from_vod, vod_from_assets)
+from .scout_score import _days, _first, _time, evaluate, facts, min_views, pay_number
 
 log = logging.getLogger(__name__)
 
 MCP_URL = "https://clippingalpha.com/mcp"
 HEADERS = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
-           "User-Agent": "klipp-bevakning/0.1 (low rate, read only)"}
+           "User-Agent": USER_AGENT}
 PROTOCOL = "2025-06-18"
 BASE = {"board": "content-rewards", "type": "clipping", "platforms": ["tiktok", "youtube"]}
 NEWEST = {**BASE, "new_within_hours": 72, "sort": "newest", "limit": 25}
@@ -48,32 +51,27 @@ INTERVAL_S = 600  # var 10:e minut
 STEP_S = 60  # tråden sover högst så länge innan den räknar om väntan
 BEST_EVERY_S = 3600  # sökningen på Alpha-betyg en gång i timmen
 DETAIL_MAX_AGE_S = 6 * 3600
-DETAILS_PER_RUN = 10  # högst 20 anrop per körning för detaljer
+DETAILS_PER_RUN = 10  # högst 40 anrop per körning för detaljer (get_campaign, analytics, get_assets och /go/)
 TOP = 25
 SHOW_S = 72 * 3600  # en kampanj som inte syns i någon sökning på 72 timmar visas inte längre
 REFRESH_GAP_S = 120
-NOTIFY_SCORE, NOTIFY_AGE_H = 70, 48
+NOTIFY_SCORE, NOTIFY_AGE_H = 65, 48
 DEFAULT_MEDIAN_VIEWS = 1260  # medianklippet för ett nytt konto, enligt rapporten
 POSTS_FOR_MEDIAN = 20
 DEFAULT_CPM = 1.05
-MAX_MIN_VIEWS = 10_000
+
+TWITCH_MAX_AGE_S = 24 * 3600
+# Kampanjens klipp på Content Rewards för kampanjer som syns: högst 25 sidor per körning, 1 sekund mellan sidorna
+CLIP_VIEWS_PER_RUN, CLIP_PAGE_GAP_S = 25, 1.0
 
 BLOCK_S = 3600  # efter ClippingAlphas -32001: försök igen om en timme (när deras dygn börjar är okänt)
 STOCKHOLM = ZoneInfo("Europe/Stockholm")
 OWN_LIMIT_TEXT = f"Dagens gräns på {CALL_LIMIT} anrop till ClippingAlpha är nådd. Bevakningen fortsätter i morgon."
 REF = re.compile(r"[a-z0-9][a-z0-9-]{0,99}/[a-z0-9][a-z0-9-]{0,99}")
 
-FACE = re.compile(r"\bface\b|facecam of you|your voice|film yourself|on camera|\bugc\b", re.IGNORECASE)
-US = re.compile(r"\bUSA?\b")  # versaler, så att "us" och "status" inte räknas
-RICH = re.compile(r"united states|tier ?1", re.IGNORECASE)
-LANGUAGES = ("spanish", "german", "french", "portuguese", "italian", "arabic", "hindi", "turkish", "polish",
-             "dutch", "russian", "japanese", "korean", "chinese", "mandarin", "indonesian", "vietnamese", "thai",
-             "swedish", "norwegian", "danish", "finnish", "romanian", "czech", "hungarian", "greek", "hebrew",
-             "tagalog", "filipino", "urdu", "bengali", "malay")
-OTHER_LANGUAGE = re.compile(rf"\b(?:in|language:?)\s+(?:{'|'.join(LANGUAGES)})\b", re.IGNORECASE)
-
 _session: dict[str, str | None] = {"id": None}  # MCP-sessionen återanvänds, så att initialize inte kostar varje gång
 _last_call = [0.0]
+_last_page = [0.0]  # senaste sidan från Content Rewards, i _details eller _refresh_clip_views
 _run_lock = threading.Lock()  # tråden och Kontrollera nu kör inte samtidigt
 _thread: list[threading.Thread] = []
 
@@ -103,16 +101,15 @@ def _iso(moment: datetime) -> str:
     return moment.isoformat(timespec="seconds")
 
 
-def _time(value) -> datetime | None:
-    try:
-        moment = datetime.fromisoformat(str(value))
-    except ValueError:
-        return None
-    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
-
-
 def http_client() -> httpx.Client:
     return httpx.Client(timeout=30.0)
+
+
+def _wait_gap() -> None:
+    """Högst ett anrop i sekunden till ClippingAlpha."""
+    wait = MIN_GAP_S - (time.monotonic() - _last_call[0])
+    if wait > 0:
+        time.sleep(wait)
 
 
 def reserve(now: datetime) -> int:
@@ -121,203 +118,9 @@ def reserve(now: datetime) -> int:
     return math.ceil(left / INTERVAL_S) + math.ceil(left / BEST_EVERY_S)
 
 
-def _first(*values):
-    return next((value for value in values if value is not None), None)
-
-
 def _safe(url) -> str | None:
     """Bara länkar till ClippingAlpha öppnas, i webben och från notisen."""
     return url if isinstance(url, str) and url.startswith("https://clippingalpha.com/") else None
-
-
-# ---------- fakta och betyg ----------
-
-
-def facts(data: dict) -> dict:
-    """Det betyget och webben behöver, ur sökträffen och (om de finns) get_campaign och analytics."""
-    s, c, a = data.get("search") or {}, data.get("campaign") or {}, data.get("analytics")
-    a_campaign = (a or {}).get("campaign") or {}
-    joins = c.get("whereToJoin") or []
-    join = next((w for w in joins if w.get("boardSlug") == "content-rewards"), joins[0] if joins else None) or {}
-    pay, runway = (a or {}).get("pay"), (a or {}).get("runway") or {}
-    drain = c.get("drain") or {}
-    rules = ((c.get("rules") or {}).get("checklist")) or []
-    # Sökträffen är högst 10 minuter gammal, detaljerna upp till 6 timmar: sökträffen går före.
-    left = _first(s.get("budgetLeftUsd"), join.get("budgetLeftUsd"), runway.get("budgetLeftUsd"))
-    total = _first(s.get("budgetTotalUsd"), join.get("budgetTotalUsd"), runway.get("budgetTotalUsd"))
-    rate = _first(join.get("ratePer1kUsd"), (pay or {}).get("ratePer1kUsd"), s.get("ratePer1kUsd"))
-    fee = _first(join.get("boardFee"), (pay or {}).get("boardFeePct"), 0.1)
-    return {
-        "title": _first(c.get("title"), s.get("title"), a_campaign.get("title")) or "",
-        "brand": _first(c.get("brand"), s.get("brand"), a_campaign.get("brand")) or "",
-        "state": _first(s.get("state"), c.get("state"), a_campaign.get("state")),
-        "type": _first(a_campaign.get("type"), s.get("campaignType"), s.get("type")),
-        "platforms": _first(c.get("platforms"), s.get("platforms")) or [],
-        "niche": _first(c.get("niche"), s.get("niche")),
-        "about": c.get("about") or s.get("about") or "",
-        "rules": [(str(r.get("kind") or ""), str(r.get("text") or "")) for r in rules if isinstance(r, dict)],
-        "launched": _time(_first(c.get("launchedAt"), s.get("launchedAt"), s.get("newAt"))),
-        "rate": rate, "fee": fee,
-        "net": _first((c.get("alpha") or {}).get("netPer1kUsd"), s.get("netPer1kUsd")),
-        "left": left, "total": total,
-        "drain": _time(_first(drain.get("p50"), (runway.get("forecast") or {}).get("p50"), s.get("drainP50"))),
-        "stalled": _first(s.get("stalled"), drain.get("stalled"), c.get("stalled"), runway.get("stalled")) is True,
-        "open_join": _first(join.get("openJoin"), s.get("openJoin")), "gate": join.get("gateType"),
-        "verified": c.get("organizerVerified"),
-        "adjustments": None if a is None else ((a.get("alpha") or {}).get("adjustments") or []),
-        "fill": next((v.get("verdict") for v in ((a or {}).get("alpha") or {}).get("verdicts") or []
-                      if v.get("key") == "fill"), None),
-        "pay": pay,
-        "pay_model": _first(join.get("payModel"), s.get("payModel")),
-        "members_only": _first(c.get("membersOnly"), a_campaign.get("membersOnly"), s.get("membersOnly")),
-        "election": _first(c.get("election"), a_campaign.get("election"), s.get("election")),
-        "audience": " ".join(str(v) for v in (
-            *(c.get(k) for k in ("audience", "audienceLabel", "audienceNote", "region")),
-            *(a_campaign.get(k) for k in ("audienceLabel", "audienceNote", "region")),
-            *(s.get(k) for k in ("audience", "audienceLabel", "region"))) if v),
-        "page_url": _first(c.get("pageUrl"), a_campaign.get("pageUrl"), s.get("pageUrl")),
-        "join_url": _first(join.get("joinUrl"), a_campaign.get("joinUrl"), s.get("joinUrl")),
-    }
-
-
-def min_views(f: dict) -> int | None:
-    pay = f["pay"] or {}
-    if pay.get("minViews"):
-        return int(pay["minViews"])
-    if pay.get("minPayoutUsd") and f["rate"]:
-        return math.ceil(1000 * pay["minPayoutUsd"] / f["rate"])
-    return None
-
-
-def _days(moment: datetime | None, now: datetime) -> float | None:
-    return None if moment is None else (moment - now).total_seconds() / 86400
-
-
-def _part(key: str, label: str, points: float, most: int, fact: str) -> dict:
-    return {"key": key, "label": label, "points": round(points, 1), "max": most, "fact": fact}
-
-
-def _unknown(key: str, label: str, most: int) -> dict:
-    return _part(key, label, most / 2, most, "Okänt")
-
-
-def _number(value: float) -> str:
-    return f"{value:,.0f}".replace(",", " ")
-
-
-def evaluate(data: dict, median: float, cpm_median: float, now: datetime) -> tuple[int, list[dict], str | None]:
-    """Betyg 0–100, delarna med svensk förklaring, och orsaken om kampanjen sorteras bort."""
-    f = facts(data)
-    texts = " ".join([f["about"], *(text for _, text in f["rules"])])
-    drain_days = _days(f["drain"], now)
-    views = min_views(f)
-    parts = []
-
-    # 1. Färskhet och konkurrens. Antal klippare finns inte i ClippingAlpha.
-    if f["launched"] is None:
-        parts.append(_unknown("fresh", "Färskhet och konkurrens", 25))
-    else:
-        age = (now - f["launched"]).total_seconds() / 3600
-        if age < 48:
-            points = 25.0
-        elif age <= 21 * 24:
-            points = 25 - 20 * (age - 48) / (21 * 24 - 48)
-        elif age <= 30 * 24:
-            points = 5 * (30 * 24 - age) / (9 * 24)
-        else:
-            points = 0.0
-        minus = {"Fast": 10, "Fair": 5}.get(f["fill"], 0)
-        if drain_days is not None:
-            minus = max(minus, 10 if drain_days < 3 else 5 if drain_days < 7 else 0)
-        fact = f"{age / 24:.0f} dagar sedan start" if age >= 48 else f"{age:.0f} timmar sedan start"
-        if minus:
-            fact += ", budgeten går åt snabbt"
-        parts.append(_part("fresh", "Färskhet och konkurrens", max(0.0, points - minus), 25, fact))
-
-    # 2. Chans att nå minimum.
-    label = "Chans att nå minimum"
-    if f["pay"] is None or (views is None and (f["pay"].get("minPayoutUsd") and not f["rate"])):
-        parts.append(_unknown("minimum", label, 20))
-    elif views is None:
-        parts.append(_part("minimum", label, 20, 20, "Ingen minsta utbetalning"))
-    else:
-        ratio = views / max(median, 1)
-        points = 20 if ratio <= 1 else 0 if ratio >= 5 else 20 * (1 - math.log(ratio) / math.log(5))
-        parts.append(_part("minimum", label, points, 20,
-                           f"{_number(views)} visningar för betalning, din median är {_number(median)}"))
-
-    # 3. Källan.
-    source = f"{f['title']} {texts}"
-    twitch, stream = "twitch" in source.lower(), bool(re.search(r"\bstream", source, re.IGNORECASE))
-    other = bool(OTHER_LANGUAGE.search(texts))
-    points = 8 * twitch + 4 * stream + 3 * (not other)
-    if f["niche"] in ("streams", "gaming"):
-        points = max(points, 4)
-    said = [word for word, yes in (("Twitch", twitch), ("stream", stream), ("engelska", not other)) if yes]
-    parts.append(_part("source", "Källan", points, 15, ", ".join(said) or "Varken Twitch eller stream"))
-
-    # 4. Budgeten räcker.
-    label = "Budgeten räcker"
-    if drain_days is not None:
-        parts.append(_part("budget", label, 15 * min(max(drain_days, 0), 7) / 7, 15,
-                           f"Räcker cirka {max(drain_days, 0):.0f} dagar till"))
-    elif f["left"] is not None:
-        parts.append(_part("budget", label, 10 * min(f["left"], 1000) / 1000, 15,
-                           f"Ingen prognos, {_number(f['left'])} dollar kvar"))
-    else:
-        parts.append(_unknown("budget", label, 15))
-
-    # 5. Betalning efter avgift mot marknadens median.
-    net = _first(f["net"], f["rate"] * (1 - f["fee"]) if f["rate"] is not None else None)
-    if net is None:
-        parts.append(_unknown("pay", "Betalning", 10))
-    else:
-        ratio = min(net / cpm_median, 3)
-        parts.append(_part("pay", "Betalning", min(10.0, 5 * ratio), 10,
-                           f"{net:.2f} dollar per 1 000 efter avgift, marknaden {cpm_median:.2f}"))
-
-    # 6. Bevis på utbetalning.
-    if f["verified"] is None and f["adjustments"] is None:
-        parts.append(_unknown("proof", "Bevis på utbetalning", 10))
-    else:
-        paid = any(x.get("key") == "payout" and re.search(r"24 hours|7 days", str(x.get("label")))
-                   for x in f["adjustments"] or [])
-        points = 4 * bool(f["verified"]) + 4 * paid + 2 * (not f["stalled"])
-        said = [text for text, yes in (("verifierad organisatör", f["verified"]), ("betalat ut nyligen", paid))
-                if yes]
-        parts.append(_part("proof", "Bevis på utbetalning", points, 10, ", ".join(said) or "Ingen utbetalning syns"))
-
-    # 7. Krångel.
-    if f["open_join"] is None:
-        parts.append(_unknown("hassle", "Krångel", 5))
-    else:
-        captions = sum(kind in ("caption", "disclosure") for kind, _ in f["rules"])
-        is_open = bool(f["open_join"]) and f["gate"] in (None, "none")
-        points = max(0, (5 if is_open else 0) - max(0, captions - 3))
-        parts.append(_part("hassle", "Krångel", points, 5,
-                           f"{'Fri anslutning' if is_open else 'Ansökan krävs'}, {captions} krav på caption"))
-
-    total = round(sum(part["points"] for part in parts))
-    where = " ".join([f["audience"], *(text for _, text in f["rules"])])  # inte about: "US Open" är inget krav
-    used = 1 - f["left"] / f["total"] if f["left"] is not None and f["total"] else None
-    platforms = {str(p).lower() for p in f["platforms"]}
-    reasons = [
-        (f["state"] not in (None, "live"), f"Kampanjen är inte igång ({f['state']})."),
-        (f["pay_model"] == "pot_split", "Pott som delas mellan klippare, inte betalning per visning"),
-        (f["stalled"], "Kampanjen står still på plattformen."),
-        (used is not None and used >= 0.95, "Minst 95 % av budgeten är använd."),
-        (f["type"] not in (None, "clipping"), f"Inte en clipping-kampanj ({f['type']})."),
-        (bool(platforms) and not platforms & {"tiktok", "youtube"}, "Varken TikTok eller YouTube."),
-        (bool(FACE.search(texts)), "Kräver ansikte, röst eller egen filmning."),
-        (f["members_only"] is True, "Bara för medlemmar."),
-        (f["election"] is True, "Valkampanj."),
-        (bool(US.search(where) or RICH.search(where)),
-         "Kräver publik från USA eller andra länder."),
-        (other, "Kräver ett annat språk än engelska."),
-        (views is not None and views > MAX_MIN_VIEWS,
-         f"Kräver {_number(views or 0)} visningar för betalning (gränsen är {_number(MAX_MIN_VIEWS)})."),
-    ]
-    return total, parts, next((reason for hit, reason in reasons if hit), None)
 
 
 # ---------- notisen ----------
@@ -417,9 +220,7 @@ class Scout:
         if until:  # ClippingAlpha har sagt nej nyss: inget anrop, inte heller från Kontrollera nu
             raise LimitError(_limit_text(until))
         self._count()
-        wait = MIN_GAP_S - (time.monotonic() - _last_call[0])
-        if wait > 0:
-            time.sleep(wait)
+        _wait_gap()
         headers = dict(HEADERS)
         if _session["id"]:
             headers.update({"Mcp-Session-Id": _session["id"], "MCP-Protocol-Version": PROTOCOL})
@@ -494,16 +295,31 @@ class Scout:
 
     def _run(self) -> None:
         now = _now()
-        with http_client() as http:
-            items = self._search(http, NEWEST)
-            last_best = _time(self._get("last_best"))
-            if last_best is None or (now - last_best).total_seconds() >= BEST_EVERY_S:
-                items += self._search(http, BEST)
-                self._put(last_best=_iso(now))
-            self._save_items(items, now)
-            self._details(http, items, now)
-        self._rescore(now)
+        try:
+            with http_client() as http:
+                items = self._search(http, NEWEST)
+                last_best = _time(self._get("last_best"))
+                if last_best is None or (now - last_best).total_seconds() >= BEST_EVERY_S:
+                    items += self._search(http, BEST)
+                    self._put(last_best=_iso(now))
+                self._save_items(items, now)
+                self._details(http, items, now)
+        except BaseException:  # också när ClippingAlpha stoppar körningen: klippen kommer från Content Rewards
+            self._after_alpha(now, alpha_failed=True)
+            raise
+        self._after_alpha(now, alpha_failed=False)
         self._notify(now)
+
+    def _after_alpha(self, now: datetime, alpha_failed: bool) -> None:
+        """Nya klipp och nya betyg. Efter ett fel från ClippingAlpha loggas deras fel och kastas inte, så att de inte
+        ersätter det felet."""
+        for step in (self._refresh_clip_views, self._rescore):
+            try:
+                step(now)
+            except Exception:
+                if not alpha_failed:
+                    raise
+                log.exception("Kampanjbevakningen: %s fick ett fel", step.__name__)
 
     def _search(self, http: httpx.Client, arguments: dict) -> list[dict]:
         content = self._tool(http, "search_campaigns", arguments)
@@ -530,8 +346,7 @@ class Scout:
         Bara så länge resten av dygnets sökningar fortfarande ryms."""
         with self._db() as db:
             rows = {row["ref"]: row for row in db.execute("SELECT * FROM scout_campaigns")}
-        cpm = float(self._get("cpm_median") or DEFAULT_CPM)
-        median = self.median()[0]
+        median, cpm = self.median()[0], float(self._get("cpm_median") or DEFAULT_CPM)
         new = [ref for ref in dict.fromkeys(_ref(item) for item in items)
                if "detail_at" not in json.loads(rows[ref]["data"])
                and evaluate(json.loads(rows[ref]["data"]), median, cpm, now)[2] is None]
@@ -540,21 +355,68 @@ class Scout:
         old = [ref for ref in best if ref not in new and (now - (_time(json.loads(rows[ref]["data"]).get(
             "detail_at")) or now)).total_seconds() > DETAIL_MAX_AGE_S]
         for ref in (new + old)[:DETAILS_PER_RUN]:
-            if self.calls_today() + 2 > CALL_LIMIT - reserve(now):
+            saved = json.loads(rows[ref]["data"])
+            assets, go = "assets_at" not in saved, "join_checked_at" not in saved  # en gång per kampanj
+            if self.calls_today() + 2 + assets + go > CALL_LIMIT - reserve(now):
                 return
-            try:
-                fresh = {"campaign": self._tool(http, "get_campaign", {"campaign": ref}).get("campaign") or {},
-                         "analytics": self._tool(http, "get_campaign_analytics", {"campaign": ref})}
-            except ScoutError as error:
-                if isinstance(error, LimitError):
-                    raise
-                # En trasig kampanj får inte stoppa de andra. Den får betyg från sökträffen och provas om 6 timmar.
-                log.warning("Kampanjbevakningen: detaljerna för %s: %s", ref, error)
-                fresh = {}
-            with self._db() as db:
-                data = json.loads(db.execute("SELECT data FROM scout_campaigns WHERE ref = ?", (ref,)).fetchone()[0])
-                data.update(fresh, detail_at=_iso(now))
-                db.execute("UPDATE scout_campaigns SET data = ? WHERE ref = ?", (json.dumps(data), ref))
+            fresh = self._fetch(http, ref, assets, now)
+            fresh.update(self._join(http, {**saved, **fresh}, now, answered="campaign" in fresh))
+            self._merge(ref, {**fresh, **_content_views({**saved, **fresh}, now), "detail_at": _iso(now)})
+
+    def _merge(self, ref: str, fresh: dict) -> None:
+        """Lägg till fresh i kampanjens sparade data, läst på nytt så att inget annat skrivs över."""
+        with self._db() as db:
+            data = json.loads(db.execute("SELECT data FROM scout_campaigns WHERE ref = ?", (ref,)).fetchone()[0])
+            data.update(fresh)
+            db.execute("UPDATE scout_campaigns SET data = ? WHERE ref = ?", (json.dumps(data), ref))
+
+    def _refresh_clip_views(self, now: datetime) -> None:
+        """Kampanjens klipp på Content Rewards för kampanjer som syns under Kampanjer, när de är äldre än 6 timmar.
+        De bästa först och högst CLIP_VIEWS_PER_RUN per körning. Inga anrop till ClippingAlpha."""
+        due = [r for r in self._shown(now) if r["excluded"] is None and _clip_views_due(json.loads(r["data"]), now)]
+        for row in due[:CLIP_VIEWS_PER_RUN]:
+            self._merge(row["ref"], _clip_views(json.loads(row["data"]), now))
+
+    def _fetch_tool(self, http: httpx.Client, name: str, ref: str) -> dict | None:
+        """Ett verktyg för en kampanj. None vid fel: en trasig kampanj får inte stoppa de andra. Gränsen stoppar."""
+        try:
+            return self._tool(http, name, {"campaign": ref})
+        except LimitError:
+            raise
+        except ScoutError as error:
+            log.warning("Kampanjbevakningen: %s för %s: %s", name, ref, error)
+            return None
+
+    def _fetch(self, http: httpx.Client, ref: str, assets: bool, now: datetime) -> dict:
+        """get_campaign och analytics, och get_assets om kanalen inte har letats upp än. Vid fel i get_campaign eller
+        analytics får kampanjen betyg från sökträffen och provas om 6 timmar; vid fel i get_assets provas den då."""
+        campaign = self._fetch_tool(http, "get_campaign", ref)
+        analytics = None if campaign is None else self._fetch_tool(http, "get_campaign_analytics", ref)
+        if campaign is None or analytics is None:
+            return {}
+        fresh = {"campaign": campaign.get("campaign") or {}, "analytics": analytics}
+        found = self._fetch_tool(http, "get_assets", ref) if assets else None
+        if found is not None:  # VOD:en används bara när kanalen saknas
+            fresh.update(twitch_login=channel_from_assets(found), twitch_vod=vod_from_assets(found), assets_at=_iso(now))
+        return fresh
+
+    def _join(self, http: httpx.Client, data: dict, now: datetime, answered: bool) -> dict:
+        """Content Rewards-sidan bakom /go/-länken. Ett anrop till ClippingAlpha, räknat innan det görs."""
+        # En gång per kampanj, med joinUrl ur get_campaign när den finns.
+        if "join_checked_at" in data:
+            return {}
+        if not (url := go_link(facts(data)["join_url"])):  # kollad utan anrop när get_campaign har svarat
+            return {"join_checked_at": _iso(now)} if answered else {}
+        self._count()
+        _wait_gap()
+        try:
+            cr_url = resolve_join(http, url)
+        except httpx.HTTPError as error:  # provas igen vid nästa detaljuppdatering
+            log.warning("Kampanjbevakningen: %s svarade inte: %s", url, error)
+            return {}
+        finally:
+            _last_call[0] = time.monotonic()
+        return {"cr_url": cr_url, "join_checked_at": _iso(now)}
 
     def _rescore(self, now: datetime) -> None:
         median, cpm = self.median()[0], float(self._get("cpm_median") or DEFAULT_CPM)
@@ -580,14 +442,17 @@ class Scout:
 
     # ---------- för webben ----------
 
+    def _shown(self, now: datetime) -> list[sqlite3.Row]:
+        """Kampanjerna som syns under Kampanjer, också de bortsorterade, bäst först."""
+        with self._db() as db:
+            return db.execute("SELECT * FROM scout_campaigns WHERE dismissed = 0 AND score IS NOT NULL "
+                              "AND updated >= ? ORDER BY score DESC, first_seen DESC",
+                              (_iso(now - timedelta(seconds=SHOW_S)),)).fetchall()
+
     def overview(self) -> dict:
         now = _now()
         median, source = self.median()
-        with self._db() as db:
-            rows = db.execute("SELECT * FROM scout_campaigns WHERE dismissed = 0 AND score IS NOT NULL "
-                              "AND updated >= ? ORDER BY score DESC, first_seen DESC",
-                              (_iso(now - timedelta(seconds=SHOW_S)),)).fetchall()
-        views = [_view(row, now) for row in rows]
+        views = [_view(row, now) for row in self._shown(now)]
         return {
             "enabled": os.environ.get("KLIPP_SCOUT") != "0",
             "updated_at": self._get("updated_at"), "error": self._get("error"),
@@ -617,6 +482,61 @@ class Scout:
         with self._db() as db:
             return db.execute("UPDATE scout_campaigns SET dismissed = ? WHERE ref = ?",
                               (int(dismissed), ref)).rowcount > 0
+
+
+def _older_than(value: str | None, seconds: float, now: datetime) -> bool:
+    moment = _time(value)
+    return moment is None or (now - moment).total_seconds() > seconds
+
+
+def _twitch_due(data: dict, now: datetime) -> bool:
+    """Kampanjen har en Twitch-kanal eller en VOD, och Twitch har inte frågats det senaste dygnet."""
+    has_twitch = bool(data.get("twitch_login") or data.get("twitch_vod"))
+    return has_twitch and _older_than(data.get("twitch_at"), TWITCH_MAX_AGE_S, now)
+
+
+def _clip_views_due(data: dict, now: datetime) -> bool:
+    """Kampanjen har en Content Rewards-sida, och klippen hämtades inte eller för mer än 6 timmar sedan."""
+    return bool(data.get("cr_url")) and _older_than(data.get("clip_views_at"), DETAIL_MAX_AGE_S, now)
+
+
+def _clip_views(data: dict, now: datetime) -> dict:
+    """Kampanjens klipp på Content Rewards. clip_views_at sätts också när sidan inte går att läsa, så att sidan
+    provas igen först efter 6 timmar. Felet loggas i content_views och de gamla clip_views behålls."""
+    if not data.get("cr_url"):
+        return {}
+    found: dict = {"clip_views_at": _iso(now)}
+    # minst CLIP_PAGE_GAP_S mellan två sidor, också från den sista i _details till den första i _refresh_clip_views
+    time.sleep(max(0.0, CLIP_PAGE_GAP_S - (time.monotonic() - _last_page[0])))
+    try:
+        clip_views = campaign_clip_views(data["cr_url"])
+    finally:
+        _last_page[0] = time.monotonic()
+    if clip_views is not None:
+        found["clip_views"] = clip_views
+    return found
+
+
+def _twitch(data: dict, now: datetime) -> dict:
+    """Kanalens Twitch-klipp högst en gång per dygn. Saknas kanalen men finns en VOD slås kanalen först upp i Helix.
+    twitch_at sätts före anropen, så Twitch provas tidigast efter ett dygn, också efter ett fel eller när nycklarna
+    saknas. Vid fel behålls de gamla twitch_views."""
+    if not _twitch_due(data, now):
+        return {}
+    found: dict = {"twitch_at": _iso(now)}
+    login = data.get("twitch_login") or twitch_login_from_vod(data["twitch_vod"])
+    if login is None:
+        return found
+    found["twitch_login"] = login
+    twitch_views = twitch_clip_views(login, now)
+    if twitch_views is not None:
+        found["twitch_views"] = twitch_views
+    return found
+
+
+def _content_views(data: dict, now: datetime) -> dict:
+    """Kampanjens klipp vid varje detaljuppdatering, och kanalens Twitch-klipp högst en gång per dygn."""
+    return {**_clip_views(data, now), **_twitch(data, now)}
 
 
 def _ref(item: dict) -> str | None:
@@ -655,7 +575,7 @@ def _view(row: sqlite3.Row, now: datetime) -> dict:
         "rate_usd": f["rate"],
         "net_rate_usd": _first(f["net"], round(f["rate"] * (1 - f["fee"]), 2) if f["rate"] is not None else None),
         "budget_left_usd": f["left"], "budget_total_usd": f["total"], "min_views": min_views(f),
-        "max_payout_usd": (f["pay"] or {}).get("maxPayoutUsd"),
+        "max_payout_usd": pay_number(f["pay"], "maxPayoutUsd"),
         "drain_days": None if drain is None else round(max(drain, 0), 1),
         "platforms": f["platforms"], "mentions_twitch": "twitch" in source, "open_join": f["open_join"],
         "page_url": _safe(f["page_url"]), "join_url": _safe(f["join_url"]), "first_seen": row["first_seen"],
