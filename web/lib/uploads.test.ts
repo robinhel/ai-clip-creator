@@ -7,11 +7,14 @@ import {
   frameQuery,
   lengthCheck,
   loadLastChoices,
+  musicFileProblem,
   previewOutdated,
   previewKey,
   rejectText,
   saveLastChoices,
   splitVideoFiles,
+  volumeWarning,
+  withKnownMusic,
   type Choices,
 } from "./uploads";
 
@@ -79,7 +82,33 @@ describe("valen till servern", () => {
       overlay: "",
       start_s: "2.5",
       end_s: "20",
+      audio: "keep",
     });
+  });
+
+  it("Behåll och Tyst skickar ljudvalet utan musikens fält", () => {
+    for (const audio of ["keep", "mute"] as const) {
+      const form = choicesForm(choices({ audio, music: "wow.mp3", musicStart: "4", originalVolume: 50 }), "timmy", "");
+      expect(form.get("audio")).toBe(audio);
+      expect(form.has("music")).toBe(false);
+      expect(form.has("music_start_s")).toBe(false);
+      expect(form.has("original_volume")).toBe(false);
+    }
+  });
+
+  it("Musik skickar alla fyra fälten, originalljudet som andel och starten med komma", () => {
+    const form = choicesForm(choices({ audio: "music", music: "wow.mp3", musicStart: "12,5", originalVolume: 30 }), "timmy", "");
+    expect(form.get("audio")).toBe("music");
+    expect(form.get("music")).toBe("wow.mp3");
+    expect(form.get("music_start_s")).toBe("12.5");
+    expect(form.get("original_volume")).toBe("0.3");
+    expect(choicesForm(choices({ audio: "music", music: "a.mp3", originalVolume: 0 }), "timmy", "").get("original_volume")).toBe("0");
+    expect(choicesForm(choices({ audio: "music", music: "a.mp3", originalVolume: 100 }), "timmy", "").get("original_volume")).toBe("1");
+  });
+
+  it("startar med Behåll ljudet och originalljudet 30 %", () => {
+    expect(START_CHOICES.audio).toBe("keep");
+    expect(START_CHOICES.originalVolume).toBe(30);
   });
 
   it("tar med klistermärket bara när det är valt, och läser komma i sekunderna", () => {
@@ -102,6 +131,13 @@ describe("valen till servern", () => {
     const withSticker = new URLSearchParams(frameQuery(choices({ sticker: "pil.png" }), "timmy", "", 0));
     expect(withSticker.get("sticker")).toBe("pil.png");
     expect(withSticker.get("sticker_duration_s")).toBe("3");
+  });
+
+  it("bildens query har inga ljudval, för bilden har inget ljud", () => {
+    const music = choices({ audio: "music", music: "wow.mp3", musicStart: "2", originalVolume: 0 });
+    const query = new URLSearchParams(frameQuery(music, "timmy", "", 1));
+    for (const key of ["audio", "music", "music_start_s", "original_volume"]) expect(query.has(key)).toBe(false);
+    expect(frameQuery(music, "timmy", "", 1)).toBe(frameQuery(choices(), "timmy", "", 1));
   });
 });
 
@@ -127,7 +163,65 @@ describe("filtyper", () => {
   });
 });
 
+describe("filtyper för musik", () => {
+  it("godtar ljudfiler och videor, också med stora bokstäver", () => {
+    for (const name of ["a.mp3", "b.M4A", "c.aac", "d.WAV", "e.ogg", "f.flac", "g.MP4", "h.mov", "i.m4v", "j.webm", "k.mkv"]) {
+      expect(musicFileProblem(name)).toBeNull();
+    }
+  });
+
+  it("nekar andra filer med en text innan uppladdningen", () => {
+    expect(musicFileProblem("låtar.txt")).toBe(
+      "låtar.txt är ingen ljudfil eller video. Välj mp3, m4a, aac, wav, ogg, flac, mp4, mov, m4v, webm eller mkv."
+    );
+    expect(musicFileProblem("mp3")).not.toBeNull();
+  });
+});
+
+describe("varningen när originalljudet är 0 %", () => {
+  it("säger att originalljudet inte hörs, och kampanjens krav när den har regler om ljud", () => {
+    expect(volumeWarning(0, [])).toEqual(["Originalljudet hörs inte i klippet."]);
+    expect(volumeWarning(0, ["Streamerns röst ska höras."])).toEqual([
+      "Originalljudet hörs inte i klippet.",
+      "Kampanjen kräver att det hörs tydligt.",
+    ]);
+    expect(volumeWarning(0, undefined)).toEqual(["Originalljudet hörs inte i klippet."]);
+  });
+
+  it("ingen varning när originalljudet hörs", () => {
+    expect(volumeWarning(1, ["Streamerns röst ska höras."])).toEqual([]);
+    expect(volumeWarning(30, [])).toEqual([]);
+  });
+});
+
 describe("senaste valen per kampanj", () => {
+  it("sparar ljudvalet", () => {
+    const storage = memoryStorage();
+    const mine = choices({ audio: "music", music: "wow.mp3", musicStart: "3,5", originalVolume: 0 });
+    saveLastChoices(storage, "timmy", mine);
+    expect(loadLastChoices(storage, "timmy")).toEqual(mine);
+    expect(loadLastChoices(storage, "timmy", ["wow.mp3", "annan.mp3"])).toEqual(mine);
+    saveLastChoices(storage, "annan", choices({ audio: "mute" }));
+    expect(loadLastChoices(storage, "annan").audio).toBe("mute");
+  });
+
+  it("en musikfil som inte finns i kampanjens lista längre ger Behåll", () => {
+    const storage = memoryStorage();
+    saveLastChoices(storage, "timmy", choices({ audio: "music", music: "borta.mp3", originalVolume: 0 }));
+    const loaded = loadLastChoices(storage, "timmy", ["wow.mp3"]);
+    expect(loaded.audio).toBe("keep");
+    expect(loaded.music).toBe("");
+    expect(loadLastChoices(storage, "timmy", []).audio).toBe("keep");
+  });
+
+  it("ett okänt ljudval eller en volym utanför 0–100 ger startvärdet", () => {
+    const storage = memoryStorage();
+    saveLastChoices(storage, "timmy", START_CHOICES);
+    const key = [...storage.data.keys()][0];
+    const loaded = loadLastChoices(memoryStorage({ [key]: JSON.stringify({ audio: "högt", originalVolume: 250 }) }), "timmy");
+    expect(loaded).toEqual(START_CHOICES);
+  });
+
   it("sparas och läses per kampanj", () => {
     const storage = memoryStorage();
     const mine = choices({ mirror: true, speed: 1.2, filter: "warm", sticker: "pil.png", stickerStart: "2" });
@@ -172,7 +266,22 @@ describe("senaste valen per kampanj", () => {
   });
 });
 
+describe("musik som inte finns längre", () => {
+  it("ger Behåll, och annat ljud ändras inte", () => {
+    expect(withKnownMusic(choices({ audio: "music", music: "borta.mp3" }), ["wow.mp3"])).toEqual(choices());
+    const kept = choices({ audio: "music", music: "wow.mp3" });
+    expect(withKnownMusic(kept, ["wow.mp3"])).toBe(kept);
+    const mute = choices({ audio: "mute" });
+    expect(withKnownMusic(mute, [])).toBe(mute);
+  });
+});
+
 describe("Använd på alla", () => {
+  it("kopierar ljudvalet", () => {
+    const from = choices({ audio: "music", music: "wow.mp3", musicStart: "2", originalVolume: 10, startS: 3 });
+    expect(copyChoices(from, choices({ startS: 7 }))).toEqual({ ...from, startS: 7 });
+  });
+
   it("kopierar valen men inte start och slut, som hör till varje video", () => {
     const from = choices({ mirror: true, speed: 1.2, sticker: "pil.png", startS: 3, endS: 40 });
     const to = choices({ startS: 7, endS: 25 });
@@ -194,6 +303,17 @@ describe("ändrade val sedan förhandsvisningen", () => {
     const key = previewKey(choices(), "timmy", "");
     expect(previewOutdated(key, choices({ position: "bottom_left" }), "timmy", "")).toBe(false);
     expect(previewOutdated(key, choices({ sticker: "pil.png" }), "timmy", "")).toBe(true);
+  });
+
+  it("ändrat ljud räknas, men musikens fält bara när Musik är valt", () => {
+    const key = previewKey(choices(), "timmy", "");
+    expect(previewOutdated(key, choices({ audio: "mute" }), "timmy", "")).toBe(true);
+    expect(previewOutdated(key, choices({ originalVolume: 0 }), "timmy", "")).toBe(false);
+    const music = choices({ audio: "music", music: "wow.mp3" });
+    const musicKey = previewKey(music, "timmy", "");
+    expect(previewOutdated(musicKey, { ...music, originalVolume: 40 }, "timmy", "")).toBe(true);
+    expect(previewOutdated(musicKey, { ...music, musicStart: "5" }, "timmy", "")).toBe(true);
+    expect(previewOutdated(musicKey, { ...music, music: "annan.mp3" }, "timmy", "")).toBe(true);
   });
 
   it("utan förhandsvisning har inget ändrats", () => {
