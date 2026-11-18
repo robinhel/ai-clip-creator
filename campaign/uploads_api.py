@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse
 
 from clipsmith.api.deps import verify_api_key
 
-from . import drafts, versions
+from . import audio, drafts, versions
 from .api import _log, _profile, _profile_names, _public, get_settings, router
 from .config import Settings
 from .media import probe
@@ -45,7 +45,18 @@ def upload_options(profile: str, settings: Settings = Depends(get_settings)) -> 
             "min_seconds": campaign.min_seconds, "max_seconds": campaign.max_seconds,
             "safe_zone": {"top": campaign.safe_top, "bottom": campaign.safe_bottom},
             "hook_text": bool(campaign.hook_text), "framings": list(FRAMINGS),
-            "source_allowed": (campaign.raw.get("source") or {}).get("allowed")}  # visas under kampanjväljaren
+            "source_allowed": (campaign.raw.get("source") or {}).get("allowed"),  # visas under kampanjväljaren
+            "music": audio.music_list(settings.root, profile), "audio_rules": audio.rules(campaign)}
+
+
+@router.post("/uploads/music", status_code=201, summary="Lägg en ljudfil eller video i kampanjens musikmapp",
+             dependencies=KEY)
+def add_music(profile: Annotated[str, Form()], file: UploadFile = File(...),
+              settings: Settings = Depends(get_settings)) -> dict:
+    if profile not in _profile_names(settings):  # bara ett namn, ingen sökväg
+        raise HTTPException(400, f"Kampanjen {profile} finns inte.")
+    with _as_http():
+        return audio.add_music(settings.root, profile, file.file, file.filename or "")
 
 
 def _video_name(file: UploadFile) -> Path:
@@ -153,6 +164,7 @@ def draft_frame(draft_id: str, choices: Annotated[FrameChoices, Query()],
     if not math.isfinite(choices.t):
         raise HTTPException(400, "Tiden t måste vara ett tal i sekunder.")
     path = _draft(settings, draft_id)
+    choices = choices.model_copy(update={"audio": "keep"})  # bilden bryr sig inte om ljudet
     plan = _choices_only(settings, choices, drafts.meta(path)["duration_s"])
     try:
         picture = drafts.frame(path, plan, choices.t)

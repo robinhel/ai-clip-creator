@@ -13,6 +13,7 @@ from pathlib import Path
 
 from clipsmith.rendering.clipper import ZOOM_TOP
 
+from .audio import replace_audio
 from .media import find_font, need, probe, run
 from .profile import Profile
 
@@ -193,7 +194,7 @@ def finish_clip(
     src: Path, out: Path, profile: Profile, root: Path, encoder: str = "libx264", title: str = "",
     subtitles: Path | None = None, plan: dict | None = None, overlay: Path | None = None,
     font_file: str | None = None, sticker: dict | None = None, look: str = "", speed: float = 1.0,
-    frame: str = "",
+    frame: str = "", audio: dict | None = None,
 ) -> dict:
     """Rendera den kampanjklara versionen. plan är tidskartan (campaign.timemap). En ny version kan ge en egen
     overlay, en fontfil till texten på skärmen och ett klistermärke (med path). Returnerar ett manifest om vad
@@ -223,6 +224,7 @@ def finish_clip(
     cmd += _output_args(info["has_audio"], encoder, speed)
     cmd += ["-movflags", "+faststart", str(out)]
     run(cmd)
+    sound = replace_audio(out, profile, audio)  # en egen video: Tyst eller Musik byter ljudet
     return {
         "source": str(src),
         "file": str(out),
@@ -235,4 +237,5 @@ def finish_clip(
         "text_applied": bool(profile.text),
         "text": profile.text,
         "hook_text": title.strip() if profile.hook_text and title.strip() else None,
+        **sound,
     }

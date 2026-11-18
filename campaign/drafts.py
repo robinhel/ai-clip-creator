@@ -1,7 +1,8 @@
 """Egna videor: valen, kedjan och utkasten.
 
 En uppladdad video görs om i två steg. Först råklippet out/upload/<stem>.mp4 (bildläget och start och slut),
-sedan finish_clip med look, hastighet, overlay, font, rubrik och klistermärke till out/upload/klara/<stem>.mp4.
+sedan finish_clip med look, hastighet, overlay, font, rubrik, klistermärke och ljud (campaign.audio) till
+out/upload/klara/<stem>.mp4.
 
 Ett utkast är en uppladdad video som inte är sparad än, i out/upload/.utkast/<id>/. En bild ur utkastet görs
 med samma filter i ett enda ffmpeg-pass. Ett helt klipp (render) görs med samma två steg som när klippet
@@ -29,7 +30,7 @@ from typing import BinaryIO
 
 from pydantic import BaseModel, field_validator
 
-from . import versions
+from . import audio, versions
 from .caption import build_caption
 from .cliplog import UPLOADS, ClipLog
 from .config import Settings
@@ -82,6 +83,10 @@ class Choices(BaseModel):
     start_s: float = 0.0
     end_s: float = 0.0
     start_cut_s: float = 0.0
+    audio: str = "keep"  # keep, mute eller music (audio.MODES)
+    music: str = ""  # filen i musik/<kampanj>/, med music
+    music_start_s: float = 0.0  # där i musiken den börjar
+    original_volume: float = 0.3  # originalljudet under musiken, 0–1
 
     @field_validator("start_s", "end_s", "start_cut_s", mode="before")
     @classmethod
@@ -108,6 +113,7 @@ class Plan:
     end: float
     trimmed: bool  # start eller slut är valda
     name: str = ""  # filens namn, som syns i listan när rubriken saknas
+    sound: dict | None = None  # ljudvalet, från audio.choose
 
     @property
     def hook(self) -> str:
@@ -182,6 +188,7 @@ def make_plan(settings: Settings, campaign: Profile, choices: Choices, duration:
     plan = Plan(choices, campaign, settings, look, own, found.get(choices.font), None, start, end,
                 trimmed=bool(start or choices.end_s))
     plan.sticker = versions._sticker(settings, campaign, _wanted(choices), plan.raw_length, plan.hook, own)
+    plan.sound = audio.choose(settings.root, choices)
     return plan
 
 
@@ -217,7 +224,7 @@ def make_raw(source: Path, out: Path, plan: Plan) -> None:
 def finish(raw: Path, out: Path, plan: Plan) -> dict:
     return finish_clip(raw, out, plan.campaign, plan.settings.root, plan.settings.encoder, title=plan.hook, look=plan.look,
                        speed=plan.choices.speed, overlay=plan.overlay, font_file=plan.font_file,
-                       sticker=plan.sticker)
+                       sticker=plan.sticker, audio=plan.sound)
 
 
 def frame(path: Path, plan: Plan, t: float) -> bytes:
@@ -295,6 +302,11 @@ class EditLook:
     def speed(self) -> float:
         return float(self.choices["speed"]) if self.choices else 1.0
 
+    @property
+    def extra_s(self) -> float:
+        """Så mycket längre än råklippet det färdiga klippet blir: EXTRA_S med val-fil, som i _check_trim."""
+        return EXTRA_S if self.choices else 0.0
+
     def titled(self, old: str, new: str) -> EditLook:
         """Rubriken i bilden. Utan val-fil: klippets rubrik. Annars den Robin skrev vid uppladdningen, tills han
         byter den, aldrig filens namn som står i listan."""
@@ -302,8 +314,8 @@ class EditLook:
         return replace(self, hook=(self.choices or {}).get("title", "") if unchanged else new)
 
     def args(self, settings: Settings, campaign: Profile, length: float) -> dict:
-        """finish_clip-valen: look, hastighet, egen overlay, font och klistermärket, placerat med klippets nya
-        längd (råtid) och rubrik. Klistermärket börjar senast STICKER_END_S före slutet, så att ett kortat klipp
+        """finish_clip-valen: look, hastighet, egen overlay, font, ljudet och klistermärket, placerat med klippets
+        nya längd (råtid) och rubrik. Klistermärket börjar senast STICKER_END_S före slutet, så att ett kortat klipp
         inte stoppar Redigera. Fel ger ValueError, som redigeraren visar."""
         if not self.choices:
             return {}
@@ -314,10 +326,11 @@ class EditLook:
             look = versions.look(checked.mirror, checked.filter, checked.brightness, checked.saturation)
             own = versions._overlay(settings, campaign, checked.overlay or None)
             sticker = versions._sticker(settings, campaign, _wanted(checked), length, self.hook, own)
+            sound = audio.choose(settings.root, checked)
         except (VersionError, ValueError) as error:
             raise ValueError(str(error)) from error
         return {"look": look, "speed": checked.speed, "overlay": own, "font_file": found.get(checked.font),
-                "sticker": sticker}
+                "sticker": sticker, "audio": sound}
 
     def remember(self, raw: Path) -> None:
         """Spara rubriken i val-filen, så att nästa redigering har den."""

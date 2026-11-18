@@ -154,9 +154,10 @@ def edit_info(clip: dict, profile: Profile, settings: Settings) -> dict:
                     "url": f"/campaign/clips/{clip['id']}/original"}
         trim = {"in_s": state["in_s"], "out_s": state["out_s"]}
     data, why = _words(raw, profile, settings)
-    speed = drafts.EditLook.of(raw).speed if raw is not None else 1.0  # webben räknar längden med den
+    look = drafts.EditLook.of(raw) if raw is not None else drafts.EditLook(None)  # webben räknar längden med den
     return {"clip_id": clip["id"], "title": clip["title"], "original": original, "trim": trim,
-            "min_s": min_s, "max_s": max_s, "speed": speed, "editable": reason is None, "reason": reason,
+            "min_s": min_s, "max_s": max_s, "speed": look.speed, "length_extra_s": look.extra_s,
+            "editable": reason is None, "reason": reason,
             "subtitles": {"editable": data is not None, "reason": why, "words": data["words"] if data else [],
                           "style": data["caption"].get("style") if data else None}}
 

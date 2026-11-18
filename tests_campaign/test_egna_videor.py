@@ -241,6 +241,8 @@ def test_the_options_follow_the_campaign(client, extras) -> None:
         "framings": ["fill", "fit"],
         # Kampanjens regel för material, så att Robin ser den under väljaren.
         "source_allowed": "Bara SkiiMaskTimmys Twitch-streams: live eller tidigare sändningar (VOD).",
+        "music": [],  # ingen musikmapp än (test_ljud)
+        "audio_rules": [],  # Timmys regler säger inget om ljud
     }
     assert client.get("/campaign/uploads/options", params={"profile": "finns-inte"}).status_code == 400
 

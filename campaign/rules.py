@@ -19,6 +19,13 @@ def check_source(info: dict) -> list[str]:
     return []
 
 
+def _sound(info: dict, manifest: dict) -> list[str]:
+    """Ett Twitch-klipp måste ha ljud. En egen video (manifestets own_video, från finish_clip) får vara utan."""
+    if info["has_audio"] or manifest.get("own_video"):
+        return []
+    return ["Klippet saknar ljud. Streamens ljud måste höras."]
+
+
 def check_clip(
     info: dict,
     manifest: dict,
@@ -41,8 +48,7 @@ def check_clip(
     if info["duration"] > profile.max_seconds:
         high = f"{profile.max_seconds:g}".replace(".", ",")
         problems.append(f"Klippet är {length} s. Profilens tak är {high} s.")
-    if not info["has_audio"]:
-        problems.append("Klippet saknar ljud. Streamens ljud måste höras.")
+    problems += _sound(info, manifest)
     if profile.text_required and not manifest.get("text_applied"):
         problems.append("Texten på skärmen saknas.")
     if profile.overlay_required and not manifest.get("overlay_applied"):
