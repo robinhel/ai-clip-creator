@@ -102,6 +102,20 @@ def test_status_follows_the_flow_and_posting_needs_a_link(client, settings) -> N
     assert client.patch(f"/campaign/clips/{clip_id}", json={"status": "inskickad"}).status_code == 200
 
 
+def test_posted_without_link_leaves_att_posta_without_a_post_and_can_be_undone(client, settings) -> None:
+    clip_id = _clip(settings, status="godkand", clip_format="funny")
+    url = f"/campaign/clips/{clip_id}"
+    done = client.patch(url, json={"status": "postad_utan_lank"})
+    assert done.status_code == 200, done.text
+    assert (done.json()["status"], done.json()["url"]) == ("postad_utan_lank", None)
+    log = ClipLog(settings.data_dir / "klipp.db")
+    assert log.posts(clip_id) == []  # inget inlägg: inget att skicka in eller följa
+    assert log.todo() == []
+    assert client.patch(url, json={"status": "inskickad"}).status_code == 400
+    assert client.patch(url, json={"status": "godkand"}).json()["status"] == "godkand"  # Ångra
+    assert client.patch(f"/campaign/clips/{_clip(settings)}", json={"status": "postad_utan_lank"}).status_code == 400
+
+
 def test_a_wrong_click_can_be_undone_one_step_back(client, settings) -> None:
     clip_id = _clip(settings, status="godkand", clip_format="funny")
     url = f"/campaign/clips/{clip_id}"
