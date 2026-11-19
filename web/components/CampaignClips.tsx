@@ -9,7 +9,7 @@ import type { CampaignClip, CampaignProfileDetail, CampaignStatus, MaterialItem 
 const FILTERS: { id: string; label: string; statuses?: CampaignStatus[] }[] = [
   { id: "granska", label: "Att granska", statuses: ["renderad", "underkand"] },
   { id: "godkanda", label: "Godkända", statuses: ["godkand"] },
-  { id: "postade", label: "Postade", statuses: ["postad", "inskickad", "analytics_inskickad", "betald"] },
+  { id: "postade", label: "Postade", statuses: ["postad", "postad_utan_lank", "inskickad", "analytics_inskickad", "betald"] },
   { id: "alla", label: "Alla" },
 ];
 

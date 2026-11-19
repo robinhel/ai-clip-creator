@@ -8,7 +8,7 @@ import type { CampaignClip, CampaignFormat, CampaignProfile, CampaignStatus } fr
 const TABS: { id: string; label: string; statuses: CampaignStatus[] }[] = [
   { id: "granska", label: "Att granska", statuses: ["renderad", "underkand"] },
   { id: "godkanda", label: "Godkända", statuses: ["godkand"] },
-  { id: "postade", label: "Postade", statuses: ["postad", "inskickad", "analytics_inskickad", "betald"] },
+  { id: "postade", label: "Postade", statuses: ["postad", "postad_utan_lank", "inskickad", "analytics_inskickad", "betald"] },
   { id: "nekade", label: "Nekade", statuses: ["nekad"] },
 ];
 

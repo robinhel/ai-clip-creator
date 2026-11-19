@@ -18,7 +18,7 @@ const FILTERS: { id: string; label: string; statuses?: CampaignStatus[] }[] = [
   { id: "granska", label: "Att granska", statuses: ["renderad"] },
   { id: "godkanda", label: "Godkända", statuses: ["godkand"] },
   // Allt efter Markera som postad, så att ett postat klipp inte försvinner ur flikarna.
-  { id: "postade", label: "Postade", statuses: ["postad", "inskickad", "analytics_inskickad", "betald"] },
+  { id: "postade", label: "Postade", statuses: ["postad", "postad_utan_lank", "inskickad", "analytics_inskickad", "betald"] },
   { id: "nekade", label: "Nekade", statuses: ["nekad"] },
   { id: "underkanda", label: "Underkända", statuses: ["underkand"] },
 ];
