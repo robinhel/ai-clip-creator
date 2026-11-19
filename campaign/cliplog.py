@@ -16,6 +16,7 @@ STATUSES = [
     "godkand",  # du sa ja
     "nekad",  # du sa nej
     "postad",  # uppe på TikTok, Shorts eller Reels
+    "postad_utan_lank",  # du har postat klippet men sparade ingen länk: inget att skicka in eller följa
     "inskickad",  # länken är inskickad till Content Rewards
     "analytics_inskickad",  # Analytics inskickad: skärminspelningen av inläggets analytics är inskickad
     "betald",

@@ -21,6 +21,7 @@ export type CampaignStatus =
   | "godkand"
   | "nekad"
   | "postad"
+  | "postad_utan_lank"
   | "inskickad"
   | "analytics_inskickad"
   | "betald";

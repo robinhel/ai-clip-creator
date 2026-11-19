@@ -143,7 +143,7 @@ export function lengthGroups(rows: Row[]): LengthGroup[] {
 
 /** Statusar där klippet har minst ett inlägg. */
 export const POSTED: CampaignStatus[] = ["postad", "inskickad", "analytics_inskickad", "betald"];
-const STATUSES: CampaignStatus[] = ["renderad", "underkand", "godkand", "nekad", ...POSTED];
+const STATUSES: CampaignStatus[] = ["renderad", "underkand", "godkand", "nekad", "postad_utan_lank", ...POSTED];
 
 /** Filtret i Statistik: postade inlägg (standard), alla eller en status. Står i adressen som ?status=. */
 export type Filter = CampaignStatus | "postade" | "alla";

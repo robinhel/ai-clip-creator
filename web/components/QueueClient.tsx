@@ -203,13 +203,15 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
     }
   }
 
-  // Ta bort i Att posta: klippet är nekat och finns kvar i klipploggen. Ångra visas fast längst ner.
+  // Postad eller Ta bort i Att posta: klippet är postat utan länk eller nekat, och finns kvar i klipploggen.
+  // Ångra visas fast längst ner.
   function handleRemoved(clip: CampaignClip, cancelled: number) {
     setClips((list) => list?.map((c) => (c.id === clip.id ? clip : c)) ?? null);
     window.dispatchEvent(new Event(SUMMARY_CHANGED));
     setUndoError(null);
+    const done = clip.status === "postad_utan_lank" ? "markerat som postat" : "borttaget från Att posta";
     setNotice({
-      text: `${clip.title || "Klippet"} är borttaget från Att posta.${cancelled > 0 ? " Den schemalagda uppladdningen är avbruten och startar inte igen vid Ångra." : ""}`,
+      text: `${clip.title || "Klippet"} är ${done}.${cancelled > 0 ? " Den schemalagda uppladdningen är avbruten och startar inte igen vid Ångra." : ""}`,
       undo: () => api.campaign.clips.patch(clip.id, { status: "godkand" }),
     });
     if (cancelled > 0) loadSchedule();

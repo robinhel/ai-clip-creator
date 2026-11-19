@@ -357,12 +357,11 @@ function ElsewhereActions({ clip, busy, onUndo }: { clip: CampaignClip; busy: bo
 }
 
 /** Det som sällan behövs ligger i en meny, så att raden inte har en vägg av knappar. */
-function MoreMenu({ clip, busy, onUndo, onReload, children }: {
+function MoreMenu({ clip, busy, onUndo, onReload }: {
   clip: CampaignClip;
   busy: boolean;
   onUndo: () => void;
   onReload?: () => void;
-  children?: ReactNode;
 }) {
   return (
     <details className="group rounded-lg border border-line">
@@ -375,7 +374,6 @@ function MoreMenu({ clip, busy, onUndo, onReload, children }: {
         <Button className="w-full" size="sm" variant="ghost" disabled={busy} onClick={onUndo}>
           Ångra godkännande
         </Button>
-        {children}
       </div>
     </details>
   );
@@ -807,9 +805,10 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
 
         {/* Det som sällan behövs ligger i en meny, så att raden inte har en vägg av knappar. */}
         {posting && clip.status === "godkand" && (
-          <MoreMenu clip={clip} busy={busy} onUndo={() => patch({ status: "renderad" })} onReload={onReload}>
+          <>
             {approvedAction}
-          </MoreMenu>
+            <MoreMenu clip={clip} busy={busy} onUndo={() => patch({ status: "renderad" })} onReload={onReload} />
+          </>
         )}
         {clip.status === "postad" && !hasPosts && posting && (
           <>

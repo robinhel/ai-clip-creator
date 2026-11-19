@@ -44,7 +44,8 @@ _start_lock = threading.Lock()  # bara en körning i taget, också när två anr
 NEXT_STATUS: dict[str, set[str]] = {
     "renderad": {"godkand", "nekad"},
     "underkand": {"nekad"},
-    "godkand": {"postad", "nekad", "renderad"},
+    "godkand": {"postad", "postad_utan_lank", "nekad", "renderad"},
+    "postad_utan_lank": {"godkand"},  # Ångra på Att posta
     "nekad": {"renderad", "godkand"},  # godkand: Ångra på Att posta; samma kontroller som ett nytt ja
     "postad": {"inskickad", "godkand"},
     "inskickad": {"analytics_inskickad", "betald", "postad"},
