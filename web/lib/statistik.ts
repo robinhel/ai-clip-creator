@@ -167,6 +167,7 @@ export function inScope({ clip }: Row, campaign: string, search: string): boolea
 // Ett steg bakåt, så att ett felklick går att ångra. Samma steg som servern tillåter (NEXT_STATUS i campaign/api.py).
 const BACK: Partial<Record<CampaignStatus, CampaignStatus>> = {
   postad: "godkand",
+  postad_utan_lank: "godkand",
   inskickad: "postad",
   analytics_inskickad: "inskickad",
   betald: "inskickad",

@@ -255,6 +255,12 @@ describe("undoStatus", () => {
     expect(undoStatus({ clip: clip({ status: "inskickad" }) })).toBe("postad");
     expect(undoStatus({ clip: clip({ status: "godkand" }) })).toBeNull();
   });
+
+  it("Postad utan länk går tillbaka till Godkänd och väntar inte på något steg", () => {
+    const c = clip({ status: "postad_utan_lank" });
+    expect(undoStatus({ clip: c })).toBe("godkand");
+    expect(todoItems([c], Date.now())).toEqual([]);
+  });
 });
 
 describe("sortRows", () => {
