@@ -33,7 +33,7 @@ def _profile(settings: Settings, name: str | None) -> Profile:
     if not name:
         found = sorted(p.stem for p in settings.profiles_dir.glob("*.yaml") if not p.stem.startswith("_"))
         if len(found) != 1:
-            raise SystemExit("Ange profil med --profile, eller sätt KLIPP_PROFILE i .env.")
+            raise SystemExit("Choose a profile with --profile, or set KLIPP_PROFILE in .env.")
         name = found[0]
     return load_profile(name, settings.profiles_dir)
 
@@ -55,62 +55,62 @@ def _with_campaign(clips: list[dict]) -> list[dict]:
 def _post_problem(clip: dict) -> str | None:
     """Varför klippet inte får markeras som postat, annars None."""
     if clip["status"] not in ("godkand", *POST_STATUSES):  # samma regel som webben: bara godkända klipp postas
-        return f"#{clip['id']} är {clip['status']}. Godkänn klippet innan det markeras som postat."
+        return f"#{clip['id']} is {clip['status']}. Approve the clip before it is marked as posted."
     return _campaign_problem(clip)
 
 
 def _print_budget(budget: Budget) -> None:
     s = budget.summary()
-    print(f"Den här månaden: {s['month_usd']:.2f} av {s['month_cap_usd']:.2f} dollar")
-    print(f"I dag:           {s['today_usd']:.2f} av {s['day_cap_usd']:.2f} dollar")
+    print(f"This month: {s['month_usd']:.2f} of {s['month_cap_usd']:.2f} dollars")
+    print(f"Today:      {s['today_usd']:.2f} of {s['day_cap_usd']:.2f} dollars")
     for purpose, row in s["by_purpose"].items():
-        print(f"  {purpose}: {row['calls']} anrop, {row['usd']:.4f} dollar")
+        print(f"  {purpose}: {row['calls']} calls, {row['usd']:.4f} dollars")
 
 
 def cmd_check_setup(args, settings: Settings) -> int:
     ok = True
     for tool in ("ffmpeg", "ffprobe"):
         found = shutil.which(tool)
-        print(f"{'OK ' if found else 'FEL'} {tool}")
+        print(f"{'OK ' if found else 'FAIL'} {tool}")
         ok = ok and bool(found)
     has_key = bool(settings.anthropic_api_key)
-    print(f"{'OK ' if has_key else 'FEL'} ANTHROPIC_API_KEY i .env")
+    print(f"{'OK ' if has_key else 'FAIL'} ANTHROPIC_API_KEY in .env")
     ok = ok and has_key
     has_berget = bool(settings.berget_api_key)
-    print(f"{'OK ' if has_berget else 'FEL'} BERGET_API_KEY i .env (transkribering)")
+    print(f"{'OK ' if has_berget else 'FAIL'} BERGET_API_KEY in .env (transcription)")
     ok = ok and has_berget
     profile = _profile(settings, args.profile)
     problems = profile.problems(settings.root)
-    print(f"{'OK ' if not problems else 'FEL'} profilen {profile.name}")
+    print(f"{'OK ' if not problems else 'FAIL'} profile {profile.name}")
     for problem in problems:
         print(f"    {problem}")
     ok = ok and not problems
     _print_budget(_budget(settings))
-    print("Allt klart." if ok else "Rätta raderna med FEL ovan.")
+    print("All good." if ok else "Fix the FAIL lines above.")
     return 0 if ok else 1
 
 
 def cmd_transcribe(args, settings: Settings) -> int:
     mp4 = settings.work_dir / args.vod_id / f"{args.vod_id}.mp4"
     out = mp4.parent / "transcript.json"
-    next_step = (f"Kör sedan: clipsmith run-vod {args.vod_id} --config config.timmy.yaml "
+    next_step = (f"Then run: clipsmith run-vod {args.vod_id} --config config.timmy.yaml "
                  "--skip-download --skip-transcribe")
     if not mp4.exists():
-        raise SystemExit(f"Videon saknas: {mp4}")
+        raise SystemExit(f"The video is missing: {mp4}")
     if out.exists() and not args.overwrite:
-        print(f"{out} finns redan. Lägg till --overwrite för att göra om den.")
+        print(f"{out} already exists. Add --overwrite to redo it.")
         print(next_step)
         return 0
     if not settings.berget_api_key:
-        raise SystemExit("Fyll i BERGET_API_KEY i .env först.")
+        raise SystemExit("Fill in BERGET_API_KEY in .env first.")
     model = args.model or settings.transcribe_model
     language = _profile(settings, args.profile).language
     minutes = probe(mp4)["duration"] / 60
-    print(f"Transkriberar {minutes:.0f} minuter med {model} ({language}), "
-          f"cirka {minutes * EUR_PER_MINUTE:.2f} euro.")
+    print(f"Transcribing {minutes:.0f} minutes with {model} ({language}), "
+          f"about {minutes * EUR_PER_MINUTE:.2f} euros.")
     transcript = transcribe_vod(mp4, args.vod_id, out, post=berget_post(settings.berget_api_key),
                                 model=model, language=language)
-    print(f"Klart: {len(transcript.segments)} meningar i {out}")
+    print(f"Done: {len(transcript.segments)} sentences in {out}")
     print(next_step)
     return 0
 
@@ -118,7 +118,7 @@ def cmd_transcribe(args, settings: Settings) -> int:
 def cmd_finish(args, settings: Settings) -> int:
     profile = _profile(settings, args.profile)
     for problem in profile.problems(settings.root):
-        print(f"VARNING: {problem}")
+        print(f"WARNING: {problem}")
     from .pipeline import signals_mode
 
     review = not args.no_review and not signals_mode(profile, settings)  # snabbläget: ingen Claude-budget
@@ -129,16 +129,16 @@ def cmd_finish(args, settings: Settings) -> int:
     )
     for result in results:
         if "skipped" in result:
-            print(f"HOPPAR ÖVER {result['file']}: {result['skipped']}")
+            print(f"SKIPPING {result['file']}: {result['skipped']}")
             continue
-        state = "UNDERKÄND" if result["problems"] else "KLAR"
+        state = "FAILED CHECK" if result["problems"] else "DONE"
         print(f"{state} #{result['id']} {result['file']}")
         for problem in result["problems"]:
             print(f"    problem: {problem}")
         for warning in result.get("warnings", []):
-            print(f"    obs: {warning}")
+            print(f"    note: {warning}")
     ready = sum(1 for r in results if "id" in r and not r["problems"])
-    print(f"\n{ready} klipp väntar på ditt ja eller nej. Kör: python -m campaign approve")
+    print(f"\n{ready} clips are waiting for your yes or no. Run: python -m campaign approve")
     return 0
 
 
@@ -153,14 +153,14 @@ def cmd_local(args, settings: Settings) -> int:
 
     src = Path(args.file)
     if not src.is_file() or src.suffix.lower() != ".mp4":
-        raise SystemExit(f"Hittar ingen .mp4-fil: {src}")
+        raise SystemExit(f"No .mp4 file found: {src}")
     profile = _profile(settings, args.profile)
     vod_id = src.stem
     mp4 = settings.work_dir / vod_id / f"{vod_id}.mp4"
     if args.only_register and not mp4.exists():
-        raise SystemExit(f"{src.name} är inte körd: {mp4} saknas. Kör utan --only-register.")
+        raise SystemExit(f"{src.name} has not been run: {mp4} is missing. Run without --only-register.")
     if not mp4.exists():
-        print(f"Kopierar {src.name} till {mp4.parent}")
+        print(f"Copying {src.name} to {mp4.parent}")
         mp4.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, mp4)
     chat = mp4.parent / "chat.json"
@@ -183,7 +183,7 @@ def cmd_local(args, settings: Settings) -> int:
         db = get_session()
         try:
             _harvest_clips(db, run_id, vod_id, clipsmith_config(profile, settings))
-            _emit(db, run_id, "done", 100.0, "Registrerad. Klippen gjordes utanför appen.", status=RunStatus.done)
+            _emit(db, run_id, "done", 100.0, "Registered. The clips were made outside the app.", status=RunStatus.done)
         finally:
             db.close()
     else:
@@ -194,7 +194,7 @@ def cmd_local(args, settings: Settings) -> int:
         status, error = run.status, run.error
     finally:
         db.close()
-    print(f"Projekt {run_id}: {status.value}" + (f". {error}" if error else ""))
+    print(f"Project {run_id}: {status.value}" + (f". {error}" if error else ""))
     return 0 if status == RunStatus.done else 1
 
 
@@ -202,27 +202,27 @@ def cmd_approve(args, settings: Settings) -> int:
     log = _log(settings)
     waiting = _with_campaign(log.list("renderad"))
     if not waiting:
-        print("Inga klipp väntar.")
+        print("No clips are waiting.")
         return 0
     for clip in waiting:
         profile = load_profile(clip["profile"], settings.profiles_dir)
         print(f"\n#{clip['id']}  {clip['title']}")
-        print(f"  fil:     {clip['file']}")
+        print(f"  file:    {clip['file']}")
         print(f"  caption: {clip['caption']}")
         for warning in clip["warnings"] or []:
-            print(f"  obs:     {warning}")
-        answer = input("  Godkänn? [j]a / [n]ej / [h]oppa över / [a]vsluta: ").strip().lower()
-        if answer == "a":
+            print(f"  note:    {warning}")
+        answer = input("  Approve? [y]es / [n]o / [s]kip / [q]uit: ").strip().lower()
+        if answer in ("q", "a"):
             break
         if answer == "n":
-            reason = input("  Varför inte? ").strip()
+            reason = input("  Why not? ").strip()
             log.update(clip["id"], status="nekad", note=reason)
-        elif answer == "j":
+        elif answer in ("y", "j"):
             fields = {"status": "godkand"}
             if profile.formats and not clip["format"]:
                 for number, fmt in enumerate(profile.formats, 1):
                     print(f"    {number}. {fmt['name']}")
-                choice = input("  Vilket format? (nummer) ").strip()
+                choice = input("  Which format? (number) ").strip()
                 if choice.isdigit() and 0 < int(choice) <= len(profile.formats):
                     fields["format"] = profile.formats[int(choice) - 1]["id"]
             log.update(clip["id"], **fields)
@@ -243,7 +243,7 @@ def cmd_posted(args, settings: Settings) -> int:
         log.update_post(same[0]["id"], url=args.url)
     else:  # ett inlägg per plattform (eller per konto)
         log.add_post(args.clip_id, platform, args.url)
-    print("Sparat. Skicka nu in länken i Content Rewards, och kör sedan:")
+    print("Saved. Now submit the link in Content Rewards, and then run:")
     print(f"  python -m campaign mark {args.clip_id} inskickad")
     return 0
 
@@ -256,14 +256,14 @@ def cmd_reframe(args, settings: Settings) -> int:
         clip = log.get(clip_id)
         try:
             if clip is None:
-                raise ValueError("Klippet finns inte.")
+                raise ValueError("The clip does not exist.")
             editor.reframe_clip(clip, _profile(settings, clip["profile"]), settings, log)
         except (ValueError, RuntimeError, UploadRunning) as error:
             failed += 1
-            print(f"FEL #{clip_id}: {error}")
+            print(f"ERROR #{clip_id}: {error}")
             continue
         clip = log.get(clip_id)
-        print(f"{'UNDERKÄND' if clip['problems'] else 'KLAR'} #{clip_id} {clip['file']}")
+        print(f"{'FAILED CHECK' if clip['problems'] else 'DONE'} #{clip_id} {clip['file']}")
         for problem in clip["problems"] or []:
             print(f"    problem: {problem}")
     return 1 if failed else 0
@@ -281,7 +281,7 @@ def cmd_mark(args, settings: Settings) -> int:
             log.update_post(post["id"], status=args.status)
     else:
         log.update(args.clip_id, status=args.status)
-    print(f"#{args.clip_id} har nu status {args.status}.")
+    print(f"#{args.clip_id} now has status {args.status}.")
     return 0
 
 
@@ -290,11 +290,11 @@ def _decimal(value: str) -> float:
     try:
         number = float(value.replace(",", "."))
     except ValueError as error:
-        raise argparse.ArgumentTypeError(f"{value!r} är inget tal.") from error
+        raise argparse.ArgumentTypeError(f"{value!r} is not a number.") from error
     if not math.isfinite(number):
-        raise argparse.ArgumentTypeError(f"{value!r} är inget tal.")
+        raise argparse.ArgumentTypeError(f"{value!r} is not a number.")
     if number < 0:
-        raise argparse.ArgumentTypeError("Talet får inte vara mindre än 0.")
+        raise argparse.ArgumentTypeError("The number cannot be less than 0.")
     return number
 
 
@@ -303,25 +303,25 @@ def _count(value: str) -> int:
     try:
         number = int(value)
     except ValueError as error:
-        raise argparse.ArgumentTypeError(f"{value!r} är inget heltal.") from error
+        raise argparse.ArgumentTypeError(f"{value!r} is not a whole number.") from error
     if number < 0:
-        raise argparse.ArgumentTypeError("Talet får inte vara mindre än 0.")
+        raise argparse.ArgumentTypeError("The number cannot be less than 0.")
     return number
 
 
 def _percent(value: str) -> float:
     number = _decimal(value)
     if number > 100:
-        raise argparse.ArgumentTypeError("En andel är högst 100 procent.")
+        raise argparse.ArgumentTypeError("A share is at most 100 percent.")
     return number
 
 
 def _stats_blocked(posts: list[dict], fields: dict) -> str | None:
     """Varför siffrorna inte går att spara här, None när de går."""
     if len(posts) > 1:
-        return "Klippet har flera inlägg. Fyll i siffrorna per inlägg under Statistik i appen."
+        return "The clip has several posts. Fill in the numbers per post under Stats in the app."
     if not posts and set(METRIC_KEYS) & fields.keys():
-        return "Fler mått sparas per inlägg. Spara länken först med python -m campaign posted."
+        return "More metrics are saved per post. Save the link first with python -m campaign posted."
     return None
 
 
@@ -341,28 +341,28 @@ def cmd_stats(args, settings: Settings) -> int:
     clip = log.get(args.clip_id)
     profile = load_profile(clip["profile"], settings.profiles_dir)
     rate = log.engagement(clip)
-    print(f"#{clip['id']}: {clip['views']} visningar")
+    print(f"#{clip['id']}: {clip['views']} views")
     if rate is not None:
         need = profile.engagement_min(clip["views"])
-        verdict = "" if need is None else (" (klarar kravet)" if rate >= need else f" (kravet är {need} %)")
-        print(f"  engagemang: {rate:.2f} %{verdict}")
+        verdict = "" if need is None else (" (meets the requirement)" if rate >= need else f" (the requirement is {need} %)")
+        print(f"  engagement: {rate:.2f} %{verdict}")
     for item in log.todo(profile.min_views or 2000):
         if item.startswith(f"#{clip['id']} "):
-            print(f"  ATT GÖRA: {item}")
+            print(f"  TO DO: {item}")
     return 0
 
 
 def cmd_status(args, settings: Settings) -> int:
     log = _log(settings)
     clips = log.list()
-    print("\nKlipp per status:")
+    print("\nClips per status:")
     for status in STATUSES:
         count = sum(1 for c in clips if c["status"] == status)
         if count:
             print(f"  {status}: {count}")
     todo = log.todo()
     if todo:
-        print("\nAtt göra:")
+        print("\nTo do:")
         for item in todo:
             print(f"  {item}")
     print()
@@ -379,88 +379,88 @@ def cmd_facit(args, settings: Settings) -> int:
     facit = load_facit(Path(args.file))
     vod_id = args.vod or facit["vod"]
     if not vod_id:
-        raise SystemExit("Ange VOD med --vod, eller skriv vod: i facit-filen.")
+        raise SystemExit("Choose a VOD with --vod, or write vod: in the facit file.")
     picks = load_picks(settings.work_dir / vod_id / "picks.json")
     clips = [(p["start"], p["end"]) for p in picks if p["start"] is not None]
     result = score(facit["moments"], clips, args.tolerance)
-    print(f"Verktyget hittade {result['hits']} av {result['total']} ögonblick i facit.")
+    print(f"The tool found {result['hits']} of {result['total']} moments in the facit.")
     for moment in result["missed"]:
         minutes, seconds = divmod(int(moment["time"]), 60)
-        print(f"  missade {minutes // 60}:{minutes % 60:02d}:{seconds:02d}  {moment['note']}")
+        print(f"  missed {minutes // 60}:{minutes % 60:02d}:{seconds:02d}  {moment['note']}")
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m campaign", description="Kampanjlagret ovanpå clipsmith.")
+    parser = argparse.ArgumentParser(prog="python -m campaign", description="The campaign layer on top of clipsmith.")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("check-setup", help="Kontrollera ffmpeg, nyckel, profil och budget")
+    p = sub.add_parser("check-setup", help="Check ffmpeg, key, profile and budget")
     p.add_argument("--profile")
     p.set_defaults(func=cmd_check_setup)
 
-    p = sub.add_parser("transcribe", help="Transkribera en nedladdad VOD via Berget")
-    p.add_argument("vod_id", help="VOD-id, samma som mappnamnet i work/")
-    p.add_argument("--model", help="Bergets modell, t.ex. Systran/faster-whisper-large-v3")
+    p = sub.add_parser("transcribe", help="Transcribe a downloaded VOD via Berget")
+    p.add_argument("vod_id", help="VOD ID, same as the folder name in work/")
+    p.add_argument("--model", help="Berget's model, e.g. Systran/faster-whisper-large-v3")
     p.add_argument("--profile")
-    p.add_argument("--overwrite", action="store_true", help="Gör om en transkribering som finns")
+    p.add_argument("--overwrite", action="store_true", help="Redo an existing transcription")
     p.set_defaults(func=cmd_transcribe)
 
-    p = sub.add_parser("finish", help="Gör klippen från en VOD kampanjklara")
-    p.add_argument("vod_id", help="VOD-id, samma som mappnamnet i out/")
+    p = sub.add_parser("finish", help="Make the clips from a VOD campaign-ready")
+    p.add_argument("vod_id", help="VOD ID, same as the folder name in out/")
     p.add_argument("--profile")
-    p.add_argument("--game", help="Spelets namn, blir en hashtag")
-    p.add_argument("--no-review", action="store_true", help="Hoppa över bildgranskningen")
-    p.add_argument("--subdir", help="Undermapp i out/<vod>/, t.ex. stacked")
+    p.add_argument("--game", help="The game's name, becomes a hashtag")
+    p.add_argument("--no-review", action="store_true", help="Skip the image review")
+    p.add_argument("--subdir", help="Subfolder in out/<vod>/, e.g. stacked")
     p.set_defaults(func=cmd_finish)
 
-    p = sub.add_parser("local", help="Gör en egen videofil till ett projekt i appen och kör kedjan")
-    p.add_argument("file", help="Sökväg till en .mp4-fil, till exempel en trailer från kampanjens mapp")
+    p = sub.add_parser("local", help="Turn your own video file into a project in the app and run the chain")
+    p.add_argument("file", help="Path to an .mp4 file, for example a trailer from the campaign's folder")
     p.add_argument("--profile")
-    p.add_argument("--game", help="Spelets namn, blir en hashtag")
+    p.add_argument("--game", help="The game's name, becomes a hashtag")
     p.add_argument("--only-register", action="store_true",
-                   help="Filen är redan körd: gör bara projektet, kör inget om och anropa inte Claude")
+                   help="The file has already been run: only make the project, rerun nothing and do not call Claude")
     p.set_defaults(func=cmd_local)
 
-    p = sub.add_parser("approve", help="Säg ja eller nej till klippen som väntar")
+    p = sub.add_parser("approve", help="Say yes or no to the waiting clips")
     p.set_defaults(func=cmd_approve)
 
-    p = sub.add_parser("posted", help="Markera ett klipp som postat")
+    p = sub.add_parser("posted", help="Mark a clip as posted")
     p.add_argument("clip_id", type=int)
     p.add_argument("url")
     p.add_argument("--platform", default="tiktok")
     p.set_defaults(func=cmd_posted)
 
-    p = sub.add_parser("reframe", help="Gör om klipp i kampanjens bildläge; rubrik och ord är kvar")
+    p = sub.add_parser("reframe", help="Remake clips in the campaign's layout; headline and words are kept")
     p.add_argument("clip_ids", type=int, nargs="+")
     p.set_defaults(func=cmd_reframe)
 
-    p = sub.add_parser("mark", help="Sätt status på ett klipp")
+    p = sub.add_parser("mark", help="Set the status of a clip")
     p.add_argument("clip_id", type=int)
     p.add_argument("status", choices=STATUSES)
     p.set_defaults(func=cmd_mark)
 
-    p = sub.add_parser("stats", help="Spara visningar och engagemang för ett klipp")
+    p = sub.add_parser("stats", help="Save views and engagement for a clip")
     p.add_argument("clip_id", type=int)
     p.add_argument("--views", type=int, required=True)
     p.add_argument("--likes", type=int)
     p.add_argument("--comments", type=int)
     p.add_argument("--shares", type=int)
-    p.add_argument("--watch-s", dest="avg_watch_s", type=_decimal, help="genomsnittlig tittartid i sekunder")
-    p.add_argument("--full-pct", dest="full_pct", type=_percent, help="andel som ser klart, i procent")
-    p.add_argument("--fyp-pct", dest="fyp_pct", type=_percent, help="andel visningar från För dig, i procent")
+    p.add_argument("--watch-s", dest="avg_watch_s", type=_decimal, help="average watch time in seconds")
+    p.add_argument("--full-pct", dest="full_pct", type=_percent, help="share who watch to the end, in percent")
+    p.add_argument("--fyp-pct", dest="fyp_pct", type=_percent, help="share of views from For You, in percent")
     p.add_argument("--countries-pct", dest="countries_pct", type=_percent,
-                   help="andel visningar från kampanjens länder, i procent")
-    p.add_argument("--saves", type=_count, help="antal sparningar")
+                   help="share of views from the campaign's countries, in percent")
+    p.add_argument("--saves", type=_count, help="number of saves")
     p.set_defaults(func=cmd_stats)
 
-    p = sub.add_parser("status", help="Klipplogg, att göra-lista och budget")
+    p = sub.add_parser("status", help="Clip log, to-do list and budget")
     p.set_defaults(func=cmd_status)
 
-    p = sub.add_parser("budget", help="Visa vad AI-anropen har kostat")
+    p = sub.add_parser("budget", help="Show what the AI calls have cost")
     p.set_defaults(func=cmd_budget)
 
-    p = sub.add_parser("facit", help="Mät träffar mot dina handplockade ögonblick")
-    p.add_argument("file", help="Facit-fil, t.ex. facit/min-vod.yaml")
+    p = sub.add_parser("facit", help="Measure hits against your hand-picked moments")
+    p.add_argument("file", help="Facit file, e.g. facit/min-vod.yaml")
     p.add_argument("--vod")
     p.add_argument("--tolerance", type=float, default=10.0)
     p.set_defaults(func=cmd_facit)
