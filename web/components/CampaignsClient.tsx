@@ -10,19 +10,11 @@ import { cn } from "@/lib/utils";
 import type { CampaignProfile } from "@/lib/types";
 
 // Profilens problem som gör varje klipp underkänt i regelkontrollen (campaign/rules.py).
-const FAILS_CLIPS = ["Overlay-bilden saknas", "on_screen_text.text är tom"];
+const FAILS_CLIPS = ["The overlay image is missing", "on_screen_text.text is empty"];
 
 /** Vad kampanjens läge betyder för körningen. Servern skickar samma text som Kontroll (state). */
-// Servern skickar läget på svenska (keys.py jämför "Redo"). Webben visar det på engelska.
-const STATE_TEXT: Record<string, string> = {
-  Redo: "Ready",
-  "Inte redo": "Not ready",
-  "Går att köra, men klippen blir underkända tills varningarna är rättade": "Can run, but the clips fail the check until the warnings are fixed",
-  "Går att köra, men rätta varningarna i kampanjens inställningar först": "Can run, but fix the warnings in the campaign settings first",
-};
-
 export function readyText(p: CampaignProfile): string {
-  if (p.state) return STATE_TEXT[p.state] ?? p.state;
+  if (p.state) return p.state;
   if (!p.ready) return "Not ready";
   if (p.problems.length === 0) return "Ready";
   if (p.problems.some((problem) => FAILS_CLIPS.some((start) => problem.startsWith(start)))) {
@@ -33,7 +25,7 @@ export function readyText(p: CampaignProfile): string {
 
 /** Nycklar som saknas. En äldre server har dem bara i problems. */
 export const keyProblems = (p: CampaignProfile) =>
-  p.key_problems ?? p.problems.filter((problem) => /API_KEY (saknas|is missing)/.test(problem));
+  p.key_problems ?? p.problems.filter((problem) => /API_KEY\) is missing/.test(problem));
 
 /** Kampanjens egna problem, utan nycklarna, som visas en gång överst. */
 export const ownProblems = (p: CampaignProfile) => {
@@ -43,18 +35,12 @@ export const ownProblems = (p: CampaignProfile) => {
 
 // Problem som rättas på ett annat ställe. Texten kommer från servern (campaign/profile.py och campaign/api.py).
 const FIX = [
-  { start: "Overlay-bilden saknas", href: (id: string) => `/campaigns/${id}?tab=installningar&del=overlay`, label: "Upload the overlay image" },
-  { start: "Facecam- och spelrutan är inte inställd", href: (id: string) => `/campaigns/${id}?tab=installningar&del=facecam`, label: "Set up the boxes" },
-  { start: "on_screen_text.text är tom", href: (id: string) => `/campaigns/${id}?tab=installningar&del=oversikt#caption`, label: "Write the text under Set up" },
-  { start: "Kampanjen saknar clipsmith_config", href: (id: string) => `/campaigns/${id}?tab=installningar&del=profil`, label: "Open Advanced (YAML)" },
+  { start: "The overlay image is missing", href: (id: string) => `/campaigns/${id}?tab=installningar&del=overlay`, label: "Upload the overlay image" },
+  { start: "on_screen_text.text is empty", href: (id: string) => `/campaigns/${id}?tab=installningar&del=oversikt#caption`, label: "Write the text under Set up" },
   { start: "Facecam and game boxes", href: (id: string) => `/campaigns/${id}?tab=installningar&del=facecam`, label: "Set up the boxes" },
   { start: "The campaign has no clipsmith_config", href: (id: string) => `/campaigns/${id}?tab=installningar&del=profil`, label: "Open Advanced (YAML)" },
   { start: "Claude key", href: () => "/settings#anthropic", label: "Add the key in Settings" },
   { start: "Berget key", href: () => "/settings#berget", label: "Add the key in Settings" },
-  { start: "Claude-nyckeln", href: () => "/settings#anthropic", label: "Add the key in Settings" },
-  { start: "Berget-nyckeln", href: () => "/settings#berget", label: "Add the key in Settings" },
-  { start: "ANTHROPIC_API_KEY saknas", href: () => "/settings#anthropic", label: "Add the key in Settings" },
-  { start: "BERGET_API_KEY saknas", href: () => "/settings#berget", label: "Add the key in Settings" },
 ];
 
 /** Länken till stället där problemet rättas, eller inget. */

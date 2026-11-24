@@ -107,21 +107,21 @@ class Profile:
         """Det som saknas innan profilen går att använda fullt ut."""
         found: list[str] = []
         if self.text_required and not self.text:
-            found.append("on_screen_text.text är tom men kampanjen kräver text på skärmen.")
+            found.append("on_screen_text.text is empty, but the campaign requires on-screen text.")
         overlay = self.overlay_path(root)
         if self.overlay_required and (overlay is None or not overlay.exists()):
             found.append(
-                f"Overlay-bilden saknas: {self.overlay_file}. "
-                "Ladda ner den från kampanjen. Ladda upp den under Overlay."
+                f"The overlay image is missing: {self.overlay_file}. "
+                "Download it from the campaign. Upload it under Overlay."
             )
-        choices = ((self.text_position, ("top", "bottom"), "on_screen_text.position måste vara top eller bottom."),
-                   (self.hook_style, HOOK_STYLES, "on_screen_text.hook_style måste vara sans eller serif."),
-                   (self.overlay_mode, ("full", "top", "bottom"), "overlay.mode måste vara full, top eller bottom."))
+        choices = ((self.text_position, ("top", "bottom"), "on_screen_text.position must be top or bottom."),
+                   (self.hook_style, HOOK_STYLES, "on_screen_text.hook_style must be sans or serif."),
+                   (self.overlay_mode, ("full", "top", "bottom"), "overlay.mode must be full, top or bottom."))
         found += [message for value, allowed, message in choices if value not in allowed]
         if self.min_seconds >= self.max_seconds:
-            found.append("clip.min_seconds måste vara mindre än clip.max_seconds.")
+            found.append("clip.min_seconds must be less than clip.max_seconds.")
         if self.max_posts_per_day < 1 or self.min_gap_minutes < 0:
-            found.append("posting.max_per_day måste vara minst 1, och posting.min_gap_minutes får inte vara negativ.")
+            found.append("posting.max_per_day must be at least 1, and posting.min_gap_minutes cannot be negative.")
         return found
 
 
@@ -131,39 +131,39 @@ def _number(section: dict, key: str, default: float, label: str, kind: type = fl
     try:
         return kind(value)
     except (TypeError, ValueError):
-        what = "ett heltal" if kind is int else "ett tal"
-        raise SystemExit(f"{label} måste vara {what}, inte {value!r}.") from None
+        what = "a whole number" if kind is int else "a number"
+        raise SystemExit(f"{label} must be {what}, not {value!r}.") from None
 
 
 def _accounts(data: dict) -> dict[str, list[str]]:
     value = data.get("accounts") or {}
     if not (isinstance(value, dict) and all(isinstance(v, list) for v in value.values())):
-        raise SystemExit("accounts måste vara en karta med en lista per plattform, till exempel tiktok: [konto].")
+        raise SystemExit("accounts must be a map with a list per platform, for example tiktok: [account].")
     return {str(key): [str(a).strip().lstrip("@") for a in names if str(a).strip()] for key, names in value.items()}
 
 
 def _edit(data: dict) -> dict[str, bool]:
     value = data.get("edit") or {}
     if not isinstance(value, dict):
-        raise SystemExit("edit måste vara en karta, till exempel edit: {cut_silence: true}.")
+        raise SystemExit("edit must be a map, for example edit: {cut_silence: true}.")
     flags = {key: value.get(key, True) for key in ("cut_silence", "cut_fillers", "cold_open")}
     for key, flag in flags.items():
         if not isinstance(flag, bool):
-            raise SystemExit(f"edit.{key} måste vara true eller false, inte {flag!r}.")
+            raise SystemExit(f"edit.{key} must be true or false, not {flag!r}.")
     return flags
 
 
 def _accounts_style(data: dict) -> dict[str, dict]:
     value = data.get("accounts_style") or {}
     if not isinstance(value, dict) or not all(isinstance(style, dict) for style in value.values()):
-        raise SystemExit("accounts_style måste vara en karta med en stil per konto, till exempel "
-                         "accounts_style: {kontot: {font: Impact}}.")
+        raise SystemExit("accounts_style must be a map with one style per account, for example "
+                         "accounts_style: {account: {font: Impact}}.")
     styles = {}
     for account, style in value.items():
         where = f"accounts_style.{account}"
         for key, kinds in (("font", (str,)), ("overlay", (str,)), ("sticker", (dict,))):
             if style.get(key) is not None and not isinstance(style[key], kinds):
-                raise SystemExit(f"{where}.{key} har fel typ: {style[key]!r}.")
+                raise SystemExit(f"{where}.{key} has the wrong type: {style[key]!r}.")
         styles[str(account)] = {**style, "start_cut_s": _number(style, "start_cut_s", 0, f"{where}.start_cut_s")}
     return styles
 
@@ -171,10 +171,10 @@ def _accounts_style(data: dict) -> dict[str, dict]:
 def _search_scope(data: dict) -> str:
     search = data.get("search") or {}
     if not isinstance(search, dict):
-        raise SystemExit("search måste vara en karta, till exempel search: {default_scope: all}.")
+        raise SystemExit("search must be a map, for example search: {default_scope: all}.")
     scope = search.get("default_scope", "latest")
     if scope not in ("latest", "all"):
-        raise SystemExit(f"search.default_scope måste vara latest eller all, inte {scope!r}.")
+        raise SystemExit(f"search.default_scope must be latest or all, not {scope!r}.")
     return scope
 
 
@@ -184,11 +184,11 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
     if not path.suffix:
         path = Path(profiles_dir) / f"{name_or_path}.yaml"
     if not path.exists():
-        raise SystemExit(f"Hittar ingen kampanj: {path}")
+        raise SystemExit(f"No campaign found: {path}")
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     for key in ("name", "streamer"):
         if not data.get(key):
-            raise SystemExit(f"Kampanjens fil {path.name} saknar fältet {key!r}.")
+            raise SystemExit(f"The campaign file {path.name} lacks the field {key!r}.")
     clip = data.get("clip") or {}
     text = data.get("on_screen_text") or {}
     overlay = data.get("overlay") or {}

@@ -103,8 +103,8 @@ def test_profile_reports_missing_overlay(settings):
     profile = load_profile("skiimasktimmy", settings.profiles_dir)
     assert any("Overlay" in p for p in profile.problems(settings.root))
     # Appen visar texten och länkar till fliken Overlay, där bilden laddas upp.
-    missing = next(p for p in profile.problems(settings.root) if p.startswith("Overlay-bilden saknas"))
-    assert "Ladda upp den under Overlay" in missing
+    missing = next(p for p in profile.problems(settings.root) if p.startswith("The overlay image is missing"))
+    assert "Upload it under Overlay" in missing
     overlay = settings.root / "overlays" / "skiimasktimmy.png"
     overlay.parent.mkdir()
     overlay.write_bytes(b"png")

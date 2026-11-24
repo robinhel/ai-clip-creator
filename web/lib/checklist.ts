@@ -36,7 +36,7 @@ export function checklist(p: CampaignProfileDetail, accounts: ConnectedAccounts 
     items.push({
       id: "facecam",
       label: "Facecam and game boxes",
-      done: p.facecam?.rects_set ?? !p.problems.some((x) => x.startsWith("Facecam- och spelrutan") || x.startsWith("Facecam and game boxes")),
+      done: p.facecam?.rects_set ?? !p.problems.some((x) => x.startsWith("Facecam and game boxes")),
       todo: "Drag the boxes over the camera and the game in a frame from the stream.",
       href: `${base}&del=facecam`,
     });

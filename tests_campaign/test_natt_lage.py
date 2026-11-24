@@ -404,7 +404,7 @@ def test_setup_checks_tools_keys_campaigns_budget_ssd_and_space(settings, env, t
     assert [checks[i]["ok"] for i in ("ffmpeg", "ffprobe", "anthropic", "berget", "budget", "ssd", "disk")] == [
         True, True, True, False, True, True, True]
     assert "drawtext" in checks["ffmpeg"]["detail"]
-    assert "100" in checks["disk"]["detail"] and "timmar" in checks["disk"]["detail"]
+    assert "100" in checks["disk"]["detail"] and "hours" in checks["disk"]["detail"]
     assert checks["profile:skiimasktimmy"]["detail"]
     assert CLIENT_ID not in str(checks)
 
@@ -415,7 +415,7 @@ def test_setup_tells_what_is_missing(settings, env, tools, tmp_path, monkeypatch
     del tools["found"]["ffprobe"]
     checks = _checks(settings)
     assert (checks["ffmpeg"]["ok"], checks["ffprobe"]["ok"], checks["disk"]["ok"]) == (False, False, False)
-    assert checks["disk"]["detail"].startswith("9,7 GB ledigt av 228 GB")  # svenskt decimalkomma
+    assert checks["disk"]["detail"].startswith("9.7 GB free of 228 GB")
     assert "subtitles" in checks["ffmpeg"]["detail"] and "drawtext" not in checks["ffmpeg"]["detail"]
 
     del tools["found"]["ffmpeg"]
@@ -449,11 +449,11 @@ def test_setup_and_the_campaigns_page_give_the_same_answer(settings, env, tools,
     pages = {p["name"]: p for p in api.list_profiles(settings)}
     for name, label in (("skiimasktimmy", "SkiiMaskTimmy"), ("testkanal", "Testkanal")):
         row, page = checks[f"profile:{name}"], pages[name]
-        assert row["label"] == f"Kampanjen {label}" and row["href"] == f"/campaigns/{name}"
-        assert row["ok"] is (page["state"] == "Redo")
+        assert row["label"] == f"Campaign {label}" and row["href"] == f"/campaigns/{name}"
+        assert row["ok"] is (page["state"] == "Ready")
         assert row["detail"].startswith(page["state"])
-        assert "nyckeln" not in row["detail"]  # nycklarna har egna rader
+        assert "key" not in row["detail"].lower()  # nycklarna har egna rader
     assert checks["profile:testkanal"]["ok"] is False and "Facecam" in checks["profile:testkanal"]["detail"]
-    assert "Inte redo" in checks["profile:testkanal"]["detail"]
-    assert "Nycklar" not in checks["berget"]["detail"]
+    assert "Not ready" in checks["profile:testkanal"]["detail"]
+    assert "Keys" not in checks["berget"]["detail"]
     assert "dollar" not in checks["budget"]["detail"] and "US$" in checks["budget"]["detail"]

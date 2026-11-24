@@ -111,18 +111,18 @@ def _turned_off(settings: Settings) -> set[str]:
 KEY_PROBLEMS = (("berget_api_key", "Berget key (BERGET_API_KEY) is missing. Add it under Settings."),
                 ("anthropic_api_key", "Claude key (ANTHROPIC_API_KEY) is missing. Add it under Settings."))
 # Profilens problem som gör varje klipp underkänt i regelkontrollen (campaign/rules.py).
-FAILS_CLIPS = ("Overlay-bilden saknas", "on_screen_text.text är tom")
+FAILS_CLIPS = ("The overlay image is missing", "on_screen_text.text is empty")
 
 
 def campaign_state(blocking: list[str], problems: list[str]) -> str:
     """Kampanjens läge i ord, utan nycklarna. Kampanjer, kampanjsidan och Kontroll visar samma text."""
     if blocking:
-        return "Inte redo"
+        return "Not ready"
     if not problems:
-        return "Redo"
+        return "Ready"
     if any(problem.startswith(FAILS_CLIPS) for problem in problems):
-        return "Går att köra, men klippen blir underkända tills varningarna är rättade"
-    return "Går att köra, men rätta varningarna i kampanjens inställningar först"
+        return "Can run, but the clips fail the check until the warnings are fixed"
+    return "Can run, but fix the warnings in the campaign settings first"
 
 
 def _whole(seconds: float) -> float | int:

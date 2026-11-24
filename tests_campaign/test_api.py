@@ -47,7 +47,7 @@ def test_profiles_show_what_is_missing_and_if_a_run_can_start(client, settings) 
     timmy = next(p for p in profiles if p["name"] == "skiimasktimmy")
     assert timmy["ready"] is True
     assert timmy["channel"] == "skiimasktimmy"
-    assert any("Overlay-bilden saknas" in p for p in timmy["problems"])
+    assert any("The overlay image is missing" in p for p in timmy["problems"])
     assert "clutch" in [f["id"] for f in timmy["formats"]]
 
     (settings.root / "config.timmy.yaml").unlink()

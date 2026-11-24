@@ -95,7 +95,7 @@ def test_get_shows_the_groups_and_what_is_set_without_values(client, env, monkey
     assert response.status_code == 200
     answer = response.json()
     assert [(g["id"], g["label"]) for g in answer["groups"]] == [
-        ("twitch", "Twitch"), ("anthropic", "Claude"), ("berget", "Berget (transkribering)"), ("tiktok", "TikTok"),
+        ("twitch", "Twitch"), ("anthropic", "Claude"), ("berget", "Berget (transcription)"), ("tiktok", "TikTok"),
         ("youtube", "YouTube")]
     assert answer["groups"][0]["keys"][0] == {"name": "TWITCH_CLIENT_ID", "label": "Client ID", "set": False}
     assert _set(answer) == {"TWITCH_CLIENT_ID": False, "TWITCH_CLIENT_SECRET": True, "ANTHROPIC_API_KEY": True,
@@ -113,7 +113,7 @@ def test_put_twitch_keys_replaces_the_lines_tests_them_and_is_used_at_once(clien
     assert response.status_code == 200, response.text
     answer = response.json()
     assert _set(answer)["TWITCH_CLIENT_ID"] and _set(answer)["TWITCH_CLIENT_SECRET"]
-    assert answer["test"] == {"ok": True, "message": "Nycklarna fungerar."}
+    assert answer["test"] == {"ok": True, "message": "The keys work."}
     assert twitch.calls == [(CLIENT_ID, SECRET, "twitch")]
     assert env.read_text() == ENV.replace("# TWITCH_CLIENT_ID=", f"TWITCH_CLIENT_ID={CLIENT_ID}").replace(
         "TWITCH_CLIENT_SECRET=gammaltvarde", f"TWITCH_CLIENT_SECRET={SECRET}")
@@ -173,20 +173,20 @@ def test_bad_values_are_refused_without_showing_the_value(client, env, values) -
 
 def test_test_route_tells_what_went_wrong_without_twitchs_text(client, env, twitch) -> None:
     url = "/campaign/keys/test/twitch"
-    assert client.post(url).json() == {"ok": False, "message": "Fyll i både Client ID och Client secret."}
+    assert client.post(url).json() == {"ok": False, "message": "Fill in both Client ID and Client secret."}
     assert twitch.calls == []
     env.write_text(ENV + f"TWITCH_CLIENT_ID={CLIENT_ID}\n")  # secret finns redan i .env
-    assert client.post(url).json() == {"ok": True, "message": "Nycklarna fungerar."}
+    assert client.post(url).json() == {"ok": True, "message": "The keys work."}
     assert twitch.calls == [(CLIENT_ID, "gammaltvarde", "twitch")]
 
     request = httpx.Request("POST", f"https://id.twitch.tv/oauth2/token?client_secret={SECRET}")
     twitch.error = httpx.HTTPStatusError(f"401 {SECRET}", request=request, response=httpx.Response(403))
     response = client.post(url)
     assert response.json() == {"ok": False,
-                               "message": "Twitch godkände inte nycklarna. Kontrollera Client ID och secret."}
+                               "message": "Twitch did not accept the keys. Check Client ID and secret."}
     twitch.error = httpx.ConnectError(f"nere {SECRET}", request=request)
     response = client.post(url)
-    assert response.json() == {"ok": False, "message": "Twitch svarar inte. Försök igen om en stund."}
+    assert response.json() == {"ok": False, "message": "Twitch is not answering. Try again in a while."}
     assert SECRET not in response.text
 
 

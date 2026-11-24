@@ -137,7 +137,7 @@ def test_overlay_is_saved_and_served(client, settings) -> None:
     overlay = response.json()["overlay"]
     assert (overlay["exists"], overlay["width"], overlay["height"]) == (True, 1080, 1920)
     assert (settings.root / "overlays" / "skiimasktimmy.png").read_bytes() == png
-    assert not any("Overlay-bilden saknas" in p for p in response.json()["problems"])
+    assert not any("The overlay image is missing" in p for p in response.json()["problems"])
 
     served = client.get("/campaign/profiles/skiimasktimmy/overlay")
     assert served.status_code == 200
@@ -265,8 +265,8 @@ def test_yaml_is_shown_with_comments_and_saved_exactly(client, settings) -> None
     (lambda t: t.replace("  - id: clutch\n", "  - idx: clutch\n"), "id"),
     (lambda t: t + "x: &a [1, 2]\ny: *a\n", "alias"),
     (lambda t: t.replace("clipsmith_config: config.timmy.yaml", "clipsmith_config: .env"), "clipsmith_config"),
-    (lambda t: t.replace("min_seconds: 7 ", "min_seconds: abc "), "clip.min_seconds måste vara ett tal"),
-    (lambda t: t.replace("font_size: 46", "font_size: stor"), "on_screen_text.font_size måste vara ett heltal"),
+    (lambda t: t.replace("min_seconds: 7 ", "min_seconds: abc "), "clip.min_seconds must be a number"),
+    (lambda t: t.replace("font_size: 46", "font_size: stor"), "on_screen_text.font_size must be a whole number"),
 ])
 def test_broken_yaml_is_refused_and_nothing_changes(client, settings, change, words) -> None:
     before = _profile_text(settings)
@@ -804,7 +804,7 @@ def test_keys_are_their_own_problems_and_the_state_is_the_same_text_everywhere(c
     assert timmy["ready"] is False  # körningen kräver nycklarna
     assert len(timmy["key_problems"]) == 2 and set(timmy["key_problems"]) <= set(timmy["problems"])
     assert all("Settings" in p for p in timmy["key_problems"])
-    assert timmy["state"].startswith("Går att köra, men klippen blir underkända")  # overlay-bilden saknas
+    assert timmy["state"].startswith("Can run, but the clips fail the check")  # overlay-bilden saknas
     assert (timmy["allowed_min_s"], timmy["allowed_max_s"]) == (7, 60)
 
 

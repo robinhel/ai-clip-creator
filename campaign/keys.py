@@ -31,8 +31,8 @@ router = APIRouter(prefix="/campaign", tags=["campaign"])
 
 GROUPS = [
     ("twitch", "Twitch", [("TWITCH_CLIENT_ID", "Client ID"), ("TWITCH_CLIENT_SECRET", "Client secret")]),
-    ("anthropic", "Claude", [("ANTHROPIC_API_KEY", "API-nyckel")]),
-    ("berget", "Berget (transkribering)", [("BERGET_API_KEY", "API-nyckel")]),
+    ("anthropic", "Claude", [("ANTHROPIC_API_KEY", "API key")]),
+    ("berget", "Berget (transcription)", [("BERGET_API_KEY", "API key")]),
     ("tiktok", "TikTok", [("TIKTOK_CLIENT_KEY", "Client key"), ("TIKTOK_CLIENT_SECRET", "Client secret")]),
     ("youtube", "YouTube", [("YOUTUBE_CLIENT_ID", "Client ID"), ("YOUTUBE_CLIENT_SECRET", "Client secret")]),
 ]
@@ -86,13 +86,13 @@ def _check(values: dict[str, Any]) -> dict[str, str]:
     clean = {}
     for name, value in values.items():
         if name not in NAMES:
-            raise HTTPException(400, "Okänt namn på en nyckel. Bara nycklarna på sidan går att spara.")
+            raise HTTPException(400, "Unknown key name. Only the keys on the page can be saved.")
         value = value.strip() if isinstance(value, str) else None
         if not value:
-            raise HTTPException(400, f"{name} är tom. Klistra in nyckeln.")
+            raise HTTPException(400, f"{name} is empty. Paste the key.")
         if not VALUE.fullmatch(value):
-            raise HTTPException(400, f"{name} ser inte ut som en nyckel. Den får inte ha blanksteg, radbrytningar, "
-                                     "citattecken, # eller $, och högst 300 tecken.")
+            raise HTTPException(400, f"{name} does not look like a key. It cannot contain spaces, line breaks, "
+                                     "quotes, # or $, and can be at most 300 characters.")
         clean[name] = value
     return clean
 
@@ -123,29 +123,29 @@ def _write_env(path: Path, values: dict[str, str]) -> None:
 def check_twitch(root: Path) -> dict:
     client_id, secret = (_value(name, root) for name in TWITCH)
     if not (client_id and secret):
-        return {"ok": False, "message": "Fyll i både Client ID och Client secret."}
+        return {"ok": False, "message": "Fill in both Client ID and Client secret."}
     try:
         with TwitchClient(client_id, secret) as client:
             client.get_user_id("twitch")
     except httpx.HTTPStatusError as error:  # Twitchs text kan innehålla nyckeln, så den skickas inte vidare
         if error.response.status_code in (400, 401, 403):
-            return {"ok": False, "message": "Twitch godkände inte nycklarna. Kontrollera Client ID och secret."}
-        return {"ok": False, "message": "Twitch svarar inte. Försök igen om en stund."}
+            return {"ok": False, "message": "Twitch did not accept the keys. Check Client ID and secret."}
+        return {"ok": False, "message": "Twitch is not answering. Try again in a while."}
     except Exception:  # nätverk m.m.
-        return {"ok": False, "message": "Twitch svarar inte. Försök igen om en stund."}
-    return {"ok": True, "message": "Nycklarna fungerar."}
+        return {"ok": False, "message": "Twitch is not answering. Try again in a while."}
+    return {"ok": True, "message": "The keys work."}
 
 
-@router.get("/keys", summary="Vilka nycklar som är sparade, utan värden")
+@router.get("/keys", summary="Which keys are saved, without values")
 def get_keys(settings: Settings = Depends(get_settings)) -> dict:
     return {"groups": _groups(settings.root)}
 
 
-@router.put("/keys", summary="Spara nycklar i .env", dependencies=[Depends(verify_api_key), Depends(_only_local)])
+@router.put("/keys", summary="Save keys in .env", dependencies=[Depends(verify_api_key), Depends(_only_local)])
 def put_keys(body: Any = Body(None), settings: Settings = Depends(get_settings)) -> dict:
     # Any och egen kontroll: FastAPIs 422-svar citerar fel indata, och den kan vara en nyckel.
     if not (isinstance(body, dict) and isinstance(body.get("values"), dict)):
-        raise HTTPException(400, 'Skicka nycklarna som {"values": {"NAMN": "värde"}}.')
+        raise HTTPException(400, 'Send the keys as {"values": {"NAME": "value"}}.')
     values = _check(body["values"])
     with _env_lock:
         _write_env(settings.root / ".env", values)
@@ -157,7 +157,7 @@ def put_keys(body: Any = Body(None), settings: Settings = Depends(get_settings))
     return {"groups": _groups(settings.root), "test": check_twitch(settings.root) if twitch_changed else None}
 
 
-@router.post("/keys/test/twitch", summary="Prova Twitch-nycklarna",
+@router.post("/keys/test/twitch", summary="Test the Twitch keys",
              dependencies=[Depends(verify_api_key), Depends(_only_local)])
 def post_test_twitch(settings: Settings = Depends(get_settings)) -> dict:
     return check_twitch(settings.root)
@@ -185,16 +185,16 @@ def _row(check_id: str, label: str, ok: bool, detail: str, href: str | None = No
 def _tools() -> list[dict]:
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
-        rows = [_row("ffmpeg", "ffmpeg", False, "ffmpeg hittades inte. Installera det: brew install ffmpeg-full.")]
+        rows = [_row("ffmpeg", "ffmpeg", False, "ffmpeg was not found. Install it: brew install ffmpeg-full.")]
     else:
         names = {line.split()[1] for line in _ffmpeg_filters(ffmpeg).splitlines() if len(line.split()) > 1}
         missing = [name for name in FILTERS if name not in names]
         rows = [_row("ffmpeg", "ffmpeg", not missing,
-                     f"ffmpeg saknar {' och '.join(missing)}. Installera ffmpeg-full: brew install ffmpeg-full."
-                     if missing else "Hittad, med drawtext och subtitles.")]
+                     f"ffmpeg lacks {' and '.join(missing)}. Install ffmpeg-full: brew install ffmpeg-full."
+                     if missing else "Found, with drawtext and subtitles.")]
     found = shutil.which("ffprobe") is not None
     return [*rows, _row("ffprobe", "ffprobe", found,
-                        "Hittad." if found else "ffprobe hittades inte. Installera det: brew install ffmpeg-full.")]
+                        "Found." if found else "ffprobe was not found. Install it: brew install ffmpeg-full.")]
 
 
 def _campaigns(settings: Settings) -> list[dict]:
@@ -205,11 +205,11 @@ def _campaigns(settings: Settings) -> list[dict]:
         try:
             profile = _describe_profile(name, settings)
         except (SystemExit, Exception):  # felets text kan citera filen, så den visas inte
-            rows.append(_row(f"profile:{name}", f"Kampanjen {name}", False, "Kampanjens fil går inte att läsa.", href))
+            rows.append(_row(f"profile:{name}", f"Campaign {name}", False, "The campaign file cannot be read.", href))
             continue
         if profile["active"]:
             problems = [p for p in profile["problems"] if p not in profile["key_problems"]]
-            rows.append(_row(f"profile:{name}", f"Kampanjen {profile['streamer']}", profile["state"] == "Redo",
+            rows.append(_row(f"profile:{name}", f"Campaign {profile['streamer']}", profile["state"] == "Ready",
                              " ".join([f"{profile['state']}.", *problems]), href))
     return rows
 
@@ -223,36 +223,36 @@ def _budget(settings: Settings) -> dict:
     s = budget.summary()
 
     def usd(value: float) -> str:
-        return f"{value:.2f}".replace(".", ",") + " US$"
+        return f"US${value:.2f}"
 
-    return _row("budget", "Budget", True, f"{usd(s['month_usd'])} av {usd(s['month_cap_usd'])} den här månaden, "
-                                          f"{usd(s['today_usd'])} av {usd(s['day_cap_usd'])} i dag.")
+    return _row("budget", "Budget", True, f"{usd(s['month_usd'])} of {usd(s['month_cap_usd'])} this month, "
+                                          f"{usd(s['today_usd'])} of {usd(s['day_cap_usd'])} today.")
 
 
 def _space(disk: dict) -> list[dict]:
     if not disk["connected"]:
-        return [_row("ssd", "SSD:n", False, SSD_MISSING),
-                _row("disk", "Ledigt utrymme", False, f"Okänt. {SSD_MISSING}")]
+        return [_row("ssd", "SSD", False, SSD_MISSING),
+                _row("disk", "Free space", False, f"Unknown. {SSD_MISSING}")]
     hours = max(disk["free_gb"] - 1, 0) / 1.1 / estimate.download_gb(3600)  # samma marginal som körningen
     need = estimate.download_gb(HOURS_OK * 3600) * 1.1 + 1
 
     def gb(value: float) -> str:
-        return f"{value:g}".replace(".", ",")  # svenskt decimalkomma
+        return f"{value:g}"
 
-    detail = (f"{gb(disk['free_gb'])} GB ledigt av {gb(disk['total_gb'])} GB. Det räcker för ungefär "
-              f"{int(hours)} timmar VOD.")
+    detail = (f"{gb(disk['free_gb'])} GB free of {gb(disk['total_gb'])} GB. That is enough for about "
+              f"{int(hours)} hours of VOD.")
     if hours < HOURS_OK:
-        detail += f" En stream på {HOURS_OK} timmar behöver ungefär {need:.0f} GB. Ta bort gamla VOD:er i work/."
-    return [_row("ssd", "SSD:n", True, "work/ och out/ går att nå."),
-            _row("disk", "Ledigt utrymme", hours >= HOURS_OK, detail)]
+        detail += f" A {HOURS_OK}-hour stream needs about {need:.0f} GB. Delete old VODs in work/."
+    return [_row("ssd", "SSD", True, "work/ and out/ can be reached."),
+            _row("disk", "Free space", hours >= HOURS_OK, detail)]
 
 
-@router.get("/setup", summary="Kontroll: ffmpeg, nycklar, kampanjer, budget, SSD och ledigt utrymme")
+@router.get("/setup", summary="Check: ffmpeg, keys, campaigns, budget, SSD and free space")
 def get_setup(settings: Settings = Depends(get_settings)) -> dict:
     keys = [_row(check_id, label, bool(_value(name, settings.root)),
-                 "Sparad." if _value(name, settings.root) else f"Saknas. Klistra in den i rutan {box} längre ner.",
+                 "Saved." if _value(name, settings.root) else f"Missing. Paste it in the {box} box further down.",
                  f"#{check_id}")
-            for check_id, name, label, box in (("anthropic", "ANTHROPIC_API_KEY", "Claude-nyckeln", "Claude"),
-                                               ("berget", "BERGET_API_KEY", "Berget-nyckeln (transkribering)",
+            for check_id, name, label, box in (("anthropic", "ANTHROPIC_API_KEY", "The Claude key", "Claude"),
+                                               ("berget", "BERGET_API_KEY", "The Berget key (transcription)",
                                                 "Berget"))]
     return {"checks": [*_tools(), *keys, *_campaigns(settings), _budget(settings), *_space(storage(settings))]}
