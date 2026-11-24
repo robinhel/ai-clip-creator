@@ -27,12 +27,12 @@ export function LiveWatch({ profile }: { profile: string }) {
     liveApi
       .setWatching(profile, !watching)
       .then((next) => setWatches([next]))
-      .catch((err) => setError(errorMessage(err, "Det gick inte. Försök igen.")))
+      .catch((err) => setError(errorMessage(err, "That did not work. Try again.")))
       .finally(() => setBusy(false));
   }
 
   return (
-    <section aria-label="Live-klipp" className="mt-4 max-w-[760px] rounded-2xl border border-line bg-panel p-5">
+    <section aria-label="Live clips" className="mt-4 max-w-[760px] rounded-2xl border border-line bg-panel p-5">
       <Header channel={watch.channel} watching={watching} busy={busy} onToggle={toggle} />
       <WatchStatus watching={watching} live={watch.live} />
       <Problems warning={watch.error} error={error} />
@@ -44,8 +44,8 @@ export function LiveWatch({ profile }: { profile: string }) {
 /** Den första läsningen gick inte. Kortet visar felet, och sidan läser om tills det går. */
 function LoadError({ error }: { error: string }) {
   return (
-    <section aria-label="Live-klipp" className="mt-4 max-w-[760px] rounded-2xl border border-line bg-panel p-5">
-      <h2 className="font-semibold">Live-klipp</h2>
+    <section aria-label="Live clips" className="mt-4 max-w-[760px] rounded-2xl border border-line bg-panel p-5">
+      <h2 className="font-semibold">Live clips</h2>
       <Problems warning={null} error={error} />
     </section>
   );
@@ -55,14 +55,14 @@ function Header({ channel, watching, busy, onToggle }: { channel: string; watchi
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="min-w-0">
-        <h2 className="font-semibold">Live-klipp</h2>
+        <h2 className="font-semibold">Live clips</h2>
         <p className="text-sm text-muted-foreground">
-          Gör klipp av stunden före toppen när chatten på twitch.tv/{channel} exploderar.
+          Makes clips of the moment before the peak when the chat on twitch.tv/{channel} explodes.
         </p>
       </div>
       <Button variant={watching ? "outline" : "default"} onClick={onToggle} disabled={busy}>
         <Radio aria-hidden />
-        {watching ? "Sluta bevaka" : "Bevaka live"}
+        {watching ? "Stop watching" : "Watch live"}
       </Button>
     </div>
   );
@@ -89,19 +89,19 @@ export function Problems({ warning, error }: { warning: string | null; error: st
 
 function WatchStatus({ watching, live }: { watching: boolean; live: boolean }) {
   if (!watching) return null;
-  if (!live) return <p className="mt-3 text-sm text-muted-foreground">Väntar på att kanalen går live</p>;
+  if (!live) return <p className="mt-3 text-sm text-muted-foreground">Waiting for the channel to go live</p>;
   return (
     <p className="mt-3">
-      <span className="rounded-md bg-bad px-2 py-0.5 text-xs font-semibold text-white">Live nu</span>
+      <span className="rounded-md bg-bad px-2 py-0.5 text-xs font-semibold text-white">Live now</span>
     </p>
   );
 }
 
 /** Topparna i chatten, senaste först, med länk till körningen. Används också på Hem. */
 export function Peaks({ peaks }: { peaks: Peak[] }) {
-  if (peaks.length === 0) return <p className="mt-4 text-sm text-muted-foreground">Inga toppar än.</p>;
+  if (peaks.length === 0) return <p className="mt-4 text-sm text-muted-foreground">No peaks yet.</p>;
   return (
-    <ul aria-label="Toppar i chatten" className="mt-4 rounded-2xl border border-line px-3">
+    <ul aria-label="Peaks in the chat" className="mt-4 rounded-2xl border border-line px-3">
       {newestFirst(peaks).map((p) => (
         <PeakRow key={p.n} peak={p} />
       ))}
@@ -113,14 +113,14 @@ function PeakRow({ peak }: { peak: Peak }) {
   return (
     <li className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line py-3 text-sm last:border-b-0">
       <span className="text-muted-foreground tabular-nums">{timeText(peak.at)}</span>
-      <span className="font-medium">Topp {peak.n}</span>
+      <span className="font-medium">Peak {peak.n}</span>
       <span className={STATUS_TONE[peak.status] ?? "text-muted-foreground"}>{statusText(peak.status)}</span>
       {peak.run_id != null && (
         <Link
           href={`/runs/${peak.run_id}`}
           className="ml-auto font-medium text-foreground underline underline-offset-4 hover:text-brand"
         >
-          Öppna körningen
+          Open the run
         </Link>
       )}
       {peak.reason && <p className="basis-full text-muted-foreground">{peak.reason}</p>}

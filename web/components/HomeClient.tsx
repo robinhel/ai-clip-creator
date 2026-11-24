@@ -26,7 +26,7 @@ const gb = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 type Blocker = { text: string; href?: string; linkText?: string };
 
 /** Nycklar läggs in under Inställningar. Texten kommer från servern, till exempel "Berget-nyckeln (BERGET_API_KEY) saknas. Lägg in den under Inställningar. Den behövs för transkriberingen." */
-const isKeyProblem = (text: string) => /API_KEY|nyckel/i.test(text);
+const isKeyProblem = (text: string) => /API_KEY|nyckel|key/i.test(text);
 
 function KeyFix({ problem }: { problem: string }) {
   if (!isKeyProblem(problem)) return null;
@@ -34,7 +34,7 @@ function KeyFix({ problem }: { problem: string }) {
     <>
       {" "}
       <Link href="/settings" className="font-medium underline underline-offset-4 hover:text-foreground">
-        Lägg in nyckeln i Inställningar
+        Add the key in Settings
       </Link>
     </>
   );
@@ -88,22 +88,22 @@ function TodoCard({
 function WhopCard({ count }: { count: number }) {
   return (
     <section
-      aria-label="Skicka in på Whop"
+      aria-label="Submit on Whop"
       className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl border border-brand/60 bg-brand/10 px-4 py-3.5"
     >
       <Send className="size-5 shrink-0 text-brand" aria-hidden />
       <div className="min-w-0 flex-1">
-        <h3 className="font-semibold">Skicka in på Whop</h3>
+        <h3 className="font-semibold">Submit on Whop</h3>
         <p className="text-[13px] text-muted-foreground">
-          {count === 1 ? "1 postat klipp är inte inskickat än." : `${count} postade klipp är inte inskickade än.`} Skicka
-          in länkarna för att få betalt.
+          {count === 1 ? "1 posted clip is not submitted yet." : `${count} posted clips are not submitted yet.`} Submit
+          the links to get paid.
         </p>
       </div>
       <Link
         href="/queue?tab=skicka-in"
         className="inline-flex h-9 items-center rounded-lg bg-brand px-3.5 text-sm font-medium text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
       >
-        Öppna Skicka in
+        Open Submit
       </Link>
     </section>
   );
@@ -115,10 +115,10 @@ const streamTime = (s: StreamInfo) => (s.created_at ? serverTime(s.created_at) :
 
 function streamTag(s: StreamInfo): { text: string; tone: string } | null {
   if (s.run_id == null || !s.run_status) return null;
-  if (s.run_cancelled) return { text: "Avbruten", tone: "bg-black/70" };
-  if (s.run_status === "failed") return { text: "Misslyckades", tone: "bg-bad font-semibold text-white" };
-  if (s.run_status === "done") return { text: `Klar, ${s.clip_count} klipp`, tone: "bg-black/70" };
-  return { text: "Pågår", tone: "bg-brand text-white" };
+  if (s.run_cancelled) return { text: "Cancelled", tone: "bg-black/70" };
+  if (s.run_status === "failed") return { text: "Failed", tone: "bg-bad font-semibold text-white" };
+  if (s.run_status === "done") return { text: `Done, ${s.clip_count} clips`, tone: "bg-black/70" };
+  return { text: "Running", tone: "bg-brand text-white" };
 }
 
 type StreamSort = "best" | "new";
@@ -153,7 +153,7 @@ function StreamCard({
   const tag = s.live
     ? { text: "Live", tone: "bg-bad font-semibold text-white" }
     : s.recommended
-      ? { text: "Rekommenderad", tone: "bg-brand font-semibold text-white" }
+      ? { text: "Recommended", tone: "bg-brand font-semibold text-white" }
       : streamTag(s);
   const body = (
     <>
@@ -163,7 +163,7 @@ function StreamCard({
           <img src={s.thumbnail_url} alt="" className="h-full w-full object-cover" />
         ) : (
           <div className="grid h-full place-content-center gap-0.5 text-center text-xs text-muted-foreground">
-            <span>Ingen bild än</span>
+            <span>No image yet</span>
             <span className="text-[11px] tabular-nums">VOD {s.vod_id}</span>
           </div>
         )}
@@ -173,11 +173,11 @@ function StreamCard({
       <div className="flex w-full gap-2.5 px-2.5 pt-2 text-left">
         {s.score != null && (
           // Neutral färg: betyget säger hur bra streamen är att klippa, inte att något är fel.
-          <p className="shrink-0 text-center" aria-label={`Betyg ${s.score} av 100`}>
+          <p className="shrink-0 text-center" aria-label={`Score ${s.score} of 100`}>
             <span data-score className="block text-lg leading-none font-extrabold text-foreground tabular-nums">
               {s.score}
             </span>
-            <span className="text-[10px] text-muted-foreground">betyg</span>
+            <span className="text-[10px] text-muted-foreground">score</span>
           </p>
         )}
         <div className="min-w-0 space-y-0.5">
@@ -186,7 +186,7 @@ function StreamCard({
             {[s.game, s.created_at && streamDay.format(streamTime(s))].filter(Boolean).join(", ")}
           </p>
           {s.reason && <p className="line-clamp-2 text-xs text-muted-foreground">{s.reason}</p>}
-          {s.live && <p className="text-xs text-warn">Streamen pågår. Vänta tills den är slut.</p>}
+          {s.live && <p className="text-xs text-warn">The stream is live. Wait until it ends.</p>}
         </div>
       </div>
     </>
@@ -214,18 +214,18 @@ function StreamCard({
       <div className="mt-auto space-y-1.5 px-2.5 pt-2 pb-2.5">
         {s.run_id != null ? (
           <Link href={`/runs/${s.run_id}`} className={cn(action, "border border-line hover:bg-white/5")}>
-            Öppna projektet
+            Open the project
           </Link>
         ) : (
           <button
             type="button"
             disabled={s.live || busy}
-            title={s.live ? "Streamen pågår. Vänta tills den är slut." : undefined}
+            title={s.live ? "The stream is live. Wait until it ends." : undefined}
             onClick={() => onFetch(s)}
             className={cn(action, "bg-[#fafafa] text-[#111] hover:bg-white")}
           >
             {busy && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
-            {busy ? "Startar…" : "Hämta klipp"}
+            {busy ? "Starting…" : "Get clips"}
           </button>
         )}
         {error && (
@@ -300,7 +300,7 @@ export function HomeClient() {
       .catch((err) => {
         // Siffrorna visas inte när servern inte svarar: 0 skulle se ut som att inget väntar.
         setSummary(null);
-        setLoadError(err instanceof Error ? err.message : "Kunde inte hämta startsidan");
+        setLoadError(err instanceof Error ? err.message : "Could not load the home page");
       });
     // Kampanjernas projekt för egna filer och uppladdningar. Ett fel här döljer bara korten för dem.
     api.campaign.projects.list().then(setOwnProjects).catch(() => setOwnProjects([]));
@@ -359,7 +359,7 @@ export function HomeClient() {
       .catch((err) => {
         if (cancelled) return;
         setVod(null);
-        setVodError(err instanceof Error ? err.message : "Kunde inte hämta VOD:en");
+        setVodError(err instanceof Error ? err.message : "Could not load the VOD");
       })
       .finally(() => !cancelled && setVodLoading(false));
     return () => {
@@ -397,44 +397,44 @@ export function HomeClient() {
   const blockers: Blocker[] = [];
   if (vod) {
     // Serverns hinder (live-stream, SSD:n saknas). Äldre servrar skickar bara live.
-    blockers.push(...(vod.problems ?? (vod.live ? ["Streamen pågår. Vänta tills den är slut."] : [])).map((text) => ({ text })));
+    blockers.push(...(vod.problems ?? (vod.live ? ["The stream is live. Wait until it ends."] : [])).map((text) => ({ text })));
     if (running) {
       blockers.push({
         text:
           running.vod_id === vod.vod_id
-            ? "Streamen hämtar redan klipp. Vänta tills det är klart."
-            : `Ett annat projekt hämtar klipp just nu: ${running.title || running.vod_id}. Appen gör ett i taget.`,
+            ? "The stream is already getting clips. Wait until it is done."
+            : `Another project is getting clips right now: ${running.title || running.vod_id}. The app does one at a time.`,
         href: `/runs/${running.run_id}`,
-        linkText: "Öppna projektet",
+        linkText: "Open the project",
       });
     }
     if (matching.length === 0) {
-      blockers.push({ text: `Ingen kampanj passar kanalen ${vod.channel_name}. Skapa en kampanj för kanalen först.` });
+      blockers.push({ text: `No campaign fits the channel ${vod.channel_name}. Create a campaign for the channel first.` });
     } else if (!profile) {
-      blockers.push({ text: "Välj en kampanj." });
+      blockers.push({ text: "Choose a campaign." });
     } else if (!profile.ready) {
-      blockers.push({ text: `Kampanjen ${profile.streamer || profile.name} är inte redo. Rätta det som står nedan.` });
+      blockers.push({ text: `The campaign ${profile.streamer || profile.name} is not ready. Fix what is listed below.` });
     }
     if (!vod.estimate.fits) {
       blockers.push({
-        text: `Disken räcker inte. VOD:en behöver ${gb.format(vod.estimate.download_gb)} GB, men bara ${gb.format(
+        text: `Not enough disk. The VOD needs ${gb.format(vod.estimate.download_gb)} GB, but only ${gb.format(
           vod.estimate.disk_free_gb
-        )} GB är ledigt. Frigör plats och försök igen.`,
+        )} GB is free. Free up space and try again.`,
       });
     }
     if (profile && profile.clip_min_s != null && profile.clip_max_s != null && (!Number.isInteger(min) || !Number.isInteger(max) || min < profile.clip_min_s || max > profile.clip_max_s || min >= max)) {
       blockers.push({
-        text: `Klipplängden måste ligga inom ${profile.clip_min_s}–${profile.clip_max_s} s, och kortast måste vara mindre än längst.`,
+        text: `The clip length must be within ${profile.clip_min_s}–${profile.clip_max_s} s, and shortest must be less than longest.`,
       });
     }
     if (startS === null || endS === null) {
-      blockers.push({ text: "Skriv start och slut som t:mm:ss, till exempel 1:05:00." });
+      blockers.push({ text: "Enter start and end as h:mm:ss, for example 1:05:00." });
     } else if (endS > 0 && (endS <= startS || endS > vod.duration_s)) {
-      blockers.push({ text: `Slutet måste ligga efter starten och inom VOD:ens längd (${clock(vod.duration_s)}).` });
+      blockers.push({ text: `The end must be after the start and within the VOD's length (${clock(vod.duration_s)}).` });
     } else if (startS >= vod.duration_s) {
-      blockers.push({ text: `Starten måste ligga inom VOD:ens längd (${clock(vod.duration_s)}).` });
+      blockers.push({ text: `The start must be within the VOD's length (${clock(vod.duration_s)}).` });
     }
-    if (!fast && focus.length > FOCUS_MAX) blockers.push({ text: `Leta efter får vara högst ${FOCUS_MAX} tecken.` });
+    if (!fast && focus.length > FOCUS_MAX) blockers.push({ text: `Look for can be at most ${FOCUS_MAX} characters.` });
   }
   const canStart = !!vod && !!profile && blockers.length === 0 && !starting;
   // Samma stream och kampanj är samma projekt. En ny körning hamnar i det projektet.
@@ -457,7 +457,7 @@ export function HomeClient() {
       });
       router.push(`/runs/${run.id}`);
     } catch (err) {
-      setStartError(err instanceof Error ? err.message : "Kunde inte starta projektet. Försök igen.");
+      setStartError(err instanceof Error ? err.message : "Could not start the project. Try again.");
       setStarting(false);
     }
   }
@@ -480,7 +480,7 @@ export function HomeClient() {
       const run = await api.campaign.runs.create({ profile: fits[0].name, vod_id: s.vod_id, game: s.game ?? undefined });
       router.push(`/runs/${run.id}`);
     } catch (err) {
-      setQuickErrors((all) => ({ ...all, [s.vod_id]: err instanceof Error ? err.message : "Kunde inte starta projektet. Försök igen." }));
+      setQuickErrors((all) => ({ ...all, [s.vod_id]: err instanceof Error ? err.message : "Could not start the project. Try again." }));
       setQuickBusy(null);
     }
   }
@@ -489,7 +489,7 @@ export function HomeClient() {
   function takeFiles(list: FileList | null) {
     const files = videoFiles(list);
     if (files.length === 0) {
-      setFileError(`Det är ingen video. Välj ${VIDEO_TYPES.join(", ")}.`);
+      setFileError(`That is not a video. Choose ${VIDEO_TYPES.join(", ")}.`);
       return;
     }
     handOverFiles(files);
@@ -504,8 +504,8 @@ export function HomeClient() {
   return (
     <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
       <section className="mx-auto max-w-[720px] pt-7 pb-2 text-center">
-        <h1 className="text-4xl font-bold tracking-tight">Gör klipp</h1>
-        <p className="mt-1.5 text-muted-foreground">Klistra in en Twitch-länk, eller dra in en egen video. Appen gör resten.</p>
+        <h1 className="text-4xl font-bold tracking-tight">Make clips</h1>
+        <p className="mt-1.5 text-muted-foreground">Paste a Twitch link, or drag in your own video. The app does the rest.</p>
 
         <form
           className="mt-6"
@@ -534,14 +534,14 @@ export function HomeClient() {
           >
             <Link2 className="size-5 shrink-0 text-muted-foreground" aria-hidden />
             <input
-              aria-label="Twitch-länk eller VOD-id"
+              aria-label="Twitch link or VOD ID"
               value={link}
               onChange={(e) => setLink(e.target.value)}
-              placeholder={dragging ? "Släpp videon här" : "https://www.twitch.tv/videos/…"}
+              placeholder={dragging ? "Drop the video here" : "https://www.twitch.tv/videos/…"}
               className="min-w-0 flex-1 basis-40 bg-transparent text-base outline-none placeholder:text-muted-foreground"
               autoFocus
             />
-            {vodLoading && <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label="Hämtar VOD:en" />}
+            {vodLoading && <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label="Loading the VOD" />}
             {link ? (
               <button
                 type="button"
@@ -549,12 +549,12 @@ export function HomeClient() {
                 className="inline-flex items-center gap-1 rounded-md px-1.5 text-sm text-muted-foreground hover:text-foreground"
               >
                 <X className="size-3.5" aria-hidden />
-                Ta bort
+                Remove
               </button>
             ) : (
               <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground focus-within:outline-2 focus-within:outline-brand">
                 <Upload className="size-3.5" aria-hidden />
-                Egen video
+                Own video
                 <input
                   type="file"
                   accept={VIDEO_TYPES.join(",")}
@@ -576,12 +576,12 @@ export function HomeClient() {
           )}
           {link.trim() && !candidate && (
             <p className="mt-2 text-left text-sm text-warn">
-              Det ser inte ut som en Twitch-VOD. Klistra in en länk som https://www.twitch.tv/videos/2925991945.
+              That does not look like a Twitch VOD. Paste a link like https://www.twitch.tv/videos/2925991945.
             </p>
           )}
           {candidate && !vodId && (
             <p role="alert" className="mt-2 text-left text-sm text-bad">
-              VOD-id:t {candidate} har {candidate.length} siffror. Ett VOD-id har 6–15 siffror, till exempel 2925991945.
+              The VOD ID {candidate} has {candidate.length} digits. A VOD ID has 6–15 digits, for example 2925991945.
             </p>
           )}
           {vodError && (
@@ -601,21 +601,21 @@ export function HomeClient() {
               <div className="min-w-0 space-y-1">
                 <p className="line-clamp-2 font-semibold leading-snug break-words">{vod.title}</p>
                 <p className="text-[13px] text-muted-foreground">
-                  {vod.channel_name}, {vod.game ?? "okänt spel"}, {duration(vod.duration_s)}
+                  {vod.channel_name}, {vod.game ?? "unknown game"}, {duration(vod.duration_s)}
                 </p>
                 <p className="text-[13px] text-muted-foreground">
-                  Cirka {vod.estimate.minutes} min
+                  About {vod.estimate.minutes} min
                   {fast && vod.estimate.cost
-                    ? ` och ${usd.format(vod.estimate.cost.berget_usd)} att göra klart (bara Berget: signalerna väljer, utan Claude)`
-                    : `${vod.estimate.cost_usd != null ? ` och ${usd.format(vod.estimate.cost_usd)}` : ", okänd kostnad,"} att göra klart${
+                    ? ` and ${usd.format(vod.estimate.cost.berget_usd)} to finish (Berget only: the signals choose, without Claude)`
+                    : `${vod.estimate.cost_usd != null ? ` and ${usd.format(vod.estimate.cost_usd)}` : ", unknown cost,"} to finish${
                         vod.estimate.cost
                           ? ` (Berget ${usd.format(vod.estimate.cost.berget_usd)}, Claude ${usd.format(vod.estimate.cost.claude_usd)})`
                           : ""
                       }`}
                   .{" "}
                   {vod.downloaded
-                    ? "VOD:en finns redan på disken."
-                    : `Hämtar ${gb.format(vod.estimate.download_gb)} GB, ${gb.format(vod.estimate.disk_free_gb)} GB ledigt.`}
+                    ? "The VOD is already on disk."
+                    : `Downloads ${gb.format(vod.estimate.download_gb)} GB, ${gb.format(vod.estimate.disk_free_gb)} GB free.`}
                 </p>
               </div>
             </div>
@@ -624,9 +624,9 @@ export function HomeClient() {
           {vod && (
             <>
               <div className="mt-3.5 flex flex-wrap justify-center gap-2">
-                <Chip label="Kampanj:" warn={matching.length === 0}>
+                <Chip label="Campaign:" warn={matching.length === 0}>
                   {matching.length === 0 ? (
-                    <span className="px-1.5 font-medium text-warn">ingen passar</span>
+                    <span className="px-1.5 font-medium text-warn">none fits</span>
                   ) : (
                     <select
                       value={profileName}
@@ -635,7 +635,7 @@ export function HomeClient() {
                     >
                       {matching.length > 1 && (
                         <option value="" disabled>
-                          Välj…
+                          Choose…
                         </option>
                       )}
                       {matching.map((p) => (
@@ -646,18 +646,18 @@ export function HomeClient() {
                     </select>
                   )}
                 </Chip>
-                <Chip label="Spel:">
+                <Chip label="Game:">
                   <input
                     value={game}
                     onChange={(e) => setGame(e.target.value)}
-                    placeholder="okänt"
+                    placeholder="unknown"
                     className={cn(chipField, "w-28 placeholder:text-muted-foreground")}
                   />
                 </Chip>
                 {profile?.clip_min_s != null && profile.clip_max_s != null && (
-                  <Chip label="Längd:">
+                  <Chip label="Length:">
                     <input
-                      aria-label="Kortaste klipp i sekunder"
+                      aria-label="Shortest clip in seconds"
                       inputMode="numeric"
                       value={minS}
                       onChange={(e) => setMinS(e.target.value)}
@@ -665,7 +665,7 @@ export function HomeClient() {
                     />
                     –
                     <input
-                      aria-label="Längsta klipp i sekunder"
+                      aria-label="Longest clip in seconds"
                       inputMode="numeric"
                       value={maxS}
                       onChange={(e) => setMaxS(e.target.value)}
@@ -674,9 +674,9 @@ export function HomeClient() {
                     <span className="pr-1.5">s</span>
                   </Chip>
                 )}
-                <Chip label="Del av VOD:en:">
+                <Chip label="Part of the VOD:">
                   <input
-                    aria-label="Start i VOD:en (t:mm:ss)"
+                    aria-label="Start in the VOD (h:mm:ss)"
                     value={start}
                     onChange={(e) => setStart(e.target.value)}
                     placeholder="0:00:00"
@@ -684,7 +684,7 @@ export function HomeClient() {
                   />
                   –
                   <input
-                    aria-label="Slut i VOD:en (t:mm:ss)"
+                    aria-label="End in the VOD (h:mm:ss)"
                     value={end}
                     onChange={(e) => setEnd(e.target.value)}
                     placeholder={clock(vod.duration_s)}
@@ -695,12 +695,12 @@ export function HomeClient() {
 
               {fast ? (
                 <p className="mt-3 text-left text-[13px] text-muted-foreground">
-                  Kampanjen väljer klippen med signalerna (chatt, ljud och tittarklipp), utan Claude.
+                  The campaign chooses clips with the signals (chat, audio and viewer clips), without Claude.
                 </p>
               ) : (
                 <label className="mt-3 block text-left">
                   <span className="flex justify-between text-[13px] text-muted-foreground">
-                    Leta efter
+                    Look for
                     <span className={cn("tabular-nums", focus.length > FOCUS_MAX && "text-bad")}>
                       {focus.length} / {FOCUS_MAX}
                     </span>
@@ -709,7 +709,7 @@ export function HomeClient() {
                     value={focus}
                     onChange={(e) => setFocus(e.target.value)}
                     rows={2}
-                    placeholder="Till exempel: clutch, rage, roliga dödsfall. Tomt betyder kampanjens vanliga format."
+                    placeholder="For example: clutch, rage, funny deaths. Empty means the campaign's usual formats."
                     className="mt-1 w-full resize-y rounded-xl border border-line bg-panel px-3.5 py-2.5 text-sm outline-none placeholder:text-muted-foreground focus:border-brand"
                   />
                 </label>
@@ -723,17 +723,17 @@ export function HomeClient() {
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-[10px] bg-[#fafafa] p-4 text-[17px] font-semibold text-[#111] transition-opacity focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-40"
           >
             {starting && <Loader2 className="size-4 animate-spin" aria-hidden />}
-            {starting ? "Startar…" : existing ? "Hämta fler klipp" : "Hämta klipp"}
+            {starting ? "Starting…" : existing ? "Get more clips" : "Get clips"}
           </button>
 
           {/* Hindren står direkt under knappen, så att Robin ser varför den är grå. */}
           {vod && (blockers.length > 0 || (profile?.problems.length ?? 0) > 0) && (
-            <ul className="mt-3 space-y-1.5 text-left text-sm" aria-label="Det här stoppar starten">
+            <ul className="mt-3 space-y-1.5 text-left text-sm" aria-label="This blocks the start">
               {blockers.map((b) => (
                 <li key={b.text} className="flex gap-2 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-[#fca5a5]">
                   <AlertTriangle className="mt-0.5 size-4 shrink-0 text-bad" aria-hidden />
                   <span>
-                    <span className="sr-only">Stoppar starten: </span>
+                    <span className="sr-only">Blocks the start: </span>
                     {b.text}
                     {b.href && (
                       <>
@@ -767,7 +767,7 @@ export function HomeClient() {
               href={`/campaigns/new?${new URLSearchParams({ channel: vod.channel, streamer: vod.channel_name })}`}
               className="mt-3 inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand px-3 text-sm font-medium text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
-              Skapa kampanj för {vod.channel_name}
+              Create campaign for {vod.channel_name}
             </Link>
           )}
 
@@ -780,29 +780,29 @@ export function HomeClient() {
 
           {existing && (
             <p className="mt-2 text-left text-sm text-muted-foreground">
-              Streamen har redan ett projekt.{" "}
+              The stream already has a project.{" "}
               <Link href={`/runs/${existing.run_id}`} className="font-medium text-foreground underline underline-offset-4">
-                Öppna projektet
+                Open the project
               </Link>
-              . Hämta fler klipp gör nya klipp i samma projekt.
+              . Get more clips makes new clips in the same project.
             </p>
           )}
         </form>
 
-        <nav aria-label="Projekt och egna videor" className="mt-5 flex flex-wrap justify-center gap-2 text-sm">
+        <nav aria-label="Projects and uploads" className="mt-5 flex flex-wrap justify-center gap-2 text-sm">
           <Link
             href="/projects"
             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line px-3 text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-brand"
           >
             <FolderOpen className="size-4" aria-hidden />
-            Alla projekt{runs ? ` (${projects.length})` : ""}
+            All projects{runs ? ` (${projects.length})` : ""}
           </Link>
           <Link
             href="/uploads"
             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-line px-3 text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-brand"
           >
             <Upload className="size-4" aria-hidden />
-            Egna videor
+            Uploads
           </Link>
         </nav>
       </section>
@@ -816,7 +816,7 @@ export function HomeClient() {
             onClick={load}
             className="inline-flex h-8 items-center rounded-lg border border-[#4d1d1d] px-3 font-medium hover:bg-white/5"
           >
-            Försök igen
+            Try again
           </button>
         </div>
       )}
@@ -824,23 +824,23 @@ export function HomeClient() {
       {/* Svarar inte servern är det samma fel: då visas bara rutan ovanför. */}
       {streamsError && !loadError ? (
         <p className="mx-auto mt-6 max-w-[720px] text-center text-xs text-muted-foreground">
-          Kunde inte hämta de senaste streamsen från Twitch.{" "}
+          Could not load the latest streams from Twitch.{" "}
           <button type="button" onClick={loadStreams} className="font-medium text-foreground underline underline-offset-4">
-            Försök igen
+            Try again
           </button>
         </p>
       ) : (
         streams &&
         streams.length > 0 && (
-          <section className="mt-9" aria-label="Senaste streams">
+          <section className="mt-9" aria-label="Latest streams">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold">Senaste streams</h2>
+              <h2 className="text-lg font-semibold">Latest streams</h2>
               {scored && (
                 <div className="flex overflow-hidden rounded-[9px] border border-line text-[13px]">
                   {(
                     [
-                      ["best", "Bäst att klippa"],
-                      ["new", "Nyast"],
+                      ["best", "Best to clip"],
+                      ["new", "Newest"],
                     ] as const
                   ).map(([id, label]) => (
                     <button
@@ -871,9 +871,9 @@ export function HomeClient() {
             </div>
             {streams.every((s) => s.viewer_clips === null) && (
               <p className="mt-1 text-xs text-muted-foreground">
-                Tittarklipp räknas inte än. Lägg in Twitch-nycklarna i{" "}
+                Viewer clips are not counted yet. Add the Twitch keys in{" "}
                 <Link href="/settings" className="underline underline-offset-4 hover:text-foreground">
-                  Inställningar
+                  Settings
                 </Link>
                 .
               </p>
@@ -883,30 +883,30 @@ export function HomeClient() {
       )}
 
       {summary && (
-        <section aria-label="Det här väntar på dig">
-          <h2 className="mt-12 mb-3 text-lg font-semibold">Det här väntar på dig</h2>
+        <section aria-label="Waiting for you">
+          <h2 className="mt-12 mb-3 text-lg font-semibold">Waiting for you</h2>
           {(counts.postad ?? 0) > 0 && <WhopCard count={counts.postad ?? 0} />}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
             {/* Samma siffra som menyn och fliken Att granska: underkända klipp ingår, de ska rättas eller nekas. */}
             <TodoCard
               count={stepCount(counts, "granska")}
-              label="klipp att granska"
-              note={underkand > 0 ? `varav ${underkand} ${underkand === 1 ? "underkänt" : "underkända"} att rätta` : undefined}
+              label="clips to review"
+              note={underkand > 0 ? `of which ${underkand} ${underkand === 1 ? "failed check" : "failed checks"} to fix` : undefined}
               href="/queue?tab=granska"
-              cta="Granska"
+              cta="Review"
             />
-            <TodoCard count={counts.godkand ?? 0} label="godkända klipp att posta" href="/queue?tab=posta" cta="Posta" />
-            <TodoCard count={counts.inskickad ?? 0} label="inskickade, fyll i statistik" href="/log?status=inskickad" cta="Fyll i visningar" />
+            <TodoCard count={counts.godkand ?? 0} label="approved clips to post" href="/queue?tab=posta" cta="Post" />
+            <TodoCard count={counts.inskickad ?? 0} label="submitted, fill in stats" href="/log?status=inskickad" cta="Fill in views" />
           </div>
         </section>
       )}
 
       {scout.length > 0 && (
-        <section aria-label="Bästa kampanjerna just nu">
+        <section aria-label="Best campaigns right now">
           <div className="mt-9 mb-3 flex items-baseline justify-between gap-4">
-            <h2 className="text-lg font-semibold">Bästa kampanjerna just nu</h2>
+            <h2 className="text-lg font-semibold">Best campaigns right now</h2>
             <Link href="/scout" className="text-sm text-muted-foreground hover:text-foreground">
-              Alla kampanjer i bevakningen
+              All campaigns in the scout
             </Link>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -920,16 +920,16 @@ export function HomeClient() {
       {/* Servern svarade inte från början: bara felet ovanför, ingen tom rubrik. */}
       {(runs !== null || !loadError) && (
         <div className="mt-9 mb-3 flex items-baseline justify-between gap-4">
-          <h2 className="text-lg font-semibold">Senaste projekten</h2>
+          <h2 className="text-lg font-semibold">Latest projects</h2>
           <Link href="/projects" className="text-sm text-muted-foreground hover:text-foreground">
-            Alla projekt{runs ? ` (${projects.length})` : ""}
+            All projects{runs ? ` (${projects.length})` : ""}
           </Link>
         </div>
       )}
-      {runs === null && !loadError && <p className="text-sm text-muted-foreground">Hämtar projekten…</p>}
+      {runs === null && !loadError && <p className="text-sm text-muted-foreground">Loading the projects…</p>}
       {runs?.length === 0 && projects.length === 0 && (
         <p className="rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted-foreground">
-          Inga projekt än. Klistra in en Twitch-länk eller dra in en egen video ovanför för att göra det första.
+          No projects yet. Paste a Twitch link or drag in your own video above to make the first one.
         </p>
       )}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

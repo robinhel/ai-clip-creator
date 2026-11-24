@@ -10,7 +10,7 @@ import { useLiveWatches } from "@/lib/useLiveWatches";
 import { cn } from "@/lib/utils";
 
 /**
- * Bevaka live utan kampanj: Robin skriver en Twitch-kanal, och appen gör 9:16-klipp när chatten exploderar.
+ * Watch live utan kampanj: Robin skriver en Twitch-kanal, och appen gör 9:16-klipp när chatten exploderar.
  * En kanal som inte bevakas längre står kvar med sina toppar, och kan slås på igen.
  */
 export function LiveChannelCard() {
@@ -28,7 +28,7 @@ export function LiveChannelCard() {
         setChannels((list) => withChannel(list ?? [], watch));
         done?.();
       })
-      .catch((err) => setError(errorMessage(err, "Det gick inte. Försök igen.")))
+      .catch((err) => setError(errorMessage(err, "That did not work. Try again.")))
       .finally(() => setBusy(null));
   }
 
@@ -39,11 +39,11 @@ export function LiveChannelCard() {
   }
 
   return (
-    <section aria-label="Live-klipp från en Twitch-kanal" className="mx-auto mt-6 max-w-[720px] rounded-2xl border border-line bg-panel p-5">
-      <h2 className="font-semibold">Live-klipp</h2>
+    <section aria-label="Live clips from a Twitch channel" className="mx-auto mt-6 max-w-[720px] rounded-2xl border border-line bg-panel p-5">
+      <h2 className="font-semibold">Live clips</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Skriv en Twitch-kanal. När den är live gör appen 9:16-klipp när chatten exploderar, utan kampanj. Du kan välja kampanj för
-        ett klipp efteråt.
+        Enter a Twitch channel. When it is live, the app makes 9:16 clips when the chat explodes, without a campaign. You can choose a campaign for
+        a clip afterwards.
       </p>
       <form
         className="mt-4 flex flex-wrap gap-2"
@@ -53,22 +53,22 @@ export function LiveChannelCard() {
         }}
       >
         <input
-          aria-label="Twitch-kanal"
+          aria-label="Twitch channel"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="ishowspeed eller länk till kanalen"
+          placeholder="ishowspeed or link to the channel"
           autoComplete="off"
           spellCheck={false}
           className="h-9 min-w-0 flex-1 basis-56 rounded-lg border border-line bg-transparent px-3 text-base outline-none placeholder:text-muted-foreground focus-visible:border-brand md:text-sm"
         />
         <Button type="submit" className="h-9" disabled={busy !== null}>
           <Radio aria-hidden />
-          Bevaka live
+          Watch live
         </Button>
       </form>
       <Problems warning={null} error={error} />
       {channels && channels.length > 0 && (
-        <ul aria-label="Kanaler som bevakas" className="mt-4">
+        <ul aria-label="Watched channels" className="mt-4">
           {channels.map((w) => (
             <ChannelRow key={w.channel} watch={w} busy={busy === w.channel} onToggle={() => change(w.channel, !w.watching)} />
           ))}
@@ -92,7 +92,7 @@ function ChannelRow({ watch, busy, onToggle }: { watch: Watch; busy: boolean; on
         </div>
         <Button variant={watch.watching ? "outline" : "default"} onClick={onToggle} disabled={busy}>
           <Radio aria-hidden />
-          {watch.watching ? "Sluta bevaka" : "Bevaka live"}
+          {watch.watching ? "Stop watching" : "Watch live"}
         </Button>
       </div>
       <Problems warning={watch.error} error={null} />
