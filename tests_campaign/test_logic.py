@@ -239,3 +239,18 @@ def test_the_signals_mode_placeholder_title_must_be_replaced(settings):
     placeholder = build_caption("Moment 0:36:35", profile, game="Bodycam")
     assert any(p.startswith("Captionen har kvar platshållaren Moment 0:36:35") for p in check_caption(placeholder, profile))
     assert check_caption(build_caption("Moment of truth at 0:36", profile, game="Bodycam"), profile) == []
+
+
+def test_a_new_failing_clip_gets_english_problems(settings):
+    """Problemen sparas i klipp.db och visas i appen. Nya klipp får engelsk text."""
+    from campaign.drafts import with_advice
+
+    profile = load_profile("skiimasktimmy", settings.profiles_dir)
+    info = {**GOOD_INFO, "duration": 4.0, "has_audio": False}
+    problems, warnings = check_clip(info, {"text_applied": False, "overlay_applied": False}, profile, "Close call")
+    assert "The clip is 4.0 s. The campaign requires at least 7 s." in problems
+    assert "The clip has no sound. The stream's sound must be heard." in problems
+    assert any(p.startswith("Caption is missing the hashtag #") for p in problems)
+    assert with_advice(problems)[0].endswith("Upload a longer video or press No.")
+    swedish = [text for text in problems + warnings + with_advice(problems) if set(text) & set("åäöÅÄÖ")]
+    assert swedish == []
