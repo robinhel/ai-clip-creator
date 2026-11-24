@@ -11,7 +11,7 @@ function ItemStatus({ item }: { item: Item }) {
   if (item.upload === "failed") return <>{item.uploadError}</>;
   if (item.state === "busy") return <Spinning text="Making the video…" />;
   if (item.previewing) return <Spinning text="Previewing…" />;
-  if (item.state === "done") return <>Klar: {item.message}</>;
+  if (item.state === "done") return <>Done: {item.message}</>;
   return <>{item.message ?? (item.preview ? "Previewed, not saved" : "Waiting")}</>;
 }
 

@@ -13,8 +13,16 @@ import type { CampaignProfile } from "@/lib/types";
 const FAILS_CLIPS = ["Overlay-bilden saknas", "on_screen_text.text är tom"];
 
 /** Vad kampanjens läge betyder för körningen. Servern skickar samma text som Kontroll (state). */
+// Servern skickar läget på svenska (keys.py jämför "Redo"). Webben visar det på engelska.
+const STATE_TEXT: Record<string, string> = {
+  Redo: "Ready",
+  "Inte redo": "Not ready",
+  "Går att köra, men klippen blir underkända tills varningarna är rättade": "Can run, but the clips fail the check until the warnings are fixed",
+  "Går att köra, men rätta varningarna i kampanjens inställningar först": "Can run, but fix the warnings in the campaign settings first",
+};
+
 export function readyText(p: CampaignProfile): string {
-  if (p.state) return p.state;
+  if (p.state) return STATE_TEXT[p.state] ?? p.state;
   if (!p.ready) return "Not ready";
   if (p.problems.length === 0) return "Ready";
   if (p.problems.some((problem) => FAILS_CLIPS.some((start) => problem.startsWith(start)))) {
@@ -84,10 +92,10 @@ export function MissingKeys({ problems, className }: { problems: string[]; class
 
 export function ReadyBadge({ profile: p }: { profile: CampaignProfile }) {
   const text = readyText(p);
-  return text === "Redo" ? (
+  return text === "Ready" ? (
     <span className="inline-flex items-center gap-1 rounded-full border border-[#174a2a] px-2.5 py-0.5 text-xs text-good">
       <CheckCircle2 className="size-3.5" aria-hidden />
-      Redo
+      Ready
     </span>
   ) : (
     <span className="inline-flex items-center gap-1 rounded-full border border-[#5a4416] px-2.5 py-0.5 text-xs text-warn">
