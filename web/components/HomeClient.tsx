@@ -117,7 +117,7 @@ function streamTag(s: StreamInfo): { text: string; tone: string } | null {
   if (s.run_id == null || !s.run_status) return null;
   if (s.run_cancelled) return { text: "Cancelled", tone: "bg-black/70" };
   if (s.run_status === "failed") return { text: "Failed", tone: "bg-bad font-semibold text-white" };
-  if (s.run_status === "done") return { text: `Done, ${s.clip_count} clips`, tone: "bg-black/70" };
+  if (s.run_status === "done") return { text: `Done, ${s.clip_count} ${s.clip_count === 1 ? "clip" : "clips"}`, tone: "bg-black/70" };
   return { text: "Running", tone: "bg-brand text-white" };
 }
 

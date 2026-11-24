@@ -9,7 +9,7 @@ import type { ClipAccount, ClipAccounts, ClipVariant } from "@/lib/types";
 
 type Platform = "tiktok" | "youtube";
 
-const when = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const when = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
 /** Kampanjens konton för klippet. null hos äldre servrar och innan svaret kommit: då är allt som förut. */
 export function useClipAccounts(clipId: number, platform: Platform, enabled = true) {

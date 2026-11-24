@@ -8,7 +8,7 @@ import type { ScheduledPost, SchedulePlatform } from "@/lib/types";
 const TZ = "Europe/Stockholm";
 export const PLATFORM_NAME: Record<SchedulePlatform, string> = { youtube: "YouTube", tiktok: "TikTok" };
 
-const short = new Intl.DateTimeFormat("en-US", { timeZone: TZ, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const short = new Intl.DateTimeFormat("en-US", { timeZone: TZ, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const long = new Intl.DateTimeFormat("en-US", { timeZone: TZ, dateStyle: "full", timeStyle: "short" });
 const parts = new Intl.DateTimeFormat("en-US", {
   timeZone: TZ, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",

@@ -20,7 +20,7 @@ const BACK: Partial<Record<PostStatus, PostStatus>> = {
 
 // Content Rewards tar bara emot ett inlägg inom 30 minuter efter att det publicerats.
 const WINDOW_MS = 30 * 60_000;
-const stockholm = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit" });
+const stockholm = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
 /** Klippets inlägg, ett per plattform. Fler plattformar läggs till med Publicera i klippraden.
  * readOnly: utanför Klippen visas bara inläggen; inskicket görs i Klippen. */

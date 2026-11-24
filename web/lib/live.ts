@@ -53,7 +53,7 @@ const STATUS_TEXT: Record<PeakStatus, string> = {
 
 export const statusText = (status: PeakStatus): string => STATUS_TEXT[status];
 
-const clock = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit" });
+const clock = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
 /** Tiden som HH:MM i svensk tid. Tom text om tiden inte går att läsa. */
 export function timeText(iso: string): string {

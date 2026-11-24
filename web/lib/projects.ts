@@ -50,7 +50,8 @@ export function fileState(file: ProjectFile): string {
 /** "1 fil, 3 klipp". Ett projekt med bara uppladdningar har inga filer: "3 klipp". */
 export function projectSize(project: CampaignProject): string {
   const n = project.files.length;
-  const clips = `${countClips(project.clip_counts)} clips`;
+  const count = countClips(project.clip_counts);
+  const clips = `${count} ${count === 1 ? "clip" : "clips"}`;
   return n ? `${n} ${n === 1 ? "file" : "files"}, ${clips}` : clips;
 }
 

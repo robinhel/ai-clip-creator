@@ -134,7 +134,7 @@ function Streams({ profile }: { profile: CampaignProfileDetail }) {
               </div>
               {s.run_id != null ? (
                 <Link href={`/runs/${s.run_id}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
-                  Open the project{s.clip_count > 0 ? ` (${s.clip_count} clips)` : ""}
+                  Open the project{s.clip_count > 0 ? ` (${s.clip_count} ${s.clip_count === 1 ? "clip" : "clips"})` : ""}
                 </Link>
               ) : (
                 <Link href={`/?vod=${s.vod_id}`} className={buttonVariants({ size: "sm" })}>

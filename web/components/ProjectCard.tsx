@@ -26,7 +26,8 @@ function statusTag(run: CampaignRunInfo): string {
   if (run.status === "failed") return "Failed";
   if (run.status === "pending") return "Queued";
   if (run.status === "running") return stageText(run.stage, run.pct);
-  return `Done, ${countClips(run.clip_counts)} clips`;
+  const n = countClips(run.clip_counts);
+  return `Done, ${n} ${n === 1 ? "clip" : "clips"}`;
 }
 
 function Card({

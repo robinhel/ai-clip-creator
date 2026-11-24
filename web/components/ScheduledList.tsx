@@ -13,7 +13,7 @@ import type { ScheduledPost, ScheduleStatus, TikTokStatus, YouTubeStatus } from 
 
 // Svensk tid, var webbläsaren än står.
 const dayText = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", day: "numeric", month: "short" });
-const timeText = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit" });
+const timeText = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
 // "Schemalagd", inte "Väntar": Väntar betydde också ett klipp att granska.
 const STATUS: Record<ScheduleStatus, [string, string]> = {

@@ -284,7 +284,7 @@ export function CampaignChat({ profile, material, chatId, onOpen }: {
             <span className="block truncate">{c.title}</span>
             <span className="block text-[11px] text-muted-foreground">
               {when.format(new Date(c.updated))}
-              {c.hits > 0 && `, ${c.hits} hits`}
+              {c.hits > 0 && `, ${c.hits} ${c.hits === 1 ? "hit" : "hits"}`}
             </span>
           </button>
         ))}

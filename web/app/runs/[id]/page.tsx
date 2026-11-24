@@ -370,7 +370,7 @@ function useDoneNotice(run: CampaignRunDetail | null, isActive: boolean) {
     const previous = document.title;
     document.title = title;
     if (notifyPermission() === "granted") {
-      new Notification(title, { body: done ? `${name}: ${countClips(run.clip_counts)} clips to review.` : `${name}: the project stopped. Open the project to see why.` });
+      new Notification(title, { body: done ? `${name}: ${countClips(run.clip_counts)} ${countClips(run.clip_counts) === 1 ? "clip" : "clips"} to review.` : `${name}: the project stopped. Open the project to see why.` });
     }
     // Fliktiteln visar resultatet tills du tittar på sidan igen.
     function restore() {
@@ -412,8 +412,8 @@ function PageMessage({ error }: { error: string | null }) {
 function redoneText(clips: CampaignClip[], before: Map<number, string>): string {
   const redone = clips.filter((c) => before.has(c.id) && before.get(c.id) !== c.updated).length;
   const skipped = clips.filter((c) => before.has(c.id)).length - redone;
-  const note = skipped ? ` ${skipped} clips were not touched, for example clips waiting for your yes, so that an edited caption is not overwritten.` : "";
-  return `${redone} clips were redone.${note}`;
+  const note = skipped ? ` ${skipped} ${skipped === 1 ? "clip was" : "clips were"} not touched, for example clips waiting for your yes, so that an edited caption is not overwritten.` : "";
+  return `${redone} ${redone === 1 ? "clip was" : "clips were"} redone.${note}`;
 }
 
 /** Gör klippen kampanjklara igen: startar, ser när clipsmiths körning är klar och säger vilka klipp som gjordes om. */
