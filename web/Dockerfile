@@ -1,7 +1,12 @@
 FROM node:22-slim AS builder
 WORKDIR /app
+# corepack uses the pnpm version in package.json ("packageManager").
+RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
-RUN npm install -g pnpm@9 && pnpm install --frozen-lockfile
+# pnpm 11 stops on install scripts that are not approved. web/.dockerignore leaves out pnpm-workspace.yaml,
+# so approve here only what the build needs; the Cypress and MSW scripts are for tests.
+RUN printf 'allowBuilds:\n  esbuild: true\n  sharp: true\n  cypress: false\n  msw: false\n' > pnpm-workspace.yaml \
+    && pnpm install --frozen-lockfile
 COPY . .
 ARG NEXT_PUBLIC_API_BASE=http://localhost:8000
 RUN NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE} pnpm run build
@@ -20,8 +25,11 @@ RUN node -e "const fs=require('fs'); \
 FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+# Listen on every address inside the container; Compose publishes the port on 127.0.0.1 only.
+ENV HOSTNAME=0.0.0.0
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+USER node
 EXPOSE 3000
 CMD ["node", "server.js"]

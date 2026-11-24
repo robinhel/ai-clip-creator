@@ -1,0 +1,43 @@
+# Same app as docker-compose.yml, but with the ready-made images from GitHub Packages (no build step).
+#   docker compose -f docker-compose.release.yml up
+# Pin a version by replacing "latest" with a release tag, for example v1.0.0.
+# Keep the settings in step with docker-compose.yml; SECURITY.md explains them.
+services:
+  api:
+    image: ghcr.io/robinhel/ai-clip-creator-api:latest
+    ports:
+      - "127.0.0.1:8000:8000"  # only this computer
+    env_file:
+      - path: .env
+        required: false
+      - path: data/.env
+        required: false
+    environment:
+      ALLOWED_HOSTS: api
+      TRUSTED_PROXY_HOSTS: api
+      KLIPP_ENV_FILE: /app/data/.env
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./work:/app/work
+      - ./out:/app/out
+      - ./klippdata:/app/klippdata
+      - ./data:/app/data
+      - ./profiles:/app/profiles
+      - ./overlays:/app/overlays
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  web:
+    image: ghcr.io/robinhel/ai-clip-creator-web:latest
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      API_KEY: ${CLIPSMITH_API_KEY:-}
+      API_BASE: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy

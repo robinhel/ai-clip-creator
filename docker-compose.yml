@@ -1,21 +1,33 @@
+# docker compose up   ->   open http://localhost:3000
+# Both ports are published on 127.0.0.1 only: other computers on your network cannot reach the app.
 services:
   api:
     build: .
     ports:
       - "127.0.0.1:8000:8000"  # only this computer
-    env_file: .env
+    env_file:
+      - path: .env          # your own keys, if you made the file (see .env.example)
+        required: false
+      - path: data/.env     # keys you save on the Settings page
+        required: false
     environment:
       ALLOWED_HOSTS: api  # the web container calls http://api:8000
+      # The dashboard's proxy (Host "api", from the Compose network) may save keys. See SECURITY.md.
+      TRUSTED_PROXY_HOSTS: api
+      KLIPP_ENV_FILE: /app/data/.env  # data/ is mounted, so saved keys end up on your computer
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./work:/app/work
       - ./out:/app/out
+      - ./klippdata:/app/klippdata
       - ./data:/app/data
-      - azure_credentials:/home/clipsmith/.azure
+      - ./profiles:/app/profiles  # campaigns you edit in the app
+      - ./overlays:/app/overlays  # overlay images you upload in the app
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 5s
+      start_period: 30s
       retries: 3
 
   web:
@@ -26,12 +38,9 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     environment:
-      API_KEY: ${CLIPSMITH_API_KEY}
+      API_KEY: ${CLIPSMITH_API_KEY:-}
       API_BASE: http://api:8000
       NEXT_PUBLIC_API_BASE: http://localhost:8000
     depends_on:
       api:
         condition: service_healthy
-
-volumes:
-  azure_credentials:

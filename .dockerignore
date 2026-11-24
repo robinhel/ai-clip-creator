@@ -1,5 +1,8 @@
 .git
 .github
+.amp
+.claude
+.vscode
 .venv
 venv
 __pycache__
@@ -8,30 +11,48 @@ __pycache__
 .mypy_cache
 .ruff_cache
 .pytest_cache
+.pytest-tmp
 .coverage
 dist
 build
 site
 *.egg-info
 
+# The dashboard has its own image (web/Dockerfile)
+web/
+node_modules
+web/.next
+
 # Runtime artifacts — mounted as volumes, not baked in
 work/
 out/
+klippdata/
+data/
 state.json
+*.db
 *.mp4
 *.m4a
 *.ass
 *.srt
 
+# Your own music: only the instruction goes into the image
+musik/*
+!musik/LAS-MIG.md
+
 # Secrets and local config — injected at runtime via env vars
 .env
-.env.example
+.env.*
+*-sa.json
+google_oauth_client.json
 
 # Dev-only
 tests/
+tests_campaign/
 docs/
 examples/
-# scripts/ intentionally NOT excluded — start_server.sh is copied in Dockerfile
+facit/
+infra/
+# scripts/ intentionally NOT excluded — start_server.sh and docker-entrypoint.sh are copied in Dockerfile
 mkdocs.yml
 AzureCLI.msi
 clipsmith.spec
