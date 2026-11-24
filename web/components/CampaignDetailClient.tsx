@@ -42,7 +42,7 @@ const isPart = (value?: string): value is Part => PARTS.some((p) => p.id === val
 const isTab = (value?: string): value is Tab => TABS.some((t) => t.id === value);
 
 // Problem som checklistan redan visar.
-const IN_CHECKLIST = ["Overlay-bilden saknas", "Facecam- och spelrutan"];
+const IN_CHECKLIST = ["Overlay-bilden saknas", "Facecam- och spelrutan", "Facecam and game boxes"];
 
 const LEAVE = "You have unsaved changes. Do you want to leave them?";
 

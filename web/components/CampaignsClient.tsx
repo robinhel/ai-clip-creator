@@ -25,7 +25,7 @@ export function readyText(p: CampaignProfile): string {
 
 /** Nycklar som saknas. En äldre server har dem bara i problems. */
 export const keyProblems = (p: CampaignProfile) =>
-  p.key_problems ?? p.problems.filter((problem) => /API_KEY saknas/.test(problem));
+  p.key_problems ?? p.problems.filter((problem) => /API_KEY (saknas|is missing)/.test(problem));
 
 /** Kampanjens egna problem, utan nycklarna, som visas en gång överst. */
 export const ownProblems = (p: CampaignProfile) => {
@@ -39,6 +39,10 @@ const FIX = [
   { start: "Facecam- och spelrutan är inte inställd", href: (id: string) => `/campaigns/${id}?tab=installningar&del=facecam`, label: "Set up the boxes" },
   { start: "on_screen_text.text är tom", href: (id: string) => `/campaigns/${id}?tab=installningar&del=oversikt#caption`, label: "Write the text under Set up" },
   { start: "Kampanjen saknar clipsmith_config", href: (id: string) => `/campaigns/${id}?tab=installningar&del=profil`, label: "Open Advanced (YAML)" },
+  { start: "Facecam and game boxes", href: (id: string) => `/campaigns/${id}?tab=installningar&del=facecam`, label: "Set up the boxes" },
+  { start: "The campaign has no clipsmith_config", href: (id: string) => `/campaigns/${id}?tab=installningar&del=profil`, label: "Open Advanced (YAML)" },
+  { start: "Claude key", href: () => "/settings#anthropic", label: "Add the key in Settings" },
+  { start: "Berget key", href: () => "/settings#berget", label: "Add the key in Settings" },
   { start: "Claude-nyckeln", href: () => "/settings#anthropic", label: "Add the key in Settings" },
   { start: "Berget-nyckeln", href: () => "/settings#berget", label: "Add the key in Settings" },
   { start: "ANTHROPIC_API_KEY saknas", href: () => "/settings#anthropic", label: "Add the key in Settings" },
