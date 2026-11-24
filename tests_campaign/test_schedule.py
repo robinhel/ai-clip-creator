@@ -186,10 +186,10 @@ def test_youtube_daily_limit_is_checked_at_the_time(client, settings, clip_id, n
 def test_upload_error_fails_with_its_text(client, settings, clip_id, notes):
     at = _at(timedelta(hours=1))
     post_id = _post(client, clip_id, at=at).json()["id"]
-    FakeYouTube.error = YouTubeError("YouTube svarade inte. Försök igen om en stund.")
+    FakeYouTube.error = YouTubeError("YouTube did not answer. Try again in a while.")
     _run(settings, at, timedelta(seconds=1))
     row = _row(settings, post_id)
-    assert row["status"] == "failed" and row["error"] == "YouTube svarade inte. Försök igen om en stund."
+    assert row["status"] == "failed" and row["error"] == "YouTube did not answer. Try again in a while."
 
 
 def test_tiktok_without_direct_post_becomes_a_reminder(client, settings, clip_id, notes):

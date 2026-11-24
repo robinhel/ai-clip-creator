@@ -24,9 +24,9 @@ from .conftest import set_helper, set_profile
 
 KEYS = ("cid_test.apps.googleusercontent.com", "GOCSPX-test_secret")
 ACCOUNTS = "youtube_accounts.json"
-RELOGIN = "Logga in på YouTube igen under Inställningar."
-UNREACHABLE = "YouTube svarade inte. Försök igen om en stund."
-MESSAGE = "YouTube behandlar videon. Det kan ta några minuter innan den syns."
+RELOGIN = "Sign in to YouTube again under Settings."
+UNREACHABLE = "YouTube did not answer. Try again in a while."
+MESSAGE = "YouTube is processing the video. It can take a few minutes before it shows."
 SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly"
 SESSION = "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&upload_id=sess1"
 
@@ -378,7 +378,7 @@ def test_missing_file_is_refused(client, settings, fake) -> None:
 
 def test_upload_needs_a_connection(client, settings, fake) -> None:
     response = _send(client, _clip(settings))
-    assert response.status_code == 400 and "Inställningar" in response.json()["detail"]
+    assert response.status_code == 400 and "Settings" in response.json()["detail"]
     assert fake.requests == []
 
 
@@ -450,7 +450,7 @@ def test_with_two_channels_the_upload_must_say_which(client, settings, fake) -> 
     _connect(settings, channel_id="UC2", title="Andra", access="ya29.other")
     clip_id = _clip(settings)
     response = _send(client, clip_id)
-    assert (response.status_code, response.json()["detail"]) == (400, "Välj vilken YouTube-kanal klippet ska till.")
+    assert (response.status_code, response.json()["detail"]) == (400, "Choose which YouTube channel the clip goes to.")
     assert _send(client, clip_id, channel_id="okänd").status_code == 400
     response = _send(client, clip_id, channel_id="UC2")
     assert (response.status_code, response.json()["channel_id"]) == (202, "UC2")
@@ -647,7 +647,7 @@ def test_an_upload_that_stopped_halfway_is_failed_after_ten_minutes(client, sett
     _uploading_row(settings, old, 11)  # servern dog mitt i
     assert client.get(f"/campaign/clips/{fresh}/youtube").json()["status"] == "uploading"
     latest = client.get(f"/campaign/clips/{old}/youtube").json()
-    assert (latest["status"], latest["error"]) == ("failed", "Uppladdningen avbröts. Försök igen.")
+    assert (latest["status"], latest["error"]) == ("failed", "The upload was aborted. Try again.")
     with youtube.YouTube(settings)._db() as db:
         assert db.execute("SELECT status FROM youtube_uploads WHERE clip_id = ?", (old,)).fetchone()[0] == "failed"
     assert fake.requests == []
@@ -699,7 +699,7 @@ def test_another_upload_in_progress_gives_409_at_once(client, settings, fake) ->
     response = _send(client, clip_id)
     timer.join()
     assert (response.status_code, response.json()["detail"]) == (
-        409, "En annan uppladdning till YouTube pågår. Vänta tills den är klar.")
+        409, "Another upload to YouTube is running. Wait until it is done.")
     assert fake.requests == []
     assert _send(client, clip_id).status_code == 202
 

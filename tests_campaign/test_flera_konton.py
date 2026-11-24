@@ -391,7 +391,7 @@ def test_a_scheduled_tiktok_post_keeps_its_cover_and_a_cover_outside_the_clip_is
             "fields": {"title": "x", "privacy_level": "SELF_ONLY", "cover_s": cover_s}})
 
     refused = plan(31.0)
-    assert refused.status_code == 400 and "Omslaget" in refused.json()["detail"]
+    assert refused.status_code == 400 and "The cover" in refused.json()["detail"]
     assert plan(4.0).json()["fields"]["cover_s"] == 4.0
 
 
@@ -405,7 +405,7 @@ def test_the_cover_is_checked_against_the_finished_file_not_the_logged_times(sch
     answer = sched.post(f"/campaign/clips/{clip_id}/schedule", json={
         "platform": "tiktok", "account": "openA", "at": _stockholm(1, 12),
         "fields": {"title": "x", "privacy_level": "SELF_ONLY", "cover_s": 20.0}})
-    assert answer.status_code == 400 and "Omslaget" in answer.json()["detail"]
+    assert answer.status_code == 400 and "The cover" in answer.json()["detail"]
 
 
 # ---------- 5. POST /clips/{id}/variant ----------

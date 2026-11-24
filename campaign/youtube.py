@@ -43,16 +43,16 @@ STATUS_CACHE_S = 60
 RECENT_S = 600  # samma klipp till samma kanal inom 10 minuter är troligen ett dubbelklick
 DONE = ("processed", "failed")
 QUOTA_DAY = ZoneInfo("America/Los_Angeles")  # YouTubes kvot börjar om vid midnatt Pacific Time
-MESSAGE = "YouTube behandlar videon. Det kan ta några minuter innan den syns."
-RELOGIN = "Logga in på YouTube igen under Inställningar."
-UNREACHABLE = "YouTube svarade inte. Försök igen om en stund."
-ABORTED = "Uppladdningen avbröts. Försök igen."
-BUSY = "En annan uppladdning till YouTube pågår. Vänta tills den är klar."
-NOT_CONFIGURED = "YOUTUBE_CLIENT_ID och YOUTUBE_CLIENT_SECRET saknas. Lägg in dem under Inställningar."
+MESSAGE = "YouTube is processing the video. It can take a few minutes before it shows."
+RELOGIN = "Sign in to YouTube again under Settings."
+UNREACHABLE = "YouTube did not answer. Try again in a while."
+ABORTED = "The upload was aborted. Try again."
+BUSY = "Another upload to YouTube is running. Wait until it is done."
+NOT_CONFIGURED = "YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET are missing. Add them under Settings."
 ERRORS = {
-    "quotaExceeded": (("YouTubes kvot för i dag är slut (100 uppladdningar per projekt och dag). "
-                       "Försök igen i morgon."), 429),
-    "uploadLimitExceeded": ("Kanalen har nått YouTubes gräns för uppladdningar i dag. Försök igen i morgon.", 429),
+    "quotaExceeded": (("YouTube's quota for today is used up (100 uploads per project and day). "
+                       "Try again tomorrow."), 429),
+    "uploadLimitExceeded": ("The channel has reached YouTube's upload limit for today. Try again tomorrow.", 429),
 }
 
 # Läsa, förnya och spara token sker ett anrop i taget, så att två anrop inte förnyar samtidigt.
@@ -146,7 +146,7 @@ class YouTube:
         with _token_lock:
             accounts = self.accounts()
             if channel_id not in accounts:  # bara en nyckel i filen, aldrig en sökväg
-                raise YouTubeError("Kanalen är inte kopplad.", 404)
+                raise YouTubeError("The channel is not connected.", 404)
             account = accounts.pop(channel_id)
             with contextlib.suppress(httpx.HTTPError), http_client() as http:
                 http.post(REVOKE_URL, data={"token": account.get("refresh_token") or account.get("access_token", "")})
@@ -161,12 +161,12 @@ class YouTube:
         connected = [key for key, account in self.accounts().items() if self.connected(account)]
         if channel_id is None:
             if not connected:
-                raise YouTubeError("Ingen YouTube-kanal är kopplad. Koppla en under Inställningar.", 400)
+                raise YouTubeError("No YouTube channel is connected. Connect one under Settings.", 400)
             if len(connected) > 1:
-                raise YouTubeError("Välj vilken YouTube-kanal klippet ska till.", 400)
+                raise YouTubeError("Choose which YouTube channel the clip goes to.", 400)
             return connected[0]
         if channel_id not in connected:
-            raise YouTubeError(f"Den YouTube-kanalen är inte kopplad. {RELOGIN}", 400)
+            raise YouTubeError(f"That YouTube channel is not connected. {RELOGIN}", 400)
         return channel_id
 
     def _token_request(self, http: httpx.Client, **form: str) -> dict:
@@ -183,8 +183,8 @@ class YouTube:
             raise YouTubeError(UNREACHABLE)
         if body.get("error") == "invalid_grant":  # refresh_token har gått ut (7 dagar i läget Testing) eller dragits in
             raise YouTubeError(RELOGIN, 400)
-        raise YouTubeError(f"Google godkände inte nycklarna ({_reason(response)}). Kontrollera YOUTUBE_CLIENT_ID "
-                           "och YOUTUBE_CLIENT_SECRET under Inställningar.", 400)
+        raise YouTubeError(f"Google did not accept the keys ({_reason(response)}). Check YOUTUBE_CLIENT_ID "
+                           "and YOUTUBE_CLIENT_SECRET under Settings.", 400)
 
     def _channel(self, http: httpx.Client, access: str) -> dict:
         try:
@@ -195,11 +195,11 @@ class YouTube:
         if response.status_code >= 500:
             raise YouTubeError(UNREACHABLE)
         if response.status_code != 200:
-            raise YouTubeError(f"YouTube visade inte kanalen ({_reason(response)}).", 400)
+            raise YouTubeError(f"YouTube did not show the channel ({_reason(response)}).", 400)
         items = _json(response).get("items") or []
         if not items:
-            raise YouTubeError("Google-kontot har ingen YouTube-kanal. Skapa en kanal på YouTube först, "
-                               "eller välj ett annat konto.", 400)
+            raise YouTubeError("The Google account has no YouTube channel. Create a channel on YouTube first, "
+                               "or choose another account.", 400)
         return items[0]
 
     def connect(self, code: str, verifier: str) -> None:
@@ -208,10 +208,10 @@ class YouTube:
             body = self._token_request(http, code=code, grant_type="authorization_code",
                                        redirect_uri=self.settings.youtube_redirect_uri, code_verifier=verifier)
             if not {UPLOAD_SCOPE, READ_SCOPE} <= set(body.get("scope", "").split()):
-                raise YouTubeError("Appen fick inte båda rättigheterna. Logga in igen och kryssa i att appen får "
-                                   "ladda upp videor och se ditt YouTube-konto.", 400)
+                raise YouTubeError("The app did not get both permissions. Sign in again and tick that the app may "
+                                   "upload videos and see your YouTube account.", 400)
             if not body.get("refresh_token"):
-                raise YouTubeError("Google gav ingen refresh token. Försök igen.", 400)
+                raise YouTubeError("Google gave no refresh token. Try again.", 400)
             channel = self._channel(http, body["access_token"])
         snippet = channel.get("snippet") or {}
         self.save_account({
@@ -235,7 +235,7 @@ class YouTube:
                     fresh = self._token_request(http, grant_type="refresh_token",
                                                 refresh_token=account["refresh_token"])
                 except YouTubeError as error:
-                    if str(error) == RELOGIN:  # webben visar "Logga in igen" för kanalen
+                    if str(error) == RELOGIN:  # webben visar "Sign in again" för kanalen
                         accounts[channel_id] = {**account, "needs_login": True}
                         self._save(accounts)
                     raise
@@ -288,17 +288,17 @@ class YouTube:
         """Robins val, kontrollerade mot YouTubes regler. Svaret är metadata till videos.insert."""
         title = (video.get("title") or "").strip()
         if not title or len(title) > TITLE_MAX or "<" in title or ">" in title:
-            raise YouTubeError(f"Titeln måste vara 1–{TITLE_MAX} tecken, utan < och >.", 400)
+            raise YouTubeError(f"The title must be 1–{TITLE_MAX} characters, without < and >.", 400)
         description = video.get("description") or ""
         if len(description.encode("utf-8")) > DESCRIPTION_MAX or "<" in description or ">" in description:
-            raise YouTubeError(f"Beskrivningen får vara högst {DESCRIPTION_MAX} byte, utan < och >.", 400)
+            raise YouTubeError(f"The description can be at most {DESCRIPTION_MAX} bytes, without < and >.", 400)
         if video.get("privacy") not in PRIVACY:
-            raise YouTubeError("Välj vem som får se videon.", 400)
+            raise YouTubeError("Choose who can see the video.", 400)
         if not isinstance(video.get("made_for_kids"), bool):
-            raise YouTubeError("Välj om videon är gjord för barn.", 400)
+            raise YouTubeError("Choose whether the video is made for kids.", 400)
         if duration_s > SHORT_MAX_S:
-            raise YouTubeError(f"Klippet är {math.ceil(duration_s)} sekunder. En YouTube Short får vara högst "
-                               f"{SHORT_MAX_S} sekunder.", 400)
+            raise YouTubeError(f"The clip is {math.ceil(duration_s)} seconds. A YouTube Short can be at most "
+                               f"{SHORT_MAX_S} seconds.", 400)
         return {"snippet": {"title": title, "description": description, "categoryId": CATEGORY},
                 "status": {"privacyStatus": video["privacy"], "selfDeclaredMadeForKids": video["made_for_kids"],
                            "containsSyntheticMedia": False}}
@@ -324,7 +324,7 @@ class YouTube:
             return None
         if response.status_code == 200 or response.status_code >= 500:
             raise YouTubeError(UNREACHABLE)
-        raise YouTubeError(f"YouTube tog inte emot videon ({reason}).")
+        raise YouTubeError(f"YouTube did not accept the video ({reason}).")
 
     def _expire(self, channel_id: str, access: str) -> None:
         """Google godkände inte token fast den inte har gått ut: låt nästa anrop förnya den."""
@@ -355,7 +355,7 @@ class YouTube:
         metadata = self._check(video, duration_s)
         size = path.stat().st_size
         if size == 0:
-            raise YouTubeError("Filen är tom.", 400)
+            raise YouTubeError("The file is empty.", 400)
         if not _upload_lock.acquire(blocking=False):
             raise YouTubeError(BUSY, 409)
         try:
@@ -375,7 +375,7 @@ class YouTube:
             last = self._latest_row(clip_id, channel_id)  # samma klipp till en annan kanal är inget dubbelklick
             if last and last["status"] != "failed" \
                     and _now() - datetime.fromisoformat(last["created"]) < timedelta(seconds=RECENT_S):
-                raise YouTubeError("Klippet skickades nyss till kanalen. Titta på YouTube.", 409)
+                raise YouTubeError("The clip was just sent to the channel. Look on YouTube.", 409)
             notify = video.get("notify_subscribers", True)
             access = self._access_token(http, channel_id)
             session = self._start(http, access, size, metadata, notify)
@@ -395,7 +395,7 @@ class YouTube:
             try:  # en Short är högst 3 minuter, så filen ryms i minnet
                 put = self._put_file(http, session, path, size)
                 if put.status_code not in (200, 201):
-                    raise YouTubeError(f"YouTube tog inte emot filen (svar {put.status_code}).")
+                    raise YouTubeError(f"YouTube did not accept the file (response {put.status_code}).")
                 video_id = _json(put).get("id")
                 if not video_id:
                     raise YouTubeError(UNREACHABLE)
@@ -405,7 +405,7 @@ class YouTube:
                 elif isinstance(error, httpx.HTTPError):
                     message = UNREACHABLE
                 else:
-                    message = "Klippets fil gick inte att läsa."
+                    message = "The clip's file could not be read."
                 self._set(upload_id, status="failed", error=message)
                 raise YouTubeError(message) from error
             self._set(upload_id, video_id=video_id, status="uploaded", checked=_iso(_now()))
@@ -447,19 +447,19 @@ class YouTube:
             raise YouTubeError(UNREACHABLE)
         items = _json(response).get("items") or []
         if not items:
-            return {"status": "failed", "error": "Videon finns inte längre på YouTube."}
+            return {"status": "failed", "error": "The video no longer exists on YouTube."}
         status = items[0].get("status") or {}
         upload_status = status.get("uploadStatus")
         if upload_status == "processed":
             return {"status": "processed", "error": None}
         if upload_status == "rejected":
             return {"status": "failed",
-                    "error": f"YouTube avvisade videon ({status.get('rejectionReason') or 'okänd orsak'})."}
+                    "error": f"YouTube rejected the video ({status.get('rejectionReason') or 'unknown reason'})."}
         if upload_status == "failed":
             return {"status": "failed",
-                    "error": f"YouTube kunde inte behandla videon ({status.get('failureReason') or 'okänt fel'})."}
+                    "error": f"YouTube could not process the video ({status.get('failureReason') or 'unknown error'})."}
         if upload_status == "deleted":
-            return {"status": "failed", "error": "Videon är borttagen på YouTube."}
+            return {"status": "failed", "error": "The video has been removed on YouTube."}
         return {"status": "uploaded", "error": None}
 
     def status(self) -> dict:

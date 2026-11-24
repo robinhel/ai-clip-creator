@@ -26,8 +26,8 @@ KEYS = ("ck_test_key", "cs_test_secret")
 REVOKE = "https://open.tiktokapis.com/v2/oauth/revoke/"
 DIRECT = "https://open.tiktokapis.com/v2/post/publish/video/init/"
 CREATOR = "https://open.tiktokapis.com/v2/post/publish/creator_info/query/"
-NO_PUBLISH = "Kontot har inte rätt att publicera. Koppla kontot igen under Inställningar."
-UNREACHABLE = "TikTok svarade inte. Försök igen om en stund."
+NO_PUBLISH = "The account is not allowed to publish. Connect the account again under Settings."
+UNREACHABLE = "TikTok did not answer. Try again in a while."
 
 
 class FakeTikTok:
@@ -537,7 +537,7 @@ def test_same_clip_again_right_away_gives_409_but_later_is_fine(client, settings
     assert client.post(f"/campaign/clips/{clip_id}/tiktok").status_code == 202
     again = client.post(f"/campaign/clips/{clip_id}/tiktok")
     assert again.status_code == 409
-    assert again.json()["detail"] == "Klippet skickades nyss. Titta i TikTok-inkorgen."
+    assert again.json()["detail"] == "The clip was just sent. Look in the TikTok inbox."
 
     busy, stuck = _clip(settings), _clip(settings)
     with tiktok.TikTok(settings)._db() as db:
@@ -694,7 +694,7 @@ def test_with_two_accounts_the_upload_must_say_which(client, settings, fake) -> 
     _connect(settings, open_id="o2", name="andra.kontot", access="act.other")
     clip_id = _clip(settings)
     response = client.post(f"/campaign/clips/{clip_id}/tiktok")
-    assert (response.status_code, response.json()["detail"]) == (400, "Välj vilket TikTok-konto klippet ska till.")
+    assert (response.status_code, response.json()["detail"]) == (400, "Choose which TikTok account the clip goes to.")
     assert client.post(f"/campaign/clips/{clip_id}/tiktok", json={"open_id": "okänt"}).status_code == 400
     assert fake.calls(tiktok.INIT_URL) == []
 
@@ -835,7 +835,7 @@ def test_direct_post_sends_the_choices_to_tiktok(client, settings, fake) -> None
     answer = response.json()
     assert answer == {"clip_id": clip_id, "publish_id": answer["publish_id"], "status": "processing",
                       "mode": "direct", "created": answer["created"], "open_id": "o1",
-                      "message": "TikTok publicerar klippet. Det kan ta några minuter innan det syns på profilen."}
+                      "message": "TikTok is publishing the clip. It can take a few minutes before it shows on the profile."}
     body = _post_info(fake)
     assert body["post_info"] == {
         "title": "No way #fps @timmy", "privacy_level": "MUTUAL_FOLLOW_FRIENDS",
@@ -873,7 +873,7 @@ def test_direct_post_needs_publish_rights(client, settings, fake) -> None:
 def test_direct_post_needs_one_of_the_accounts_privacy_options(client, settings, fake, privacy) -> None:
     _connect(settings, publish=True)
     response = _direct(client, _clip(settings), privacy_level=privacy)
-    assert (response.status_code, response.json()["detail"]) == (400, "Välj vem som får se klippet.")
+    assert (response.status_code, response.json()["detail"]) == (400, "Choose who can see the clip.")
     assert fake.calls(DIRECT) == []
 
 
@@ -919,7 +919,7 @@ def test_the_same_clip_directly_again_right_away_gives_409(client, settings, fak
     clip_id = _clip(settings)
     assert _direct(client, clip_id).status_code == 202
     again = _direct(client, clip_id)
-    assert (again.status_code, again.json()["detail"]) == (409, "Klippet skickades nyss. Titta på profilen i TikTok.")
+    assert (again.status_code, again.json()["detail"]) == (409, "The clip was just sent. Look at the profile in TikTok.")
 
 
 def test_a_draft_and_a_direct_post_of_the_same_clip_do_not_stop_each_other(client, settings, fake) -> None:
@@ -940,18 +940,18 @@ def test_the_length_in_the_message_is_rounded_up(client, settings, fake) -> None
         db.execute("UPDATE clips SET start_s = 0, end_s = 60.2 WHERE id = ?", (clip_id,))
     response = _direct(client, clip_id)
     assert (response.status_code, response.json()["detail"]) == (
-        400, "Klippet är 61 sekunder, men kontot får posta högst 60 sekunder.")
+        400, "The clip is 61 seconds, but the account can post at most 60 seconds.")
 
 
 @pytest.mark.parametrize(("code", "http", "expected", "text"), [
-    ("spam_risk_too_many_posts", 403, 429, "TikTok tar inte emot fler inlägg från kontot i dag. Försök igen i morgon."),
+    ("spam_risk_too_many_posts", 403, 429, "TikTok does not accept more posts from the account today. Try again tomorrow."),
     ("spam_risk_user_banned_from_posting", 403, 403, None),
     ("reached_active_user_cap", 403, 429, None),
     ("unaudited_client_can_only_post_to_private_accounts", 403, 400,
-     ("TikTok har inte granskat appen än. Då går det bara att publicera som Bara jag. Välj Bara jag och "
-      "försök igen. Kontot måste också vara privat i TikTok.")),
+     ("TikTok has not audited the app yet. Until then you can only publish as Only me. Choose Only me and "
+      "try again. The account must also be private in TikTok.")),
     ("privacy_level_option_mismatch", 403, 400, None)])
-def test_direct_post_errors_from_tiktok_in_swedish(client, settings, fake, code, http, expected, text) -> None:
+def test_direct_post_errors_from_tiktok_in_plain_words(client, settings, fake, code, http, expected, text) -> None:
     _connect(settings, publish=True)
     fake.init_error = (code, http)
     response = _direct(client, _clip(settings))
@@ -1049,7 +1049,7 @@ def test_no_token_is_shown_by_direct_posting(client, settings, fake, monkeypatch
             assert secret not in text
 
 
-STUCK = "TikTok har inte svarat om inlägget på en timme. Titta på profilen i TikTok."
+STUCK = "TikTok has not answered about the post for an hour. Look at the profile in TikTok."
 
 
 def _old_direct_row(settings, clip_id: int, status: str = "processing") -> None:
@@ -1203,7 +1203,7 @@ def test_the_cover_becomes_tiktoks_cover_timestamp_in_milliseconds(client, setti
 def test_a_cover_outside_the_clip_is_refused(client, settings, fake, cover_s) -> None:
     _connect(settings, publish=True)
     answer = _direct(client, _clip(settings), cover_s=cover_s)  # klippet är 19 s
-    assert answer.status_code == 400 and "Omslaget" in answer.json()["detail"]
+    assert answer.status_code == 400 and "The cover" in answer.json()["detail"]
     assert fake.calls(DIRECT) == []
 
 
