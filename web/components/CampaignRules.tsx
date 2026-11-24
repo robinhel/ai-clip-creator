@@ -4,9 +4,9 @@ import { PLATFORM_LABEL } from "@/components/CampaignStatusBadge";
 import type { CampaignProfileDetail } from "@/lib/types";
 
 const num = new Intl.NumberFormat("en-US");
-const pct = (n: number) => `${String(n).replace(".", ",")} %`;
+const pct = (n: number) => `${num.format(n)}%`;
 
-/** Engagemangskravet i ord, till exempel "minst 0,9 % upp till 25 000 visningar, sedan 0,5 %". */
+/** Engagemangskravet i ord, till exempel "At least 0.9% up to 25,000 views, 0.5% above that.". */
 export function engagementText(steps: { views_up_to: number | null; min: number }[]): string | null {
   if (steps.length === 0) return null;
   const parts = steps.map((s) => (s.views_up_to == null ? `${pct(s.min)} above that` : `${pct(s.min)} up to ${num.format(s.views_up_to)} views`));

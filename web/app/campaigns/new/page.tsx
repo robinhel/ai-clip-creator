@@ -11,8 +11,8 @@ type Props = { searchParams: Promise<Partial<Record<Keys, Query>>> };
 const one = (value: Query) => (typeof value === "string" ? value : undefined);
 const PLATFORMS: Platform[] = ["tiktok", "youtube_shorts", "instagram_reels"];
 
-/** Ett tal ur adressen (1.5) som text för fältet (1,5). Annat än ett tal ignoreras. Här, eftersom sidan körs på servern. */
-const fromQuery = (value: string | undefined) => (value && /^\d+(\.\d+)?$/.test(value) ? value.replace(".", ",") : undefined);
+/** Ett tal ur adressen (1.5) som text för fältet. Annat än ett tal ignoreras. */
+const fromQuery = (value: string | undefined) => (value && /^\d+(\.\d+)?$/.test(value) ? value : undefined);
 
 /** Hem fyller i ?channel= och ?streamer=. Bevakning fyller i namn, betalning, plattformar och ?scout=. */
 export default async function NewCampaignPage({ searchParams }: Props) {

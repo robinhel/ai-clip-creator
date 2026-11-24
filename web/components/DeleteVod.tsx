@@ -15,7 +15,7 @@ const MB = 1024 ** 2;
 const GB = 1024 ** 3;
 const one = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 
-/** "6,2 GB", eller "350 MB" under 1 GB. */
+/** "6.2 GB", eller "350 MB" under 1 GB. */
 export function diskSize(bytes: number): string {
   return bytes >= GB ? `${one.format(bytes / GB)} GB` : `${Math.max(1, Math.round(bytes / MB))} MB`;
 }

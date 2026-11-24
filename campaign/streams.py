@@ -84,10 +84,6 @@ def _viewer_clips(login: str, created: list[str]) -> Counter[str] | None:
     return Counter(clip.video_id for clip in clips if clip.video_id)
 
 
-def _number(n: int) -> str:
-    return f"{n:,}".replace(",", " ")
-
-
 def score(found: list[dict], games: set[str]) -> list[dict]:
     """Betyg 0–100 för en kanals streams: tittarklipp (50), visningar mot kanalens bästa (30), spel (20).
     Längden räknas inte. `games` är kampanjernas preferred_games i små bokstäver."""
@@ -98,11 +94,11 @@ def score(found: list[dict], games: set[str]) -> list[dict]:
         parts = {"clips": round(50 * min(clips, 20) / 20), "views": round(30 * views / top) if top else 0,
                  "game": 20 if (stream["game"] or "").lower() in games else 0}
         reason = [text for text, points in (
-            (f"{_number(clips)} tittarklipp", parts["clips"]),
-            (f"{_number(views)} {'visning' if views == 1 else 'visningar'}", parts["views"]),
+            (f"{clips:,} viewer {'clip' if clips == 1 else 'clips'}", parts["clips"]),
+            (f"{views:,} {'view' if views == 1 else 'views'}", parts["views"]),
             (stream["game"], parts["game"])) if points]
         out.append({**stream, "score": sum(parts.values()), "score_parts": parts,
-                    "reason": ", ".join(reason) or "Inga tydliga signaler"})
+                    "reason": ", ".join(reason) or "No clear signals"})
     return out
 
 

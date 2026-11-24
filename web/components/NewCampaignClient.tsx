@@ -100,7 +100,7 @@ export function NewCampaignClient(start: NewCampaignStart) {
   const [cpm, setCpm] = useState(start.cpm ?? "1");
   const [minViews, setMinViews] = useState(start.minViews ?? "2000");
   const [maxPayout, setMaxPayout] = useState(start.maxPayout ?? "150");
-  const [engagement, setEngagement] = useState("0,8");
+  const [engagement, setEngagement] = useState("0.8");
   const [platforms, setPlatforms] = useState<Platform[]>(
     start.platforms?.length ? start.platforms : ["tiktok", "youtube_shorts", "instagram_reels"]
   );

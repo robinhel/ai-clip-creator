@@ -1,4 +1,5 @@
 import type { CampaignClip, CampaignStatus, ClipPost, PostStatus } from "./types";
+import { parseNumber } from "./numbers";
 import { serverTime } from "./utils";
 
 /** Siffrorna som fylls i per inlägg, med orden som Statistik visar. */
@@ -32,19 +33,15 @@ export type Saved = Pick<ClipPost, StatKey> & { paid_usd?: number | null } & Par
 
 export type PatchBody = Partial<Record<StatKey | "paid_usd" | MetricKey, number | null>> & { status?: CampaignStatus };
 
-/** Belopp med decimalkomma, som Robin skriver det: 14,20. */
-const usdText = (value: number) => value.toFixed(2).replace(".", ",");
-
 export function draftFrom(saved: Saved): Draft {
-  // Måtten med decimalkomma: 6,4.
-  const metrics = Object.fromEntries(METRICS.map(({ key }) => [key, saved[key]?.toString().replace(".", ",") ?? ""]));
+  const metrics = Object.fromEntries(METRICS.map(({ key }) => [key, saved[key]?.toString() ?? ""]));
   return {
     ...(metrics as Record<MetricKey, string>),
     views: saved.views?.toString() ?? "",
     likes: saved.likes?.toString() ?? "",
     comments: saved.comments?.toString() ?? "",
     shares: saved.shares?.toString() ?? "",
-    paid: saved.paid_usd == null ? "" : usdText(saved.paid_usd),
+    paid: saved.paid_usd == null ? "" : saved.paid_usd.toFixed(2),
   };
 }
 
@@ -56,26 +53,25 @@ export function changed(draft: Draft, saved: Saved): Field[] {
   return keys.filter((key) => draft[key].trim() !== before[key]);
 }
 
-/** Antalet i ett fält. undefined: texten är inget helt tal. */
-export function parseCount(text: string): number | null | undefined {
-  const clean = text.replace(/\s/g, "");
-  if (clean === "") return null;
-  return /^\d+$/.test(clean) ? Number(clean) : undefined;
+/** Ett tal i engelskt format (2,500 eller 1,000.50) med högst så många decimaler. undefined: texten går inte att läsa. */
+function parseDecimals(text: string, decimals: number): number | null | undefined {
+  const value = parseNumber(text);
+  if (value === null) return null;
+  const fraction = text.replace(/\s/g, "").split(".")[1] ?? "";
+  return Number.isNaN(value) || fraction.length > decimals ? undefined : value;
 }
 
-/** Beloppet i fältet Betalt, med komma eller punkt. undefined: texten är inget belopp. */
-export function parseUsd(text: string): number | null | undefined {
-  const clean = text.replace(/\s/g, "").replace(",", ".");
-  if (clean === "") return null;
-  return /^\d+(\.\d{1,2})?$/.test(clean) ? Number(clean) : undefined;
-}
+/** Antalet i ett fält, som 2,500. undefined: texten är inget helt tal. */
+export const parseCount = (text: string) => parseDecimals(text, 0);
 
-/** Talet i ett mått. Sparningar är ett helt tal, de andra tal med komma eller punkt, högst max. undefined: texten går inte att läsa. */
+/** Beloppet i fältet Betalt, som 12.50. undefined: texten är inget belopp. */
+export const parseUsd = (text: string) => parseDecimals(text, 2);
+
+/** Talet i ett mått. Sparningar är ett helt tal, de andra tal med decimaler, högst max. undefined: texten går inte att läsa. */
 function parseMetric(metric: Metric, draft: Draft): number | null | undefined {
   if (metric.key === "saves") return parseCount(draft.saves);
-  const clean = draft[metric.key].replace(/\s/g, "").replace(",", ".");
-  if (clean === "") return null;
-  return /^\d+(\.\d+)?$/.test(clean) && Number(clean) <= metric.max ? Number(clean) : undefined;
+  const value = parseDecimals(draft[metric.key], Infinity);
+  return value != null && value > metric.max ? undefined : value;
 }
 
 /**

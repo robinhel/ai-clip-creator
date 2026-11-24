@@ -1,4 +1,5 @@
 // Rena hjälpfunktioner för Egna videor (/uploads): valen, längden, formuläret och de senaste valen per kampanj.
+import { parseNumber } from "./numbers";
 import type { StickerPosition } from "./types";
 
 // Samma val som servern (campaign/versions.py och campaign/drafts.py). Servern kontrollerar dem.
@@ -76,14 +77,14 @@ export const START_CHOICES: Choices = {
   originalVolume: 30,
 };
 
-/** Sekunder ur ett fält. Robin kan skriva komma. */
-export const seconds = (text: string) => Number(text.replace(",", "."));
+/** Sekunder ur ett fält, i engelskt format (1,200.5). Tomt är 0, fel är NaN. */
+export const seconds = (text: string) => parseNumber(text) ?? 0;
 
 const oneDecimal = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
-// Två decimaler när längden är utanför gränserna, så att 45,04 s inte visas som 45 s när taket är 45 s.
+// Två decimaler när längden är utanför gränserna, så att 45.04 s inte visas som 45 s när taket är 45 s.
 const twoDecimals = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
-/** Sekunder med decimalkomma, högst en decimal: 18,2. */
+/** Sekunder med högst en decimal: 18.2. */
 export const formatSeconds = (s: number) => oneDecimal.format(s);
 
 /** Det färdiga klippet blir så här mycket längre än (slut − start) / hastighet (ljudet), som servern räknar. */

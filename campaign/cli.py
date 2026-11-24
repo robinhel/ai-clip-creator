@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -285,10 +286,13 @@ def cmd_mark(args, settings: Settings) -> int:
     return 0
 
 
+GROUPED = re.compile(r"\d{1,3}(,\d{3})+(\.\d+)?")  # 1,000.5: komma mellan tusental
+
+
 def _decimal(value: str) -> float:
-    """Ett tal på svenska eller engelska (6,4 eller 6.4), 0 eller mer."""
+    """Ett tal i engelskt format (6.4 eller 1,000.5), 0 eller mer."""
     try:
-        number = float(value.replace(",", "."))
+        number = float(value.replace(",", "") if GROUPED.fullmatch(value) else value)
     except ValueError as error:
         raise argparse.ArgumentTypeError(f"{value!r} is not a number.") from error
     if not math.isfinite(number):

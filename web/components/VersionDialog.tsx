@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { AccountList, pickAccount, useClipAccounts } from "@/components/ClipAccounts";
 import { api } from "@/lib/api";
+import { seconds } from "@/lib/uploads";
 import { allows, cn } from "@/lib/utils";
 import { hasOwn, isNewStart, NO_OWN, sec, startLabel, startReach } from "@/lib/versionOwn";
 import type { CampaignClip, StickerPosition, VersionCreate, VersionOptions } from "@/lib/types";
@@ -564,8 +565,8 @@ function VersionDialog({ clip, start, onClose }: {
 
   // Hooken som syns och som skickas: servern gör en tom hook till originalets.
   const shownHook = hook.trim() || (opts?.hook ?? "").trim();
-  const startS = Number(stickerStart.replace(",", "."));
-  const lengthS = Number(stickerLength.replace(",", "."));
+  const startS = seconds(stickerStart);
+  const lengthS = seconds(stickerLength);
   const reason = blockReason({ account, optsError, opts, sticker, startS, lengthS, asking: suggester.asking });
 
   async function create() {
