@@ -22,6 +22,9 @@ To use the published images instead of building:
 docker compose -f docker-compose.release.yml up
 ```
 
+This needs the packages `ai-clip-creator-api` and `ai-clip-creator-web` to be public. GitHub makes new
+packages private, so the repository owner changes that once after the first release.
+
 !!! note "TikTok and YouTube in Docker"
     Connecting a TikTok or YouTube account only works without Docker. Connect once with the start
     script below; the login is saved in `klippdata/`, which Docker uses too. See `SECURITY.md`.

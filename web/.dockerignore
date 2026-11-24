@@ -6,4 +6,3 @@ cypress/e2e
 cypress/support
 cypress/screenshots
 cypress/videos
-pnpm-workspace.yaml

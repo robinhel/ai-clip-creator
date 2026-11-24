@@ -20,7 +20,7 @@ cd ai-clip-creator
 docker compose up
 ```
 
-The first build takes a while (it downloads ffmpeg and a Whisper model). Then:
+The first build takes a while (it downloads ffmpeg and the Python and Node packages). Then:
 
 1. Open <http://localhost:3000>.
 2. Go to **Settings** and paste your keys (see [Keys](#keys) below).
@@ -35,6 +35,10 @@ Ready-made images are published for every release, so you can skip the build:
 ```sh
 docker compose -f docker-compose.release.yml up
 ```
+
+GitHub Packages makes new packages private. After the first release, the repository owner has to make the
+packages `ai-clip-creator-api` and `ai-clip-creator-web` public (the package page on GitHub, **Package
+settings**, **Change visibility**). Until then `docker-compose.release.yml` only works for the owner.
 
 ## Without Docker
 

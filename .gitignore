@@ -35,6 +35,8 @@ candidates.json
 
 # Kampanjlagret
 klippdata/
+# Docker: keys saved on the Settings page (data/.env)
+/data/
 profiles/.*.yaml.bak
 # Musik till egna videor: bara instruktionen checkas in
 musik/*

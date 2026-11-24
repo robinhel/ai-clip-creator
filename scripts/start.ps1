@@ -23,8 +23,18 @@ foreach ($candidate in @("py", "python", "python3")) {
     if (-not (Has $candidate)) { continue }
     $pyArgs = @()
     if ($candidate -eq "py") { $pyArgs = @("-3") }
-    & $candidate @pyArgs -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" 2>$null
-    if ($LASTEXITCODE -eq 0) { $Python = @($candidate) + $pyArgs; break }
+    # Windows PowerShell 5.1 turns stderr into an error with "Stop": the Store's "python" shortcut and
+    # "py -3" without Python 3 write there. So this check runs with "Continue" and in try/catch.
+    $ErrorActionPreference = "Continue"
+    try {
+        & $candidate @pyArgs -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" 2>$null
+        $ok = ($LASTEXITCODE -eq 0)
+    } catch {
+        $ok = $false
+    } finally {
+        $ErrorActionPreference = "Stop"
+    }
+    if ($ok) { $Python = @($candidate) + $pyArgs; break }
 }
 if (-not $Python) { Fail "Python 3.11 or newer was not found. Install it from https://www.python.org/downloads/" }
 if (-not (Has "ffmpeg")) { Fail "ffmpeg was not found. Install it: winget install Gyan.FFmpeg, then open a new terminal." }
@@ -51,6 +61,7 @@ if ($LASTEXITCODE -ne 0) { Fail "Could not install the Python packages. Read the
 
 # ---------- dashboard ----------
 Write-Host "Installing the dashboard packages ..."
+$env:CYPRESS_INSTALL_BINARY = "0"  # the Cypress test browser is not needed to run the app
 Push-Location web
 pnpm install --frozen-lockfile
 $code = $LASTEXITCODE
@@ -74,22 +85,36 @@ $web = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "pnpm dev --port 30
     -WorkingDirectory (Join-Path $Root "web") -NoNewWindow -PassThru
 
 $Url = "http://localhost:3000"
-try {
-    for ($i = 0; $i -lt 60; $i++) {
-        try {
-            Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2 | Out-Null
-            break
-        } catch {
-            Start-Sleep -Seconds 1
-        }
+
+function Test-Url([string]$Address) {
+    try {
+        Invoke-WebRequest -Uri $Address -UseBasicParsing -TimeoutSec 2 | Out-Null
+        return $true
+    } catch {
+        return $false
     }
+}
+
+try {
+    $ready = $false
+    for ($i = 0; $i -lt 120; $i++) {
+        if ($api.HasExited -or $web.HasExited) { Fail "The API or the dashboard stopped. Read the message above." }
+        if ((Test-Url "http://127.0.0.1:8000/health") -and (Test-Url $Url)) { $ready = $true; break }
+        Start-Sleep -Seconds 1
+    }
+    if (-not $ready) { Fail "The API or the dashboard did not start within 2 minutes. Read the messages above." }
     Start-Process $Url
     Write-Host ""
     Write-Host "ai-clip-creator is running: $Url"
     Write-Host "Add your keys on the Settings page. Press Ctrl+C to stop."
-    Wait-Process -Id $api.Id, $web.Id
+    # Stop as soon as one of them stops; finally stops the other.
+    while (-not ($api.HasExited -or $web.HasExited)) { Start-Sleep -Seconds 1 }
+    Write-Host "The API or the dashboard stopped. Stopping the other." -ForegroundColor Red
 } finally {
+    $ErrorActionPreference = "Continue"  # taskkill writes to stderr when the process is already gone
     foreach ($p in @($api, $web)) {
-        if ($p -and -not $p.HasExited) { & taskkill /PID $p.Id /T /F 2>$null | Out-Null }
+        try {
+            if ($p -and -not $p.HasExited) { & taskkill /PID $p.Id /T /F 2>$null | Out-Null }
+        } catch { }
     }
 }

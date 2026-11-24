@@ -2,11 +2,10 @@ FROM node:22-slim AS builder
 WORKDIR /app
 # corepack uses the pnpm version in package.json ("packageManager").
 RUN corepack enable
-COPY package.json pnpm-lock.yaml ./
-# pnpm 11 stops on install scripts that are not approved. web/.dockerignore leaves out pnpm-workspace.yaml,
-# so approve here only what the build needs; the Cypress and MSW scripts are for tests.
-RUN printf 'allowBuilds:\n  esbuild: true\n  sharp: true\n  cypress: false\n  msw: false\n' > pnpm-workspace.yaml \
-    && pnpm install --frozen-lockfile
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# The Cypress test browser is not needed in the image: its install script skips the download.
+ENV CYPRESS_INSTALL_BINARY=0
+RUN pnpm install --frozen-lockfile
 COPY . .
 ARG NEXT_PUBLIC_API_BASE=http://localhost:8000
 RUN NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE} pnpm run build

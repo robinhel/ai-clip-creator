@@ -16,11 +16,8 @@ COPY campaign/ campaign/
 # API server, webcam detection and the campaign layer. No cloud or observability extras.
 RUN pip install --no-cache-dir -e ".[server,vision]" -r requirements-campaign.txt
 
-# Bake the Whisper model into /app/.cache so the clipsmith user can access it.
-# Uses the "small" model matching the default in config.yaml (transcribe.model).
-# Rebuild the image if you switch to "medium" or "large-v3".
-ENV HF_HOME=/app/.cache/huggingface
-RUN python -c "from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', compute_type='int8')"
+# No Whisper model is baked in: the app transcribes with Berget (campaign/transcribe.py) before clipsmith runs,
+# so clipsmith only loads that transcript.json. Only clipsmith's own CLI would download a model, at first use.
 
 # config.*.yaml: the clipsmith settings each campaign in profiles/ points to (clipsmith_config).
 COPY alembic.ini config.yaml config.*.yaml priser.yaml ./
@@ -36,7 +33,7 @@ ENV KLIPP_ROOT=/app
 
 RUN mkdir -p /app/data /app/work /app/out /app/klippdata && \
     chmod +x /app/start_server.sh /app/docker-entrypoint.sh && \
-    chown -R clipsmith:clipsmith /app/.cache /home/clipsmith /app/data /app/work /app/out /app/klippdata \
+    chown -R clipsmith:clipsmith /home/clipsmith /app/data /app/work /app/out /app/klippdata \
         /app/profiles /app/overlays
 
 VOLUME ["/app/work", "/app/out", "/app/data", "/app/klippdata"]

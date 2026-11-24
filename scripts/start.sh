@@ -50,12 +50,15 @@ fi
 
 # ---------- dashboard ----------
 echo "Installing the dashboard packages ..."
+# The Cypress test browser is not needed to run the app.
+export CYPRESS_INSTALL_BINARY=0
 (cd web && pnpm install --frozen-lockfile) || fail "pnpm install failed in web/. Read the message above."
 
 mkdir -p work out klippdata data
 
 # ---------- start ----------
 PIDS=()
+# shellcheck disable=SC2329  # called by the trap below
 stop() {
     for pid in "${PIDS[@]}"; do
         kill "$pid" 2>/dev/null || true
@@ -72,12 +75,22 @@ echo "Starting the dashboard on http://127.0.0.1:3000 ..."
 PIDS+=("$!")
 
 URL="http://localhost:3000"
-for _ in $(seq 1 60); do
-    if curl -fsS -o /dev/null "$URL" 2>/dev/null; then
+running() {
+    for pid in "${PIDS[@]}"; do
+        kill -0 "$pid" 2>/dev/null || return 1
+    done
+}
+ready=""
+for _ in $(seq 1 120); do
+    running || fail "The API or the dashboard stopped. Read the message above."
+    if curl -fsS -o /dev/null http://127.0.0.1:8000/health 2>/dev/null &&
+        curl -fsS -o /dev/null "$URL" 2>/dev/null; then
+        ready=1
         break
     fi
     sleep 1
 done
+[ -n "$ready" ] || fail "The API or the dashboard did not start within 2 minutes. Read the messages above."
 
 if command -v open >/dev/null 2>&1; then
     open "$URL"
@@ -87,4 +100,8 @@ fi
 echo
 echo "ai-clip-creator is running: $URL"
 echo "Add your keys on the Settings page. Press Ctrl+C to stop."
-wait
+# Stop as soon as one of them stops; the trap stops the other. A loop, not "wait -n": macOS has bash 3.2.
+while running; do
+    sleep 1
+done
+fail "The API or the dashboard stopped. Read the message above."
