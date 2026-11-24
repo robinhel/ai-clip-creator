@@ -13,3 +13,13 @@ regexes = [
   '''^zyxwvutsrq9876543210ponmlkjihg$''',  # tests_campaign/test_keys.py: the alphabet backwards
   '''^(hemligt-varde|secret-value)-123$''',  # tests_campaign/test_rekommendation.py
 ]
+
+# Built locally and ignored by git: Next.js build output, installed packages and the Python environment.
+# They hold third-party code and test keys that are not ours. `gitleaks dir` scans them unless they are listed here.
+[[allowlists]]
+description = "Paths that git ignores and that are built locally"
+paths = [
+  '''(^|/)web/\.next/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)\.venv/''',
+]
