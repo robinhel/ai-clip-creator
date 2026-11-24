@@ -66,15 +66,34 @@ def is_local(request: Request) -> bool:
     return address.is_loopback
 
 
+def is_trusted_proxy(request: Request) -> bool:
+    """True for the dashboard's proxy in Docker: Host is a name in TRUSTED_PROXY_HOSTS (Compose sets ``api``)
+    and the caller has a private address (the Compose network). The proxy has already checked Host and Origin.
+    Lokala namn räknas aldrig här: de kräver loopback, annars kunde vem som helst på nätet skriva Host: localhost."""
+    names = {host_name(h) for h in os.getenv("TRUSTED_PROXY_HOSTS", "").split(",") if h.strip()} - LOCAL_HOSTS
+    if host_name(request.headers.get("host", "")) not in names:
+        return False
+    try:
+        return ipaddress.ip_address(request.client.host if request.client else "").is_private
+    except ValueError:
+        return False
+
+
 def only_local(request: Request) -> None:
-    """Nycklar och kontoinloggning: bara datorn där servern körs, med loopback-IP och lokal Host."""
-    if not is_local(request):
+    """Nycklar och kontoinloggning: bara datorn där servern körs, med loopback-IP och lokal Host,
+    eller webbens proxy i Docker (TRUSTED_PROXY_HOSTS)."""
+    if not (is_local(request) or is_trusted_proxy(request)):
         raise HTTPException(403, "This can only be done from the computer where the server runs.")
+
+
+def env_path(root: Path) -> Path:
+    """Filen där nycklarna sparas: KLIPP_ENV_FILE (Docker: data/.env, som är monterad), annars .env i projektet."""
+    return Path(os.environ.get("KLIPP_ENV_FILE", "").strip() or root / ".env")
 
 
 def _value(name: str, root: Path) -> str:
     """Värdet i processen, annars i .env. En tom variabel i processen räknas som saknad."""
-    env = root / ".env"
+    env = env_path(root)
     if os.environ.get(name, "").strip():
         return os.environ[name].strip()
     with _env_lock:
@@ -153,7 +172,7 @@ def put_keys(body: Any = Body(None), settings: Settings = Depends(get_settings))
         raise HTTPException(400, 'Send the keys as {"values": {"NAME": "value"}}.')
     values = _check(body["values"])
     with _env_lock:
-        _write_env(settings.root / ".env", values)
+        _write_env(env_path(settings.root), values)
         # load_dotenv skriver inte över en variabel som redan finns i processen, så den sätts här.
         os.environ.update(values)
     twitch_changed = any(name in values for name in TWITCH)
