@@ -168,7 +168,7 @@ export function CampaignsClient({ tab = "mina" }: { tab?: "mina" | "nya" }) {
         <h1 className="text-3xl font-bold tracking-tight">Campaigns</h1>
         <Link href="/campaigns/new" className={buttonVariants({ className: "h-9" })}>
           <Plus aria-hidden />
-          Ny kampanj
+          New campaign
         </Link>
       </div>
 
