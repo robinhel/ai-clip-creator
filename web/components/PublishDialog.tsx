@@ -71,10 +71,10 @@ const link = "inline-flex items-center gap-1 font-medium text-foreground underli
 /** Kampanjens regler och länkarna till Content Rewards och analytics-formuläret, hopfällda. */
 export function CampaignRules({ detail, open = false }: { detail: CampaignProfileDetail; open?: boolean }) {
   const { rules, approval, links } = detail;
-  const missing = [!links.content_rewards && "Content Rewards", !links.analytics_form && "analytics-formuläret"].filter(Boolean);
+  const missing = [!links.content_rewards && "Content Rewards", !links.analytics_form && "the analytics form"].filter(Boolean);
   return (
     <details open={open} className="rounded-lg border border-line px-3 py-2 text-[13px] text-muted-foreground">
-      <summary className="cursor-pointer select-none hover:text-foreground">Kampanjens regler ({rules.length})</summary>
+      <summary className="cursor-pointer select-none hover:text-foreground">The campaign's rules ({rules.length})</summary>
       {rules.length > 0 && (
         <ul className="mt-1.5 list-disc space-y-0.5 pl-5">
           {rules.map((rule) => (
@@ -86,22 +86,22 @@ export function CampaignRules({ detail, open = false }: { detail: CampaignProfil
       <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
         {links.content_rewards && (
           <a href={links.content_rewards} target="_blank" rel="noreferrer" className={link}>
-            Öppna Content Rewards
+            Open Content Rewards
             <ExternalLink className="size-3.5" aria-hidden />
           </a>
         )}
         {links.analytics_form && (
           <a href={links.analytics_form} target="_blank" rel="noreferrer" className={link}>
-            Analytics-formuläret
+            Analytics form
             <ExternalLink className="size-3.5" aria-hidden />
           </a>
         )}
       </p>
       {missing.length > 0 && (
         <p className="mt-1">
-          Länken till {missing.join(" och ")} saknas.{" "}
+          The link to {missing.join(" and ")} is missing.{" "}
           <Link href={`/campaigns/${detail.name}?tab=installningar&del=oversikt#lankar`} className="underline underline-offset-4 hover:text-foreground">
-            Lägg in {missing.length > 1 ? "dem" : "den"} under kampanjens Ställ in
+            Add {missing.length > 1 ? "them" : "it"} under the campaign's Set up
           </Link>
           .
         </p>
@@ -122,7 +122,7 @@ function LinkStep({ clip, platform, onSaved }: { clip: CampaignClip; platform: P
     try {
       onSaved(await api.campaign.posts.add(clip.id, { platform, url: url.trim() }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Det gick inte att spara länken");
+      setError(err instanceof Error ? err.message : "Could not save the link");
       setBusy(false);
     }
   }
@@ -130,12 +130,12 @@ function LinkStep({ clip, platform, onSaved }: { clip: CampaignClip; platform: P
   return (
     <div className="space-y-2 rounded-xl border border-line bg-background p-3">
       <label className="block text-[13px] text-muted-foreground" htmlFor={`postlank-${clip.id}`}>
-        Länk till inlägget på {PLATFORM_LABEL[platform]}
+        Link to the post on {PLATFORM_LABEL[platform]}
       </label>
       <Input id={`postlank-${clip.id}`} type="url" placeholder="https://…" value={url} onChange={(e) => setUrl(e.target.value)} disabled={busy} />
       <Button className="h-9 w-full" disabled={busy || !url.trim()} onClick={save}>
         {busy ? <Loader2 className="animate-spin" aria-hidden /> : <CheckCircle2 aria-hidden />}
-        Spara länken, klippet är postat
+        Save the link, the clip is posted
       </Button>
       {error && (
         <p role="alert" className="text-sm text-bad">
@@ -158,7 +158,7 @@ function Good({ children }: { children: ReactNode }) {
 function Steps({ items }: { items: ReactNode[] }) {
   return (
     <div className="space-y-1 text-sm">
-      <p className="font-medium">Nästa steg</p>
+      <p className="font-medium">Next steps</p>
       <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
         {items.map((item, i) => (
           <li key={i}>{item}</li>
@@ -197,9 +197,9 @@ const errorBox = "rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text
 function ConnectLink({ name, allPosted = false }: { name: string; allPosted?: boolean }) {
   return (
     <>
-      {allPosted ? "Klippet ligger redan på alla kampanjens TikTok-konton." : `Inget ${name}-konto är kopplat.`}{" "}
+      {allPosted ? "The clip is already on all the campaign's TikTok accounts." : `No ${name} account is connected.`}{" "}
       <Link href="/settings" className="text-brand underline-offset-4 hover:underline">
-        Koppla {name}
+        Connect {name}
       </Link>
     </>
   );
@@ -207,33 +207,33 @@ function ConnectLink({ name, allPosted = false }: { name: string; allPosted?: bo
 
 const selfOption = (p: Platform): Option => ({
   way: "sjalv",
-  label: "Posta själv",
-  text: `Appen kopierar captionen, laddar ner filen och öppnar ${STUDIO[p][1]}. Sedan klistrar du in länken här.`,
+  label: "Post yourself",
+  text: `The app copies the caption, downloads the file and opens ${STUDIO[p][1]}. Then you paste the link here.`,
   off: null,
 });
 
 // Tills TikTok har granskat appen blir ett direkt inlägg privat, och valet säger det före klicket.
 const TIKTOK_DIRECT = TIKTOK_AUDITED
-  ? { label: "Publicera direkt", text: "Appen publicerar klippet på kontot, nu eller vid en tid du väljer." }
-  : { label: "Publicera direkt, blir privat", text: PRIVATE_UNTIL_AUDITED };
+  ? { label: "Publish directly", text: "The app publishes the clip on the account, now or at a time you choose." }
+  : { label: "Publish directly, becomes private", text: PRIVATE_UNTIL_AUDITED };
 
 function tiktokOptions(account: TikTokAccount | undefined, limit: number, allPosted: boolean): Option[] {
   const missing = <ConnectLink name="TikTok" allPosted={allPosted} />;
   const full =
     account && account.pending_24h >= limit
-      ? `${limit} utkast väntar redan i inkorgen för ${accountName(account)}. Posta eller ta bort något i TikTok-appen först.`
+      ? `${limit} drafts are already waiting in the inbox for ${accountName(account)}. Post or delete one in the TikTok app first.`
       : null;
   const canDirect = !!account?.can_publish && !!account.open_id;
   const draft: Option = {
     way: "utkast",
-    label: "Som utkast",
-    text: "Klippet hamnar i inkorgen i TikTok-appen. Där postar du det med ljud och caption.",
+    label: "As a draft",
+    text: "The clip goes to the inbox in the TikTok app. There you post it with sound and caption.",
     off: account ? full : missing,
   };
   const direct: Option = {
     way: "direkt",
     ...TIKTOK_DIRECT,
-    off: account ? (canDirect ? null : "Kontot får inte publicera direkt. Koppla det igen under Inställningar.") : missing,
+    off: account ? (canDirect ? null : "The account may not publish directly. Connect it again under Settings.") : missing,
   };
   // Tills TikTok har granskat appen kommer utkast och posta själv först.
   return TIKTOK_AUDITED ? [direct, draft, selfOption("tiktok")] : [draft, selfOption("tiktok"), direct];
@@ -243,8 +243,8 @@ function youtubeOptions(channels: number): Option[] {
   return [
     {
       way: "direkt",
-      label: "Ladda upp till YouTube",
-      text: "Appen laddar upp klippet som en Short, nu eller vid en tid du väljer.",
+      label: "Upload to YouTube",
+      text: "The app uploads the clip as a Short, now or at a time you choose.",
       off: channels === 0 ? <ConnectLink name="YouTube" /> : null,
     },
     selfOption("youtube_shorts"),
@@ -259,8 +259,8 @@ function optionsFor(platform: Platform | undefined, tiktok: { account?: TikTokAc
 
 function whenReason(when: When, at: string | null): string | null {
   if (when !== "senare") return null;
-  if (!at) return "Välj datum och tid.";
-  return Date.parse(at) <= Date.now() ? "Tiden har redan passerat. Välj en senare tid." : null;
+  if (!at) return "Choose a date and time.";
+  return Date.parse(at) <= Date.now() ? "That time has already passed. Choose a later time." : null;
 }
 
 interface FieldsCheck {
@@ -272,7 +272,7 @@ interface FieldsCheck {
 function fieldsReason({ youtube, tiktok }: FieldsCheck): string | null {
   if (!tiktok) return youtube;
   if (tiktok.creatorError != null) return tiktok.creatorError;
-  if (!tiktok.creator) return "Läser kontot hos TikTok…";
+  if (!tiktok.creator) return "Loading the account from TikTok…";
   return tiktok.form.reason ?? (tiktok.form.needDisclosure ? NEED_DISCLOSURE : null);
 }
 
@@ -285,9 +285,9 @@ function blockReason(r: {
   scheduledOn: string | null;
   fields: FieldsCheck;
 }): string | null {
-  if (!r.platform) return "Klippet finns redan på alla kampanjens plattformar.";
-  if (!r.option) return "Välj hur klippet ska postas.";
-  if (r.scheduledOn) return `Klippet är redan schemalagt på ${r.scheduledOn}. Avbryt schemat ovanför först.`;
+  if (!r.platform) return "The clip is already on all the campaign's platforms.";
+  if (!r.option) return "Choose how the clip is posted.";
+  if (r.scheduledOn) return `The clip is already scheduled on ${r.scheduledOn}. Cancel the schedule above first.`;
   return whenReason(r.when, r.at) ?? fieldsReason(r.fields);
 }
 
@@ -295,13 +295,13 @@ function blockReason(r: {
 function actionFor(when: When, way: Way | undefined, platform: Platform | undefined, draftAgain: boolean): { icon: ReactNode; text: string } {
   if (when === "senare") {
     return way === "sjalv"
-      ? { icon: <BellRing aria-hidden />, text: "Schemalägg påminnelse" }
-      : { icon: <CalendarClock aria-hidden />, text: "Schemalägg" };
+      ? { icon: <BellRing aria-hidden />, text: "Schedule reminder" }
+      : { icon: <CalendarClock aria-hidden />, text: "Schedule" };
   }
-  if (way === "utkast") return { icon: <Upload aria-hidden />, text: draftAgain ? "Skicka utkastet igen" : "Skicka som utkast" };
-  if (way === "sjalv") return { icon: <Monitor aria-hidden />, text: `Kopiera caption, ladda ner och öppna ${platform ? STUDIO[platform][1] : ""}` };
-  if (platform === "youtube_shorts") return { icon: <SquarePlay aria-hidden />, text: "Ladda upp till YouTube" };
-  return { icon: <Send aria-hidden />, text: TIKTOK_AUDITED ? "Publicera på TikTok" : "Publicera privat på TikTok" };
+  if (way === "utkast") return { icon: <Upload aria-hidden />, text: draftAgain ? "Send the draft again" : "Send as draft" };
+  if (way === "sjalv") return { icon: <Monitor aria-hidden />, text: `Copy caption, download and open ${platform ? STUDIO[platform][1] : ""}` };
+  if (platform === "youtube_shorts") return { icon: <SquarePlay aria-hidden />, text: "Upload to YouTube" };
+  return { icon: <Send aria-hidden />, text: TIKTOK_AUDITED ? "Publish on TikTok" : "Publish privately on TikTok" };
 }
 
 /** Posten i schemat. Utan fält för TikTok blir den en påminnelse om att posta själv. */
@@ -335,12 +335,12 @@ function useSubmitHelper() {
 }
 
 const pasteCaption = (clip: CampaignClip, copied: boolean, copiedText: string): ReactNode =>
-  copied ? copiedText : <>Klistra in captionen. <CopyButton text={clip.caption ?? ""} label="Kopiera caption" /></>;
+  copied ? copiedText : <>Paste the caption. <CopyButton text={clip.caption ?? ""} label="Copy caption" /></>;
 
 function ScheduledDone({ post, onClose }: { post: ScheduledPost; onClose: () => void }) {
   return (
     <div className="space-y-3">
-      <Good>{post.reminder ? "Påminnelsen är schemalagd. Du får en notis på Macen vid tiden." : "Klippet är schemalagt. Appen laddar upp det vid tiden, om Macen är igång."}</Good>
+      <Good>{post.reminder ? "The reminder is scheduled. You get a notification on the Mac at that time." : "The clip is scheduled. The app uploads it at that time, if the Mac is on."}</Good>
       {post.warning && (
         <p data-schedule-warning className="flex items-start gap-1.5 rounded-lg border border-[#3a3018] px-2.5 py-1.5 text-[13px] text-warn/80">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
@@ -348,7 +348,7 @@ function ScheduledDone({ post, onClose }: { post: ScheduledPost; onClose: () => 
         </p>
       )}
       <Button className="h-10 w-full" variant="outline" onClick={onClose}>
-        Stäng
+        Close
       </Button>
     </div>
   );
@@ -362,12 +362,12 @@ function DraftDone({ clip, done, upload, onSaved }: {
 }) {
   return (
     <div className="space-y-3">
-      <Good>{upload ? tiktokUploadText(upload) : "Utkastet är skickat."} {done.message}</Good>
+      <Good>{upload ? tiktokUploadText(upload) : "The draft is sent."} {done.message}</Good>
       <Steps
         items={[
-          "Öppna TikTok-appen och utkastet i inkorgen.",
-          pasteCaption(clip, done.copied, "Klistra in captionen. Den är kopierad."),
-          "Posta, kopiera länken till inlägget och klistra in den här.",
+          "Open the TikTok app and the draft in the inbox.",
+          pasteCaption(clip, done.copied, "Paste the caption. It is copied."),
+          "Post, copy the link to the post and paste it here.",
         ]}
       />
       <LinkStep clip={clip} platform="tiktok" onSaved={onSaved} />
@@ -385,10 +385,10 @@ function SelfDone({ clip, platform, done, onSaved }: {
   return (
     <div className="space-y-3">
       <Good>
-        {done.copied ? "Captionen är kopierad och filen laddas ner." : "Filen laddas ner. Webbläsaren lät inte appen kopiera captionen."}
-        {done.blocked ? ` Webbläsaren stoppade den nya fliken. Öppna ${studio} själv.` : ""}
+        {done.copied ? "The caption is copied and the file is downloading." : "The file is downloading. The browser did not let the app copy the caption."}
+        {done.blocked ? ` The browser blocked the new tab. Open ${studio} yourself.` : ""}
       </Good>
-      <Steps items={[`Dra filen till ${studio}.`, pasteCaption(clip, done.copied, "Klistra in captionen."), "Posta, kopiera länken till inlägget och klistra in den här."]} />
+      <Steps items={[`Drag the file to ${studio}.`, pasteCaption(clip, done.copied, "Paste the caption."), "Post, copy the link to the post and paste it here."]} />
       <LinkStep clip={clip} platform={platform} onSaved={onSaved} />
     </div>
   );
@@ -423,9 +423,9 @@ function YouTubeDirectDone({ clip, upload, helper, onSaved }: {
   if (upload.status === "failed") return <Failed>{youtubeUploadText(upload)}</Failed>;
   return (
     <div className="space-y-3">
-      {upload.status === "processed" ? <Good>Klar på YouTube.</Good> : <Waiting>{youtubeUploadText(upload)} Appen frågar YouTube var 10:e sekund.</Waiting>}
+      {upload.status === "processed" ? <Good>Done on YouTube.</Good> : <Waiting>{youtubeUploadText(upload)} The app asks YouTube every 10 seconds.</Waiting>}
       {upload.url && (
-        <PostedLink url={upload.url} label="Öppna på YouTube" saveable={!helper || upload.privacy !== "public"} clip={clip} platform="youtube_shorts" onSaved={onSaved} />
+        <PostedLink url={upload.url} label="Open on YouTube" saveable={!helper || upload.privacy !== "public"} clip={clip} platform="youtube_shorts" onSaved={onSaved} />
       )}
     </div>
   );
@@ -439,24 +439,24 @@ function TikTokDirectDone({ clip, upload, helper, onSaved }: {
   onSaved: (clip: CampaignClip) => void;
 }) {
   if (upload?.mode !== "direct") return null;
-  if (upload.status === "processing") return <Waiting>Publiceras. Appen frågar TikTok var 10:e sekund.</Waiting>;
+  if (upload.status === "processing") return <Waiting>Publishing. The app asks TikTok every 10 seconds.</Waiting>;
   if (upload.status === "failed") return <Failed>{tiktokUploadText(upload)}</Failed>;
   if (upload.status !== "published") return null;
   if (upload.post_url) {
     return (
       <div className="space-y-3">
-        <Good>Publicerat på TikTok.</Good>
-        <PostedLink url={upload.post_url} label="Öppna på TikTok" saveable={!helper} clip={clip} platform="tiktok" onSaved={onSaved} />
+        <Good>Published on TikTok.</Good>
+        <PostedLink url={upload.post_url} label="Open on TikTok" saveable={!helper} clip={clip} platform="tiktok" onSaved={onSaved} />
       </div>
     );
   }
   return (
     <div className="space-y-3">
-      <Good>Publicerat som privat (Bara jag). Inlägget har ingen länk än.</Good>
+      <Good>Published as private (Only me). The post has no link yet.</Good>
       <Steps
         items={[
-          "Öppna inlägget i TikTok-appen och gör det offentligt.",
-          "Kopiera länken till inlägget och klistra in den här. Sedan kan du skicka in den i Content Rewards.",
+          "Open the post in the TikTok app and make it public.",
+          "Copy the link to the post and paste it here. Then you can submit it in Content Rewards.",
         ]}
       />
       <LinkStep clip={clip} platform="tiktok" onSaved={onSaved} />
@@ -490,7 +490,7 @@ function PlatformPicker({ clipId, platforms, open, value, onChoose }: {
   onChoose: (p: Platform) => void;
 }) {
   return (
-    <div role="radiogroup" aria-label="Plattform" className="grid gap-2 sm:grid-cols-3">
+    <div role="radiogroup" aria-label="Platform" className="grid gap-2 sm:grid-cols-3">
       {platforms.map((p) => {
         const off = !open.includes(p);
         return (
@@ -504,7 +504,7 @@ function PlatformPicker({ clipId, platforms, open, value, onChoose }: {
           >
             <input type="radio" name={`publicera-plattform-${clipId}`} checked={value === p} disabled={off} onChange={() => onChoose(p)} className={radio} />
             <span className="font-medium">{PLATFORM_LABEL[p]}</span>
-            {off && <span className="ml-auto text-xs text-muted-foreground">Postat</span>}
+            {off && <span className="ml-auto text-xs text-muted-foreground">Posted</span>}
           </label>
         );
       })}
@@ -548,9 +548,9 @@ function WayChoice({ clipId, option, checked, warn, onChoose }: {
 }
 
 function WhenPicker({ clipId, value, reminder, onChoose }: { clipId: number; value: When; reminder: boolean; onChoose: (w: When) => void }) {
-  const labels: Record<When, string> = { nu: "Nu", senare: reminder ? "Senare, med en påminnelse" : "Senare" };
+  const labels: Record<When, string> = { nu: "Now", senare: reminder ? "Later, with a reminder" : "Later" };
   return (
-    <div role="radiogroup" aria-label="När" className="flex gap-2">
+    <div role="radiogroup" aria-label="When" className="flex gap-2">
       {(["nu", "senare"] as When[]).map((w) => (
         <label
           key={w}
@@ -575,12 +575,12 @@ function TikTokAccountPicker({ accounts, info, value, onChoose }: {
   onChoose: (id: string) => void;
 }) {
   if (accounts.length <= 1) return null;
-  if (info?.multi) return <AccountList label="TikTok-konto" info={info} connected={accounts.map((a) => a.open_id)} value={value} onChange={onChoose} />;
+  if (info?.multi) return <AccountList label="TikTok account" info={info} connected={accounts.map((a) => a.open_id)} value={value} onChange={onChoose} />;
   return (
     <label className="block">
-      <span className="text-[13px] text-muted-foreground">TikTok-konto</span>
+      <span className="text-[13px] text-muted-foreground">TikTok account</span>
       <select
-        aria-label="TikTok-konto"
+        aria-label="TikTok account"
         value={value}
         onChange={(e) => onChoose(e.target.value)}
         className="mt-1 h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand [&>option]:bg-panel"
@@ -597,10 +597,10 @@ function TikTokAccountPicker({ accounts, info, value, onChoose }: {
 
 function CreatorLine({ creator, creatorError, account }: { creator: TikTokCreatorInfo | null; creatorError: string | null; account?: TikTokAccount }) {
   if (creatorError) return <p role="alert" className={errorBox}>{creatorError}</p>;
-  if (!creator) return <p className="text-sm text-muted-foreground">Läser kontot hos TikTok…</p>;
+  if (!creator) return <p className="text-sm text-muted-foreground">Loading the account from TikTok…</p>;
   return (
     <p className="text-sm">
-      Postar till: <span className="font-semibold">{creator.nickname ?? (account ? accountName(account) : "")}</span>
+      Posting to: <span className="font-semibold">{creator.nickname ?? (account ? accountName(account) : "")}</span>
       {creator.username && <span className="text-muted-foreground"> (@{creator.username})</span>}
     </p>
   );
@@ -659,12 +659,12 @@ function SendArea({ clip, action, sending, reason, linkPlatform, onGo, onSaved }
     <div className="space-y-1.5">
       <Button className="h-auto min-h-10 w-full py-2 whitespace-normal" disabled={!!reason || sending} onClick={onGo}>
         {sending ? <Loader2 className="animate-spin" aria-hidden /> : action.icon}
-        {sending ? "Skickar…" : action.text}
+        {sending ? "Sending…" : action.text}
       </Button>
       {reason && <p className="text-xs text-muted-foreground">{reason}</p>}
       {linkPlatform && (
         <details className="text-sm">
-          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Redan postat? Klistra in länken</summary>
+          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">Already posted? Paste the link</summary>
           <div className="mt-2">
             <LinkStep clip={clip} platform={linkPlatform} onSaved={onSaved} />
           </div>
@@ -762,7 +762,7 @@ function PublishDialog({ clip, preset, posting, tt, yt, onUpdate, onClose }: Dia
     try {
       setDone(await call());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Det gick inte. Försök igen.");
+      setError(err instanceof Error ? err.message : "That did not work. Try again.");
     } finally {
       setSending(false);
     }
@@ -804,9 +804,9 @@ function PublishDialog({ clip, preset, posting, tt, yt, onUpdate, onClose }: Dia
     <Dialog open onOpenChange={(o) => !o && !sending && onClose(!!done)}>
       <DialogContent className="max-h-[calc(100vh-2rem)] gap-5 overflow-y-auto p-5 sm:max-w-[820px] sm:p-6">
         <div>
-          <DialogTitle className="text-lg font-semibold">Publicera {clip.title || `klipp ${clip.id}`}</DialogTitle>
+          <DialogTitle className="text-lg font-semibold">Publish {clip.title || `clip ${clip.id}`}</DialogTitle>
           <DialogDescription className="mt-1">
-            Välj plattform, konto och hur klippet ska ut. Klippet blir Postad när länken till inlägget är sparad.
+            Choose platform, account and how the clip goes out. The clip becomes Posted when the link to the post is saved.
           </DialogDescription>
         </div>
 
@@ -817,7 +817,7 @@ function PublishDialog({ clip, preset, posting, tt, yt, onUpdate, onClose }: Dia
             controls
             playsInline
             preload="metadata"
-            aria-label="Förhandsvisning av klippet"
+            aria-label="Clip preview"
             className="hidden aspect-[9/16] w-full rounded-xl bg-black object-contain sm:block"
           />
 
@@ -826,7 +826,7 @@ function PublishDialog({ clip, preset, posting, tt, yt, onUpdate, onClose }: Dia
               <PlatformPicker clipId={clip.id} platforms={platforms} open={open} value={platform} onChoose={setChosen} />
               {platform && <ScheduleLines pending={pendingHere} onChange={posting.onChanged} />}
 
-              <div role="radiogroup" aria-label="Hur" className="space-y-2">
+              <div role="radiogroup" aria-label="How" className="space-y-2">
                 {options.map((o) => (
                   <WayChoice
                     key={o.way}
@@ -905,7 +905,7 @@ function PostedLink({ url, label, saveable, clip, platform, onSaved }: {
     try {
       onSaved(await api.campaign.posts.add(clip.id, { platform, url }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunde inte spara länken");
+      setError(err instanceof Error ? err.message : "Could not save the link");
       setBusy(false);
     }
   }
@@ -919,11 +919,11 @@ function PostedLink({ url, label, saveable, clip, platform, onSaved }: {
         {saveable && (
           <Button className="h-9" disabled={busy} onClick={save}>
             {busy && <Loader2 className="animate-spin" aria-hidden />}
-            Spara länken, klippet är postat
+            Save the link, the clip is posted
           </Button>
         )}
       </div>
-      {!saveable && <p className="text-sm text-muted-foreground">Appen sparar inlägget själv. Skicka in länken i Content Rewards inom 30 minuter, på fliken Skicka in.</p>}
+      {!saveable && <p className="text-sm text-muted-foreground">The app saves the post itself. Submit the link in Content Rewards within 30 minutes, on the Submit tab.</p>}
       {error && (
         <p role="alert" className="text-sm text-bad">
           {error}
@@ -953,7 +953,7 @@ function TikTokLine({ upload }: { upload: TikTokUploadState["upload"] }) {
   return (
     <p className={uploadTone(upload.status === "failed")}>
       {tiktokUploadText(upload)}
-      {link && <OpenLink href={link}>Öppna på TikTok</OpenLink>}
+      {link && <OpenLink href={link}>Open on TikTok</OpenLink>}
     </p>
   );
 }
@@ -965,7 +965,7 @@ function YouTubeLine({ upload }: { upload: YouTubeUploadState["upload"] }) {
   return (
     <p className={uploadTone(failed)}>
       YouTube: {youtubeUploadText(upload)}
-      {!failed && upload.url && <OpenLink href={upload.url}>Öppna på YouTube</OpenLink>}
+      {!failed && upload.url && <OpenLink href={upload.url}>Open on YouTube</OpenLink>}
     </p>
   );
 }
@@ -1002,9 +1002,9 @@ export function PublishButton({ clip, posting, block, onUpdate }: {
     <div className="space-y-1.5">
       <Button className="h-auto min-h-9 w-full py-2 whitespace-normal" disabled={!!block} onClick={() => setOpen({})}>
         <Send aria-hidden />
-        {first ? "Publicera" : "Publicera på fler plattformar"}
+        {first ? "Publish" : "Publish on more platforms"}
       </Button>
-      {[block, first ? null : `Saknar inlägg på ${free.map((p) => PLATFORM_LABEL[p]).join(" och ")}.`].map(
+      {[block, first ? null : `Missing posts on ${free.map((p) => PLATFORM_LABEL[p]).join(" and ")}.`].map(
         (line) => line && <p key={line} className="text-xs text-muted-foreground">{line}</p>
       )}
       <ScheduleLines pending={posting.pending} onChange={posting.onChanged} />

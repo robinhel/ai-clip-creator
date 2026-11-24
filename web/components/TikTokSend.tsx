@@ -15,13 +15,13 @@ export const draftWaiting = (upload: TikTokUpload | null) =>
 
 export function tiktokUploadText(upload: TikTokUpload): string {
   if (upload.mode === "direct") {
-    if (upload.status === "processing") return "Publiceras på TikTok";
+    if (upload.status === "processing") return "Publishing on TikTok";
     if (upload.status === "published")
-      return upload.post_url ? "Publicerat på TikTok" : "Publicerat som privat (Bara jag). Inlägget har ingen länk.";
+      return upload.post_url ? "Published on TikTok" : "Published as private (Only me). The post has no link.";
   }
-  if (upload.status === "uploaded") return upload.display_name ? `Utkast i inkorgen hos ${upload.display_name}` : "Utkast i TikTok-inkorgen";
-  if (upload.status === "uploading") return "Laddas upp till TikTok";
-  if (upload.status === "failed") return `Misslyckades: ${upload.error ?? "okänt fel"}`;
+  if (upload.status === "uploaded") return upload.display_name ? `Draft in the inbox of ${upload.display_name}` : "Draft in the TikTok inbox";
+  if (upload.status === "uploading") return "Uploading to TikTok";
+  if (upload.status === "failed") return `Failed: ${upload.error ?? "unknown error"}`;
   return `TikTok: ${upload.status}`;
 }
 

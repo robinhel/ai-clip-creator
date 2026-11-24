@@ -9,7 +9,7 @@ import type { CampaignClip, TikTokCreatorInfo, TikTokPrivacy } from "@/lib/types
  * NEXT_PUBLIC_TIKTOK_AUDITED=1 när TikTok har godkänt appen. */
 export const TIKTOK_AUDITED = process.env.NEXT_PUBLIC_TIKTOK_AUDITED === "1";
 export const PRIVATE_UNTIL_AUDITED =
-  "TikTok har inte granskat appen än. Ett direkt inlägg blir därför privat (Bara jag). Det får ingen länk och går inte att skicka in i Content Rewards förrän du gör det offentligt i TikTok-appen.";
+  "TikTok has not audited the app yet. A direct post therefore becomes private (Only me). It gets no link and cannot be submitted in Content Rewards until you make it public in the TikTok app.";
 
 // TikTok granskar texterna på engelska i den här dialogen. De står ordagrant som i TikToks riktlinjer.
 const MUSIC_URL = "https://www.tiktok.com/legal/page/global/music-usage-confirmation/en";
@@ -19,9 +19,9 @@ const BC_PRIVATE = "Branded content visibility cannot be set to private.";
 const TITLE_MAX = 2200;
 
 const PRIVACY_LABEL: Record<TikTokPrivacy, string> = {
-  PUBLIC_TO_EVERYONE: "Alla",
-  MUTUAL_FOLLOW_FRIENDS: "Vänner",
-  FOLLOWER_OF_CREATOR: "Följare",
+  PUBLIC_TO_EVERYONE: "Everyone",
+  MUTUAL_FOLLOW_FRIENDS: "Friends",
+  FOLLOWER_OF_CREATOR: "Followers",
   SELF_ONLY: "Bara jag",
 };
 
@@ -60,7 +60,7 @@ export function useCreatorInfo(openId: string | undefined) {
     api.campaign.tiktok
       .creatorInfo(openId)
       .then(setCreator)
-      .catch((err) => setCreatorError(err instanceof Error ? err.message : "Kunde inte läsa kontot hos TikTok"));
+      .catch((err) => setCreatorError(err instanceof Error ? err.message : "Could not load the account from TikTok"));
   }, [openId]);
   return { creator, creatorError };
 }
@@ -85,11 +85,11 @@ export function useTikTokForm(clip: CampaignClip, creator: TikTokCreatorInfo | n
   const reason = !creator
     ? null
     : tooLong
-      ? `Klippet är ${length} s. Kontot får posta högst ${creator.max_video_post_duration_sec} s på TikTok.`
+      ? `The clip is ${length} s. The account may post at most ${creator.max_video_post_duration_sec} s on TikTok.`
       : utf16(title) > TITLE_MAX
-        ? `Beskrivningen får vara högst ${TITLE_MAX} tecken.`
+        ? `The description can be at most ${TITLE_MAX} characters.`
         : !privacy
-          ? "Välj vem som får se klippet."
+          ? "Choose who can see the clip."
           : null;
   const needDisclosure = disclose && !yourBrand && !branded;
   // Fälten som skickas, utan konto och läge. null tills allt är ifyllt.
@@ -145,14 +145,14 @@ function CoverPicker({ clip, value, onChange }: { clip: CampaignClip; value: num
       />
       <div className="min-w-0 flex-1 space-y-1.5">
         <p className="flex items-baseline justify-between gap-2 text-[13px] text-muted-foreground">
-          <label htmlFor={`omslag-${clip.id}`}>Omslag</label>
+          <label htmlFor={`omslag-${clip.id}`}>Cover</label>
           {value == null ? (
-            <span className="text-xs">Inget valt. TikTok tar första bilden.</span>
+            <span className="text-xs">Nothing chosen. TikTok uses the first frame.</span>
           ) : (
             <span className="flex items-baseline gap-2">
               <span className="text-sm font-medium text-foreground tabular-nums">{coverSec.format(value)} s</span>
               <button type="button" onClick={() => onChange(null)} className="text-xs underline-offset-4 hover:text-foreground hover:underline">
-                Ta bort valet
+                Clear the choice
               </button>
             </span>
           )}
@@ -192,7 +192,7 @@ export function TikTokFields({ clip, creator, form, rules = [] }: {
     <>
       <label className="block">
         <span className="flex justify-between text-[13px] text-muted-foreground">
-          Beskrivning
+          Description
           <span className={cn("tabular-nums", utf16(title) > TITLE_MAX && "text-bad")}>
             {utf16(title)} / {TITLE_MAX}
           </span>
@@ -208,7 +208,7 @@ export function TikTokFields({ clip, creator, form, rules = [] }: {
       <CoverPicker clip={clip} value={form.cover} onChange={form.setCover} />
 
       <label className="block">
-        <span className="text-[13px] text-muted-foreground">Vem får se</span>
+        <span className="text-[13px] text-muted-foreground">Who can see</span>
         <select
           value={privacy}
           onChange={(e) => {
@@ -220,7 +220,7 @@ export function TikTokFields({ clip, creator, form, rules = [] }: {
           className="mt-1 h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand [&>option]:bg-panel"
         >
           <option value="" disabled>
-            Välj…
+            Choose…
           </option>
           {creator?.privacy_level_options.map((p) => {
             const off = p === "SELF_ONLY" && brandedOn;
@@ -235,7 +235,7 @@ export function TikTokFields({ clip, creator, form, rules = [] }: {
           <span className="mt-1 block text-xs text-muted-foreground">{BC_PRIVATE}</span>
         )}
         {/* Listan följer TikToks val utan förval, men en ogranskad app får bara posta privat. */}
-        {!TIKTOK_AUDITED && <span className="mt-1 block text-xs text-warn/90">Inlägget blir privat (Bara jag) tills TikTok har granskat appen.</span>}
+        {!TIKTOK_AUDITED && <span className="mt-1 block text-xs text-warn/90">The post becomes private (Only me) until TikTok has audited the app.</span>}
       </label>
 
       <div className="space-y-1.5">
@@ -247,7 +247,7 @@ export function TikTokFields({ clip, creator, form, rules = [] }: {
         {/* TikTok kräver att rutorna är av från början. Kampanjens regel står här, så att Robin slår på dem själv. */}
         {interactionRules(rules).map((rule) => (
           <p key={rule} data-campaign-rule className="text-xs text-warn/90">
-            Kampanjens regel: {rule}
+            Campaign rule: {rule}
           </p>
         ))}
       </div>
