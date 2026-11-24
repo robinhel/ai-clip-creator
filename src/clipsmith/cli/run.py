@@ -256,7 +256,7 @@ def run_vod(
 
 
 def serve(
-    host: str = typer.Option("0.0.0.0", "--host", help="Bind host"),  # nosec B104
+    host: str = typer.Option("127.0.0.1", "--host", help="Bind host (localhost only by default)"),
     port: int = typer.Option(8000, "--port", help="Bind port"),
     reload: bool = typer.Option(False, "--reload", help="Auto-reload on code changes (dev only)"),
 ) -> None:
