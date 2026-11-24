@@ -234,3 +234,55 @@ def test_local_host_names_can_change_keys(settings, env, twitch, host) -> None:
     local = _client(settings)
     body = {"values": {"BERGET_API_KEY": SECRET}}
     assert local.put("/campaign/keys", json=body, headers={"host": host}).status_code == 200
+
+
+DOCKER_WEB = "172.18.0.3"  # the web container on the Compose network
+
+
+@pytest.mark.parametrize("host", ["api", "api:8000"])
+def test_the_docker_proxy_host_is_refused_without_trusted_proxy_hosts(settings, env, twitch, monkeypatch,
+                                                                       host) -> None:
+    monkeypatch.delenv("TRUSTED_PROXY_HOSTS", raising=False)
+    web = _client(settings, host=DOCKER_WEB)
+    assert web.put("/campaign/keys", json={"values": {"BERGET_API_KEY": SECRET}},
+                   headers={"host": host}).status_code == 403
+    assert env.read_text() == ENV
+
+
+@pytest.mark.parametrize("host", ["api", "api:8000", "API:8000"])
+def test_trusted_proxy_hosts_lets_the_docker_proxy_change_keys(settings, env, twitch, monkeypatch, host) -> None:
+    monkeypatch.setenv("TRUSTED_PROXY_HOSTS", " api ,other")
+    web = _client(settings, host=DOCKER_WEB)
+    assert web.put("/campaign/keys", json={"values": {"BERGET_API_KEY": SECRET}},
+                   headers={"host": host}).status_code == 200
+    assert web.post("/campaign/keys/test/twitch", headers={"host": host}).status_code == 200
+    assert env.read_text() == ENV + f"BERGET_API_KEY={SECRET}\n"
+
+
+@pytest.mark.parametrize(("ip", "host"), [
+    (DOCKER_WEB, "evil.example"), (DOCKER_WEB, "evil.example:8000"), (DOCKER_WEB, "api.evil.example"),
+    (DOCKER_WEB, "apix:8000"), (DOCKER_WEB, ""),
+    ("8.8.8.8", "api:8000"),  # the trusted name from a public address
+    ("172.18.0.1", "localhost:8000"), ("172.18.0.1", "127.0.0.1:8000"),  # local names stay loopback-only
+])
+def test_trusted_proxy_hosts_still_refuses_other_hosts_and_addresses(settings, env, twitch, monkeypatch,
+                                                                     ip, host) -> None:
+    monkeypatch.setenv("TRUSTED_PROXY_HOSTS", "api,localhost,127.0.0.1")
+    other = _client(settings, host=ip)
+    assert other.put("/campaign/keys", json={"values": {"BERGET_API_KEY": SECRET}},
+                     headers={"host": host}).status_code == 403
+    assert other.post("/campaign/keys/test/twitch", headers={"host": host}).status_code == 403
+    assert env.read_text() == ENV
+
+
+def test_klipp_env_file_moves_the_saved_keys(settings, env, twitch, monkeypatch) -> None:
+    """Docker mounts only data/, so the keys are saved in data/.env on the host."""
+    target = settings.root / "data" / ".env"
+    target.parent.mkdir()
+    monkeypatch.setenv("KLIPP_ENV_FILE", str(target))
+    client = _client(settings)
+    assert client.put("/campaign/keys", json={"values": {"BERGET_API_KEY": SECRET}}).status_code == 200
+    assert target.read_text() == f"BERGET_API_KEY={SECRET}\n"
+    assert env.read_text() == ENV
+    monkeypatch.setenv("BERGET_API_KEY", "")  # a fresh process: the value is read from the file
+    assert _set(client.get("/campaign/keys").json())["BERGET_API_KEY"] is True
