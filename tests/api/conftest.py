@@ -90,6 +90,7 @@ def client(db: Session) -> Generator[TestClient, None, None]:
         yield db
 
     app.dependency_overrides[get_db] = _override
-    with TestClient(app, raise_server_exceptions=True) as c:
+    # base_url: the app only answers a local Host (see _local_guard in clipsmith.api.app)
+    with TestClient(app, base_url="http://localhost", raise_server_exceptions=True) as c:
         yield c
     app.dependency_overrides.clear()

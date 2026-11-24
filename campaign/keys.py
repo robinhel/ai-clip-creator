@@ -46,11 +46,16 @@ _env_lock = threading.Lock()  # två Spara samtidigt får inte skriva över vara
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
 
 
+def host_name(host: str) -> str:
+    """Värdnamnet i en Host-header, utan port och med små bokstäver: "[::1]:8000" -> "[::1]"."""
+    host = host.strip().lower()
+    return host if host.endswith("]") else host.rsplit(":", 1)[0]
+
+
 def is_local(request: Request) -> bool:
     """True only for a request from the computer where the server runs, even if it listens on 0.0.0.0.
     Host-namnet kontrolleras också: en webbsida vars namn pekar på 127.0.0.1 (DNS rebinding) är ingen lokal klient."""
-    host = request.headers.get("host", "").lower()
-    if (host.rsplit(":", 1)[0] if not host.endswith("]") else host) not in LOCAL_HOSTS:
+    if host_name(request.headers.get("host", "")) not in LOCAL_HOSTS:
         return False
     try:
         address = ipaddress.ip_address(request.client.host if request.client else "")
@@ -61,10 +66,10 @@ def is_local(request: Request) -> bool:
     return address.is_loopback
 
 
-def _only_local(request: Request) -> None:
-    """Bara datorn där servern körs får byta nycklarna."""
+def only_local(request: Request) -> None:
+    """Nycklar och kontoinloggning: bara datorn där servern körs, med loopback-IP och lokal Host."""
     if not is_local(request):
-        raise HTTPException(403, "Keys can only be changed from the computer where the server runs.")
+        raise HTTPException(403, "This can only be done from the computer where the server runs.")
 
 
 def _value(name: str, root: Path) -> str:
@@ -141,7 +146,7 @@ def get_keys(settings: Settings = Depends(get_settings)) -> dict:
     return {"groups": _groups(settings.root)}
 
 
-@router.put("/keys", summary="Save keys in .env", dependencies=[Depends(verify_api_key), Depends(_only_local)])
+@router.put("/keys", summary="Save keys in .env", dependencies=[Depends(verify_api_key), Depends(only_local)])
 def put_keys(body: Any = Body(None), settings: Settings = Depends(get_settings)) -> dict:
     # Any och egen kontroll: FastAPIs 422-svar citerar fel indata, och den kan vara en nyckel.
     if not (isinstance(body, dict) and isinstance(body.get("values"), dict)):
@@ -158,7 +163,7 @@ def put_keys(body: Any = Body(None), settings: Settings = Depends(get_settings))
 
 
 @router.post("/keys/test/twitch", summary="Test the Twitch keys",
-             dependencies=[Depends(verify_api_key), Depends(_only_local)])
+             dependencies=[Depends(verify_api_key), Depends(only_local)])
 def post_test_twitch(settings: Settings = Depends(get_settings)) -> dict:
     return check_twitch(settings.root)
 

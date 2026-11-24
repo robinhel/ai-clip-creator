@@ -19,8 +19,8 @@ from clipsmith.api.deps import verify_api_key
 from . import editor
 from .api import _get, _log, get_settings
 from .config import Settings
+from .keys import only_local
 from .schedule import Schedule, ScheduleError, clip_file, clip_seconds
-from .tiktok_api import _only_local
 from .youtube import AUTH_URL, SCOPES, YouTube, YouTubeError
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
@@ -35,7 +35,7 @@ def youtube_status(settings: Settings = Depends(get_settings)) -> dict:
 
 
 @router.get("/youtube/connect", summary="Log in to Google (opens directly against :8000)",
-            dependencies=[Depends(_only_local)])
+            dependencies=[Depends(only_local)])
 def youtube_connect(settings: Settings = Depends(get_settings)) -> RedirectResponse:
     if not YouTube(settings).configured:
         raise HTTPException(400, "YouTube is not set up. Add YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET "
@@ -63,7 +63,7 @@ def youtube_connect(settings: Settings = Depends(get_settings)) -> RedirectRespo
 
 
 @router.get("/youtube/callback/", summary="Google redirects here after login",
-            dependencies=[Depends(_only_local)])
+            dependencies=[Depends(only_local)])
 def youtube_callback(state: str = "", code: str = "", error: str = "",
                      settings: Settings = Depends(get_settings)) -> RedirectResponse:
     def back(reason: str | None = None) -> RedirectResponse:

@@ -5,11 +5,11 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Awaitable, Callable
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse
 
 from .routes import analytics, clips, files, health, publish, runs, stream
 from ..db.models import Run, RunStatus
@@ -100,6 +100,8 @@ app = FastAPI(
         "Mutating endpoints (`POST /runs`, `PATCH /clips`, `POST /clips/{id}/publish`, "
         "`POST /analytics/runs/{id}/calibrate`) require an `X-Api-Key` header when "
         "`CLIPSMITH_API_KEY` is set in the server environment. Read endpoints are open.\n\n"
+        "Every request must use a local Host (`localhost`, `127.0.0.1`, `[::1]`, or a name in "
+        "`ALLOWED_HOSTS`), and a write with an `Origin` header must come from `CORS_ORIGINS`.\n\n"
         "## Quick start\n"
         "```bash\n"
         "# Start a pipeline run\n"
@@ -118,7 +120,7 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
-_cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+_cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -137,6 +139,7 @@ app.include_router(analytics.router)
 # Robins kampanjlager (campaign/): kampanjval, kö och klipplogg i webbappen.
 from campaign.api import router as campaign_router
 from campaign.editor_api import router as editor_router
+from campaign.keys import LOCAL_HOSTS, host_name
 from campaign.keys import router as keys_router
 from campaign.live_api import router as live_router
 from campaign.profiles_api import router as profiles_router
@@ -154,6 +157,26 @@ app.include_router(editor_router)
 app.include_router(keys_router)
 app.include_router(schedule_router)
 app.include_router(live_router)
+
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+@app.middleware("http")
+async def _local_guard(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    """The app runs on your own computer, so no other web page may drive it.
+
+    Host must be a local name (or one in ALLOWED_HOSTS, e.g. ``api`` in Docker): this stops DNS rebinding,
+    where a web page's own name suddenly points at 127.0.0.1. A write that carries an Origin must come from
+    the dashboard (CORS_ORIGINS): this stops a form or fetch on another page. Tools without Origin (curl) work.
+    Starlette's TrustedHostMiddleware is not used: it cannot read ``[::1]:8000``.
+    """
+    extra = {host_name(h) for h in os.getenv("ALLOWED_HOSTS", "").split(",") if h.strip()}
+    if host_name(request.headers.get("host", "")) not in LOCAL_HOSTS | extra:
+        return PlainTextResponse("Forbidden: this server only answers requests to localhost.", status_code=403)
+    origin = request.headers.get("origin")
+    if request.method not in _SAFE_METHODS and origin is not None and origin not in _cors_origins:
+        return PlainTextResponse("Forbidden: this origin may not change anything here.", status_code=403)
+    return await call_next(request)
 
 
 @app.get("/", include_in_schema=False)

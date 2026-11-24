@@ -10,7 +10,7 @@ from time import monotonic
 from typing import Literal
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
@@ -19,20 +19,13 @@ from clipsmith.api.deps import verify_api_key
 from . import editor
 from .api import _get, _log, get_settings
 from .config import Settings
-from .keys import is_local
+from .keys import only_local
 from .schedule import Schedule, ScheduleError, clip_file, clip_seconds
 from .tiktok import AUTH_URL, SCOPES, TikTok, TikTokError
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
 STATE_S = 600  # inloggningen måste vara klar inom 10 minuter
 _pending: dict[str, tuple[float, str]] = {}  # state -> (när, code_verifier). Bara i minnet.
-
-
-def _only_local(request: Request) -> None:
-    """clipsmith serve lyssnar på 0.0.0.0. Ingen annan på nätverket, och ingen annan webbsida, får koppla in sitt
-    eget konto. Samma IP- och Host-kontroll som för nycklarna."""
-    if not is_local(request):
-        raise HTTPException(403, "The account can only be connected from the computer where the server runs.")
 
 
 @router.get("/tiktok/status", summary="Is TikTok connected, and how many drafts are waiting")
@@ -42,7 +35,7 @@ def tiktok_status(settings: Settings = Depends(get_settings)) -> dict:
 
 
 @router.get("/tiktok/connect", summary="Log in to TikTok (opens directly against :8000)",
-            dependencies=[Depends(_only_local)])
+            dependencies=[Depends(only_local)])
 def tiktok_connect(settings: Settings = Depends(get_settings)) -> RedirectResponse:
     if not TikTok(settings).configured:
         raise HTTPException(400, "TikTok is not set up. Add Client key and Client secret "
@@ -68,7 +61,7 @@ def tiktok_connect(settings: Settings = Depends(get_settings)) -> RedirectRespon
 
 
 @router.get("/tiktok/callback/", summary="TikTok redirects here after login",
-            dependencies=[Depends(_only_local)])
+            dependencies=[Depends(only_local)])
 def tiktok_callback(state: str = "", code: str = "", error: str = "", error_description: str = "",
                     settings: Settings = Depends(get_settings)) -> RedirectResponse:
     def back(reason: str | None = None) -> RedirectResponse:

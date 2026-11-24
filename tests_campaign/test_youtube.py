@@ -226,7 +226,7 @@ def test_connect_and_callback_only_from_this_computer(settings, fake) -> None:
     other = TestClient(app, follow_redirects=False, client=("192.168.1.20", 50000))
     response = other.get("/campaign/youtube/connect")
     assert (response.status_code, response.json()["detail"]) == (
-        403, "The account can only be connected from the computer where the server runs.")
+        403, "This can only be done from the computer where the server runs.")
     assert other.get("/campaign/youtube/callback/", params={"code": "c", "state": "s"}).status_code == 403
     assert fake.requests == []
 
