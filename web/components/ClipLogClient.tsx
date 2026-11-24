@@ -814,7 +814,7 @@ function ListHeader({ shown, total, profiles, campaigns, f }: { shown: number; t
       <h2 id="inlagg-rubrik" className="text-lg font-semibold">
         Posts and clips{" "}
         <span className="font-normal text-muted-foreground">
-          (visar {shown} av {total})
+          (showing {shown} of {total})
         </span>
       </h2>
       <div className="flex flex-wrap gap-2">

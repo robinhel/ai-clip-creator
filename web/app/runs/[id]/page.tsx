@@ -141,14 +141,14 @@ function RunHeader({ run, clips }: { run: CampaignRunDetail; clips: CampaignClip
     <div className="min-w-0 flex-[1_1_20rem]">
       <h1 className="text-3xl font-bold tracking-tight break-words">
         {run.title || run.vod_id}
-        {clips && clips.length > 0 && <span className="font-normal text-muted-foreground">, {clips.length} klipp</span>}
+        {clips && clips.length > 0 && <span className="font-normal text-muted-foreground">, {clips.length} {clips.length === 1 ? "clip" : "clips"}</span>}
       </h1>
       <p className="mt-1.5 text-muted-foreground">{runMeta(run)}</p>
       <p className="text-sm text-muted-foreground">
         Campaign: {campaignLabel(run.profile)}, VOD {run.vod_id}
       </p>
-      {part && <p className="text-sm text-muted-foreground tabular-nums">Del av VOD:en: {part}</p>}
-      {run.focus && <p className="mt-1 text-sm text-muted-foreground">Letade efter: {run.focus}</p>}
+      {part && <p className="text-sm text-muted-foreground tabular-nums">Part of the VOD: {part}</p>}
+      {run.focus && <p className="mt-1 text-sm text-muted-foreground">Looked for: {run.focus}</p>}
     </div>
   );
 }
