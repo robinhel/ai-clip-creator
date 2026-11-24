@@ -32,7 +32,7 @@ const SOURCE_COLOR: Record<string, string> = {
   transcript_sample: "#525252",
 };
 
-function Legend({ audio }: { audio: boolean }) {
+function Legend({ audio, chat }: { audio: boolean; chat: boolean }) {
   const items: [string, string, string?][] = [
     ["Chat density", "bg-brand"],
     ["Audio energy", "bg-sky-400"],
@@ -43,12 +43,19 @@ function Legend({ audio }: { audio: boolean }) {
   return (
     <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
       {items.map(([label, dot]) => (
-        <span key={label} className={cn("flex items-center gap-1.5", label === "Audio energy" && !audio && "line-through opacity-60")}>
+        <span
+          key={label}
+          className={cn(
+            "flex items-center gap-1.5",
+            ((label === "Audio energy" && !audio) || (label === "Chat density" && !chat)) && "line-through opacity-60"
+          )}
+        >
           <i className={cn("inline-block size-2.5 rounded-[3px]", dot)} aria-hidden />
           {label}
         </span>
       ))}
       {!audio && <span>No audio energy saved for this VOD.</span>}
+      {!chat && <span>No chat for this video.</span>}
     </div>
   );
 }
@@ -188,18 +195,28 @@ function Candidates({ data }: { data: Timeline }) {
   );
 }
 
-/** The signal timeline for a run. Hidden while the signals are not saved yet (404). */
+/**
+ * The signal timeline for a run. Hidden while it loads and when the run has no saved signals (404), for
+ * example a run from before the timeline. Any other error shows a short text.
+ */
 export function SignalTimeline({ runId }: { runId: number }) {
   const [data, setData] = useState<Timeline | null>(null);
   const [missing, setMissing] = useState<string | null>(null);
   useEffect(() => {
+    // A new run: the last run's timeline goes, and a late answer for it is ignored.
+    let alive = true;
+    setData(null);
+    setMissing(null);
     api.campaign.runs
       .timeline(runId)
-      .then((t) => {
-        setData(t);
-        setMissing(null);
-      })
-      .catch((err) => setMissing(err instanceof Error ? err.message : "The signals could not be loaded."));
+      .then((t) => alive && setData(t))
+      .catch((err: unknown) => {
+        if (!alive || (err as { status?: number } | null)?.status === 404) return;
+        setMissing("The signal timeline could not be loaded. Reload the page to try again.");
+      });
+    return () => {
+      alive = false;
+    };
   }, [runId]);
 
   if (!data && !missing) return null;
@@ -214,7 +231,7 @@ export function SignalTimeline({ runId }: { runId: number }) {
       {data ? (
         <>
           <TimelineChart data={data} />
-          <Legend audio={data.audio_energy.length > 0} />
+          <Legend audio={data.audio_energy.length > 0} chat={data.chat_density.length > 0} />
           <Candidates data={data} />
         </>
       ) : (
