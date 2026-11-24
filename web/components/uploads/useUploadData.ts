@@ -19,7 +19,7 @@ export function useUploadData() {
     api.campaign.clips
       .list({ vod_id: "upload" })
       .then(setClips)
-      .catch((err) => setLoadError(errorText(err, "Kunde inte hämta de egna videorna")));
+      .catch((err) => setLoadError(errorText(err, "Could not load the uploads")));
   }, []);
 
   const load = useCallback(() => {
@@ -33,7 +33,7 @@ export function useUploadData() {
         setProfile((current) => current || (active.find((p) => p.name === wanted) ?? active[0])?.name || "");
         setProfilesLoaded(true);
       })
-      .catch((err) => setLoadError(errorText(err, "Kunde inte hämta kampanjerna")));
+      .catch((err) => setLoadError(errorText(err, "Could not load the campaigns")));
     loadClips();
   }, [loadClips]);
 
@@ -61,7 +61,7 @@ export function useUploadOptions(profile: string) {
     uploadsApi
       .options(profile)
       .then((o) => live && setOpts(o))
-      .catch((err) => live && setError(errorText(err, "Kunde inte hämta valen för kampanjen.")));
+      .catch((err) => live && setError(errorText(err, "Could not load the choices for the campaign.")));
     return () => {
       live = false;
     };

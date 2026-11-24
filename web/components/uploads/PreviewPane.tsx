@@ -27,7 +27,7 @@ function useFrame(url: string | null) {
           setSrc(current.current);
           setError(null);
         })
-        .catch((err) => !ctrl.signal.aborted && setError(errorText(err, "Bilden gick inte att hämta.")))
+        .catch((err) => !ctrl.signal.aborted && setError(errorText(err, "The picture could not be loaded.")))
         .finally(() => !ctrl.signal.aborted && setLoading(false));
     }, DEBOUNCE_MS);
     return () => {
@@ -46,14 +46,14 @@ function SafeZone({ top, bottom }: { top: number; bottom: number }) {
     <>
       <div data-testid="safe-top" className="pointer-events-none absolute inset-x-0 top-0 border-b border-dashed border-white/40 bg-black/45" style={{ height: `${top * 100}%` }} />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 border-t border-dashed border-white/40 bg-black/45" style={{ height: `${bottom * 100}%` }}>
-        <span className="absolute top-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white/80">Döljs av TikTok</span>
+        <span className="absolute top-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white/80">Hidden by TikTok</span>
       </div>
     </>
   );
 }
 
 function Notes({ render }: { render: DraftRender }) {
-  if (render.problems.length + render.warnings.length === 0) return <p className="text-xs text-good">Regelkontrollen hittade inget.</p>;
+  if (render.problems.length + render.warnings.length === 0) return <p className="text-xs text-good">The rule check found nothing.</p>;
   return (
     <ul className="space-y-1 text-xs">
       {render.problems.map((p) => (
@@ -90,9 +90,9 @@ function Frame({ frameUrl }: { frameUrl: string | null }) {
     <>
       {frame.src && (
         // eslint-disable-next-line @next/next/no-img-element -- bilden kommer som blob från servern.
-        <img src={frame.src} alt="Bild ur klippet som det blir" className="absolute inset-0 size-full object-contain" />
+        <img src={frame.src} alt="Frame from the clip as it will be" className="absolute inset-0 size-full object-contain" />
       )}
-      {frame.loading && <Loader2 className="absolute top-2 right-2 size-4 animate-spin text-white/80" aria-label="Hämtar bilden" />}
+      {frame.loading && <Loader2 className="absolute top-2 right-2 size-4 animate-spin text-white/80" aria-label="Loading the picture" />}
       {frame.error && (
         <p role="alert" className="absolute inset-x-2 top-1/2 -translate-y-1/2 rounded bg-black/80 p-2 text-center text-xs text-[#fca5a5]">
           {frame.error}
@@ -109,12 +109,12 @@ function Caption({ render, outdated, silent, safe, showSafe, onShowSafe }: Omit<
       {safe && (
         <label className="flex items-center gap-2">
           <input type="checkbox" checked={showSafe} onChange={(e) => onShowSafe(e.target.checked)} className="size-3.5 accent-[var(--brand,#7c5cff)]" />
-          Visa TikToks säkra zon
+          Show TikTok's safe zone
         </label>
       )}
-      <p>{playing ? "Hela klippet, precis som det sparas." : "Bilden ändras med valen. Förhandsvisa gör hela klippet."}</p>
-      {silent && !playing && <p>Bilden har inget ljud. Förhandsvisa för att höra ljudet.</p>}
-      {render && outdated && <p className="text-warn">Valen har ändrats. Förhandsvisa igen.</p>}
+      <p>{playing ? "The whole clip, exactly as it is saved." : "The picture changes with the choices. Preview makes the whole clip."}</p>
+      {silent && !playing && <p>The picture has no sound. Preview to hear the audio.</p>}
+      {render && outdated && <p className="text-warn">The choices have changed. Preview again.</p>}
       {playing && <Notes render={render} />}
     </figcaption>
   );
@@ -124,7 +124,7 @@ function Busy() {
   return (
     <div role="status" className="absolute inset-0 grid place-content-center gap-2 bg-black/70 p-4 text-center text-xs text-white">
       <Loader2 className="mx-auto size-6 animate-spin" aria-hidden />
-      Gör hela klippet. Det tar en dryg minut.
+      Making the whole clip. It takes a little over a minute.
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 
 const LEAVE_WARNING =
-  "Videorna i listan är inte sparade som klipp. Lämnar du sidan försvinner de ur listan. Vill du lämna sidan ändå?";
+  "The videos in the list are not saved as clips. If you leave the page, they disappear from the list. Do you want to leave anyway?";
 
 /** Ett klick på en länk som byter sida i samma flik. */
 function leavesPage(e: MouseEvent): boolean {

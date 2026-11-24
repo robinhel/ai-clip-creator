@@ -44,13 +44,13 @@ function allowedEnd({ startS, speed, min, max, duration }: Pick<Props, "startS" 
 const isArrow = (key: string) => key === "ArrowLeft" || key === "ArrowRight";
 
 function LimitStrip({ lo, hi, pct, min, max }: { lo: number; hi: number; pct: (t: number) => string; min: number; max: number | null | undefined }) {
-  const limits = max == null ? `minst ${formatSeconds(min)} s` : `${formatSeconds(min)}–${formatSeconds(max)} s`;
+  const limits = max == null ? `at least ${formatSeconds(min)} s` : `${formatSeconds(min)}–${formatSeconds(max)} s`;
   return (
     <div className="mx-2 mt-1.5">
       <div className="relative h-1.5 rounded bg-white/5" aria-hidden>
         {hi > lo && <div data-testid="allowed-end" className="absolute inset-y-0 rounded bg-good/60" style={{ left: pct(lo), width: `calc(${pct(hi)} - ${pct(lo)})` }} />}
       </div>
-      <p className="mt-1 text-[11px] text-muted-foreground">Grönt: där slutet kan ligga för kampanjens {limits}.</p>
+      <p className="mt-1 text-[11px] text-muted-foreground">Green: where the end can be for the campaign's {limits}.</p>
     </div>
   );
 }
@@ -114,9 +114,9 @@ export function Timeline(props: Props) {
   return (
     <div className={cn("select-none", disabled && "opacity-60")}>
       <p className="flex flex-wrap justify-between gap-x-3 text-[13px] text-muted-foreground">
-        <span>Start och slut</span>
+        <span>Start and end</span>
         <span className="tabular-nums">
-          Start {fmt(startS)} · Slut {fmt(end)} · Bild {fmt(atS)}
+          Start {fmt(startS)} · End {fmt(end)} · Frame {fmt(atS)}
         </span>
       </p>
       <div
@@ -143,7 +143,7 @@ export function Timeline(props: Props) {
               key={handle}
               role="slider"
               tabIndex={disabled ? -1 : 0}
-              aria-label={handle === "start" ? "Start" : "Slut"}
+              aria-label={handle === "start" ? "Start" : "End"}
               aria-valuemin={handle === "start" ? 0 : tenth(startS + STEP)}
               aria-valuemax={handle === "start" ? tenth(end - STEP) : total}
               aria-valuenow={tenth(t)}
@@ -176,8 +176,8 @@ export function Timeline(props: Props) {
         {check.text}
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
-        Dra handtagen, eller välj ett och flytta det med piltangenterna (0,1 s, med Skift 1 s). Klicka på tidslinjen för att visa bilden där.
-        Start ersätter Klipp i början.
+        Drag the handles, or choose one and move it with the arrow keys (0.1 s, with Shift 1 s). Click the timeline to show the frame there.
+        Start replaces Trim at start.
       </p>
     </div>
   );

@@ -11,7 +11,7 @@ export const label = (text: string, id: string) => (
 
 export const errorText = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 
-/** Ett fel med knappen Försök igen, till exempel när servern inte svarar. */
+/** Ett fel med knappen Try again, till exempel när servern inte svarar. */
 export function LoadError({ error, onRetry, className = "mt-4" }: { error: string; onRetry: () => void; className?: string }) {
   return (
     <div
@@ -20,7 +20,7 @@ export function LoadError({ error, onRetry, className = "mt-4" }: { error: strin
     >
       <span className="min-w-0 flex-1">{error}</span>
       <button type="button" onClick={onRetry} className="inline-flex h-8 items-center rounded-lg border border-[#4d1d1d] px-3 font-medium hover:bg-white/5">
-        Försök igen
+        Try again
       </button>
     </div>
   );

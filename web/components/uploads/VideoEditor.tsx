@@ -45,24 +45,24 @@ function Actions({ item, blocked, locked, others, outdated, actions }: { item: I
       <div className="grid grid-cols-2 gap-2">
         <Button variant="outline" className="h-9" disabled={off} onClick={() => actions.preview(item)}>
           {item.previewing ? <Loader2 className="animate-spin" aria-hidden /> : <Eye aria-hidden />}
-          Förhandsvisa
+          Preview
         </Button>
         <Button className="h-9" disabled={off} onClick={() => actions.save(item)}>
           {item.state === "busy" ? <Loader2 className="animate-spin" aria-hidden /> : <Save aria-hidden />}
-          Spara klippet
+          Save the clip
         </Button>
       </div>
       {others > 0 && (
         <Button variant="outline" className="h-9 w-full" disabled={locked} onClick={() => actions.applyToAll(item)}>
           <Copy aria-hidden />
-          Använd på alla ({others})
+          Use for all ({others})
         </Button>
       )}
       <p className="text-xs text-muted-foreground">
         {item.preview && !outdated
-          ? "Spara använder klippet du ser."
-          : "Spara gör klippet med valen ovan. Förhandsvisa först om du vill se hela klippet."}{" "}
-        Använd på alla kopierar valen, inte rubriken, start och slut.
+          ? "Save uses the clip you see."
+          : "Save makes the clip with the choices above. Preview first if you want to see the whole clip."}{" "}
+        Use for all copies the choices, not the headline, start and end.
       </p>
       {item.previewError && (
         <p role="alert" className="text-xs break-words text-[#fca5a5]">
@@ -75,9 +75,9 @@ function Actions({ item, blocked, locked, others, outdated, actions }: { item: I
 
 function Saved({ item }: { item: Item }) {
   return (
-    <section className="mt-6 rounded-2xl border border-line bg-panel p-5 text-sm" aria-label={`Valen för ${item.file.name}`}>
+    <section className="mt-6 rounded-2xl border border-line bg-panel p-5 text-sm" aria-label={`Choices for ${item.file.name}`}>
       <h2 className="text-lg font-semibold break-words">{item.file.name}</h2>
-      <p className="mt-2 text-good">Klar: {item.message}. Klippet finns under Dina egna klipp nedan.</p>
+      <p className="mt-2 text-good">Done: {item.message}. The clip is under Your own clips below.</p>
     </section>
   );
 }
@@ -90,7 +90,7 @@ function frameUrlFor(item: Item, profile: string): string | null {
 /** Tidslinjen när videon är uppladdad och kampanjens gränser är kända. */
 function EditorTimeline({ item, opts, check, locked, actions }: { item: Item; opts: DraftOptions | null; check: LengthCheck | null; locked: boolean; actions: EditorActions }) {
   // check finns bara när utkastet och kampanjens val finns (itemProblem).
-  if (!check) return <p className="text-sm text-muted-foreground">Tidslinjen visas när videon är uppladdad.</p>;
+  if (!check) return <p className="text-sm text-muted-foreground">The timeline shows when the video is uploaded.</p>;
   return (
     <Timeline
       duration={item.draft!.duration_s}
@@ -143,7 +143,7 @@ export function VideoEditor({ item, profile, opts, optsError, onOptsRetry, busy,
   if (item.state === "done") return <Saved item={item} />;
   const { locked, check, problem, otherProblem, outdated } = editorState(item, opts, profile, busy);
   return (
-    <section className="mt-6 rounded-2xl border border-line bg-panel p-4 sm:p-5" aria-label={`Valen för ${item.file.name}`}>
+    <section className="mt-6 rounded-2xl border border-line bg-panel p-4 sm:p-5" aria-label={`Choices for ${item.file.name}`}>
       <h2 className="text-lg font-semibold break-words">{item.file.name}</h2>
       <div className="mt-4 grid gap-6 md:grid-cols-[240px_minmax(0,1fr)]">
         <div className="space-y-3">

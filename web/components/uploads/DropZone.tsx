@@ -27,8 +27,8 @@ export function DropZone({ onFiles, rejected }: { onFiles: (files: FileList | nu
         )}
       >
         <Upload className="size-6 text-muted-foreground" aria-hidden />
-        <span className="font-medium">Dra in videor här, eller klicka för att välja</span>
-        <span className="text-xs text-muted-foreground">mp4, mov, m4v, webm eller mkv. Videon laddas upp direkt.</span>
+        <span className="font-medium">Drag videos here, or click to choose</span>
+        <span className="text-xs text-muted-foreground">mp4, mov, m4v, webm or mkv. The video uploads right away.</span>
         <input
           type="file"
           accept={ACCEPT}

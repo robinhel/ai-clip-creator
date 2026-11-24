@@ -108,7 +108,7 @@ export function useItems() {
         .catch((err) => {
           // Avbryt tar bort videon ur listan.
           if (err instanceof UploadAborted) setItems((list) => list.filter((i) => i.key !== item.key));
-          else update(item.key, { upload: "failed", uploadError: errorText(err, "Uppladdningen misslyckades.") });
+          else update(item.key, { upload: "failed", uploadError: errorText(err, "The upload failed.") });
         })
         .finally(() => aborts.current.delete(item.key));
     },
@@ -187,7 +187,7 @@ export function useItems() {
       const render = await uploadsApi.render(item.draft.draft_id, choicesForm(item.choices, profile, item.title));
       update(item.key, { preview: { render, key } });
     } catch (err) {
-      update(item.key, { previewError: errorText(err, "Förhandsvisningen gick inte att göra.") });
+      update(item.key, { previewError: errorText(err, "The preview could not be made.") });
     } finally {
       update(item.key, { previewing: false });
     }
@@ -202,7 +202,7 @@ export function useItems() {
       update(item.key, { state: "done", message: `Klipp ${clip.id}` });
       return true;
     } catch (err) {
-      update(item.key, { state: "error", message: errorText(err, "Gick inte att göra om") });
+      update(item.key, { state: "error", message: errorText(err, "Could not make it") });
       return false;
     }
   }

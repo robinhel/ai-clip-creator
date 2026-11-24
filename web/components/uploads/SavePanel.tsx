@@ -7,17 +7,17 @@ import type { CampaignProfile } from "@/lib/types";
 import { ProfileField } from "./ChoiceFields";
 
 function makeLabel(busy: boolean, waiting: number): string {
-  if (busy) return "Gör om…";
-  return waiting > 1 ? `Gör om ${waiting} videor` : "Gör om videon";
+  if (busy) return "Making…";
+  return waiting > 1 ? `Make ${waiting} videos` : "Make the video";
 }
 
 /** Texten under knappen när videorna är klara, med länken till Klippen. */
 function MadeNote({ made }: { made: number }) {
   return (
     <p role="status" className="text-xs text-good">
-      {made === 1 ? "1 klipp är klart." : `${made} klipp är klara.`} Granska nedan, eller i{" "}
+      {made === 1 ? "1 clip is done." : `${made} clips are done.`} Review below, or in{" "}
       <Link href="/queue?tab=granska" className="underline underline-offset-4">
-        Klippen, Att granska
+        Clips, To review
       </Link>
       .
     </p>
@@ -27,9 +27,9 @@ function MadeNote({ made }: { made: number }) {
 function NoCampaign() {
   return (
     <p className="text-xs text-muted-foreground">
-      Ingen aktiv kampanj.{" "}
+      No active campaign.{" "}
       <Link href="/campaigns" className="underline underline-offset-4 hover:text-foreground">
-        Slå på en under Kampanjer
+        Turn one on under Campaigns
       </Link>
       .
     </p>
@@ -76,8 +76,8 @@ export function SavePanel(props: Props) {
         {makeLabel(busy, waiting)}
       </Button>
       <p className="text-xs text-muted-foreground">
-        Sparar alla videor som väntar, en i taget, med valen för varje video. Videor med fel görs om vid nästa tryck.
-        {uploading > 0 && ` ${uploading} laddas fortfarande upp.`}
+        Saves all waiting videos, one at a time, with the choices for each video. Videos with errors are redone on the next press.
+        {uploading > 0 && ` ${uploading} still uploading.`}
       </p>
       <PanelNotes {...props} />
     </div>

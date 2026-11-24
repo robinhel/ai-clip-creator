@@ -7,12 +7,12 @@ import { field } from "./ui";
 import type { Item } from "./useItems";
 
 function ItemStatus({ item }: { item: Item }) {
-  if (item.upload === "uploading") return <Spinning text={`Laddar upp ${item.percent} %`} />;
+  if (item.upload === "uploading") return <Spinning text={`Uploading ${item.percent} %`} />;
   if (item.upload === "failed") return <>{item.uploadError}</>;
-  if (item.state === "busy") return <Spinning text="Gör om videon…" />;
-  if (item.previewing) return <Spinning text="Förhandsvisar…" />;
+  if (item.state === "busy") return <Spinning text="Making the video…" />;
+  if (item.previewing) return <Spinning text="Previewing…" />;
   if (item.state === "done") return <>Klar: {item.message}</>;
-  return <>{item.message ?? (item.preview ? "Förhandsvisad, inte sparad" : "Väntar")}</>;
+  return <>{item.message ?? (item.preview ? "Previewed, not saved" : "Waiting")}</>;
 }
 
 function Spinning({ text }: { text: string }) {
@@ -47,7 +47,7 @@ function RowAction({ item, onRemove, onRetry }: { item: Item; onRemove: () => vo
   if (item.upload === "uploading") {
     return (
       <button type="button" onClick={onRemove} className="h-8 rounded-lg border border-line px-2.5 text-xs font-medium hover:bg-white/5">
-        Avbryt
+        Cancel
       </button>
     );
   }
@@ -56,10 +56,10 @@ function RowAction({ item, onRemove, onRetry }: { item: Item; onRemove: () => vo
     <span className="flex items-center gap-2">
       {item.upload === "failed" && (
         <button type="button" onClick={onRetry} className="h-8 rounded-lg border border-line px-2.5 text-xs font-medium hover:bg-white/5">
-          Ladda upp igen
+          Upload again
         </button>
       )}
-      <button type="button" aria-label={`Ta bort ${item.file.name} ur listan`} onClick={onRemove} className="text-muted-foreground hover:text-foreground">
+      <button type="button" aria-label={`Remove ${item.file.name} from the list`} onClick={onRemove} className="text-muted-foreground hover:text-foreground">
         <X className="size-4" aria-hidden />
       </button>
     </span>
@@ -97,8 +97,8 @@ function ItemRow({ item, selected, thumb, burnsTitle, onSelect, onTitle, onRemov
         </span>
       </button>
       <input
-        aria-label={`Rubrik för ${item.file.name}`}
-        placeholder={burnsTitle ? "Rubrik (bränns in i början, valfri)" : "Rubrik till captionen (valfri)"}
+        aria-label={`Headline for ${item.file.name}`}
+        placeholder={burnsTitle ? "Headline (burned in at the start, optional)" : "Headline for the caption (optional)"}
         value={item.title}
         onChange={(e) => onTitle(e.target.value)}
         onFocus={onSelect}
@@ -132,7 +132,7 @@ export function VideoList({ items, selected, burnsTitle, thumbFor, onSelect, onT
   const done = items.filter((i) => i.state === "done").length;
   return (
     <div className="space-y-2">
-      <ul className="space-y-2" aria-label="Videorna">
+      <ul className="space-y-2" aria-label="Videos">
         {items.map((item) => (
           <ItemRow
             key={item.key}
@@ -149,7 +149,7 @@ export function VideoList({ items, selected, burnsTitle, thumbFor, onSelect, onT
       </ul>
       {done > 0 && (
         <button type="button" onClick={onRemoveDone} className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground">
-          Ta bort {done === 1 ? "den klara videon" : `de ${done} klara videorna`} ur listan
+          Remove {done === 1 ? "the finished video" : `the ${done} finished videos`} from the list
         </button>
       )}
     </div>

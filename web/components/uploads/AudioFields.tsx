@@ -21,7 +21,7 @@ interface Props {
 
 function AudioChoice({ choices, set, busy }: Pick<Props, "choices" | "set" | "busy">) {
   return (
-    <div role="radiogroup" aria-label="Ljud" className="grid grid-cols-3 gap-2">
+    <div role="radiogroup" aria-label="Audio" className="grid grid-cols-3 gap-2">
       {AUDIOS.map(([value, text]) => (
         <label
           key={value}
@@ -61,7 +61,7 @@ function useMusicUpload(profile: string, onAdded: Added) {
     setPercent(0);
     uploadMusic({ file, profile }, setPercent)
       .done.then((music) => onAdded({ to: profile, music }))
-      .catch((err) => setError(errorText(err, "Musiken gick inte att ladda upp.")))
+      .catch((err) => setError(errorText(err, "The music could not be uploaded.")))
       .finally(() => setPercent(null));
   }
 
@@ -81,7 +81,7 @@ function AddMusic({ profile, busy, onAdded }: { profile: string; busy: boolean; 
         )}
       >
         {uploading ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Plus className="size-4" aria-hidden />}
-        {uploading ? `Laddar upp ${percent} %` : "Lägg till musik"}
+        {uploading ? `Uploading ${percent} %` : "Add music"}
         <input
           type="file"
           accept={MUSIC_ACCEPT}
@@ -106,9 +106,9 @@ function MusicList({ opts, choices, set, busy }: Pick<Props, "opts" | "choices" 
   const music = opts.music ?? [];
   return (
     <div>
-      {label("Låt", "upload-music")}
+      {label("Song", "upload-music")}
       <select id="upload-music" value={choices.music} onChange={(e) => set("music", e.target.value)} disabled={busy} className={field}>
-        <option value="">{music.length ? "Välj en låt" : "Kampanjen har ingen musik än"}</option>
+        <option value="">{music.length ? "Choose a song" : "The campaign has no music yet"}</option>
         {music.map((m) => (
           <option key={m.file} value={m.file}>
             {m.file} ({formatSeconds(m.duration_s)} s)
@@ -122,7 +122,7 @@ function MusicList({ opts, choices, set, busy }: Pick<Props, "opts" | "choices" 
 function MusicStart({ choices, set, busy }: Pick<Props, "choices" | "set" | "busy">) {
   return (
     <div>
-      {label("Musiken börjar vid (s)", "upload-music-start")}
+      {label("Music starts at (s)", "upload-music-start")}
       <input
         id="upload-music-start"
         type="text"
@@ -141,7 +141,7 @@ function OriginalVolume({ opts, choices, set, busy }: Pick<Props, "opts" | "choi
   return (
     <div>
       <p className="flex justify-between gap-3">
-        {label("Originalljud", "upload-original-volume")}
+        {label("Original audio", "upload-original-volume")}
         <span className="text-sm font-medium tabular-nums">{choices.originalVolume} %</span>
       </p>
       <input
@@ -171,7 +171,7 @@ function AudioRules({ rules }: { rules: string[] | undefined }) {
     <div className="flex items-start gap-1.5 rounded-lg border border-[#5a4416] bg-[#1b160b] px-2.5 py-2 text-xs text-warn">
       <Info className="mt-px size-3.5 shrink-0" aria-hidden />
       <div>
-        <p>Kampanjens regler om ljud:</p>
+        <p>The campaign's rules about audio:</p>
         <ul className="mt-0.5 list-disc pl-4">
           {rules.map((r) => (
             <li key={r}>{r}</li>
@@ -187,9 +187,9 @@ export function AudioFields({ opts, profile, choices, set, busy, onMusicAdded }:
   const fieldProps = { choices, set, busy };
   return (
     <fieldset className="min-w-0 space-y-3 rounded-xl border border-line p-3">
-      <legend className="px-1 text-[13px] text-muted-foreground">Ljud</legend>
+      <legend className="px-1 text-[13px] text-muted-foreground">Audio</legend>
       <AudioChoice {...fieldProps} />
-      {choices.audio === "mute" && <p className="text-xs text-muted-foreground">Klippet får ett tyst ljudspår.</p>}
+      {choices.audio === "mute" && <p className="text-xs text-muted-foreground">The clip gets a silent audio track.</p>}
       {choices.audio !== "keep" && <AudioRules rules={opts.audio_rules} />}
       {choices.audio === "music" && (
         <>

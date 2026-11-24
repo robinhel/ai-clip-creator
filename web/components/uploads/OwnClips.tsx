@@ -6,18 +6,18 @@ import type { CampaignClip, CampaignFormat, CampaignProfile, CampaignStatus } fr
 
 // Flikar som på projektsidan, så att ett nekat klipp går att hitta och ångra.
 const TABS: { id: string; label: string; statuses: CampaignStatus[] }[] = [
-  { id: "granska", label: "Att granska", statuses: ["renderad", "underkand"] },
-  { id: "godkanda", label: "Godkända", statuses: ["godkand"] },
-  { id: "postade", label: "Postade", statuses: ["postad", "postad_utan_lank", "inskickad", "analytics_inskickad", "betald"] },
-  { id: "nekade", label: "Nekade", statuses: ["nekad"] },
+  { id: "granska", label: "To review", statuses: ["renderad", "underkand"] },
+  { id: "godkanda", label: "Approved", statuses: ["godkand"] },
+  { id: "postade", label: "Posted", statuses: ["postad", "postad_utan_lank", "inskickad", "analytics_inskickad", "betald"] },
+  { id: "nekade", label: "Rejected", statuses: ["nekad"] },
 ];
 
 function emptyText(loadError: string | null, tab: string): string {
-  if (loadError) return "Klippen går inte att visa just nu.";
-  return tab === "granska" ? "Inga egna videor väntar på granskning." : "Inga egna klipp med den statusen.";
+  if (loadError) return "The clips cannot be shown right now.";
+  return tab === "granska" ? "No uploads are waiting for review." : "No own clips with that status.";
 }
 
-/** Dina egna klipp: flikarna och klippen i den valda fliken. */
+/** Your own clips: flikarna och klippen i den valda fliken. */
 export function OwnClips({
   clips,
   profiles,
@@ -38,11 +38,11 @@ export function OwnClips({
   const shown = clips.filter((c) => activeTab.statuses.includes(c.status));
   return (
     <section className="mt-8">
-      <h2 className="text-xl font-semibold">Dina egna klipp</h2>
+      <h2 className="text-xl font-semibold">Your own clips</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Säg ja till klippet för att skicka det till Att posta. Ett nekat klipp ligger under Nekade, där det går att ångra.
+        Say yes to the clip to send it to Ready to post. A rejected clip is under Rejected, where it can be undone.
       </p>
-      <div role="tablist" aria-label="Visa egna klipp" className="mt-3 flex w-fit max-w-full flex-wrap overflow-hidden rounded-[9px] border border-line text-[13px]">
+      <div role="tablist" aria-label="Show own clips" className="mt-3 flex w-fit max-w-full flex-wrap overflow-hidden rounded-[9px] border border-line text-[13px]">
         {TABS.map((t) => (
           <button
             key={t.id}
