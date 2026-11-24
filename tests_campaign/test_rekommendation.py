@@ -94,10 +94,10 @@ def test_score_is_clips_views_and_game(client, twitch) -> None:  # noqa: F811
     best, rob, chat = found["103"], found["102"], found["101"]
     assert (best["view_count"], best["viewer_clips"], best["live"]) == (1000, 25, False)
     assert best["score_parts"] == {"clips": 50, "views": 30, "game": 20} and best["score"] == 100
-    assert best["reason"] == "25 tittarklipp, 1 000 visningar, Bodycam"
+    assert best["reason"] == "25 viewer clips, 1,000 views, Bodycam"
     assert rob["score_parts"] == {"clips": round(2.5), "views": 15, "game": 0}
-    assert rob["reason"] == "1 tittarklipp, 500 visningar"
-    assert (chat["viewer_clips"], chat["score"], chat["reason"]) == (0, 0, "Inga tydliga signaler")
+    assert rob["reason"] == "1 viewer clip, 500 views"
+    assert (chat["viewer_clips"], chat["score"], chat["reason"]) == (0, 0, "No clear signals")
     assert [s["vod_id"] for s in client.get("/campaign/streams").json()] == ["103", "102", "101"]  # nyast först
     (call,) = twitch.helix_calls
     assert (call["login"], call["broadcaster_id"]) == ("skiimasktimmy", "42")

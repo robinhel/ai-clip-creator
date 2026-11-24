@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   START_CHOICES,
+  audioProblemText,
   choicesForm,
   clipLength,
   copyChoices,
@@ -13,6 +14,7 @@ import {
   rejectText,
   saveLastChoices,
   splitVideoFiles,
+  stickerProblemText,
   volumeWarning,
   withKnownMusic,
   type Choices,
@@ -96,14 +98,22 @@ describe("valen till servern", () => {
     }
   });
 
-  it("Musik skickar alla fyra fälten, originalljudet som andel och starten med komma", () => {
-    const form = choicesForm(choices({ audio: "music", music: "wow.mp3", musicStart: "12,5", originalVolume: 30 }), "timmy", "");
+  it("Musik skickar alla fyra fälten, originalljudet som andel och starten med punkt", () => {
+    const form = choicesForm(choices({ audio: "music", music: "wow.mp3", musicStart: "12.5", originalVolume: 30 }), "timmy", "");
     expect(form.get("audio")).toBe("music");
     expect(form.get("music")).toBe("wow.mp3");
     expect(form.get("music_start_s")).toBe("12.5");
     expect(form.get("original_volume")).toBe("0.3");
     expect(choicesForm(choices({ audio: "music", music: "a.mp3", originalVolume: 0 }), "timmy", "").get("original_volume")).toBe("0");
     expect(choicesForm(choices({ audio: "music", music: "a.mp3", originalVolume: 100 }), "timmy", "").get("original_volume")).toBe("1");
+  });
+
+  it("läser sekunder i engelskt format: komma skiljer tusental, och ett decimalkomma är ett fel", () => {
+    const music = (musicStart: string) => choices({ audio: "music", music: "a.mp3", musicStart });
+    expect(choicesForm(music("1,200.5"), "timmy", "").get("music_start_s")).toBe("1200.5");
+    expect(audioProblemText(music("1,200"))).toBeNull();
+    expect(audioProblemText(music("1,5"))).not.toBeNull();
+    expect(stickerProblemText(choices({ sticker: "pil.png", stickerStart: "0", stickerLength: "2,5" }))).not.toBeNull();
   });
 
   it("startar med Behåll ljudet och originalljudet 30 %", () => {
@@ -116,9 +126,9 @@ describe("valen till servern", () => {
     expect(START_CHOICES.filter).toBe("none");
   });
 
-  it("tar med klistermärket bara när det är valt, och läser komma i sekunderna", () => {
+  it("tar med klistermärket bara när det är valt, och läser punkt i sekunderna", () => {
     expect(choicesForm(choices({ position: "bottom_left" }), "timmy", "").has("sticker_position")).toBe(false);
-    const form = choicesForm(choices({ sticker: "pil.png", stickerStart: "1,5", stickerLength: "3" }), "timmy", "");
+    const form = choicesForm(choices({ sticker: "pil.png", stickerStart: "1.5", stickerLength: "3" }), "timmy", "");
     expect(form.get("sticker")).toBe("pil.png");
     expect(form.get("sticker_position")).toBe("top_right");
     expect(form.get("sticker_start_s")).toBe("1.5");
@@ -202,7 +212,7 @@ describe("varningen när originalljudet är 0 %", () => {
 describe("senaste valen per kampanj", () => {
   it("sparar ljudvalet", () => {
     const storage = memoryStorage();
-    const mine = choices({ audio: "music", music: "wow.mp3", musicStart: "3,5", originalVolume: 0 });
+    const mine = choices({ audio: "music", music: "wow.mp3", musicStart: "3.5", originalVolume: 0 });
     saveLastChoices(storage, "timmy", mine);
     expect(loadLastChoices(storage, "timmy")).toEqual(mine);
     expect(loadLastChoices(storage, "timmy", ["wow.mp3", "annan.mp3"])).toEqual(mine);

@@ -434,13 +434,13 @@ def test_stats_in_the_terminal_saves_the_metrics(settings, monkeypatch, capsys) 
                 "--views",
                 "2500",
                 "--watch-s",
-                "6,4",
+                "6.4",
                 "--full-pct",
                 "31.5",
                 "--fyp-pct",
-                "88,0",
+                "88.0",
                 "--countries-pct",
-                "74,2",
+                "74.2",
                 "--saves",
                 "12",
             ]
@@ -453,8 +453,19 @@ def test_stats_in_the_terminal_saves_the_metrics(settings, monkeypatch, capsys) 
     assert log.get(clip_id)["views"] == 2500
 
 
+def test_stats_in_the_terminal_reads_a_comma_as_a_thousands_separator(settings, monkeypatch) -> None:
+    monkeypatch.setattr(cli, "load_settings", lambda: settings)
+    log = ClipLog(settings.data_dir / "klipp.db")
+    clip_id = _clip(settings, status="godkand", clip_format="funny")
+    post_id = log.add_post(clip_id, "tiktok", TIKTOK)
+    assert cli.main(["stats", str(clip_id), "--views", "2500", "--watch-s", "1,000.5"]) == 0
+    assert log.get_post(post_id)["avg_watch_s"] == 1000.5
+
+
 @pytest.mark.parametrize(
-    "wrong", [["--saves", "-5"], ["--watch-s", "nan"], ["--watch-s", "inf"], ["--full-pct", "nan"]]
+    "wrong",
+    [["--saves", "-5"], ["--watch-s", "nan"], ["--watch-s", "inf"], ["--full-pct", "nan"],
+     ["--watch-s", "6,4"], ["--full-pct", "1,0000"]],
 )
 def test_stats_in_the_terminal_refuses_wrong_numbers(settings, monkeypatch, capsys, wrong) -> None:
     monkeypatch.setattr(cli, "load_settings", lambda: settings)

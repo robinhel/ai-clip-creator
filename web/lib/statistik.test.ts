@@ -40,7 +40,7 @@ function post(over: Partial<ClipPost> = {}): ClipPost {
 describe("buildPatch", () => {
   it("Betald sparar beloppet som är skrivet men inte sparat, i samma anrop", () => {
     const saved = post({ status: "analytics_inskickad", views: 2500, paid_usd: null });
-    const draft = { ...draftFrom(saved), paid: "14,20" };
+    const draft = { ...draftFrom(saved), paid: "14.20" };
     expect(buildPatch(draft, saved, "betald")).toEqual({ body: { status: "betald", paid_usd: 14.2 } });
   });
 
@@ -72,17 +72,42 @@ describe("buildPatch", () => {
     expect("error" in badViews && badViews.error).toMatch(/^Views/);
   });
 
-  it("visar sparat belopp med komma och skickar inget belopp för en rad utan inlägg", () => {
-    expect(draftFrom(post({ paid_usd: 14.2 })).paid).toBe("14,20");
+  it("visar sparat belopp med punkt och skickar inget belopp för en rad utan inlägg", () => {
+    expect(draftFrom(post({ paid_usd: 14.2 })).paid).toBe("14.20");
     const old = clip({ status: "inskickad", views: 10 });
     expect(buildPatch({ ...draftFrom(old), paid: "5" }, old, "betald")).toEqual({ body: { status: "betald" } });
   });
 });
 
-describe("Fler mått", () => {
-  it("tar decimalkomma och punkt för sekunder och procent", () => {
+describe("talen i engelskt format", () => {
+  it("tar kommatecken som tusentalsavgränsare i antal, belopp och mått", () => {
     const saved = post({ status: "inskickad" });
-    const draft = { ...draftFrom(saved), avg_watch_s: "6,4", full_pct: "6.4", fyp_pct: "55", countries_pct: "100", saves: "12" };
+    const draft = { ...draftFrom(saved), views: "2,500", likes: "10,000", paid: "1,000.50", avg_watch_s: "1,000.5", saves: "2,500" };
+    expect(buildPatch(draft, saved)).toEqual({
+      body: { views: 2500, likes: 10000, paid_usd: 1000.5, avg_watch_s: 1000.5, saves: 2500 },
+    });
+  });
+
+  it("ett komma som inte skiljer tusental är ett fel, inte ett decimalkomma", () => {
+    const saved = post({ status: "inskickad" });
+    const errorFor = (field: string, value: string) => {
+      const result = buildPatch({ ...draftFrom(saved), [field]: value }, saved);
+      return "error" in result ? result.error : null;
+    };
+    expect(errorFor("paid", "14,20")).toMatch(/^Paid/);
+    expect(errorFor("avg_watch_s", "6,4")).toMatch(/^Watch time \(s\)/);
+    expect(errorFor("views", "25,00")).toMatch(/^Views/);
+  });
+
+  it("visar ett sparat belopp över tusen utan decimalkomma", () => {
+    expect(draftFrom(post({ paid_usd: 1000.5 })).paid).toBe("1000.50");
+  });
+});
+
+describe("Fler mått", () => {
+  it("tar decimalpunkt för sekunder och procent", () => {
+    const saved = post({ status: "inskickad" });
+    const draft = { ...draftFrom(saved), avg_watch_s: "6.4", full_pct: "6.4", fyp_pct: "55", countries_pct: "100", saves: "12" };
     expect(buildPatch(draft, saved)).toEqual({
       body: { avg_watch_s: 6.4, full_pct: 6.4, fyp_pct: 55, countries_pct: 100, saves: 12 },
     });
@@ -101,9 +126,9 @@ describe("Fler mått", () => {
     expect(errorFor("saves", "2,5")).toMatch(/^Saves/);
   });
 
-  it("visar sparade mått med komma och ser bara ändrade fält; ett tömt fält sparas som null", () => {
+  it("visar sparade mått med punkt och ser bara ändrade fält; ett tömt fält sparas som null", () => {
     const saved = post({ status: "inskickad", avg_watch_s: 6.4, full_pct: 30, fyp_pct: null, countries_pct: 80, saves: 3 });
-    expect(draftFrom(saved).avg_watch_s).toBe("6,4");
+    expect(draftFrom(saved).avg_watch_s).toBe("6.4");
     expect(changed(draftFrom(saved), saved)).toEqual([]);
     const draft = { ...draftFrom(saved), fyp_pct: "40", saves: "" };
     expect(changed(draft, saved).sort()).toEqual(["fyp_pct", "saves"]);
@@ -114,7 +139,7 @@ describe("Fler mått", () => {
 
   it("en rad utan inlägg skickar inga mått", () => {
     const old = clip({ status: "inskickad", views: 10 });
-    const draft = { ...draftFrom(old), avg_watch_s: "6,4", full_pct: "50", fyp_pct: "50", countries_pct: "50", saves: "3" };
+    const draft = { ...draftFrom(old), avg_watch_s: "6.4", full_pct: "50", fyp_pct: "50", countries_pct: "50", saves: "3" };
     expect(changed(draft, old)).toEqual([]);
     expect(buildPatch(draft, old)).toEqual({ body: {} });
   });

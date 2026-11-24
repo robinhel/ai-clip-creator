@@ -16,11 +16,11 @@ import {
   contentRewardsProblem,
   field,
   httpsProblem,
-  parseNumber,
   previewCaption,
   type FormatRow,
 } from "@/components/CampaignFields";
 import { api } from "@/lib/api";
+import { parseNumber } from "@/lib/numbers";
 import { cn } from "@/lib/utils";
 import type { CampaignProfileCreate, CampaignSource, OverlayMode, Platform, TextPosition } from "@/lib/types";
 

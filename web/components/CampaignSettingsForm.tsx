@@ -15,12 +15,11 @@ import {
   contentRewardsProblem,
   field,
   httpsProblem,
-  numberText,
-  parseNumber,
   previewCaption,
   type FormatRow,
 } from "@/components/CampaignFields";
 import { api } from "@/lib/api";
+import { numberText, parseNumber } from "@/lib/numbers";
 import { cn } from "@/lib/utils";
 import type {
   AccountPlatform,
