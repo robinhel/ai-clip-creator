@@ -19,20 +19,20 @@ from .budget import BudgetExceeded
 from .config import Settings
 from .pipeline import clipsmith_config
 
-NO_VIDEO = "Videon finns inte kvar."
+NO_VIDEO = "The video no longer exists."
 
 
 def _campaign(profile_id: str, settings: Settings) -> str:
     """404 också för dolda kampanjer: de börjar med _, som _ingen för liveklipp utan kampanj."""
     if not re.fullmatch(r"[a-z0-9][a-z0-9_]{1,39}", profile_id) or not (settings.profiles_dir / f"{profile_id}.yaml").exists():
-        raise HTTPException(404, f"Kampanjen {profile_id} finns inte.")
+        raise HTTPException(404, f"The campaign {profile_id} does not exist.")
     return profile_id
 
 
 def _chat(chat_id: int, settings: Settings) -> dict:
     found = chat.Chats(settings.data_dir / "klipp.db").get(chat_id)
     if found is None:
-        raise HTTPException(404, "Chatten finns inte.")
+        raise HTTPException(404, "The chat does not exist.")
     return found
 
 
@@ -47,17 +47,17 @@ def _whole(chat_id: int, settings: Settings) -> dict:
     return chat.public(found, store.hits(chat_id), sources, scope)
 
 
-@router.get("/profiles/{profile_id}/material", summary="Kampanjens videor, nyast först")
+@router.get("/profiles/{profile_id}/material", summary="The campaign's videos, newest first")
 def get_material(profile_id: str, settings: Settings = Depends(get_settings)) -> list[dict]:
     _campaign(profile_id, settings)
     return [{k: v for k, v in item.items() if k != "game"}
             for item in chat.material(profile_id, settings, _log(settings))]
 
 
-@router.get("/material/{vod_id}/video", summary="Spela upp en video ur en kampanjs material")
+@router.get("/material/{vod_id}/video", summary="Play a video from a campaign's material")
 def material_video(vod_id: str, settings: Settings = Depends(get_settings)) -> FileResponse:
     if vod_id not in {run["vod_id"] for run in _log(settings).runs()}:
-        raise HTTPException(404, "Videon hör inte till någon kampanj.")
+        raise HTTPException(404, "The video does not belong to any campaign.")
     path = settings.work_dir / vod_id / f"{vod_id}.mp4"
     if not path.is_file():
         raise HTTPException(404, NO_VIDEO)
@@ -79,9 +79,9 @@ class ChatMessage(BaseModel):
 def _text(message: str) -> str:
     text = message.strip()
     if not text:
-        raise HTTPException(400, "Skriv vad du vill ha klipp på.")
+        raise HTTPException(400, "Write what you want clips of.")
     if len(text) > chat.MAX_MESSAGE:
-        raise HTTPException(400, f"Meddelandet får vara högst {chat.MAX_MESSAGE} tecken.")
+        raise HTTPException(400, f"The message can be at most {chat.MAX_MESSAGE} characters.")
     return text
 
 
@@ -89,31 +89,31 @@ def _send(request: Request, settings: Settings, profile: str, **kwargs) -> int:
     """Ett meddelande till Claude. 409 medan ett projekt eller en annan sökning pågår, 402 vid budgettaket."""
     with _start_lock:
         if getattr(request.app.state, "active_run_id", None) is not None:
-            raise HTTPException(409, "Ett projekt pågår. Vänta tills det är klart.")
+            raise HTTPException(409, "A project is running. Wait until it is done.")
         if not chat.lock.acquire(blocking=False):
-            raise HTTPException(409, "Claude letar redan. Vänta tills sökningen är klar.")
+            raise HTTPException(409, "Claude is already searching. Wait until the search is done.")
     try:
         return chat.send(settings, profile, **kwargs)
     except BudgetExceeded as error:
-        raise HTTPException(402, f"{error} Inget sparades.") from error
+        raise HTTPException(402, f"{error} Nothing was saved.") from error
     except anthropic.APIError as error:  # nere, överbelastad eller fel i anropet: inget sparas
-        raise HTTPException(502, f"Claude svarar inte just nu ({type(error).__name__}). Inget sparades. "
-                                 "Försök igen om en stund.") from error
+        raise HTTPException(502, f"Claude is not answering right now ({type(error).__name__}). Nothing was saved. "
+                                 "Try again in a while.") from error
     except chat.ChatError as error:
         raise HTTPException(error.status, error.text) from error
     except SystemExit as error:  # en trasig profil
-        raise HTTPException(400, f"Kampanjen {profile} går inte att läsa: {error}") from error
+        raise HTTPException(400, f"The campaign {profile} cannot be read: {error}") from error
     finally:
         chat.lock.release()
 
 
-@router.get("/profiles/{profile_id}/chats", summary="Kampanjens chattar, nyast först")
+@router.get("/profiles/{profile_id}/chats", summary="The campaign's chats, newest first")
 def list_chats(profile_id: str, settings: Settings = Depends(get_settings)) -> list[dict]:
     _campaign(profile_id, settings)
     return chat.Chats(settings.data_dir / "klipp.db").list(profile_id)
 
 
-@router.post("/profiles/{profile_id}/chats", status_code=201, summary="Ny chatt med ett första meddelande",
+@router.post("/profiles/{profile_id}/chats", status_code=201, summary="New chat with a first message",
              dependencies=[Depends(verify_api_key)])
 def new_chat(profile_id: str, body: NewChat, request: Request, settings: Settings = Depends(get_settings)) -> dict:
     _campaign(profile_id, settings)
@@ -121,12 +121,12 @@ def new_chat(profile_id: str, body: NewChat, request: Request, settings: Setting
     return _whole(chat_id, settings)
 
 
-@router.get("/chats/{chat_id}", summary="En chatt med meddelanden och träffar")
+@router.get("/chats/{chat_id}", summary="A chat with messages and hits")
 def get_chat(chat_id: int, settings: Settings = Depends(get_settings)) -> dict:
     return _whole(chat_id, settings)
 
 
-@router.post("/chats/{chat_id}/messages", summary="Skriv i chatten, eller säg ja till en dyr sökning",
+@router.post("/chats/{chat_id}/messages", summary="Write in the chat, or say yes to an expensive search",
              dependencies=[Depends(verify_api_key)])
 def chat_message(chat_id: int, body: ChatMessage, request: Request,
                  settings: Settings = Depends(get_settings)) -> dict:
@@ -142,7 +142,7 @@ class HitIds(BaseModel):
     hit_ids: list[int]
 
 
-@router.post("/chats/{chat_id}/clips", status_code=202, summary="Gör klipp av valda träffar",
+@router.post("/chats/{chat_id}/clips", status_code=202, summary="Make clips of selected hits",
              dependencies=[Depends(verify_api_key)])
 def chat_clips(chat_id: int, body: HitIds, request: Request, background_tasks: BackgroundTasks,
                db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> dict:
@@ -152,9 +152,9 @@ def chat_clips(chat_id: int, body: HitIds, request: Request, background_tasks: B
     hits = {hit["id"]: hit for hit in store.hits(chat_id)}
     wanted = list(dict.fromkeys(body.hit_ids))
     if not wanted or any(hit_id not in hits for hit_id in wanted):
-        raise HTTPException(400, "Välj en eller flera träffar ur chatten.")
+        raise HTTPException(400, "Choose one or more hits from the chat.")
     if any(hits[hit_id]["status"] != "ny" for hit_id in wanted):
-        raise HTTPException(400, "En av träffarna är redan klippt eller på väg att klippas.")
+        raise HTTPException(400, "One of the hits is already clipped or being clipped.")
     profile = _profile(found["profile"], settings)
     try:
         clipsmith_config(profile, settings)
@@ -175,9 +175,9 @@ def chat_clips(chat_id: int, body: HitIds, request: Request, background_tasks: B
 
     with _start_lock:
         if request.app.state.active_run_id is not None:
-            raise HTTPException(409, "Ett projekt pågår redan. Vänta tills det är klart.")
+            raise HTTPException(409, "A project is already running. Wait until it is done.")
         if editor.lock.locked() or chat.lock.locked():
-            raise HTTPException(409, "Ett klipp redigeras eller Claude letar. Vänta tills det är klart.")
+            raise HTTPException(409, "A clip is being edited or Claude is searching. Wait until it is done.")
         runs = []
         for vod_id in groups:
             run = Run(vod_id=vod_id, channel=profile.streamer.lower(), status=RunStatus.pending)
@@ -197,7 +197,7 @@ def chat_clips(chat_id: int, body: HitIds, request: Request, background_tasks: B
         store.set_hits([hit_id for ids in groups.values() for hit_id in ids], status="vald", problem=None)
     except Exception:  # annars står körningen som pågående tills servern startas om
         for run in runs:
-            run.status, run.error = RunStatus.failed, "Projektet kunde inte sparas i klipploggen. Försök igen."
+            run.status, run.error = RunStatus.failed, "The project could not be saved in the clip log. Try again."
         db.commit()
         request.app.state.active_run_id = None
         raise

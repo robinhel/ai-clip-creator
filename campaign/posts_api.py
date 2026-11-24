@@ -76,19 +76,19 @@ def _get_post(log: ClipLog, post_id: int) -> dict:
     try:
         return log.get_post(post_id)
     except SystemExit as error:
-        raise HTTPException(404, "Inlägget finns inte.") from error
+        raise HTTPException(404, "The post does not exist.") from error
 
 
-@router.post("/clips/{clip_id}/posts", status_code=201, summary="Lägg till ett inlägg på en plattform",
+@router.post("/clips/{clip_id}/posts", status_code=201, summary="Add a post on a platform",
              dependencies=[Depends(verify_api_key)])
 def add_post(clip_id: int, body: NewPost, response: Response, settings: Settings = Depends(get_settings)) -> dict:
     log = _log(settings)
     clip = _get(log, clip_id)
     if clip["status"] not in ("godkand", "postad", "inskickad", "analytics_inskickad", "betald"):
-        raise HTTPException(400, "Klippet måste vara godkänt innan det postas.")
+        raise HTTPException(400, "The clip must be approved before it is posted.")
     _check_campaign(clip)
     if clip["problems"]:
-        raise HTTPException(400, "Klippet har problem. Det får inte postas.")
+        raise HTTPException(400, "The clip has problems. It may not be posted.")
     url = body.url.strip()
     problem = _link_problem(url, body.platform)
     if problem:
@@ -97,7 +97,7 @@ def add_post(clip_id: int, body: NewPost, response: Response, settings: Settings
     if any(p["url"] == url for p in posts):
         response.status_code = 200  # samma inlägg igen, till exempel lagt in av hjälpen efter uppladdningen
         return _public(log.get(clip_id), settings)
-    taken = "Klippet har redan ett inlägg på den plattformen. Ändra länken i stället."
+    taken = "The clip already has a post on that platform. Change the link instead."
     if posts and not _profile(clip["profile"], settings).multi(body.platform):  # ett konto: ett inlägg
         raise HTTPException(409, taken)
     try:
@@ -107,14 +107,14 @@ def add_post(clip_id: int, body: NewPost, response: Response, settings: Settings
     return _public(log.get(clip_id), settings)
 
 
-@router.patch("/posts/{post_id}", summary="Ändra ett inlägg: status, länk, statistik eller utbetalning",
+@router.patch("/posts/{post_id}", summary="Change a post: status, link, stats or payout",
               dependencies=[Depends(verify_api_key)])
 def patch_post(post_id: int, body: PostPatch, settings: Settings = Depends(get_settings)) -> dict:
     log = _log(settings)
     post = _get_post(log, post_id)
     fields = body.model_dump(exclude_unset=True)
     if "status" in fields and fields["status"] is None:
-        raise HTTPException(400, "Status får inte vara tom.")
+        raise HTTPException(400, "Status cannot be empty.")
     if "url" in fields:
         problem = _link_problem((fields["url"] or "").strip(), post["platform"])
         if problem:
@@ -123,7 +123,7 @@ def patch_post(post_id: int, body: PostPatch, settings: Settings = Depends(get_s
     new = fields.get("status")
     if new and new != post["status"]:
         if new not in NEXT_STATUS[post["status"]]:
-            raise HTTPException(400, f"Ett inlägg med status {post['status']} kan inte bli {new}.")
+            raise HTTPException(400, f"A post with status {post['status']} cannot become {new}.")
         if new == "analytics_inskickad":
             clip = _get(log, post["clip_id"])
             _check_min_views(fields.get("views", post["views"]), _profile(clip["profile"], settings))
@@ -131,7 +131,7 @@ def patch_post(post_id: int, body: PostPatch, settings: Settings = Depends(get_s
     return _public(log.get(post["clip_id"]), settings)
 
 
-@router.delete("/posts/{post_id}", summary="Ta bort ett inlägg", dependencies=[Depends(verify_api_key)])
+@router.delete("/posts/{post_id}", summary="Delete a post", dependencies=[Depends(verify_api_key)])
 def delete_post(post_id: int, settings: Settings = Depends(get_settings)) -> dict:
     log = _log(settings)
     post = _get_post(log, post_id)

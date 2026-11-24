@@ -33,10 +33,10 @@ from .profile import Profile
 KEY = [Depends(verify_api_key)]
 
 
-@router.get("/uploads/options", summary="Valen för egna videor i en kampanj")
+@router.get("/uploads/options", summary="The choices for uploads in a campaign")
 def upload_options(profile: str, settings: Settings = Depends(get_settings)) -> dict:
     if profile not in _profile_names(settings):
-        raise HTTPException(400, f"Kampanjen {profile} finns inte.")
+        raise HTTPException(400, f"The campaign {profile} does not exist.")
     campaign = _profile(profile, settings)
     return {"fonts": [{"name": name, "label": name} for name in versions.fonts()],
             "stickers": versions._files(settings.root / "stickers", "/campaign/stickers"),
@@ -49,12 +49,12 @@ def upload_options(profile: str, settings: Settings = Depends(get_settings)) -> 
             "music": audio.music_list(settings.root, profile), "audio_rules": audio.rules(campaign)}
 
 
-@router.post("/uploads/music", status_code=201, summary="Lägg en ljudfil eller video i kampanjens musikmapp",
+@router.post("/uploads/music", status_code=201, summary="Put an audio file or video in the campaign's music folder",
              dependencies=KEY)
 def add_music(profile: Annotated[str, Form()], file: UploadFile = File(...),
               settings: Settings = Depends(get_settings)) -> dict:
     if profile not in _profile_names(settings):  # bara ett namn, ingen sökväg
-        raise HTTPException(400, f"Kampanjen {profile} finns inte.")
+        raise HTTPException(400, f"The campaign {profile} does not exist.")
     with _as_http():
         return audio.add_music(settings.root, profile, file.file, file.filename or "")
 
@@ -62,13 +62,13 @@ def add_music(profile: Annotated[str, Form()], file: UploadFile = File(...),
 def _video_name(file: UploadFile) -> Path:
     name = Path(file.filename or "")
     if name.suffix.lower() not in VIDEO_TYPES:
-        raise HTTPException(400, f"Filtypen {name.suffix or 'saknas'} går inte. Välj {', '.join(VIDEO_TYPES)}.")
+        raise HTTPException(400, f"The file type {name.suffix or 'missing'} does not work. Choose {', '.join(VIDEO_TYPES)}.")
     return name
 
 
 def _campaign(choices: Choices, settings: Settings) -> Profile:
     if choices.profile not in _profile_names(settings):  # bara ett namn, ingen sökväg
-        raise HTTPException(400, f"Kampanjen {choices.profile} finns inte.")
+        raise HTTPException(400, f"The campaign {choices.profile} does not exist.")
     return _profile(choices.profile, settings)
 
 
@@ -98,10 +98,10 @@ def _plan(settings: Settings, choices: Choices, duration: float, strict: bool) -
 
 
 def _ffmpeg_failed(error: RuntimeError) -> HTTPException:
-    return HTTPException(500, f"Videon gick inte att göra om: {error}")
+    return HTTPException(500, f"The video could not be made: {error}")
 
 
-@router.post("/uploads", status_code=201, summary="Ladda upp en egen video och gör om den till ett klipp att granska",
+@router.post("/uploads", status_code=201, summary="Upload your own video and turn it into a clip to review",
              dependencies=KEY)
 def upload(choices: Annotated[Choices, Form()], file: UploadFile = File(...),
            settings: Settings = Depends(get_settings)) -> dict:
@@ -117,7 +117,7 @@ def upload(choices: Annotated[Choices, Form()], file: UploadFile = File(...),
         try:
             duration = probe(source)["duration"]
         except RuntimeError as error:
-            raise HTTPException(400, "Filen går inte att läsa som video.") from error
+            raise HTTPException(400, "The file cannot be read as a video.") from error
         plan = replace(_plan(settings, choices, duration, strict=False), name=name.name)
         drafts.make_raw(source, raw, plan)
         manifest = drafts.finish(raw, done, plan)
@@ -144,12 +144,12 @@ def _draft(settings: Settings, draft_id: str) -> Path:
 def _locked(settings: Settings, draft_id: str) -> Iterator[Path]:
     """Utkastets mapp, med utkastets lås: render, save och delete väntar på varandra."""
     if not drafts.DRAFT_ID.fullmatch(draft_id):
-        raise HTTPException(404, "Utkastet finns inte.")
+        raise HTTPException(404, "The draft does not exist.")
     with drafts.lock(draft_id):
         yield _draft(settings, draft_id)
 
 
-@router.post("/uploads/drafts", status_code=201, summary="Ladda upp en video som ett utkast, utan kampanj",
+@router.post("/uploads/drafts", status_code=201, summary="Upload a video as a draft, without a campaign",
              dependencies=KEY)
 def create_draft(file: UploadFile = File(...), settings: Settings = Depends(get_settings)) -> dict:
     name = _video_name(file)
@@ -157,12 +157,12 @@ def create_draft(file: UploadFile = File(...), settings: Settings = Depends(get_
         return drafts.create(settings, file.file, name.name)
 
 
-@router.get("/uploads/drafts/{draft_id}/frame", summary="En bild ur klippet vid tiden t, som den blir",
+@router.get("/uploads/drafts/{draft_id}/frame", summary="A frame from the clip at time t, as it will be",
             response_class=Response)
 def draft_frame(draft_id: str, choices: Annotated[FrameChoices, Query()],
                 settings: Settings = Depends(get_settings)) -> Response:
     if not math.isfinite(choices.t):
-        raise HTTPException(400, "Tiden t måste vara ett tal i sekunder.")
+        raise HTTPException(400, "The time t must be a number in seconds.")
     path = _draft(settings, draft_id)
     choices = choices.model_copy(update={"audio": "keep"})  # bilden bryr sig inte om ljudet
     plan = _choices_only(settings, choices, drafts.meta(path)["duration_s"])
@@ -173,7 +173,7 @@ def draft_frame(draft_id: str, choices: Annotated[FrameChoices, Query()],
     return Response(picture, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
-@router.post("/uploads/drafts/{draft_id}/render", summary="Gör hela klippet som förhandsvisning", dependencies=KEY)
+@router.post("/uploads/drafts/{draft_id}/render", summary="Make the whole clip as a preview", dependencies=KEY)
 def render_draft(draft_id: str, choices: Annotated[Choices, Form()],
                  settings: Settings = Depends(get_settings)) -> dict:
     with _locked(settings, draft_id) as path:
@@ -187,15 +187,15 @@ def render_draft(draft_id: str, choices: Annotated[Choices, Form()],
             "caption": state["caption"], "choices_key": state["key"]}
 
 
-@router.get("/uploads/drafts/{draft_id}/video", summary="Förhandsvisningen (med Range-stöd)")
+@router.get("/uploads/drafts/{draft_id}/video", summary="The preview (with Range support)")
 def draft_video(draft_id: str, settings: Settings = Depends(get_settings)) -> FileResponse:
     video = _draft(settings, draft_id) / "render.mp4"
     if not video.is_file():
-        raise HTTPException(404, "Klippet är inte gjort än. Tryck Förhandsvisa.")
+        raise HTTPException(404, "The clip is not made yet. Press Preview.")
     return FileResponse(video, media_type="video/mp4")
 
 
-@router.post("/uploads/drafts/{draft_id}/save", status_code=201, summary="Spara utkastet som ett klipp att granska",
+@router.post("/uploads/drafts/{draft_id}/save", status_code=201, summary="Save the draft as a clip to review",
              dependencies=KEY)
 def save_draft(draft_id: str, choices: Annotated[Choices, Form()],
                settings: Settings = Depends(get_settings)) -> dict:

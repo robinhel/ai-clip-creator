@@ -15,7 +15,7 @@ from .scout import Scout
 router = APIRouter(prefix="/campaign", tags=["campaign"])
 
 
-@router.get("/scout", summary="Nya clipping-kampanjer från ClippingAlpha med betyg")
+@router.get("/scout", summary="New clipping campaigns from ClippingAlpha with scores")
 def scout_overview(settings: Settings = Depends(get_settings)) -> dict:
     return Scout(settings).overview()
 
@@ -24,7 +24,7 @@ def scout_overview(settings: Settings = Depends(get_settings)) -> dict:
 def scout_refresh(tasks: BackgroundTasks, settings: Settings = Depends(get_settings)) -> dict:
     scout = Scout(settings)
     if scout.ran_recently():  # sparar anrop: gränsen är 300 per dygn
-        raise HTTPException(429, "Vänta en stund. Senaste kontrollen var nyss.")
+        raise HTTPException(429, "Wait a moment. The last check was just now.")
     tasks.add_task(scout.run_once)
     return {"started": True}
 
@@ -39,12 +39,12 @@ def _country(settings: Settings) -> dict:
             "choices": [{"code": code, "name": name} for code, name in preferences.COUNTRIES.items()]}
 
 
-@router.get("/scout/country", summary="Robins land för kampanjbetyget, och länderna att välja bland")
+@router.get("/scout/country", summary="Robin's country for the campaign score, and the countries to choose from")
 def scout_country(settings: Settings = Depends(get_settings)) -> dict:
     return _country(settings)
 
 
-@router.put("/scout/country", summary="Byt land och räkna om betygen", dependencies=[Depends(verify_api_key)])
+@router.put("/scout/country", summary="Change country and recalculate the scores", dependencies=[Depends(verify_api_key)])
 def scout_set_country(body: CountryBody, settings: Settings = Depends(get_settings)) -> dict:
     try:
         preferences.save_country(settings, body.country)
@@ -56,16 +56,16 @@ def scout_set_country(body: CountryBody, settings: Settings = Depends(get_settin
 
 def _dismiss(ref: str, dismissed: bool, settings: Settings) -> dict:
     if not Scout(settings).dismiss(ref, dismissed):
-        raise HTTPException(404, "Kampanjen finns inte i bevakningen.")
+        raise HTTPException(404, "The campaign is not in the scout.")
     return {"ref": ref, "dismissed": dismissed}
 
 
-@router.post("/scout/{ref:path}/dismiss", summary="Dölj en kampanj", dependencies=[Depends(verify_api_key)])
+@router.post("/scout/{ref:path}/dismiss", summary="Hide a campaign", dependencies=[Depends(verify_api_key)])
 def scout_dismiss(ref: str, settings: Settings = Depends(get_settings)) -> dict:
     return _dismiss(ref, True, settings)
 
 
-@router.post("/scout/{ref:path}/undismiss", summary="Visa en dold kampanj igen",
+@router.post("/scout/{ref:path}/undismiss", summary="Show a hidden campaign again",
              dependencies=[Depends(verify_api_key)])
 def scout_undismiss(ref: str, settings: Settings = Depends(get_settings)) -> dict:
     return _dismiss(ref, False, settings)

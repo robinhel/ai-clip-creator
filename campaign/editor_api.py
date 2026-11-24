@@ -16,17 +16,17 @@ from .config import Settings
 router = APIRouter(prefix="/campaign", tags=["campaign"])
 
 
-@router.get("/clips/{clip_id}/edit", summary="Kan klippet redigeras, och hur är det trimmat")
+@router.get("/clips/{clip_id}/edit", summary="Can the clip be edited, and how is it trimmed")
 def get_edit(clip_id: int, settings: Settings = Depends(get_settings)) -> dict:
     clip = _get(_log(settings), clip_id)
     return editor.edit_info(clip, _profile(clip["profile"], settings), settings)
 
 
-@router.get("/clips/{clip_id}/original", summary="Råklippet före trimning (med Range-stöd)")
+@router.get("/clips/{clip_id}/original", summary="The raw clip before trimming (with Range support)")
 def get_original(clip_id: int, settings: Settings = Depends(get_settings)) -> FileResponse:
     raw = editor.raw_path(_get(_log(settings), clip_id), settings)
     if raw is None or not raw.is_file():
-        raise HTTPException(404, "Råklippet finns inte.")
+        raise HTTPException(404, "The raw clip does not exist.")
     return FileResponse(editor.source_path(raw), media_type="video/mp4")
 
 
@@ -44,17 +44,17 @@ class EditBody(BaseModel):
     words: list[WordIn] | None = None  # hela listan; fler än 1 000 ord ger 400 i editor._check_words
 
 
-@router.post("/clips/{clip_id}/edit", summary="Trimma klippet och byt rubrik",
+@router.post("/clips/{clip_id}/edit", summary="Trim the clip and change the headline",
              dependencies=[Depends(verify_api_key)])
 def post_edit(clip_id: int, body: EditBody, request: Request, settings: Settings = Depends(get_settings)) -> dict:
     log = _log(settings)
     if not editor.lock.acquire(blocking=False):
-        raise HTTPException(409, "En annan redigering pågår. Vänta tills den är klar.")
+        raise HTTPException(409, "Another edit is running. Wait until it is done.")
     editor.editing = clip_id
     try:
         with _start_lock:  # samma lås som när en körning startar, så att de inte kan börja samtidigt
             if getattr(request.app.state, "active_run_id", None) is not None:
-                raise HTTPException(409, "Ett projekt pågår. Vänta tills det är klart.")
+                raise HTTPException(409, "A project is running. Wait until it is done.")
         clip = _get(log, clip_id)  # läs inuti låset
         profile = _profile(clip["profile"], settings)
         words = None if body.words is None else [w.model_dump() for w in body.words]
@@ -65,7 +65,7 @@ def post_edit(clip_id: int, body: EditBody, request: Request, settings: Settings
     except (editor.EditConflict, UploadRunning) as error:
         raise HTTPException(409, str(error)) from error
     except RuntimeError as error:  # ffmpeg misslyckades
-        raise HTTPException(500, f"Klippet gick inte att göra om: {error}") from error
+        raise HTTPException(500, f"The clip could not be remade: {error}") from error
     finally:
         editor.editing = None
         editor.lock.release()

@@ -28,18 +28,18 @@ STATE_S = 600  # inloggningen måste vara klar inom 10 minuter
 _pending: dict[str, tuple[float, str]] = {}  # state -> (när, code_verifier). Bara i minnet.
 
 
-@router.get("/youtube/status", summary="Kopplade YouTube-kanaler och dagens uppladdningar")
+@router.get("/youtube/status", summary="Connected YouTube channels and today's uploads")
 def youtube_status(settings: Settings = Depends(get_settings)) -> dict:
     # Adressen som servern använder, så att webben visar samma som ska stå i utvecklarportalen.
     return {**YouTube(settings).status(), "redirect_uri": settings.youtube_redirect_uri}
 
 
-@router.get("/youtube/connect", summary="Logga in på Google (öppnas direkt mot :8000)",
+@router.get("/youtube/connect", summary="Log in to Google (opens directly against :8000)",
             dependencies=[Depends(_only_local)])
 def youtube_connect(settings: Settings = Depends(get_settings)) -> RedirectResponse:
     if not YouTube(settings).configured:
-        raise HTTPException(400, "YouTube är inte inställt. Lägg in YOUTUBE_CLIENT_ID och YOUTUBE_CLIENT_SECRET "
-                                 "under Inställningar.")
+        raise HTTPException(400, "YouTube is not set up. Add YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET "
+                                 "under Settings.")
     now = monotonic()
     for state in [s for s, (at, _) in _pending.items() if now - at > STATE_S]:
         del _pending[state]
@@ -62,7 +62,7 @@ def youtube_connect(settings: Settings = Depends(get_settings)) -> RedirectRespo
     return RedirectResponse(f"{AUTH_URL}?{query}", status_code=302)
 
 
-@router.get("/youtube/callback/", summary="Google leder hit efter inloggningen",
+@router.get("/youtube/callback/", summary="Google redirects here after login",
             dependencies=[Depends(_only_local)])
 def youtube_callback(state: str = "", code: str = "", error: str = "",
                      settings: Settings = Depends(get_settings)) -> RedirectResponse:
@@ -72,19 +72,19 @@ def youtube_callback(state: str = "", code: str = "", error: str = "",
 
     found = _pending.pop(state, None)  # state gäller en gång
     if found is None or monotonic() - found[0] > STATE_S:
-        return back("Inloggningen gick ut eller kom inte från appen. Försök igen.")
+        return back("The login expired or did not come from the app. Try again.")
     if error or not code:
-        return back(f"Google: {error or 'ingen kod'}")
+        return back(f"Google: {error or 'no code'}")
     try:
         YouTube(settings).connect(code, found[1])
     except YouTubeError as failure:
         return back(str(failure))
     except Exception:  # nätverksfel m.m.; token får inte hamna i texten
-        return back("YouTube svarade inte. Försök igen.")
+        return back("YouTube did not answer. Try again.")
     return back()
 
 
-@router.post("/youtube/accounts/{channel_id}/disconnect", summary="Koppla bort en YouTube-kanal",
+@router.post("/youtube/accounts/{channel_id}/disconnect", summary="Disconnect a YouTube channel",
              dependencies=[Depends(verify_api_key)])
 def youtube_disconnect(channel_id: str, settings: Settings = Depends(get_settings)) -> dict:
     try:
@@ -104,14 +104,14 @@ class YouTubeBody(BaseModel):
     notify_subscribers: bool = True
 
 
-@router.post("/clips/{clip_id}/youtube", status_code=202, summary="Ladda upp klippet som en YouTube Short",
+@router.post("/clips/{clip_id}/youtube", status_code=202, summary="Upload the clip as a YouTube Short",
              dependencies=[Depends(verify_api_key)])
 def youtube_upload_clip(clip_id: int, body: YouTubeBody, settings: Settings = Depends(get_settings)) -> dict:
     if editor.lock.locked():  # filen kan bytas mitt i uppladdningen
-        raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
+        raise HTTPException(409, "A clip is being edited right now. Wait until the edit is done.")
     clip = _get(_log(settings), clip_id)
     try:
-        path = clip_file(settings, clip, "youtube", "Bara godkända klipp kan laddas upp till YouTube.")
+        path = clip_file(settings, clip, "youtube", "Only approved clips can be uploaded to YouTube.")
         Schedule(settings).check_account(clip, "youtube", body.channel_id, datetime.now(UTC))
         channel = body.channel_id
         if channel is None:  # den enda kopplade kanalen; inte kopplad: upload ger felet
@@ -128,7 +128,7 @@ def youtube_upload_clip(clip_id: int, body: YouTubeBody, settings: Settings = De
         raise HTTPException(error.status, str(error)) from error
 
 
-@router.get("/clips/{clip_id}/youtube", summary="Senaste uppladdningen till YouTube för klippet")
+@router.get("/clips/{clip_id}/youtube", summary="The latest upload to YouTube for the clip")
 def youtube_clip_upload(clip_id: int, settings: Settings = Depends(get_settings)) -> dict | None:
     _get(_log(settings), clip_id)
     return YouTube(settings).latest(clip_id)

@@ -36,23 +36,23 @@ class VersionBody(BaseModel):
     hook: str | None = None  # None eller tom: originalets hook, rubrik och caption; för lång ger 400
 
 
-@router.get("/clips/{clip_id}/versions/options", summary="Valen för en ny version till ett annat konto")
+@router.get("/clips/{clip_id}/versions/options", summary="The choices for a new version for another account")
 def version_options(clip_id: int, platform: Platform, account: str, settings: Settings = Depends(get_settings)) -> dict:
     log = _log(settings)
     return versions.options(settings, log, _get(log, clip_id), platform, account)
 
 
-@router.post("/clips/{clip_id}/versions", status_code=201, summary="Gör en ny version av klippet för ett annat konto",
+@router.post("/clips/{clip_id}/versions", status_code=201, summary="Make a new version of the clip for another account",
              dependencies=[Depends(verify_api_key)])
 def make_version(clip_id: int, body: VersionBody, request: Request, settings: Settings = Depends(get_settings)) -> dict:
     log = _log(settings)
     if not editor.lock.acquire(blocking=False):  # samma lås som redigeraren: råklippet kan bytas under tiden
-        raise HTTPException(409, "En annan redigering pågår. Vänta tills den är klar.")
+        raise HTTPException(409, "Another edit is running. Wait until it is done.")
     editor.editing = clip_id
     try:
         with _start_lock:
             if getattr(request.app.state, "active_run_id", None) is not None:
-                raise HTTPException(409, "Ett projekt pågår. Vänta tills det är klart.")
+                raise HTTPException(409, "A project is running. Wait until it is done.")
         clip = _get(log, clip_id)
         new_id = versions.make(settings, log, clip, body.platform, body.account, body.font, body.start_cut_s,
                                body.overlay, body.sticker, body.mirror, body.speed, body.filter,
@@ -60,14 +60,14 @@ def make_version(clip_id: int, body: VersionBody, request: Request, settings: Se
     except versions.VersionError as error:
         raise HTTPException(error.status, str(error)) from error
     except RuntimeError as error:  # ffmpeg misslyckades
-        raise HTTPException(500, f"Versionen gick inte att göra: {error}") from error
+        raise HTTPException(500, f"The version could not be made: {error}") from error
     finally:
         editor.editing = None
         editor.lock.release()
     return _public(log.get(new_id), settings)
 
 
-@router.post("/clips/{clip_id}/versions/hook", summary="Föreslå en ny hook för en ny version av klippet (Claude)",
+@router.post("/clips/{clip_id}/versions/hook", summary="Suggest a new hook for a new version of the clip (Claude)",
              dependencies=[Depends(verify_api_key)])
 def suggest_version_hook(clip_id: int, settings: Settings = Depends(get_settings)) -> dict:
     clip = _get(_log(settings), clip_id)
@@ -81,15 +81,15 @@ def _image(settings: Settings, folder: str, name: str) -> FileResponse:
     base = (settings.root / folder).resolve()
     path = (base / name).resolve()
     if not path.is_relative_to(base) or path.suffix.lower() != ".png" or not path.is_file():
-        raise HTTPException(404, "Bilden finns inte.")
+        raise HTTPException(404, "The image does not exist.")
     return FileResponse(path, media_type="image/png")
 
 
-@router.get("/stickers/{name}", summary="Ett klistermärke (PNG) för förhandsvisning")
+@router.get("/stickers/{name}", summary="A sticker (PNG) for preview")
 def sticker_file(name: str, settings: Settings = Depends(get_settings)) -> FileResponse:
     return _image(settings, "stickers", name)
 
 
-@router.get("/overlays/{name}", summary="En overlay (PNG) för förhandsvisning")
+@router.get("/overlays/{name}", summary="An overlay (PNG) for preview")
 def overlay_file(name: str, settings: Settings = Depends(get_settings)) -> FileResponse:
     return _image(settings, "overlays", name)

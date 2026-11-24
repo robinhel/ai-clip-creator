@@ -58,7 +58,7 @@ def _watch_free(login: str, settings: Settings) -> LiveWatch:
 
 @router.get(
     "/live",
-    summary="Bevaka live: läget och topparna för varje kampanj med en Twitch-kanal, och fria kanaler",
+    summary="Watch live: the status and peaks for each campaign with a Twitch channel, and free channels",
 )
 def list_live(settings: SettingsDep) -> list[LiveWatch]:
     channels = {name: _channel(name, settings) for name in _profile_names(settings)}
@@ -69,25 +69,25 @@ def list_live(settings: SettingsDep) -> list[LiveWatch]:
 
 
 @router.put(
-    "/live/channel/{login}", summary="Slå på eller av Bevaka live för en Twitch-kanal utan kampanj"
+    "/live/channel/{login}", summary="Turn Watch live on or off for a Twitch channel without a campaign"
 )
 def set_live_channel(login: str, body: WatchBody, settings: SettingsDep) -> LiveWatch:
     login = login.lower()
     if not LOGIN.fullmatch(login):
         raise HTTPException(
             400,
-            "Det ser inte ut som en Twitch-kanal. Skriv kanalens namn, till exempel ishowspeed.",
+            "That does not look like a Twitch channel. Enter the channel name, for example ishowspeed.",
         )
     LiveState(settings).set_watching(FREE + login, body.watching)
     return _watch_free(login, settings)
 
 
-@router.put("/live/{profile}", summary="Slå på eller av Bevaka live för en kampanj")
+@router.put("/live/{profile}", summary="Turn Watch live on or off for a campaign")
 def set_live(profile: str, body: WatchBody, settings: SettingsDep) -> LiveWatch:
     if profile not in _profile_names(settings):
-        raise HTTPException(404, f"Kampanjen {profile} finns inte.")
+        raise HTTPException(404, f"The campaign {profile} does not exist.")
     channel = _channel(profile, settings)
     if body.watching and not channel:
-        raise HTTPException(400, "Kampanjen har ingen Twitch-kanal att bevaka.")
+        raise HTTPException(400, "The campaign has no Twitch channel to watch.")
     LiveState(settings).set_watching(profile, body.watching)
     return _watch(profile, channel, settings)
