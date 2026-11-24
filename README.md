@@ -1,260 +1,119 @@
-# clipsmith
+# ai-clip-creator
 
-Local Twitch → AI clip pipeline. Downloads a VOD, transcribes Spanish audio, ranks moments by chat activity, sends candidates to an LLM, and cuts 9:16 vertical MP4s — optionally with burned-in captions and a stacked webcam/gameplay layout for TikTok / YouTube Shorts.
+Turns a Twitch stream into short, vertical clips that are ready to post: it finds the best moments, cuts
+them to 9:16, adds the campaign's overlay, hook text and captions, checks them against the campaign rules,
+and waits for your yes before anything is posted.
 
-## Prerequisites
+<!-- Screenshots and a GIF go here. Put the files in docs/images/ and remove the comment markers.
+![Dashboard](docs/images/dashboard.png)
+![Approve queue](docs/images/approve.png)
+![How it works](docs/images/how-it-works.gif)
+-->
 
-| Tool | Install |
-|------|---------|
-| Python 3.11+ | python.org or `winget install Python.Python.3` |
-| ffmpeg | `winget install Gyan.FFmpeg` — must be on `PATH` |
-| twitch-dl | bundled via `pip install -e .` |
-| chat-downloader | bundled via `pip install -e .` |
-| faster-whisper | bundled via `pip install -e .` |
+## Quick start (Docker)
 
-Optional — webcam auto-detection:
-```sh
-pip install -e ".[vision]"   # installs opencv-python-headless
-```
-
-## Installation
+You need [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine with Compose v2.24+).
 
 ```sh
-git clone https://github.com/ricardogr07/clipsmith
-cd clipsmith
-pip install -e .
+git clone https://github.com/robinhel/ai-clip-creator
+cd ai-clip-creator
+docker compose up
 ```
 
-## Configuration
+The first build takes a while (it downloads ffmpeg and a Whisper model). Then:
 
-### Secrets — `.env`
+1. Open <http://localhost:3000>.
+2. Go to **Settings** and paste your keys (see [Keys](#keys) below).
+3. Pick a campaign and start a run from a Twitch VOD.
 
-Copy `.env.example` to `.env` and fill in your keys:
+Everything the app makes stays in folders next to the code: `work/` (downloads), `out/` (clips),
+`klippdata/` (clip log, accounts) and `data/` (the keys you saved in the app, in `data/.env`).
+Both ports are open on `127.0.0.1` only, so other computers on your network cannot reach the app.
 
-```
-TWITCH_CLIENT_ID=...
-TWITCH_CLIENT_SECRET=...
-ANTHROPIC_API_KEY=...       # if using provider: anthropic
-OPENAI_API_KEY=...          # if using provider: openai
-```
-
-Get Twitch credentials at <https://dev.twitch.tv/console> → Register Your Application → OAuth Redirect: `http://localhost`.
-
-### Behaviour — `config.yaml`
-
-```yaml
-channels:
-  - chuyelwuero             # Twitch logins to watch
-
-llm:
-  provider: anthropic       # anthropic | openai | ollama
-  model_anthropic: claude-sonnet-4-6
-
-clip:
-  min_seconds: 15
-  max_seconds: 30
-
-caption:
-  enabled: false            # set true to burn subtitles into the video
-  font: Arial
-  font_size: 72             # ASS pts at 1080×1920 PlayRes
-  outline: 3
-  position: bottom          # bottom | middle | top
-
-reframe:
-  # center | webcam | stacked | none
-  mode: none
-  # Source-pixel crop for the webcam/face panel [x, y, w, h]
-  # Leave null to use center-crop fallback; set once per stream layout.
-  webcam_rect: null
-  # Source-pixel crop for the gameplay panel (stacked mode only)
-  # null = center-crop fallback
-  gameplay_rect: null
-  # Fraction of 1920px height given to the top (webcam) panel in stacked mode
-  # e.g. 0.4 → 768px webcam on top, 1152px gameplay on bottom
-  split_ratio: 0.4
-```
-
-## Usage
-
-### First-time setup
+Ready-made images are published for every release, so you can skip the build:
 
 ```sh
-clipsmith setup
+docker compose -f docker-compose.release.yml up
 ```
 
-Saves your API key to `.env` and verifies ffmpeg is available.
+## Without Docker
 
-### Process a local MP4
+You need Python 3.11+, ffmpeg, Node.js 20+ and pnpm.
 
 ```sh
-clipsmith process path/to/recording.mp4
+./scripts/start.sh                                            # macOS and Linux
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1    # Windows
 ```
 
-Runs the full pipeline — transcribe → score candidates → LLM selection → cut clips. Clips appear in `out/<video_id>/`.
+The script checks the tools, creates `.venv` (with `uv` if you have it), installs everything, starts the
+API on `127.0.0.1:8000` and the dashboard on `127.0.0.1:3000`, and opens your browser. Ctrl+C stops both.
 
-Useful flags:
+## Keys
 
-| Flag | Effect |
-|------|--------|
-| `--skip-transcribe` | Load cached `transcript.json` |
-| `--captions / --no-captions` | Override caption config |
-| `--reframe / --no-reframe` | Override reframe config |
-| `--provider anthropic\|openai` | Override LLM provider |
+Paste them on the **Settings** page. They are saved on your computer only, never shown again and never logged.
 
-### Daemon mode
+| Key | Needed for | Where to get it |
+|-----|------------|-----------------|
+| Twitch Client ID and secret | Finding and downloading VODs and chat | [dev.twitch.tv/console](https://dev.twitch.tv/console) → Register Your Application (redirect `http://localhost`) |
+| Claude API key | Picking moments, frame review, hook text | [console.anthropic.com](https://console.anthropic.com) |
+| Berget API key | Transcription | [berget.ai](https://berget.ai) |
+| TikTok Client key and secret | Optional: send clips to TikTok | [developers.tiktok.com](https://developers.tiktok.com) (Login Kit + Content Posting API) |
+| YouTube Client ID and secret | Optional: upload Shorts | [console.cloud.google.com](https://console.cloud.google.com) → OAuth client (YouTube Data API v3) |
 
-```sh
-clipsmith watch
-```
+You can also put them in a `.env` file instead; `.env.example` lists the names. A monthly and a daily
+budget cap (`BUDGET_USD_PER_MONTH`, `BUDGET_USD_PER_DAY`) stop all Claude calls when they are reached.
 
-Polls every `poll_interval_s` seconds (default 120). When a new archive VOD appears it runs the full pipeline automatically. State is persisted to `state.json` so already-processed VODs are skipped across restarts.
+## How it works
 
-### One-off Twitch VOD
+1. **Download** the VOD and its chat replay from Twitch.
+2. **Transcribe** the audio, word by word.
+3. **Score moments** with five signals: existing clips, `!clip` commands, chat spikes, hype words and audio energy.
+4. **Pick** the best moments with Claude, using the campaign's brief and earlier picks you liked.
+5. **Cut** each moment to a vertical 9:16 clip with ffmpeg.
+6. **Make it campaign-ready**: overlay, hook text, captions and loudness, from the campaign profile.
+7. **Check** it: the rule check (source, length, sound, overlay and on-screen text) and a Claude review of a few frames.
+8. **Approve and post**: you say yes or no; approved clips go to TikTok or YouTube, now or on a schedule.
 
-```sh
-clipsmith run-vod <video_id>
-```
+The dashboard's **How it works** page shows the same steps with your own numbers.
 
-Useful flags:
+## What the campaign layer adds
 
-| Flag | Effect |
-|------|--------|
-| `--skip-download` | Use the existing `.mp4` in `work/<id>/` |
-| `--skip-transcribe` | Load cached `transcript.json` |
-| `--skip-chat` | Load cached `chat.json` |
-| `--skip-select` | Stop after candidates, skip LLM |
-| `--skip-clip` | Stop after picks, skip ffmpeg |
-| `--provider anthropic\|openai` | Override config LLM |
-| `--max-candidates N` | Cap candidates sent to LLM (default 20) |
+The `campaign/` folder is built on top of clipsmith:
 
-### Re-cut flat clips
+- **Campaign profiles** (`profiles/*.yaml`): streamer, rules, overlay, text style and captions per campaign, editable in the app.
+- **Approve queue**: nothing is posted until the rule check is green and you have said yes.
+- **Clip log**: every clip with its status, link, views and likes; `facit/` compares the picks with a hand-made answer key.
+- **Editor and versions**: trim a clip, change the hook, or make a new version for another account.
+- **Live clips**: watches the chat during a stream and clips a moment soon after it happens.
+- **TikTok and YouTube**: connect one or more accounts, post or schedule uploads.
+- **Campaign scout**: rates new clipping campaigns and tells you when a good one appears.
+- **Budget**: all Claude calls go through one place and stop at the monthly cap.
+- **Command line**: `python -m campaign finish | approve | posted | stats | status | check-setup`.
 
-Re-run only the ffmpeg step from an existing `picks.json` (e.g. after adjusting caption style):
+## Security
 
-```sh
-clipsmith clip <video_id>
-```
-
-### Stacked vertical layout (webcam + gameplay)
-
-After reviewing the flat clips, pick the best ones and reframe them into a stacked 9:16 layout — webcam on top, gameplay on bottom:
-
-```sh
-clipsmith reframe <video_id> clip_01 clip_04 clip_09
-```
-
-Output goes to `out/<video_id>/stacked/`. The reframe rects come from `config.yaml`; see the `reframe` section above.
-
-**Auto-detecting the webcam rect:**
-
-If `reframe.webcam_rect` is not set in `config.yaml`, clipsmith will try to detect the face rectangle automatically using OpenCV (requires `pip install -e ".[vision]"`). The result is cached to `work/<video_id>/webcam_rect.json` and reused on subsequent runs.
-
-To run detection manually and write the result directly into `config.yaml`:
-
-```sh
-clipsmith detect-webcam <video_id>
-```
-
-This samples frames, detects the webcam rectangle, and saves `reframe.webcam_rect` in `config.yaml` automatically — no manual copy-paste needed.
-
-### Sanity check
-
-```sh
-clipsmith whoami chuyelwuero
-```
-
-## Output
-
-```
-work/
-  <video_id>/
-    <video_id>.mp4          downloaded (or copied) source VOD
-    transcript.json         faster-whisper segments + word timestamps
-    chat.json               chat replay
-    candidates.json         ranked candidate moments
-    picks.json              LLM-accepted clips with titles and reasons
-    webcam_rect.json        auto-detected webcam rect (cached, vision only)
-
-out/
-  <video_id>/
-    clip_01_momento_gracioso.mp4    flat 9:16 clip
-    clip_01_momento_gracioso.ass    sidecar ASS subtitle file
-    clip_02_reaccion_epica.mp4
-    ...
-    stacked/
-      clip_01_momento_gracioso.mp4  stacked layout (webcam top, gameplay bottom)
-      clip_04_reaccion_epica.mp4
-      ...
-```
-
-All clips are 1080×1920 (9:16), 15–30 s, h264/aac, with optional burned-in Spanish karaoke captions.
-
-## Pipeline overview
-
-```
-watch / run-vod / process
-  ↓
-downloader      (twitch-dl)                → work/<id>/<id>.mp4
-  ↓
-detect-webcam   (opencv Haar cascade)      → work/<id>/webcam_rect.json  [optional]
-  ↓
-transcribe      (faster-whisper)           → transcript.json  (word timestamps, lang=es)
-  ↓
-chat            (chat-downloader)          → chat.json
-  ↓
-candidates      (density + clips + !clip)  → candidates.json
-  ↓
-selector        (LLM)                      → picks.json
-  ↓
-clipper         (ffmpeg + libass)          → out/<id>/clip_NN_<title>.mp4
-  ↓  [manual: clipsmith reframe]
-reframe         (ffmpeg filter_complex)    → out/<id>/stacked/clip_NN_<title>.mp4
-```
-
-## REST API & Dashboard
-
-Start the FastAPI server and the Next.js dashboard to review and approve clips in a browser:
-
-```sh
-pip install -e ".[server]"
-clipsmith serve                   # http://localhost:8000/docs
-cd web && pnpm install && pnpm dev  # http://localhost:3000
-```
-
-Key API endpoints:
-
-| Endpoint | Description |
-|----------|-------------|
-| `POST /runs` | Start a pipeline run (requires `X-Api-Key` header) |
-| `GET /runs/{id}/progress` | SSE stream of live stage progress |
-| `PATCH /clips/{id}` | Approve or reject a clip |
-| `GET /metrics` | Prometheus scrape endpoint |
-| `GET /stats` | Run counts by status (JSON) |
-
-## Observability
-
-Sprint 7 adds distributed tracing (OpenTelemetry → Jaeger), Prometheus metrics, and a
-Grafana dashboard. Spin up the full local stack in one command:
-
-```sh
-pip install -e ".[observability]"
-docker compose -f docker-compose.observability.yml up -d
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 clipsmith serve
-```
-
-| UI | URL |
-|----|-----|
-| Grafana dashboard | http://localhost:3001 (admin / `$GRAFANA_ADMIN_PASSWORD`, default: admin) |
-| Jaeger traces | http://localhost:16686 |
-| Prometheus | http://localhost:9090 |
-
-In production, set `APPLICATIONINSIGHTS_CONNECTION_STRING` to export traces to Azure Monitor Application Insights.
+The app runs on your own computer and only answers requests to `localhost`. Keys stay in `.env` (or
+`data/.env` in Docker) with permissions `0600`. Read [SECURITY.md](SECURITY.md) for the details, including
+how Docker is handled and how to report a problem.
 
 ## Development
 
 ```sh
-pip install -e ".[dev,server,observability]"
-pip install -e ".[vision]"   # optional, for detect-webcam tests
-python -m pytest tests -q
+python -m venv .venv && . .venv/bin/activate
+pip install -e ".[dev,server,vision]" -r requirements-campaign.txt
+clipsmith serve                       # API on http://127.0.0.1:8000/docs
+cd web && pnpm install && pnpm dev    # dashboard on http://127.0.0.1:3000
+
+python -m pytest tests_campaign -q    # the campaign layer
+python -m pytest tests/unit -q        # clipsmith
+ruff check src campaign tests tests_campaign
+mypy src
+cd web && pnpm exec vitest run        # dashboard unit tests
 ```
+
+More in [docs/getting-started.md](docs/getting-started.md).
+
+## Credits
+
+Built on [clipsmith](https://github.com/ricardogr07/clipsmith) by Ricardo García Ramírez (MIT).
+The campaign layer, the dashboard changes and the packaging are by Robin Hellgren. See [LICENSE](LICENSE).

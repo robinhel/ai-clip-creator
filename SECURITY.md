@@ -42,6 +42,33 @@ and no shared server.
   protected by the loopback check and a one-time `state` value instead.
 - Docker Compose publishes the ports on `127.0.0.1` only.
 
+## Docker
+
+Inside Docker the loopback check cannot work as it is: the dashboard's proxy calls the API as
+`http://api:8000` from the web container, and a browser on your computer reaches the API through Docker's
+gateway address, never through `127.0.0.1`. So:
+
+- **Keys.** Docker Compose sets `TRUSTED_PROXY_HOSTS=api`. The key endpoints then also accept a request
+  whose `Host` is exactly `api` and that comes from a private address (the Compose network). Only a
+  container on the Compose network can send that: the browser and other web sites reach the API through
+  `localhost`, and the port is published on `127.0.0.1` only. The proxy has already checked `Host` and
+  `Origin`, so another web page still cannot save keys. Local names such as `localhost` are never trusted
+  this way; they always need a loopback address. Without the variable (outside Docker) nothing changes.
+- **Where keys are saved.** Compose sets `KLIPP_ENV_FILE=/app/data/.env`, so keys saved on the Settings
+  page go to `data/.env` on your computer (`data/` is mounted) and are loaded again on the next start.
+  A `.env` in the project folder is read too, if you have one.
+- **TikTok and YouTube login does not work in Docker.** The browser opens `/connect` straight against the
+  API, and TikTok or Google sends it back to `/callback` there, so the request comes from Docker's gateway
+  with `Host: localhost`. That is not a loopback address, and trusting the gateway would also trust every
+  other container. Connect the accounts once without Docker (`scripts/start.sh` or `scripts/start.ps1`):
+  the tokens are saved in `klippdata/`, which Docker mounts, so the app in Docker can post with them.
+- **New campaigns.** Creating a campaign in the app also writes `config.<name>.yaml` in the project folder.
+  In Docker that folder is inside the image, so add new campaigns without Docker (or copy the file next to
+  the code and rebuild). Editing existing campaigns and uploading overlays works: `profiles/` and
+  `overlays/` are mounted.
+- The API container runs as an unprivileged user. Its entrypoint starts as root only to hand newly created
+  mount folders to that user.
+
 ## Reporting a vulnerability
 
 Please do not open a public issue for a security problem.

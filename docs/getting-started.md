@@ -1,30 +1,67 @@
 # Getting Started
 
-## Prerequisites
+There are two ways to run ai-clip-creator: with Docker (one command) or with a start script.
+Both start the API on `127.0.0.1:8000` and the dashboard on <http://localhost:3000>.
+
+## With Docker
+
+You need Docker Desktop, or Docker Engine with Compose v2.24 or newer.
+
+```sh
+git clone https://github.com/robinhel/ai-clip-creator
+cd ai-clip-creator
+docker compose up
+```
+
+Open <http://localhost:3000> and paste your keys on the **Settings** page. They are saved in `data/.env`.
+Your files are in `work/`, `out/`, `klippdata/` and `data/` next to the code.
+
+To use the published images instead of building:
+
+```sh
+docker compose -f docker-compose.release.yml up
+```
+
+!!! note "TikTok and YouTube in Docker"
+    Connecting a TikTok or YouTube account only works without Docker. Connect once with the start
+    script below; the login is saved in `klippdata/`, which Docker uses too. See `SECURITY.md`.
+
+## Without Docker
 
 | Tool | Install |
 |------|---------|
 | Python 3.11+ | [python.org](https://python.org) or `winget install Python.Python.3` |
-| ffmpeg | `winget install Gyan.FFmpeg` — must be on `PATH` |
-| twitch-dl | bundled via `pip install -e .` |
-| chat-downloader | bundled via `pip install -e .` |
-| faster-whisper | bundled via `pip install -e .` |
-
-Optional — webcam auto-detection:
+| ffmpeg | `brew install ffmpeg`, `sudo apt install ffmpeg` or `winget install Gyan.FFmpeg` — must be on `PATH` |
+| Node.js 20+ | [nodejs.org](https://nodejs.org) |
+| pnpm | `corepack enable pnpm` |
 
 ```sh
-pip install -e ".[vision]"   # installs opencv-python-headless
+git clone https://github.com/robinhel/ai-clip-creator
+cd ai-clip-creator
+./scripts/start.sh                                            # macOS and Linux
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1    # Windows
 ```
 
-## Installation
+The script checks the tools, creates `.venv`, installs the Python and dashboard packages, starts both
+servers and opens the browser. Ctrl+C stops them. Keys you save on the **Settings** page go to `.env`.
 
-```sh
-git clone https://github.com/ricardogr07/clipsmith
-cd clipsmith
-pip install -e .
-```
+## Keys
 
-## First-time setup
+| Key | Where to get it |
+|-----|-----------------|
+| Twitch Client ID and secret | <https://dev.twitch.tv/console> → Register Your Application, redirect `http://localhost` |
+| Claude API key | <https://console.anthropic.com> |
+| Berget API key (transcription) | <https://berget.ai> |
+| TikTok Client key and secret (optional) | <https://developers.tiktok.com> |
+| YouTube Client ID and secret (optional) | <https://console.cloud.google.com> |
+
+## Command line
+
+You do not need these to use the dashboard. They come from clipsmith, which this app is built on; run them
+inside `.venv` (`. .venv/bin/activate`). The campaign layer's commands (`python -m campaign ...`) are in
+the README.
+
+## First-time setup (command line)
 
 Run the setup wizard once to configure your LLM provider and verify ffmpeg:
 
