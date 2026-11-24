@@ -37,7 +37,7 @@ def _only_local(request: Request) -> None:
     if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:  # ::ffff:127.0.0.1, samma dator
         address = address.ipv4_mapped
     if address is None or not address.is_loopback:
-        raise HTTPException(403, "The account can only be disconnected from the computer where the server runs.")
+        raise HTTPException(403, "The account can only be connected from the computer where the server runs.")
 
 
 @router.get("/tiktok/status", summary="Is TikTok connected, and how many drafts are waiting")

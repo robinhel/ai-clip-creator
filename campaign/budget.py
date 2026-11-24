@@ -130,10 +130,10 @@ class Budget:
         month, day = self.spent_month(), self.spent_today()
         if month >= self.month_cap:
             raise BudgetExceeded(
-                f"Månadstaket är nått: {month:.2f} av {self.month_cap:.2f} dollar."
+                f"The monthly cap is reached: {month:.2f} of {self.month_cap:.2f} dollars."
             )
         if day >= self.day_cap:
-            raise BudgetExceeded(f"Dagstaket är nått: {day:.2f} av {self.day_cap:.2f} dollar.")
+            raise BudgetExceeded(f"The daily cap is reached: {day:.2f} of {self.day_cap:.2f} dollars.")
 
     def summary(self) -> dict:
         with self._db() as db:
