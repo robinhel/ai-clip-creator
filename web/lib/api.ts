@@ -47,6 +47,7 @@ import type { CampaignChat, ChatSummary, MaterialItem } from "./types";
 import type { CampaignSettingsBody, ConnectedAccounts } from "./types";
 // Ta bort VOD-filen på ett projekt (projekt-ta-bort).
 import type { FreedSpace } from "./types";
+import type { Timeline } from "./timeline";
 
 // JSON API calls go through the Next.js rewrite proxy (/api/* → FastAPI).
 // This avoids CORS and removes the need for NEXT_PUBLIC_API_BASE in the browser.
@@ -157,6 +158,8 @@ export const api = {
         apiFetch<{ id: number }>(`/campaign/runs/${runId}/retry`, { method: "POST" }),
       finish: (runId: number) =>
         apiFetch<{ started: boolean }>(`/campaign/runs/${runId}/finish`, { method: "POST" }),
+      /** Signalerna i VOD:en och AI:ns val. 404 med text när kandidaterna inte är sparade än. */
+      timeline: (runId: number) => apiFetch<Timeline>(`/campaign/runs/${runId}/timeline`),
     },
     // Inlägg per plattform. Svaret är hela klippet med alla dess inlägg.
     posts: {

@@ -6,6 +6,7 @@ import { ChevronRight, Keyboard, Loader2, RotateCcw, Upload } from "lucide-react
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ClipResultRow, ignoreKey } from "@/components/ClipResultRow";
 import { DeleteVod } from "@/components/DeleteVod";
+import { SignalTimeline } from "@/components/SignalTimeline";
 import { Progress } from "@/components/ProjectCard";
 import { api } from "@/lib/api";
 import { campaignLabel } from "@/lib/campaignName";
@@ -404,6 +405,7 @@ export function ProjectClient({ id }: { id: number }) {
   const formats = useFormats(project?.profile);
 
   if (!project) return <PageMessage error={error} />;
+  const latestDone = project.files.filter((f) => f.status === "done").sort((a, b) => b.run_id - a.run_id)[0]?.run_id ?? null;
 
   function handleUpdate(updated: CampaignClip) {
     setClips((prev) => prev?.map((c) => (c.id === updated.id ? updated : c)) ?? null);
@@ -422,6 +424,8 @@ export function ProjectClient({ id }: { id: number }) {
         </p>
       )}
       <Files project={project} onChanged={reload} />
+      {/* Signalerna i den senaste klara filen. */}
+      {latestDone != null && <SignalTimeline runId={latestDone} />}
       {clips && <ClipsSection running={project.active} clips={clips} formats={formats} onUpdate={handleUpdate} onReload={fetchClips} />}
     </main>
   );

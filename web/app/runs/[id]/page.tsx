@@ -7,6 +7,7 @@ import { Bell, Check, FolderOpen, Loader2, RotateCcw, Sparkles, Square, X } from
 import { Button } from "@/components/ui/button";
 import { DeleteVod } from "@/components/DeleteVod";
 import { ClipsSection } from "@/components/ProjectClient";
+import { SignalTimeline } from "@/components/SignalTimeline";
 import { api, cancelRun } from "@/lib/api";
 import { campaignLabel } from "@/lib/campaignName";
 import { countClips, latestAttempt } from "@/lib/projects";
@@ -626,6 +627,9 @@ export default function RunDetailPage() {
           <Steps steps={run.steps} cancelled={run.cancelled} />
         </section>
       )}
+
+      {/* Signalerna finns när projektet är klart; medan det pågår ritas de inte. */}
+      {run.status === "done" && <SignalTimeline runId={run.run_id} />}
 
       {clips && (clips.length > 0 || run.status === "done") && (
         <ClipsSection running={isActive} clips={clips} formats={formats} onUpdate={handleUpdate} onReload={fetchClips} />
