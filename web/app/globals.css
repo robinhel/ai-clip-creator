@@ -112,3 +112,15 @@
     @apply font-sans;
   }
 }
+/* How it works: a dot that runs along the arrows between the steps. Still when the reader asks for less motion. */
+@keyframes flow-x {
+  from { left: -10px; }
+  to { left: 100%; }
+}
+@keyframes flow-y {
+  from { top: -10px; }
+  to { top: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flow-dot { animation: none !important; display: none; }
+}

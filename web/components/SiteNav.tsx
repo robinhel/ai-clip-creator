@@ -3,19 +3,20 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Clapperboard, Clock, Film, Home, Megaphone, Settings } from "lucide-react";
+import { BarChart3, Clapperboard, Clock, Film, Home, Megaphone, Settings, Workflow } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn, SUMMARY_CHANGED, usd } from "@/lib/utils";
 import { stepCount, submitDeadline, type ClipStep } from "@/lib/steps";
 import type { CampaignSummary } from "@/lib/types";
 
-// Fem punkter. Projekt och Egna videor nås från Hem, Bevakning från Kampanjer; sidorna finns kvar.
+// Sex punkter. Projekt och Egna videor nås från Hem, Bevakning från Kampanjer; sidorna finns kvar.
 const LINKS = [
   { href: "/", label: "Home", icon: Home, also: ["/projects", "/runs", "/uploads"] },
   { href: "/queue", label: "Clips", icon: Film, also: [] },
   { href: "/log", label: "Stats", icon: BarChart3, also: [] },
   { href: "/campaigns", label: "Campaigns", icon: Megaphone, also: ["/scout"] },
   { href: "/settings", label: "Settings", icon: Settings, also: [] },
+  { href: "/how-it-works", label: "How it works", icon: Workflow, also: [] },
 ];
 
 // Stegen i Klippen, med samma färger som statusen i klippraden.
