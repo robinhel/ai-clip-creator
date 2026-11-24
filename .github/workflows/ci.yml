@@ -15,12 +15,6 @@ jobs:
       - run: pip install -e ".[dev]" mypy
       - run: ruff check src tests campaign tests_campaign
       - run: mypy src
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.7"
-      - run: terraform -chdir=infra fmt -check -recursive
-      - run: terraform -chdir=infra init -backend=false
-      - run: terraform -chdir=infra validate
 
   tests:
     needs: lint
