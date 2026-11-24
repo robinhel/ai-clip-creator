@@ -57,23 +57,23 @@ def _frame(video: Path, at: float, width: int = 512) -> bytes:
 
 
 def _reason(exc: Exception) -> str:
-    """Short Swedish cause of an Anthropic error, for the run's error text."""
+    """Short cause of an Anthropic error, for the run's error text."""
     import anthropic
 
     if isinstance(exc, anthropic.APIConnectionError):
-        return "Anthropic gick inte att nå (nätverket)"
+        return "Anthropic could not be reached (network)"
     status = getattr(exc, "status_code", None)
     if status == 401:
-        return "fel API-nyckel (401)"
+        return "wrong API key (401)"
     if status == 403:
-        return "nyckeln får inte använda Claude (403)"
+        return "the key is not allowed to use Claude (403)"
     if status == 429:
-        return "för många anrop (429)"
+        return "too many requests (429)"
     if status == 529:
-        return "Claude är överbelastat (529)"
+        return "Claude is overloaded (529)"
     body = getattr(exc, "body", None)
     message = body.get("error", {}).get("message") if isinstance(body, dict) else None
-    return f"fel {status}, {message[:150]}" if message else f"fel {status}"
+    return f"error {status}, {message[:150]}" if message else f"error {status}"
 
 
 # Newer models (Sonnet 5.5) think first in their own block, about 800 tokens before a JSON answer of
@@ -267,6 +267,6 @@ class AnthropicProvider:
                     exc, self._api_error
                 ):  # key, account or Anthropic: every candidate would fail
                     raise LLMUnavailable(
-                        f"Claude svarade inte: {_reason(exc)}. Kör igen när det fungerar."
+                        f"Claude did not answer: {_reason(exc)}. Run again when it works."
                     ) from exc
                 return None  # an answer that is not valid JSON: skip only this candidate

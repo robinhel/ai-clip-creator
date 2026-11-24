@@ -86,20 +86,20 @@ def test_claude_down_for_good_stops_the_run_after_three_more_tries(monkeypatch) 
     with pytest.raises(LLMUnavailable) as error:
         provider.pick("text", _candidate(), "ctx")
     assert (len(calls), sleeps) == (4, [5, 15, 30])
-    assert str(error.value) == "Claude svarade inte: Claude är överbelastat (529). Kör igen när det fungerar."
+    assert str(error.value) == "Claude did not answer: Claude is overloaded (529). Run again when it works."
 
 
 @pytest.mark.parametrize(("code", "reason"), [
-    (401, "fel API-nyckel (401)"),
-    (403, "nyckeln får inte använda Claude (403)"),
-    (400, "fel 400, Your credit balance is too low."),
+    (401, "wrong API key (401)"),
+    (403, "the key is not allowed to use Claude (403)"),
+    (400, "error 400, Your credit balance is too low."),
 ])
-def test_wrong_key_stops_the_run_at_once_with_a_clear_swedish_error(monkeypatch, code, reason) -> None:
+def test_wrong_key_stops_the_run_at_once_with_a_clear_error(monkeypatch, code, reason) -> None:
     provider, calls, sleeps = _provider([_status(code)], monkeypatch)
     with pytest.raises(LLMUnavailable) as error:
         provider.pick("text", _candidate(), "ctx")
     assert (len(calls), sleeps) == (1, [])
-    assert str(error.value) == f"Claude svarade inte: {reason}. Kör igen när det fungerar."
+    assert str(error.value) == f"Claude did not answer: {reason}. Run again when it works."
 
 
 def test_an_answer_that_is_not_json_skips_only_that_candidate(monkeypatch) -> None:
@@ -124,7 +124,7 @@ class FakePicker:
 
 def test_when_every_answer_fails_the_selection_stops_instead_of_giving_no_clips() -> None:
     cfg = ClipConfig(min_picks=0)
-    with pytest.raises(LLMUnavailable, match="Claude svarade inte"):
+    with pytest.raises(LLMUnavailable, match="Claude did not answer"):
         select_clips([_candidate(100), _candidate(400)], _transcript(), FakePicker([None, None]), "ctx", cfg)
 
     no = ClipPick(include=False, start_offset_s=0, end_offset_s=20, title_es="x", reason="dull")
@@ -314,23 +314,23 @@ def test_a_clip_in_a_run_folder_and_an_old_clip_both_work_in_the_app(client, set
 def test_no_candidates_gives_a_message_and_nothing_is_cut(settings, vod) -> None:
     vod.candidates = []
     _, message = _make(settings, vod)
-    assert message == "Inga kandidater hittades."
+    assert message == "No candidates were found."
     assert vod.cut is None and vod.finish is None
 
 
 def test_claude_choosing_none_gives_a_message(settings, vod) -> None:
     vod.picker = FakePicker([_no(), _no()])
     _, message = _make(settings, vod)
-    assert message == "Claude valde inga av 2 kandidater."
+    assert message == "Claude chose none of 2 candidates."
     assert vod.finish is None
 
 
 def test_picks_that_were_all_skipped_give_a_message(settings, vod, monkeypatch) -> None:
     vod.picker = FakePicker([_yes("clutch"), _no()])
     monkeypatch.setattr(pipeline, "finish_vod", lambda *a, **k: [
-        {"file": "clip_01_x.mp4", "skipped": "samma del av VOD:en är redan klippt"}])
+        {"file": "clip_01_x.mp4", "skipped": "the same part of the VOD is already clipped"}])
     _, message = _make(settings, vod)
-    assert message == "Inga nya klipp. Claude valde 1, men samma del av VOD:en är redan klippt."
+    assert message == "No new clips. Claude chose 1, but the same part of the VOD is already clipped."
 
 
 def test_a_run_with_clips_has_no_message(settings, vod) -> None:
@@ -362,13 +362,13 @@ def test_a_run_with_no_clips_shows_why_as_its_message(client, settings, monkeypa
     assert (run["status"], run["message"]) == ("done", "Klart")
 
 
-def test_claude_down_fails_the_run_with_the_swedish_error(client, settings, monkeypatch) -> None:  # noqa: F811
+def test_claude_down_fails_the_run_with_a_clear_error(client, settings, monkeypatch) -> None:  # noqa: F811
     def down(*a, **k):
-        raise LLMUnavailable("Claude svarade inte: fel API-nyckel (401). Kör igen när det fungerar.")
+        raise LLMUnavailable("Claude did not answer: wrong API key (401). Run again when it works.")
 
     run = _run(client, settings, monkeypatch, down)
     assert (run["status"], run["error"]) == (
-        "failed", "Claude svarade inte: fel API-nyckel (401). Kör igen när det fungerar.")
+        "failed", "Claude did not answer: wrong API key (401). Run again when it works.")
 
 
 # ---------- 4. förlopp medan VOD:en hämtas ----------
@@ -422,8 +422,8 @@ def test_make_clips_shows_the_download_in_percent_between_5_and_15(settings, vod
 
     monkeypatch.setattr(pipeline, "download_vod", fake_download)
     _make(settings, vod)
-    hämtar = [e for e in vod.events if e[0] == "download" and e[2].startswith("Hämtar: ")]
-    assert [e[2] for e in hämtar] == ["Hämtar: 0 %", "Hämtar: 25 %", "Hämtar: 50 %", "Hämtar: 100 %"]
+    hämtar = [e for e in vod.events if e[0] == "download" and e[2].startswith("Downloading: ")]
+    assert [e[2] for e in hämtar] == ["Downloading: 0 %", "Downloading: 25 %", "Downloading: 50 %", "Downloading: 100 %"]
     assert [e[1] for e in hämtar] == [5.0, 7.5, 10.0, 15.0]
 
 
@@ -437,7 +437,7 @@ def test_a_long_vod_gives_one_download_event_per_percent(settings, vod, monkeypa
 
     monkeypatch.setattr(pipeline, "download_vod", fake_download)
     _make(settings, vod)
-    assert len([e for e in vod.events if e[2].startswith("Hämtar: ")]) == 101
+    assert len([e for e in vod.events if e[2].startswith("Downloading: ")]) == 101
 
 
 def test_clipsmith_gets_the_channels_id_and_the_vods_start_so_viewer_clips_are_counted(

@@ -145,7 +145,7 @@ def select_clips(
 
     if asked and failed == asked:  # no answer at all is an error, not "the LLM chose no clips"
         raise LLMUnavailable(
-            f"Claude svarade inte: inget av {asked} svar gick att läsa. Kör igen när det fungerar."
+            f"Claude did not answer: none of {asked} answers could be read. Run again when it works."
         )
     if v2:
         _calibrate(picks, transcript, picker, stream_context)

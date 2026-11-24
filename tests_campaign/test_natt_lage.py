@@ -92,7 +92,7 @@ def test_runs_that_were_going_when_the_server_starts_become_failed(tmp_path, mon
             pass
 
     asyncio.run(start())
-    stopped = ("failed", "Servern startades om mitt i projektet. Tryck Kör igen.")
+    stopped = ("failed", "The server restarted in the middle of the project. Press Run again.")
     assert (_status(running), _status(pending)) == (stopped, stopped)
     assert _status(done) == ("done", None)
     assert _status(failed) == ("failed", None)
@@ -193,25 +193,25 @@ def test_finish_again_is_refused_for_a_failed_run(client, settings, started) -> 
 
 def test_finish_summary_tells_what_was_done_and_why_clips_were_skipped() -> None:
     results = [{"id": 1, "problems": []}, {"id": 2, "problems": ["x"]},
-               {"file": "a", "skipped": "du har nekat klippet"},
-               {"file": "b", "skipped": "finns redan i klipploggen"},
-               {"file": "c", "skipped": "finns redan i klipploggen"}]
+               {"file": "a", "skipped": "you rejected the clip"},
+               {"file": "b", "skipped": "already in the clip log"},
+               {"file": "c", "skipped": "already in the clip log"}]
     assert pipeline.finish_summary(results) == (
-        "2 klipp gjordes om. 3 klipp rördes inte: 2 är redan granskade eller postade, 1 är nekat.")
+        "2 clips were redone. 3 clips were not touched: 2 are already reviewed or posted, 1 is rejected.")
     assert pipeline.finish_summary(results[2:3]) == (
-        "Inga klipp gjordes om. 1 klipp rördes inte: 1 är nekat.")
-    assert pipeline.finish_summary([{"id": 1}]) == "1 klipp gjordes om."
-    assert pipeline.finish_summary([]) == "Inga klipp gjordes om."
+        "No clips were redone. 1 clip was not touched: 1 is rejected.")
+    assert pipeline.finish_summary([{"id": 1}]) == "1 clip was redone."
+    assert pipeline.finish_summary([]) == "No clips were redone."
 
 
 def test_finish_run_puts_the_summary_in_the_runs_message(client, settings, monkeypatch) -> None:  # noqa: F811
     run_id = _run("done")
     ClipLog(settings.data_dir / "klipp.db").add_run(run_id, VOD, "skiimasktimmy", "Bodycam")
-    monkeypatch.setattr(pipeline, "finish", lambda *a: [{"id": 1}, {"file": "a", "skipped": "du har nekat klippet"}])
+    monkeypatch.setattr(pipeline, "finish", lambda *a: [{"id": 1}, {"file": "a", "skipped": "you rejected the clip"}])
     pipeline.finish_run(run_id, VOD, "skiimasktimmy", "Bodycam", settings)
     run = client.get(f"/campaign/runs/{run_id}").json()
     assert (run["status"], run["message"]) == (
-        "done", "1 klipp gjordes om. 1 klipp rördes inte: 1 är nekat.")
+        "done", "1 clip was redone. 1 clip was not touched: 1 is rejected.")
 
 
 # ---------- 4. budget ----------

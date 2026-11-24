@@ -13,7 +13,7 @@ def test_a_run_that_finishes_after_a_restart_loses_the_restart_error() -> None:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as db:
-        run = Run(vod_id="v", status=RunStatus.failed, error="Servern startades om mitt i projektet. Tryck Kör igen.")
+        run = Run(vod_id="v", status=RunStatus.failed, error="The server restarted in the middle of the project. Press Run again.")
         db.add(run)
         db.commit()
         _emit(db, run.id, "done", 100.0, "Klart", status=RunStatus.done)
