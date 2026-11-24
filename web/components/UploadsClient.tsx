@@ -109,7 +109,7 @@ function Videos({ list, current, profile, burnsTitle, onSelect, onFiles }: Video
     <div className="min-w-0 space-y-3">
       <DropZone onFiles={onFiles} rejected={list.rejected} />
       {items.length > 0 && !burnsTitle && (
-        <p className="text-xs text-muted-foreground">Kampanjen bränner inte in rubriken i videon. Rubriken hamnar bara först i captionen.</p>
+        <p className="text-xs text-muted-foreground">The campaign does not burn the headline into the video. The headline only goes first in the caption.</p>
       )}
       {items.length > 0 && (
         <VideoList
@@ -161,11 +161,11 @@ export function UploadsClient() {
 
   return (
     <main className="w-full max-w-[1180px] px-4 py-9 sm:px-6 md:px-11">
-      <h1 className="text-3xl font-bold tracking-tight">Egna videor</h1>
+      <h1 className="text-3xl font-bold tracking-tight">Uploads</h1>
       <p className="mt-1.5 text-muted-foreground">
-        Dra in videor. Välj en video för att se bilden och ändra valen. Säg ja till ett klipp, så hamnar det i{" "}
+        Drag in videos. Choose a video to see the picture and change the choices. Say yes to a clip, and it goes to{" "}
         <Link href="/queue?tab=posta" className="text-brand underline-offset-4 hover:underline">
-          Klippen, Att posta
+          Clips, Ready to post
         </Link>
         {alreadyWaiting(approved)}.
       </p>

@@ -14,9 +14,9 @@ const DESCRIPTION_MAX = 5000;
 const SHORT_MAX_S = 180;
 
 const PRIVACY: [YouTubePrivacy, string][] = [
-  ["public", "Offentlig"],
-  ["unlisted", "Olistad"],
-  ["private", "Privat"],
+  ["public", "Public"],
+  ["unlisted", "Unlisted"],
+  ["private", "Private"],
 ];
 
 // YouTube räknar titeln i tecken och beskrivningen i byte.
@@ -24,10 +24,10 @@ const chars = (text: string) => Array.from(text).length;
 const bytes = (text: string) => new TextEncoder().encode(text).length;
 
 export function youtubeUploadText(upload: YouTubeUpload): string {
-  if (upload.status === "processed") return "Klar på YouTube.";
-  if (upload.status === "failed") return `Misslyckades: ${upload.error ?? "okänt fel"}`;
-  if (upload.status === "uploading") return "Laddas upp…";
-  return "YouTube behandlar videon.";
+  if (upload.status === "processed") return "Done on YouTube.";
+  if (upload.status === "failed") return `Failed: ${upload.error ?? "unknown error"}`;
+  if (upload.status === "uploading") return "Uploading…";
+  return "YouTube is processing the video.";
 }
 
 const field = "mt-1 w-full rounded-lg border border-line bg-background px-3 text-sm outline-none focus:border-brand";
@@ -73,21 +73,21 @@ export function useYouTubeForm(clip: CampaignClip, channels: YouTubeChannel[], a
   // Uppåt, som TikTok: 180,4 s är över gränsen.
   const length = clip.start_s != null && clip.end_s != null ? Math.ceil(clip.end_s - clip.start_s) : null;
   const reason = !channelId
-    ? "Klippet ligger redan på alla kampanjens kanaler."
+    ? "The clip is already on all the campaign's channels."
     : length != null && length > SHORT_MAX_S
-      ? `Klippet är ${length} s. En Short får vara högst ${SHORT_MAX_S} s.`
+      ? `The clip is ${length} s. A Short can be at most ${SHORT_MAX_S} s.`
       : !title.trim()
-        ? "Skriv en titel."
+        ? "Enter a title."
         : /[<>]/.test(title)
-          ? "Titeln får inte innehålla < eller >."
+          ? "The title cannot contain < or >."
           : chars(title) > TITLE_MAX
-            ? `Titeln får vara högst ${TITLE_MAX} tecken.`
+            ? `The title can be at most ${TITLE_MAX} characters.`
             : /[<>]/.test(description)
-              ? "Beskrivningen får inte innehålla < eller >."
+              ? "The description cannot contain < or >."
               : bytes(description) > DESCRIPTION_MAX
-                ? `Beskrivningen får vara högst ${DESCRIPTION_MAX} byte.`
+                ? `The description can be at most ${DESCRIPTION_MAX} bytes.`
                 : !privacy
-                  ? "Välj vem som får se klippet."
+                  ? "Choose who can see the clip."
                   : null;
   const body: YouTubeSendBody | null =
     reason || !privacy
@@ -111,10 +111,10 @@ export function YouTubeFields({ clip, channels, form, accounts = null, children 
   return (
     <>
       {accounts?.multi ? (
-        <AccountList label="Kanal" info={accounts} connected={channels.map((c) => c.channel_id)} value={channelId} onChange={setChannelId} />
+        <AccountList label="Channel" info={accounts} connected={channels.map((c) => c.channel_id)} value={channelId} onChange={setChannelId} />
       ) : channels.length > 1 && (
         <label className="block">
-          <span className="text-[13px] text-muted-foreground">Kanal</span>
+          <span className="text-[13px] text-muted-foreground">Channel</span>
           <select value={channelId} onChange={(e) => setChannelId(e.target.value)} className={cn(field, "h-9 [&>option]:bg-panel")}>
             {channels.map((c) => (
               <option key={c.channel_id} value={c.channel_id}>
@@ -128,7 +128,7 @@ export function YouTubeFields({ clip, channels, form, accounts = null, children 
 
       <label className="block">
         <span className="flex justify-between text-[13px] text-muted-foreground">
-          Titel
+          Title
           <span className={cn("tabular-nums", chars(title) > TITLE_MAX && "text-bad")}>
             {chars(title)} / {TITLE_MAX}
           </span>
@@ -138,7 +138,7 @@ export function YouTubeFields({ clip, channels, form, accounts = null, children 
 
       <label className="block">
         <span className="flex justify-between text-[13px] text-muted-foreground">
-          Beskrivning
+          Description
           <span className={cn("tabular-nums", bytes(description) > DESCRIPTION_MAX && "text-bad")}>
             {bytes(description)} / {DESCRIPTION_MAX}
           </span>
@@ -153,14 +153,14 @@ export function YouTubeFields({ clip, channels, form, accounts = null, children 
 
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block">
-          <span className="text-[13px] text-muted-foreground">Vem får se</span>
+          <span className="text-[13px] text-muted-foreground">Who can see</span>
           <select
             value={privacy}
             onChange={(e) => setPrivacy(e.target.value as YouTubePrivacy)}
             className={cn(field, "h-9 [&>option]:bg-panel")}
           >
             <option value="" disabled>
-              Välj…
+              Choose…
             </option>
             {PRIVACY.map(([value, label]) => (
               <option key={value} value={value}>
@@ -170,12 +170,12 @@ export function YouTubeFields({ clip, channels, form, accounts = null, children 
           </select>
         </label>
         <fieldset>
-          <legend className="text-[13px] text-muted-foreground">Gjort för barn?</legend>
+          <legend className="text-[13px] text-muted-foreground">Made for kids?</legend>
           <div className="mt-2.5 flex gap-5 text-sm">
             {(
               [
-                [true, "Ja"],
-                [false, "Nej"],
+                [true, "Yes"],
+                [false, "No"],
               ] as const
             ).map(([value, label]) => (
               <label key={label} className="flex cursor-pointer items-center gap-2">
@@ -200,7 +200,7 @@ export function YouTubeFields({ clip, channels, form, accounts = null, children 
           onChange={(e) => setNotify(e.target.checked)}
           className="size-4 accent-[var(--brand,#7c5cff)]"
         />
-        Meddela prenumeranter
+        Notify subscribers
       </label>
     </>
   );

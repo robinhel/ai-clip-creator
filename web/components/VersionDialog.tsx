@@ -17,11 +17,11 @@ const PLATFORMS: [Platform, "tiktok" | "youtube_shorts", string][] = [
 ];
 
 export const POSITIONS: [StickerPosition, string][] = [
-  ["top_left", "Uppe till vänster"],
-  ["top_right", "Uppe till höger"],
-  ["center", "Mitten"],
-  ["bottom_left", "Nere till vänster"],
-  ["bottom_right", "Nere till höger"],
+  ["top_left", "Top left"],
+  ["top_right", "Top right"],
+  ["center", "Center"],
+  ["bottom_left", "Bottom left"],
+  ["bottom_right", "Bottom right"],
 ];
 // Ungefär där servern lägger klistermärket: utanför de säkra zonerna uppe och nere.
 const POSITION_CLASS: Record<StickerPosition, string> = {
@@ -32,7 +32,7 @@ const POSITION_CLASS: Record<StickerPosition, string> = {
   bottom_right: "right-[6%] bottom-[24%]",
 };
 
-const FILTER_LABEL: Record<string, string> = { none: "Inget", fresh: "Fräsch", warm: "Varm", cool: "Kall", punch: "Kraftig" };
+const FILTER_LABEL: Record<string, string> = { none: "None", fresh: "Fresh", warm: "Warm", cool: "Cool", punch: "Punchy" };
 
 const num = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const field = "mt-1 h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand disabled:opacity-60 [&>option]:bg-panel";
@@ -97,7 +97,7 @@ function PreviewLayers({ hook, font, overlayUrl, stickerUrl, position }: {
           style={{ fontFamily: `"${font}", sans-serif` }}
           className="pointer-events-none absolute inset-x-3 bottom-[30%] text-center text-lg leading-tight text-white uppercase [paint-order:stroke] [-webkit-text-stroke:3px_#000]"
         >
-          Undertext i {font}
+          Subtitles in {font}
         </p>
       )}
     </>
@@ -133,16 +133,16 @@ function VersionPreview({ clip, opts, cut, ...layers }: {
           muted
           playsInline
           preload="auto"
-          aria-label="Förhandsvisning av versionen"
+          aria-label="Version preview"
           onLoadedMetadata={(e) => (e.currentTarget.currentTime = at)}
           className="h-full w-full object-contain"
         />
         <PreviewLayers {...layers} />
       </div>
       <p className="text-xs text-muted-foreground">
-        Förhandsvisningen är ungefärlig: den ritar valen ovanpå {original ? "originalfilen från startpunkten" : "det färdiga klippet"}. Servern gör den riktiga filen.
+        The preview is approximate: it draws the choices on top of {original ? "the original file from the start point" : "the finished clip"}. The server makes the real file.
       </p>
-      {original && <p className="text-xs text-muted-foreground">Undertexten läggs på när versionen görs.</p>}
+      {original && <p className="text-xs text-muted-foreground">The subtitles are added when the version is made.</p>}
     </div>
   );
 }
@@ -167,7 +167,7 @@ function useSuggestHook(clipId: number, scope: string, onHook: (hook: string) =>
       const { hook } = await api.campaign.clips.suggestVersionHook(clipId);
       if (mine === round.current) onHook(hook);
     } catch (err) {
-      if (mine === round.current) setError(err instanceof Error ? err.message : "Kunde inte föreslå en hook");
+      if (mine === round.current) setError(err instanceof Error ? err.message : "Could not suggest a hook");
     } finally {
       if (mine === round.current) setAsking(false);
     }
@@ -192,10 +192,10 @@ function HookField({ value, onChange, busy, asking, error, onSuggest }: {
         <input id="version-hook" value={value} onChange={(e) => onChange(e.target.value)} disabled={busy || asking} className={field} />
         <Button variant="outline" className="mt-1 h-9 shrink-0" disabled={busy || asking} onClick={onSuggest}>
           {asking ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
-          {asking ? "Skriver…" : "Föreslå"}
+          {asking ? "Writing…" : "Suggest"}
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">Högst 3 rader som ryms i bilden, färre i zoom. Servern säger till om den är för lång. En ny hook gör versionen till ett eget klipp. Tom: originalets hook.</p>
+      <p className="text-xs text-muted-foreground">At most 3 lines that fit in the frame, fewer in zoom. The server tells you if it is too long. A new hook makes the version its own clip. Empty: the original's hook.</p>
       {error && (
         <p role="alert" className={alert}>
           {error}
@@ -213,10 +213,10 @@ function StartField({ opts, cut, onChange, busy }: { opts: VersionOptions; cut: 
   return (
     <div>
       <p className="flex justify-between gap-3">
-        {label("Startpunkt", "version-cut")}
+        {label("Start point", "version-cut")}
         <span className="text-sm font-medium tabular-nums">
           {startLabel(cut)}
-          {fresh && <span className="ml-2 rounded-full bg-brand/15 px-2 py-0.5 text-xs text-brand">Ny startpunkt</span>}
+          {fresh && <span className="ml-2 rounded-full bg-brand/15 px-2 py-0.5 text-xs text-brand">New start point</span>}
         </span>
       </p>
       <input
@@ -231,8 +231,8 @@ function StartField({ opts, cut, onChange, busy }: { opts: VersionOptions; cut: 
         className="w-full accent-[var(--brand,#7c5cff)]"
       />
       <p className="text-xs text-muted-foreground">
-        Versionen börjar tidigare eller senare än originalet. Slutet ligger kvar.{" "}
-        {reach ? `${reach}, så att klippet håller kampanjens längd.` : "Här går startpunkten inte att flytta, för då håller klippet inte kampanjens längd."} Minst {sec.format(opts.new_start_s)} s åt något håll är en ny startpunkt. Då visas inte höjdpunkten först.
+        The version starts earlier or later than the original. The end stays.{" "}
+        {reach ? `${reach}, so the clip keeps the campaign's length.` : "The start point cannot move here, because then the clip would not keep the campaign's length."} At least {sec.format(opts.new_start_s)} s in either direction is a new start point. Then the highlight is not shown first.
       </p>
     </div>
   );
@@ -247,7 +247,7 @@ function PlatformPicker({ clip, start, platform, busy, onPick }: {
   onPick: (platform: Platform) => void;
 }) {
   return (
-    <div role="radiogroup" aria-label="Plattform" className="grid grid-cols-2 gap-2">
+    <div role="radiogroup" aria-label="Platform" className="grid grid-cols-2 gap-2">
       {PLATFORMS.filter(([, name]) => allows(clip, name)).map(([p, , text]) => {
         const off = !start[p]?.allowed;
         return (
@@ -270,7 +270,7 @@ function PlatformPicker({ clip, start, platform, busy, onPick }: {
               />
               <span className="font-medium">{text}</span>
             </span>
-            {off && <span className="text-xs text-muted-foreground">{start[p]?.reason ?? "Går inte för klippet."}</span>}
+            {off && <span className="text-xs text-muted-foreground">{start[p]?.reason ?? "Not possible for the clip."}</span>}
           </label>
         );
       })}
@@ -295,7 +295,7 @@ function LookFields({ opts, busy, mirror, setMirror, speed, setSpeed, filter, se
 }) {
   return (
     <fieldset className="space-y-3 rounded-xl border border-line p-3">
-      <legend className="px-1 text-[13px] text-muted-foreground">Bild och hastighet</legend>
+      <legend className="px-1 text-[13px] text-muted-foreground">Picture and speed</legend>
       <label className="flex items-center gap-2.5 text-sm">
         <input
           type="checkbox"
@@ -304,11 +304,11 @@ function LookFields({ opts, busy, mirror, setMirror, speed, setSpeed, filter, se
           disabled={busy}
           className="size-4 accent-[var(--brand,#7c5cff)]"
         />
-        Spegla bilden (undertexten speglas inte)
+        Mirror the picture (the subtitles are not mirrored)
       </label>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          {label("Hastighet", "version-speed")}
+          {label("Speed", "version-speed")}
           <select id="version-speed" value={speed} onChange={(e) => setSpeed(Number(e.target.value))} disabled={busy} className={field}>
             {opts.speeds.map((s) => (
               <option key={s} value={s}>
@@ -330,8 +330,8 @@ function LookFields({ opts, busy, mirror, setMirror, speed, setSpeed, filter, se
       </div>
       {(
         [
-          ["Ljusstyrka", "version-brightness", brightness, setBrightness, 0.3],
-          ["Mättnad", "version-saturation", saturation, setSaturation, 0.5],
+          ["Brightness", "version-brightness", brightness, setBrightness, 0.3],
+          ["Saturation", "version-saturation", saturation, setSaturation, 0.5],
         ] as const
       ).map(([text, id, value, set, max]) => (
         <div key={id}>
@@ -353,7 +353,7 @@ function LookFields({ opts, busy, mirror, setMirror, speed, setSpeed, filter, se
         </div>
       ))}
       <p className="text-xs text-muted-foreground">
-        Förhandsvisningen visar inte spegling, filter eller hastighet. Granska den färdiga versionen.
+        The preview does not show mirroring, filter or speed. Review the finished version.
       </p>
     </fieldset>
   );
@@ -374,12 +374,12 @@ function StickerFields({ opts, busy, sticker, setSticker, position, setPosition,
 }) {
   return (
     <fieldset className="space-y-3 rounded-xl border border-line p-3">
-      <legend className="px-1 text-[13px] text-muted-foreground">Klistermärke</legend>
+      <legend className="px-1 text-[13px] text-muted-foreground">Sticker</legend>
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          {label("Klistermärke", "version-sticker")}
+          {label("Sticker", "version-sticker")}
           <select id="version-sticker" value={sticker} onChange={(e) => setSticker(e.target.value)} disabled={busy} className={field}>
-            <option value="">Inget</option>
+            <option value="">None</option>
             {opts.stickers.map((s) => (
               <option key={s.file} value={s.file}>
                 {s.file}
@@ -422,7 +422,7 @@ function StickerFields({ opts, busy, sticker, setSticker, position, setPosition,
             />
           </div>
           <div>
-            {label("Längd (s)", "version-sticker-length")}
+            {label("Length (s)", "version-sticker-length")}
             <input
               id="version-sticker-length"
               type="number"
@@ -447,15 +447,15 @@ function MadeNotice({ made, onClose }: { made: CampaignClip; onClose: () => void
     <div role="status" className="space-y-3 rounded-xl border border-line bg-background p-4">
       <p className="flex items-center gap-2 text-sm text-good">
         <CheckCircle2 className="size-4 shrink-0" aria-hidden />
-        Versionen är gjord som klipp {made.id}.
+        The version is made as clip {made.id}.
       </p>
       <p className="text-sm text-muted-foreground">
         {made.status === "underkand"
-          ? "Regelkontrollen hittade problem. Rätta dem på klippet innan du säger ja."
-          : "Granska den och säg ja innan du postar. Byt text med Föreslå ny text när du postar."}
+          ? "The rule check found problems. Fix them on the clip before you say yes."
+          : "Review it and say yes before you post. Change the text with Suggest new text when you post."}
       </p>
       <Button className="h-10 w-full" variant="outline" onClick={onClose}>
-        Stäng
+        Close
       </Button>
     </div>
   );
@@ -475,8 +475,8 @@ function VersionWarnings({ own, accountWarning }: { own: boolean; accountWarning
 /** Fel i klistermärkets start eller längd, eller null. */
 function stickerProblem(startS: number, lengthS: number): string | null {
   const within = (value: number, lo: number, hi: number) => Number.isFinite(value) && value >= lo && value <= hi;
-  if (!within(startS, 0, Infinity)) return "Klistermärkets start får inte vara negativ.";
-  if (!within(lengthS, 0.5, 10)) return "Klistermärket ska synas 0,5–10 s.";
+  if (!within(startS, 0, Infinity)) return "The sticker start cannot be negative.";
+  if (!within(lengthS, 0.5, 10)) return "The sticker must show for 0.5–10 s.";
   return null;
 }
 
@@ -490,11 +490,11 @@ function blockReason({ account, optsError, opts, sticker, startS, lengthS, askin
   lengthS: number;
   asking: boolean;
 }): string | null {
-  if (!account) return "Inget av kampanjens konton är ledigt för klippet.";
+  if (!account) return "None of the campaign's accounts is free for the clip.";
   if (optsError) return null;
-  if (!opts) return "Läser valen…";
-  if (!opts.allowed) return opts.reason ?? "Servern tillåter ingen ny version här.";
-  if (asking) return "Väntar på hooken från Föreslå…";
+  if (!opts) return "Loading the choices…";
+  if (!opts.allowed) return opts.reason ?? "The server does not allow a new version here.";
+  if (asking) return "Waiting for the hook from Suggest…";
   return sticker ? stickerProblem(startS, lengthS) : null;
 }
 
@@ -554,7 +554,7 @@ function VersionDialog({ clip, start, onClose }: {
         setStickerStart(String(d.sticker?.start_s ?? 0));
         setStickerLength(String(d.sticker?.duration_s ?? 3));
       })
-      .catch((err) => live && setOptsError(err instanceof Error ? err.message : "Kunde inte läsa valen"));
+      .catch((err) => live && setOptsError(err instanceof Error ? err.message : "Could not load the choices"));
     return () => {
       live = false;
     };
@@ -590,7 +590,7 @@ function VersionDialog({ clip, start, onClose }: {
     try {
       setMade(await api.campaign.clips.createVersion(clip.id, body));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunde inte göra versionen");
+      setError(err instanceof Error ? err.message : "Could not make the version");
     } finally {
       setBusy(false);
     }
@@ -604,9 +604,9 @@ function VersionDialog({ clip, start, onClose }: {
     <Dialog open onOpenChange={(open) => !open && !busy && onClose(made)}>
       <DialogContent className="max-h-[calc(100vh-2rem)] gap-5 overflow-y-auto p-6 sm:max-w-[820px]">
         <div>
-          <DialogTitle className="text-lg font-semibold">Ny version för ett annat konto</DialogTitle>
+          <DialogTitle className="text-lg font-semibold">New version for another account</DialogTitle>
           <DialogDescription className="mt-1">
-            Ge versionen {(opts ?? start[platform])?.hook_text ? "en ny hook eller en ny startpunkt" : "en ny startpunkt"}, så räknas den som ett eget klipp. Du kan också byta font, overlay, klistermärke, spegling, filter och hastighet. Versionen blir ett eget klipp som du granskar.
+            Give the version {(opts ?? start[platform])?.hook_text ? "a new hook or a new start point" : "a new start point"}, so it counts as its own clip. You can also change font, overlay, sticker, mirroring, filter and speed. The version becomes its own clip that you review.
           </DialogDescription>
         </div>
 
@@ -640,7 +640,7 @@ function VersionDialog({ clip, start, onClose }: {
 
                 {info?.multi && (
                   <AccountList
-                    label={platform === "tiktok" ? "TikTok-konto" : "Kanal"}
+                    label={platform === "tiktok" ? "TikTok account" : "Channel"}
                     info={info}
                     connected={connected}
                     value={account}
@@ -672,7 +672,7 @@ function VersionDialog({ clip, start, onClose }: {
                       <div>
                         {label("Font", "version-font")}
                         <select id="version-font" value={font} onChange={(e) => setFont(e.target.value)} disabled={busy} className={field}>
-                          <option value="">Som originalet</option>
+                          <option value="">Same as the original</option>
                           {opts.fonts.map((f) => (
                             <option key={f.name} value={f.name}>
                               {f.label}
@@ -690,7 +690,7 @@ function VersionDialog({ clip, start, onClose }: {
                           className={field}
                         >
                           {/* null hos servern: kampanjens overlay. Förhandsvisningen ritar den inte: originalfilen har ingen, det färdiga klippet har den redan. */}
-                          <option value="">Kampanjens overlay</option>
+                          <option value="">The campaign's overlay</option>
                           {opts.overlays.map((o) => (
                             <option key={o.file} value={o.file}>
                               {o.file.split("/").pop()}
@@ -700,7 +700,7 @@ function VersionDialog({ clip, start, onClose }: {
                         {opts.overlay_locked && (
                           <p className="mt-1 flex items-start gap-1.5 text-xs text-muted-foreground">
                             <Lock className="mt-px size-3 shrink-0" aria-hidden />
-                            Kampanjen kräver sin egen overlay, så den går inte att byta.
+                            The campaign requires its own overlay, so it cannot be changed.
                           </p>
                         )}
                       </div>
@@ -748,10 +748,10 @@ function VersionDialog({ clip, start, onClose }: {
                 <div className="space-y-1.5">
                   <Button className="h-10 w-full" disabled={!!reason || busy} onClick={create}>
                     {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Copy aria-hidden />}
-                    {busy ? "Gör versionen…" : "Gör versionen"}
+                    {busy ? "Making the version…" : "Make the version"}
                   </Button>
                   {busy ? (
-                    <p className="text-xs text-muted-foreground">Servern gör en ny fil. Det kan ta en minut.</p>
+                    <p className="text-xs text-muted-foreground">The server makes a new file. It can take a minute.</p>
                   ) : (
                     reason && <p className="text-xs text-muted-foreground">{reason}</p>
                   )}

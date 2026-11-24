@@ -8,14 +8,14 @@ import { api } from "@/lib/api";
 import { YOUTUBE_REDIRECT_URI } from "@/lib/appLinks";
 import type { YouTubeChannel, YouTubeStatus } from "@/lib/types";
 
-export const channelName = (c: Pick<YouTubeChannel, "title">) => c.title ?? "YouTube-kanal";
+export const channelName = (c: Pick<YouTubeChannel, "title">) => c.title ?? "YouTube channel";
 
 function AddChannel() {
   // Samma flik: Google leder tillbaka till Inställningar efter inloggningen.
   return (
     <a href={api.campaign.youtube.connectUrl} className={buttonVariants({ className: "h-9" })}>
       <Plus aria-hidden />
-      Lägg till YouTube-kanal
+      Add YouTube channel
     </a>
   );
 }
@@ -34,7 +34,7 @@ function ChannelRow({ channel: c, onDisconnected }: { channel: YouTubeChannel; o
       await api.campaign.youtube.disconnect(c.channel_id);
       onDisconnected();
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Kunde inte koppla från ${name}`);
+      setError(err instanceof Error ? err.message : `Could not disconnect ${name}`);
       setBusy(false);
     }
   }
@@ -57,29 +57,29 @@ function ChannelRow({ channel: c, onDisconnected }: { channel: YouTubeChannel; o
           </p>
           <p className="text-[13px]">
             {ok ? (
-              <span className="text-good">Kopplad</span>
+              <span className="text-good">Connected</span>
             ) : (
               <a href={api.campaign.youtube.connectUrl} className="font-medium text-bad underline underline-offset-4">
-                Logga in igen
+                Log in again
               </a>
             )}
           </p>
         </div>
         {!confirm && (
           <Button variant="outline" className="h-8" onClick={() => setConfirm(true)}>
-            Koppla från
+            Disconnect
           </Button>
         )}
       </div>
       {confirm && (
         <div className="mt-2.5 flex flex-wrap items-center gap-2 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm">
-          <span className="mr-auto text-[#fca5a5]">Koppla från {name}?</span>
+          <span className="mr-auto text-[#fca5a5]">Disconnect {name}?</span>
           <Button variant="destructive" className="h-8" disabled={busy} onClick={disconnect}>
             {busy && <Loader2 className="animate-spin" aria-hidden />}
-            Ja, koppla från
+            Yes, disconnect
           </Button>
           <Button variant="ghost" className="h-8" disabled={busy} onClick={() => setConfirm(false)}>
-            Avbryt
+            Cancel
           </Button>
         </div>
       )}
@@ -121,7 +121,7 @@ export function YouTubeCard({ refresh }: { /** Ändras när YouTube-nycklarna sp
         setStatus(s);
         setError(null);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte läsa läget för YouTube"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load the YouTube status"));
   }, []);
 
   useEffect(load, [load, refresh]);
@@ -131,19 +131,19 @@ export function YouTubeCard({ refresh }: { /** Ändras när YouTube-nycklarna sp
   const redirect = status?.redirect_uri || YOUTUBE_REDIRECT_URI;
 
   return (
-    <section ref={ref} aria-label="YouTube-kanaler" className="mt-5 border-t border-line pt-4 text-sm">
-      <h3 className="font-semibold">Kanaler</h3>
+    <section ref={ref} aria-label="YouTube channels" className="mt-5 border-t border-line pt-4 text-sm">
+      <h3 className="font-semibold">Channels</h3>
 
       {callback?.result === "ok" && (
         <p role="status" className="mt-2 flex items-center gap-2 rounded-lg border border-[#174a2a] bg-[#0d1a12] px-3 py-2 text-good">
           <CheckCircle2 className="size-4 shrink-0" aria-hidden />
-          YouTube är kopplat.
+          YouTube is connected.
         </p>
       )}
       {callback?.result === "fel" && (
         <p role="alert" className="mt-2 flex items-center gap-2 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-[#fca5a5]">
           <XCircle className="size-4 shrink-0" aria-hidden />
-          YouTube kopplades inte: {callback.reason || "okänt fel"}
+          YouTube was not connected: {callback.reason || "unknown error"}
         </p>
       )}
       {error && (
@@ -151,16 +151,16 @@ export function YouTubeCard({ refresh }: { /** Ändras när YouTube-nycklarna sp
           {error}
         </p>
       )}
-      {!status && !error && <p className="mt-1 text-muted-foreground">Läser läget för YouTube…</p>}
+      {!status && !error && <p className="mt-1 text-muted-foreground">Loading the YouTube status…</p>}
 
       {status && !status.configured && (
-        <p className="mt-1">YouTube är inte inställt. Client ID och Client secret saknas.</p>
+        <p className="mt-1">YouTube is not set up. Client ID and Client secret are missing.</p>
       )}
 
       {status?.configured &&
         (channels.length === 0 ? (
           <div className="mt-2 rounded-xl border border-dashed border-line px-4 py-5 text-center">
-            <p className="text-muted-foreground">Inga YouTube-kanaler är kopplade än.</p>
+            <p className="text-muted-foreground">No YouTube channels are connected yet.</p>
             <div className="mt-3">
               <AddChannel />
             </div>
@@ -181,29 +181,29 @@ export function YouTubeCard({ refresh }: { /** Ändras när YouTube-nycklarna sp
       {status && (
         <details className="mt-3">
           <summary className="cursor-pointer text-muted-foreground select-none hover:text-foreground">
-            Så ställer du in YouTube
+            How to set up YouTube
           </summary>
           <ol className="mt-3 list-decimal space-y-2.5 pl-5">
             <li>
-              Aktivera YouTube Data API v3 i ett projekt på{" "}
+              Enable YouTube Data API v3 in a project on{" "}
               <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" className="text-brand underline-offset-4 hover:underline">
                 console.cloud.google.com
               </a>
               .
             </li>
-            <li>Skapa en OAuth-klient av typen Web application.</li>
+            <li>Create an OAuth client of type Web application.</li>
             <li>
-              Lägg in redirect-adressen:
+              Add the redirect address:
               <span className="mt-1.5 flex flex-wrap items-center gap-2">
                 <code className="rounded-md border border-line bg-background px-2 py-1 text-[13px] break-all">{redirect}</code>
-                <CopyButton text={redirect} label="Kopiera" />
+                <CopyButton text={redirect} label="Copy" />
               </span>
             </li>
-            <li>Lägg till ditt Google-konto under Test users på sidan för inloggningen (OAuth consent screen).</li>
-            <li>Klistra in Client ID och Client secret ovanför och tryck Spara. Servern använder dem direkt.</li>
+            <li>Add your Google account under Test users on the login page (OAuth consent screen).</li>
+            <li>Paste Client ID and Client secret above and press Save. The server uses them right away.</li>
           </ol>
           <p className="mt-2 text-xs text-muted-foreground">
-            Medan appen är i läget Testing går inloggningen ut efter 7 dagar. Då står det Logga in igen vid kanalen.
+            Medan appen är i läget Testing går inloggningen ut efter 7 dagar. Då står det Log in again vid kanalen.
           </p>
         </details>
       )}
