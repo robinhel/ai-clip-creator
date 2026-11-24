@@ -378,7 +378,7 @@ def folder(settings: Settings, draft_id: str) -> Path:
     """Utkastets mapp. Bara ett id av [a-f0-9], så att ingen sökväg kan skickas in."""
     path = _root(settings) / draft_id
     if not DRAFT_ID.fullmatch(draft_id) or not (path / "meta.json").is_file():
-        raise VersionError("Utkastet finns inte. Ladda upp videon igen.", 404)
+        raise VersionError("The draft does not exist. Upload the video again.", 404)
     with suppress(FileNotFoundError):  # borttaget nyss: felet kommer när meta.json läses
         os.utime(path / "meta.json")  # används nu: _clean_old räknar åldern från meta.json
     return path

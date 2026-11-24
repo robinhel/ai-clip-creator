@@ -332,7 +332,7 @@ def get_yaml(profile_id: str, settings: Settings = Depends(get_settings)) -> dic
     return {"yaml": _profile_path(profile_id, settings).read_bytes().decode("utf-8")}
 
 
-@router.put("/profiles/{profile_id}/yaml", summary="Spara profilen som text",
+@router.put("/profiles/{profile_id}/yaml", summary="Save the profile as text",
             dependencies=[Depends(verify_api_key)])
 def put_yaml(profile_id: str, body: YamlBody, settings: Settings = Depends(get_settings)) -> dict:
     path = _profile_path(profile_id, settings)
@@ -529,7 +529,7 @@ def _write_new(profile_id: str, body: NewCampaign, template: Path, settings: Set
         raise
 
 
-@router.post("/profiles", status_code=201, summary="Ny kampanj", dependencies=[Depends(verify_api_key)])
+@router.post("/profiles", status_code=201, summary="New campaign", dependencies=[Depends(verify_api_key)])
 def create_profile(body: NewCampaign, settings: Settings = Depends(get_settings)) -> dict:
     profile_id = _new_id(body)
     files = (settings.profiles_dir / f"{profile_id}.yaml", settings.root / f"config.{profile_id}.yaml")

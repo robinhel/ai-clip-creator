@@ -521,7 +521,7 @@ def test_a_campaign_without_subtitles_says_so(setup, settings) -> None:
     config.write_text(config.read_text(encoding="utf-8").replace("caption:\n  enabled: true",
                                                                  "caption:\n  enabled: false"), encoding="utf-8")
     info = client.get(f"/campaign/clips/{clip_id}/edit").json()
-    assert info["subtitles"] == {"editable": False, "reason": "Kampanjen har inga undertexter.", "words": [],
+    assert info["subtitles"] == {"editable": False, "reason": "The campaign has no subtitles.", "words": [],
                                  "style": None}
 
 

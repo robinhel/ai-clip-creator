@@ -122,7 +122,7 @@ export function CampaignYaml({ id, onUpdate, onDirty }: Props) {
       <div className="flex gap-2">
         <Button className="h-9" disabled={!dirty || busy} onClick={save}>
           {busy && <Loader2 className="animate-spin" aria-hidden />}
-          Spara
+          Save
         </Button>
         <Button
           variant="ghost"

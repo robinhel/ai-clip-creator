@@ -105,7 +105,7 @@ export function CaptionWords({ words, original, onChange, now, inS, outS, durati
               }}
             >
               <Trash2 aria-hidden />
-              Ta bort
+              Remove
             </Button>
           </div>
         </div>

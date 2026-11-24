@@ -278,7 +278,7 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
             <p className="text-[13px] text-muted-foreground">The campaign allows (s)</p>
             <div className="flex items-center gap-2">
               <input aria-label="The campaign allows, shortest" value={v.allowedMin} onChange={(e) => set("allowedMin", e.target.value)} inputMode="numeric" className={cn(field, "w-20 tabular-nums")} />
-              <span className="text-muted-foreground">till</span>
+              <span className="text-muted-foreground">to</span>
               <input aria-label="The campaign allows, longest" value={v.allowedMax} onChange={(e) => set("allowedMax", e.target.value)} onBlur={leave("allowed")} inputMode="numeric" className={cn(field, "w-20 tabular-nums")} />
             </div>
             {shown("allowed") ? (
@@ -291,7 +291,7 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
             <p className="text-[13px] text-muted-foreground">The app clips (s)</p>
             <div className="flex items-center gap-2">
               <input aria-label="The app clips, shortest" value={v.clipMin} onChange={(e) => set("clipMin", e.target.value)} inputMode="numeric" className={cn(field, "w-20 tabular-nums")} />
-              <span className="text-muted-foreground">till</span>
+              <span className="text-muted-foreground">to</span>
               <input aria-label="The app clips, longest" value={v.clipMax} onChange={(e) => set("clipMax", e.target.value)} onBlur={leave("clip")} inputMode="numeric" className={cn(field, "w-20 tabular-nums")} />
             </div>
             {shown("clip") ? (
@@ -395,7 +395,7 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
         <div className="flex flex-wrap gap-2">
           <Button type="submit" className="h-9" disabled={!dirty || busy}>
             {busy && <Loader2 className="animate-spin" aria-hidden />}
-            Spara
+            Save
           </Button>
           <Button
             type="button"

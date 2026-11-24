@@ -205,7 +205,7 @@ function CancelBar({ onCancel }: { onCancel: () => Promise<string | null> }) {
       {step === "idle" && (
         <Button variant="outline" className="h-8" onClick={() => setStep("ask")}>
           <Square aria-hidden />
-          Avbryt
+          Cancel
         </Button>
       )}
       {step === "ask" && (

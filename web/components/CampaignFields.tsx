@@ -105,7 +105,7 @@ export function Chips({ label, values, onChange, prefix = "", placeholder }: {
         {values.map((v) => (
           <span key={v} className="inline-flex items-center gap-1 rounded-full bg-line py-0.5 pr-1 pl-2.5 text-xs">
             {v}
-            <button type="button" aria-label={`Ta bort ${v}`} onClick={() => onChange(values.filter((x) => x !== v))} className="rounded-full p-0.5 text-muted-foreground hover:text-foreground">
+            <button type="button" aria-label={`Remove ${v}`} onClick={() => onChange(values.filter((x) => x !== v))} className="rounded-full p-0.5 text-muted-foreground hover:text-foreground">
               <X className="size-3" aria-hidden />
             </button>
           </span>
@@ -159,7 +159,7 @@ export function FormatList({ formats, onChange }: { formats: FormatRow[]; onChan
               placeholder="What makes a good clip in the format"
               className={field}
             />
-            <Button type="button" variant="ghost" className="h-9 text-muted-foreground" aria-label={`Ta bort format ${i + 1}`} onClick={() => onChange(formats.filter((_, j) => j !== i))}>
+            <Button type="button" variant="ghost" className="h-9 text-muted-foreground" aria-label={`Remove format ${i + 1}`} onClick={() => onChange(formats.filter((_, j) => j !== i))}>
               <Trash2 aria-hidden />
             </Button>
           </li>

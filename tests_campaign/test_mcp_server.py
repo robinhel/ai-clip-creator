@@ -124,11 +124,11 @@ def test_account_status_reads_both_platforms(app):
     assert [r.url.path for r in app.requests] == ["/campaign/youtube/status", "/campaign/tiktok/status"]
 
 
-def test_the_server_error_comes_back_as_its_swedish_text(app):
-    app.answer = httpx.Response(400, json={"detail": "Bara godkända klipp kan laddas upp till YouTube."})
+def test_the_server_error_comes_back_as_its_text(app):
+    app.answer = httpx.Response(400, json={"detail": "Only approved clips can be uploaded to YouTube."})
     result = _call("upload_youtube", {"clip_id": 5, "title": "x", "privacy": "public", "made_for_kids": False})
     assert result.is_error
-    assert "Bara godkända klipp kan laddas upp till YouTube." in result.content[0].text
+    assert "Only approved clips can be uploaded to YouTube." in result.content[0].text
 
 
 def test_a_validation_error_list_becomes_text(app):

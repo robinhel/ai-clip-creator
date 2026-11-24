@@ -69,7 +69,7 @@ def country(settings: Settings) -> str:
 def save_country(settings: Settings, code: str) -> None:
     """ValueError för en kod utanför listan."""
     if code not in COUNTRIES:
-        raise ValueError(f"Landet {code!r} finns inte i listan.")
+        raise ValueError(f"The country {code!r} is not in the list.")
     _save(settings, country=code)
 
 

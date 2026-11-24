@@ -247,7 +247,7 @@ class Scout:
         if response.status_code >= 400:
             raise ScoutError(f"ClippingAlpha answered {response.status_code}. Scouting tries again in 10 minutes.")
         if isinstance(error, dict):
-            raise ScoutError(f"ClippingAlpha gav ett fel: {str(error.get('message'))[:120]}")
+            raise ScoutError(f"ClippingAlpha returned an error: {str(error.get('message'))[:120]}")
         if "mcp-session-id" in response.headers:
             _session["id"] = response.headers["mcp-session-id"]
         return body

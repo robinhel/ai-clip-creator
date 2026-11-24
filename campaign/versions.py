@@ -40,8 +40,8 @@ NO_WORDS = "A new version needs a clip that the app cut with a word file."
 HARD_SPACES = str.maketrans({"\xa0": " ", "\u202f": " "})
 HOOK_CONTROL = "The hook cannot have line breaks or other control characters."
 HOOK_TOO_LONG = "The hook does not fit in the frame. Make it shorter."
-NO_OWN = ("The version has no new hook and no new start point. Only mirroring, speed, filter or font can give a "
-          "strike on YouTube and keep the clip off For You on TikTok.")
+NO_OWN = ("The version has no new hook and no new start point. Only mirroring, speed, filter or font can get a "
+          "strike on YouTube and keep the clip out of For You on TikTok.")
 NO_ACCOUNT = ("The clip has a post without an account on {}. It may already be on this account. Check before "
               "you post.")
 
@@ -175,7 +175,7 @@ def _ready(settings: Settings, log: ClipLog, clip: dict, platform: str, account:
         raise VersionError(str(error), error.status) from error
     uses = schedule._uses(root["id"], platform)
     if account in uses:
-        raise VersionError("Kontot har redan klippet eller en version av det.", 409)
+        raise VersionError("The account already has the clip or a version of it.", 409)
     state = editor._state(root, raw)  # originalets trimning: råklippet börjar vid in_s
     return {"root": root, "profile": profile, "raw": raw, "data": data, "in_s": state["in_s"],
             "out_s": state["out_s"], "account_warning": NO_ACCOUNT.format(name) if None in uses else None}
@@ -241,7 +241,7 @@ def _overlay(settings: Settings, profile: Profile, overlay: str | None) -> Path 
     except ValueError as error:
         raise VersionError(str(error)) from error
     if not path.is_file():
-        raise VersionError(f"Overlayen {overlay} finns inte.")
+        raise VersionError(f"The overlay {overlay} does not exist.")
     return path
 
 

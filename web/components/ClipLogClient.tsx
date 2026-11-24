@@ -92,7 +92,7 @@ function BudgetCard({ title, spent, cap }: { title: string; spent: number; cap: 
       </CardHeader>
       <CardContent className="space-y-1.5">
         <Progress value={pct} className={cn(pct >= 90 && "[&_[data-slot=progress-indicator]]:bg-destructive")} />
-        <p className="text-xs text-muted-foreground">av {usd.format(cap)}</p>
+        <p className="text-xs text-muted-foreground">of {usd.format(cap)}</p>
       </CardContent>
     </Card>
   );
@@ -569,7 +569,7 @@ function UndoButton({ row, busy, onSave, onRemove }: { row: Row; busy: boolean; 
   if (row.post?.status === "postad") {
     return (
       <Button size="sm" variant="ghost" disabled={busy} onClick={onRemove}>
-        Ta bort
+        Remove
       </Button>
     );
   }
@@ -599,7 +599,7 @@ function RowActions({ row, step, dirty, busy, belowMin, info, onSave, onRemove }
     <div className="mt-3 flex flex-wrap items-start gap-1.5 lg:mt-0 lg:flex-col lg:items-stretch">
       {dirty && (
         <Button size="sm" onClick={() => onSave()} disabled={busy}>
-          Spara
+          Save
         </Button>
       )}
       {(NEXT_STEPS[rowStatus(row)] ?? []).map((next) => (

@@ -135,7 +135,7 @@ export function ClipPosts({ clip, onUpdate, readOnly = false }: { clip: Campaign
                     Save the link
                   </Button>
                   <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(null)}>
-                    Avbryt
+                    Cancel
                   </Button>
                 </div>
               </div>

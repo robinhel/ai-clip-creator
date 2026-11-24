@@ -1,6 +1,7 @@
 // Regelkontrollens problem och varningar sparas i klipp.db när klippet görs. Klipp från före översättningen till
 // engelska har kvar den svenska texten. Här är de gamla svenska texterna, på ett ställe: appen visar dem på engelska
-// och känner igen dem i steps.ts. Nya texter kommer från campaign/rules.py, campaign/caption.py och drafts.with_advice.
+// och känner igen dem i steps.ts. Nya texter kommer från campaign/rules.py, campaign/caption.py, drafts.with_advice,
+// NO_OWN och NO_ACCOUNT i campaign/versions.py och MUSIC_GONE i campaign/drafts.py.
 
 /** Gamla tal har komma (4,6), andra punkt. Engelska har punkt. */
 const num = (value: string) => value.replace(",", ".");
@@ -29,6 +30,16 @@ const OLD: [RegExp, (...groups: string[]) => string][] = [
   ],
   [/^Originalljudet hörs inte\. Kampanjen har en regel om ljud: ([\s\S]*)$/, (rule) => `The original sound cannot be heard. The campaign has a rule about sound: ${rule}`],
   [/^Formatet (.+) finns inte i kampanjens lista\.$/, (format) => `The format ${format} is not in the campaign's list.`],
+  // NO_ACCOUNT i campaign/versions.py
+  [
+    /^Klippet har ett inlägg utan konto på (.+)\. Det kan redan ligga på det här kontot\. Kontrollera innan du postar\.$/,
+    (platform) => `The clip has a post without an account on ${platform}. It may already be on this account. Check before you post.`,
+  ],
+  // MUSIC_GONE i campaign/drafts.py
+  [
+    /^Musiken (.+) finns inte längre\. Lägg tillbaka den i (.+)\/, eller gör om klippet på Egna videor\.$/,
+    (music, folder) => `The music ${music} no longer exists. Put it back in ${folder}/, or redo the clip on Own videos.`,
+  ],
 ];
 
 const OLD_FIXED: Record<string, string> = {
@@ -41,6 +52,9 @@ const OLD_FIXED: Record<string, string> = {
   "Bildgranskningen hittade ingen facecam i klippet.": "The image review found no facecam in the clip.",
   "Bildgranskningen kunde inte läsa texten på skärmen.": "The image review could not read the on-screen text.",
   "Bildgranskningen såg text över ansiktet.": "The image review saw text over the face.",
+  // NO_OWN i campaign/versions.py
+  "Versionen har ingen ny hook och ingen ny startpunkt. Bara spegling, hastighet, filter eller font kan ge strike på YouTube och stoppa klippet från För dig på TikTok.":
+    "The version has no new hook and no new start point. Only mirroring, speed, filter or font can get a strike on YouTube and keep the clip out of For You on TikTok.",
 };
 
 /** Ett gammalt captionfel som inte känns igen ovan räknas ändå som ett captionfel. */

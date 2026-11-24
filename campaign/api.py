@@ -193,7 +193,7 @@ def list_profiles(settings: Settings = Depends(get_settings)) -> list[dict]:
                            "channel": "", "clip_min_s": None, "clip_max_s": None,
                            "formats": [], "ready": False, "active": True, "source": "twitch",
                            "problems": [f"The campaign file cannot be read: {error}"], "key_problems": [],
-                           "state": "Inte redo"})
+                           "state": "Not ready"})
     return result
 
 

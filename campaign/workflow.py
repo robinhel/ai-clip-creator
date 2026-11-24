@@ -109,7 +109,7 @@ def _raw_clips(vod_id: str, settings: Settings, subdir: str | None) -> tuple[Pat
     clip_dir = settings.out_dir / vod_id / subdir if subdir else settings.out_dir / vod_id
     files = sorted(clip_dir.glob("clip_*.mp4"))
     if not files:
-        raise SystemExit(f"Hittar inga klipp i {clip_dir}. Kör clipsmith först.")
+        raise SystemExit(f"No clips found in {clip_dir}. Run clipsmith first.")
     own = clip_dir / "picks.json"  # en körning i out/<vod>/run_<id>/ har sina egna val
     return clip_dir, files, load_picks(own if own.exists() else settings.work_dir / vod_id / "picks.json")
 
@@ -202,9 +202,9 @@ def finish_vod(
                     split_ratio=stacked_split(profile, settings.root),
                 )
             except BudgetExceeded as error:
-                notes.append(f"Bildgranskningen hoppades över: {error}")
+                notes.append(f"The image review was skipped: {error}")
             except Exception as error:  # nätverksfel m.m. ska inte stoppa hela körningen
-                notes.append(f"Bildgranskningen misslyckades: {error}")
+                notes.append(f"The image review failed: {error}")
 
         problems, warnings = check_clip(
             probe(out), manifest, profile, caption, pick.get("format"), review_result

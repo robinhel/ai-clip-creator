@@ -345,11 +345,11 @@ RETRY_S = 15.0  # PartNotReady: försök igen efter så här lång tid
 NOT_READY_S = 180.0  # och ge upp efter tre minuter
 QUEUE_S = 10.0  # en annan körning pågår: försök igen efter så här lång tid
 MAX_WAIT_S = 60.0  # längsta väntan innan chatten ansluts igen
-NO_BUDGET = "Budgeten är slut."
+NO_BUDGET = "The budget is used up."
 TO_REVIEW = ("renderad", "underkand")  # klippen i Att granska
 NOT_READY = "Delen fanns inte hos Twitch efter tre minuter."
 NOT_RECORDED = "Delen fanns inte i inspelningen efter tre minuter. Streamen slutade eller inspelningen stannade."
-NOT_WATCHABLE = "Kampanjen är avstängd, inte redo eller saknar kanal."
+NOT_WATCHABLE = "The campaign is off, not ready or has no channel."
 FREE = "kanal:"  # nyckeln i LiveState för en fri kanal utan kampanj: kanal:<login>
 
 LATEST_QUERY = (
@@ -499,7 +499,7 @@ class Watcher:
             except (SystemExit, Exception) as error:  # en kanal stoppar inte de andra
                 log.warning("Livebevakningen av %s", key, exc_info=True)
                 state.set_channel(
-                    key, error=f"Kanalen gick inte att fråga ({type(error).__name__})."
+                    key, error=f"The channel could not be checked ({type(error).__name__})."
                 )
 
     def _check_one(self, state: LiveState, key: str) -> None:
@@ -760,7 +760,7 @@ class Watcher:
             except Exception:  # annars står körningen som pågående tills servern startas om
                 run.status, run.error = (
                     RunStatus.failed,
-                    "Projektet eller läget för liveklippet kunde inte sparas.",
+                    "The project or the state of the live clip could not be saved.",
                 )
                 db.commit()
                 self.app.state.active_run_id = None
@@ -795,7 +795,7 @@ class Watcher:
             url = f"{self.settings.web_url}/queue?tab=granska"
             for clip in _log(self.settings).list():
                 if clip["vod_id"] == job.part_id and clip["status"] in TO_REVIEW:
-                    self.notify(f"Nytt liveklipp från {streamer}: {clip['title']}", url)
+                    self.notify(f"New live clip from {streamer}: {clip['title']}", url)
 
     # ----- trådarna -----
 

@@ -43,7 +43,7 @@ def silences(src: Path) -> list[tuple[float, float]]:
          "-af", f"silencedetect=noise={SILENCE_DB}dB:d={SILENCE_S}", "-f", "null", "-"],
         capture_output=True, text=True)
     if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg kunde inte leta tystnad:\n{result.stderr[-1500:]}")
+        raise RuntimeError(f"ffmpeg could not look for silence:\n{result.stderr[-1500:]}")
     starts = [max(0.0, float(x)) for x in re.findall(r"silence_start: (-?[\d.]+)", result.stderr)]
     ends = [float(x) for x in re.findall(r"silence_end: ([\d.]+)", result.stderr)]
     return [(start, ends[i] if i < len(ends) else float("inf")) for i, start in enumerate(starts)]

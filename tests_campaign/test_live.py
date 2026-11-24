@@ -394,7 +394,7 @@ def test_no_budget_skips_the_peak_without_fetching(world, settings) -> None:
     world.watcher.handle(_one_peak(world, settings))
     assert world.fetches == [] and world.runs == []
     peak = _peaks(settings)[0]
-    assert (peak["status"], peak["reason"]) == ("hoppad", "Budgeten är slut.")
+    assert (peak["status"], peak["reason"]) == ("hoppad", live.NO_BUDGET)
 
 
 def test_a_part_that_is_not_ready_is_tried_again_for_three_minutes(world, settings) -> None:

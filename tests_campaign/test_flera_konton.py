@@ -479,14 +479,14 @@ def test_a_variant_that_is_still_taken_is_400_after_two_tries(sched, settings, m
     assert len(fake.messages.calls) == 2
 
 
-def test_a_variant_without_a_key_or_budget_is_400_in_swedish(sched, settings, monkeypatch) -> None:
+def test_a_variant_without_a_key_or_budget_is_400_with_the_reason(sched, settings, monkeypatch) -> None:
     clip_id = _clip(settings)
     settings.anthropic_api_key = ""
     answer = _variant(sched, clip_id)
     assert answer.status_code == 400 and "key" in answer.json()["detail"].lower()
     settings.anthropic_api_key = "nyckel"
     _claude(monkeypatch, "Anything")
-    monkeypatch.setattr(Budget, "check", lambda self: (_ for _ in ()).throw(BudgetExceeded("Månadstaket är nått.")))
+    monkeypatch.setattr(Budget, "check", lambda self: (_ for _ in ()).throw(BudgetExceeded("The monthly cap is reached: 200.00 of 200.00 dollars.")))
     answer = _variant(sched, clip_id)
-    assert answer.status_code == 400 and "Månadstaket" in answer.json()["detail"]
+    assert answer.status_code == 400 and "The monthly cap is reached" in answer.json()["detail"]
     assert sched.post("/campaign/clips/999/variant", json={"platform": "tiktok", "account": "a"}).status_code == 404

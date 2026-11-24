@@ -121,7 +121,7 @@ def config_file(root: Path, name: object) -> Path:
         raise bad
     path = root / name
     if not path.is_file():
-        raise ValueError(f"Config-filen {name} saknas.")
+        raise ValueError(f"The config file {name} is missing.")
     real = path.resolve()  # en symlänk får inte peka ut någon annan fil
     if real.parent != root.resolve() or real.name.startswith(".") or real.suffix != ".yaml":
         raise bad

@@ -209,7 +209,7 @@ def save_draft(draft_id: str, choices: Annotated[Choices, Form()],
     return _public(log.get(clip_id), settings)
 
 
-@router.delete("/uploads/drafts/{draft_id}", status_code=204, summary="Ta bort utkastet", dependencies=KEY)
+@router.delete("/uploads/drafts/{draft_id}", status_code=204, summary="Delete the draft", dependencies=KEY)
 def delete_draft(draft_id: str, settings: Settings = Depends(get_settings)) -> Response:
     try:
         with _locked(settings, draft_id) as path:

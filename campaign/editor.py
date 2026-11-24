@@ -41,7 +41,7 @@ WORDS_MAX = 1000
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")  # radbrytning, tabb m.m. skulle bryta raden i undertextfilen
 BURNED = ("The subtitles are burned into this clip, so words cannot be corrected. It works for clips cut "
           "from now on.")
-NO_SUBTITLES = "Kampanjen har inga undertexter."
+NO_SUBTITLES = "The campaign has no subtitles."
 STALE = "The word list no longer belongs to the clip, so words cannot be corrected."
 
 

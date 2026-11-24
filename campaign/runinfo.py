@@ -17,7 +17,7 @@ from .profile import load_profile
 FIELDS = ("run_id", "vod_id", "profile", "game", "focus", "min_s", "max_s",
           "title", "channel_name", "thumbnail_url", "duration_s", "project_id", "origin")
 FILE_FIELDS = ("run_id", "vod_id", "title", "status", "stage", "pct", "error", "duration_s", "vod_bytes", "created")
-MISSING = "Projektet saknas i clipsmiths databas."
+MISSING = "The project is missing from clipsmith's database."
 SIGNALS_STEP = "The signals choose, without Claude"
 
 
