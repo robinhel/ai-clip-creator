@@ -22,9 +22,18 @@ and no shared server.
   and set `CLIPSMITH_API_KEY` when you do.
 - CORS allows only the local dashboard (`http://localhost:3000` and
   `http://127.0.0.1:3000`) unless you set `CORS_ORIGINS`.
-- Endpoints that change keys only accept requests from the same computer, with a
-  local host name (`localhost`, `127.0.0.1` or `[::1]`), and require the
-  `X-Api-Key` header when `CLIPSMITH_API_KEY` is set.
+- **Host check.** The API and the dashboard's `/api` proxy answer 403 to every request
+  whose `Host` is not `localhost`, `127.0.0.1` or `[::1]` (any port). This stops DNS
+  rebinding, where another web site makes its own name point at your computer.
+  `ALLOWED_HOSTS` (comma-separated) adds names for the API; Docker Compose sets it to `api`.
+- **Origin check.** A request that changes something (anything but GET, HEAD and
+  OPTIONS) and carries an `Origin` header must come from `CORS_ORIGINS`, otherwise
+  the API answers 403. Another web page open in your browser cannot post to the app.
+  Tools such as `curl` send no `Origin` and still work.
+- Endpoints that change keys or connect a TikTok or YouTube account also require a
+  loopback address (the same computer), and the `X-Api-Key` header when
+  `CLIPSMITH_API_KEY` is set.
+- Docker Compose publishes the ports on `127.0.0.1` only.
 
 ## Reporting a vulnerability
 

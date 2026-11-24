@@ -20,23 +20,6 @@ OPENAI_API_KEY=...
 # Observability (optional — requires pip install -e ".[observability]")
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317   # send traces to local collector
 APPLICATIONINSIGHTS_CONNECTION_STRING=...            # forward traces to Azure Monitor
-
-# Azure credentials (cloud mode only)
-AZURE_SUBSCRIPTION_ID=...
-
-# Azure Service Principal — optional but recommended (see docs/cloud.md)
-# Without these, DefaultAzureCredential falls back to `az login`
-AZURE_CLIENT_ID=...
-AZURE_CLIENT_SECRET=...
-AZURE_TENANT_ID=...
-
-# Docker Hub credentials (cloud mode — prevents ACI rate-limit errors)
-DOCKER_HUB_USERNAME=...
-DOCKER_HUB_PASSWORD=...     # use a read-only access token, not your password
-
-# Google Drive (cloud mode — run `clipsmith cloud drive-auth` once after setting this)
-GOOGLE_OAUTH_CLIENT_JSON=C:\git\clipsmith\google_oauth_client.json
-GOOGLE_DRIVE_FOLDER_ID=...
 ```
 
 Get Twitch credentials at <https://dev.twitch.tv/console> → Register Your Application →
@@ -184,31 +167,6 @@ candidates:
 ```yaml
 poll_interval_s: 120   # seconds between Twitch polls in watch mode
 ```
-
----
-
-### `cloud`
-
-```yaml
-cloud:
-  resource_group: clipsmith-rg   # used only by `clipsmith cloud status`
-  location: eastus
-  aci_cpu: 4.0
-  aci_memory_gb: 16.0
-  docker_image: "<yourdockerhubuser>/clipsmith:latest"
-  gpu_sku: ""          # V100 | P100 | K80 — empty means CPU-only
-```
-
-| Key | Description |
-|-----|-------------|
-| `resource_group` | Resource group prefix used by `clipsmith cloud status` to list running jobs. Actual run resource groups are ephemeral and unique per run. |
-| `location` | Azure region for ephemeral resources (e.g. `eastus`, `westus2`) |
-| `aci_cpu` | vCPU count for the container (4.0 handles a 2-hr VOD in ~60 min) |
-| `aci_memory_gb` | RAM for the container in GB |
-| `docker_image` | Full Docker Hub image tag (built by `clipsmith cloud build`) |
-| `gpu_sku` | Optional NVIDIA GPU model — requires quota increase from Azure |
-
-Storage accounts and file shares are provisioned automatically per run and torn down on completion. No manual storage setup is required. The `cloud` section is only used by `clipsmith cloud` commands — local `run-vod` and `process` ignore it.
 
 ---
 

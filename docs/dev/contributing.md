@@ -60,15 +60,14 @@ in the installed environment.
 
 ## CI
 
-Three separate workflow files in `.github/workflows/`:
+Two separate workflow files in `.github/workflows/`:
 
 | Workflow | Trigger | Jobs |
 |---|---|---|
 | `ci.yml` | every push / PR / manual | `lint` (ruff + mypy), `tests` (pytest), `security` (bandit + pip-audit) |
 | `e2e.yml` | manual (`workflow_dispatch`) only | Twitch + Anthropic end-to-end pipeline |
-| `e2e-cloud.yml` | manual (`workflow_dispatch`) only | Azure provisioning smoke tests |
 
-E2E workflows are not triggered automatically — run them manually before a release.
+The E2E workflow is not triggered automatically — run them manually before a release.
 
 ## Docs
 

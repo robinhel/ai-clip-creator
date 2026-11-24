@@ -46,7 +46,7 @@ Clipsmith converts Twitch VODs (or local MP4s) into vertical 9:16 short-form cli
 src/clipsmith/         Python backend (package)
 web/                   Next.js 16 dashboard
 tests/                 unit / integration / smoke / e2e
-.github/workflows/     CI (lint → tests → security), PyPI publish, E2E dispatch
+.github/workflows/     CI (lint → tests → security), E2E dispatch
 ```
 
 ### 6-Stage Pipeline (`src/clipsmith/pipeline.py`)
@@ -142,7 +142,7 @@ Production: set `APPLICATIONINSIGHTS_CONNECTION_STRING` to forward traces to Azu
 
 ### CI Pipeline
 
-`.github/workflows/ci.yml`: lint (ruff + mypy) → tests (pytest, no e2e) → security (bandit + pip-audit). PyPI publish is tag-triggered via OIDC trusted publisher.
+`.github/workflows/ci.yml`: lint (ruff + mypy) → tests (pytest, no e2e) → security (bandit + pip-audit).
 
 ## Robins kampanjlager
 
