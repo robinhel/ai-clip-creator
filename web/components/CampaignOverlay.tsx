@@ -16,31 +16,31 @@ const FONT_PX = 46;
 
 export function overlayRequirement(mode: OverlayMode, camera = true): string {
   return mode === "full"
-    ? `PNG i 1080 x 1920 px som täcker hela klippet, genomskinlig där videon ska synas. En banner går också.${
-        camera ? " Den läggs i skarven mellan kameran och spelet." : ""
+    ? `PNG at 1080 x 1920 px that covers the whole clip, transparent where the video should show. A banner also works.${
+        camera ? " It is placed at the seam between the camera and the game." : ""
       }`
-    : `PNG som är 1080 px bred. Den läggs ${mode === "top" ? "överst" : "nederst"} i klippet.`;
+    : `PNG that is 1080 px wide. It is placed at the ${mode === "top" ? "top" : "bottom"} of the clip.`;
 }
 
 /** Felet för filen, eller null om den går att ladda upp. Samma kontroller som servern. */
 async function checkPng(file: File, mode: OverlayMode): Promise<string | null> {
-  if (file.size > MAX_BYTES) return `Filen är ${(file.size / 1024 / 1024).toFixed(1)} MB. Den får vara högst 10 MB.`;
+  if (file.size > MAX_BYTES) return `The file is ${(file.size / 1024 / 1024).toFixed(1)} MB. It can be at most 10 MB.`;
   const head = new Uint8Array(await file.slice(0, 8).arrayBuffer());
-  if (!PNG_SIGNATURE.every((byte, i) => head[i] === byte)) return "Filen är inte en PNG. Spara bilden som PNG och försök igen.";
+  if (!PNG_SIGNATURE.every((byte, i) => head[i] === byte)) return "The file is not a PNG. Save the image as PNG and try again.";
   let size: { width: number; height: number };
   try {
     const bitmap = await createImageBitmap(file);
     size = { width: bitmap.width, height: bitmap.height };
     bitmap.close();
   } catch {
-    return "Bilden gick inte att läsa. Spara den som PNG igen och försök en gång till.";
+    return "The image could not be read. Save it as PNG again and try once more.";
   }
   // En banner (minst dubbelt så bred som hög) gör servern om till 1080 x 1920.
   if (mode === "full" && (size.width !== 1080 || size.height !== 1920) && size.width < 2 * size.height) {
-    return `Bilden är ${size.width} x ${size.height} px. En overlay som täcker hela klippet måste vara 1080 x 1920 px, eller en banner som är minst dubbelt så bred som hög.`;
+    return `The image is ${size.width} x ${size.height} px. An overlay that covers the whole clip must be 1080 x 1920 px, or a banner at least twice as wide as it is tall.`;
   }
   if (mode !== "full" && size.width !== 1080) {
-    return `Bilden är ${size.width} px bred. Den måste vara 1080 px bred.`;
+    return `The image is ${size.width} px wide. It must be 1080 px wide.`;
   }
   return null;
 }
@@ -80,14 +80,14 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
       setVersion(Date.now());
       setSaved(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Det gick inte att ladda upp bilden");
+      setError(err instanceof Error ? err.message : "Could not upload the image");
     } finally {
       setBusy(false);
     }
   }
 
   async function remove() {
-    if (!window.confirm("Ta bort overlay-bilden? Nya klipp får ingen overlay.")) return;
+    if (!window.confirm("Remove the overlay image? New clips get no overlay.")) return;
     setBusy(true);
     setError(null);
     setSaved(false);
@@ -95,7 +95,7 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
       onUpdate(await api.campaign.deleteOverlay(profile.name));
       setVersion(Date.now());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Det gick inte att ta bort bilden");
+      setError(err instanceof Error ? err.message : "Could not remove the image");
     } finally {
       setBusy(false);
     }
@@ -127,9 +127,9 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
           )}
         >
           {busy ? <Loader2 className="size-7 animate-spin text-brand" aria-hidden /> : <ImageUp className="size-7 text-brand" aria-hidden />}
-          <span className="font-medium">{busy ? "Laddar upp…" : "Släpp overlay-bilden här eller välj en fil"}</span>
+          <span className="font-medium">{busy ? "Uploading…" : "Drop the overlay image here or choose a file"}</span>
           <span className="text-[13px] text-muted-foreground">
-            PNG, högst 10 MB. {overlay.mode === "full" ? "1080 x 1920 px eller en banner." : "1080 px bred."}
+            PNG, at most 10 MB. {overlay.mode === "full" ? "1080 x 1920 px or a banner." : "1080 px wide."}
           </span>
           <input
             type="file"
@@ -152,45 +152,45 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
           <p role="status" className="flex items-center gap-2 rounded-lg border border-[#174a2a] bg-[#0d1a12] px-3 py-2 text-sm text-good">
             <CheckCircle2 className="size-4 shrink-0" aria-hidden />
             <span>
-              Overlay-bilden är sparad. Nya klipp får den. För gamla klipp: öppna projektet och tryck Gör klippen kampanjklara
-              igen.{" "}
+              The overlay image is saved. New clips get it. For old clips: open the project and press Make clips campaign-ready
+              again.{" "}
               <Link href={`/campaigns/${profile.name}?tab=material`} className="font-medium underline underline-offset-4">
-                Kampanjens projekt
+                The campaign's projects
               </Link>
             </span>
           </p>
         )}
 
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
-          <dt className="text-muted-foreground">Bild</dt>
+          <dt className="text-muted-foreground">Image</dt>
           <dd>
             {overlay.exists
               ? `${overlay.file}${overlay.width && overlay.height ? `, ${overlay.width} x ${overlay.height} px` : ""}`
               : overlay.required
-                ? "Saknas. Kampanjen kräver en overlay, annars blir klippen underkända."
-                : "Ingen. Kampanjen kräver ingen overlay."}
+                ? "Missing. The campaign requires an overlay, otherwise the clips fail the check."
+                : "None. The campaign does not require an overlay."}
           </dd>
           {text.text && (
             <>
               <dt className="text-muted-foreground">Text</dt>
               <dd>
                 {overlay.exists
-                  ? `”${text.text}” ritas inte när overlay-bilden finns. Bilden har kampanjens text.`
-                  : `”${text.text}” ritas ${text.position === "top" ? "överst" : "nederst"} i klippet.`}
+                  ? `“${text.text}” is not drawn when the overlay image exists. The image has the campaign's text.`
+                  : `“${text.text}” is drawn at the ${text.position === "top" ? "top" : "bottom"} of the clip.`}
               </dd>
             </>
           )}
-          <dt className="text-muted-foreground">Läge</dt>
-          <dd>{{ full: "Hela klippet", top: "Överst", bottom: "Nederst" }[overlay.mode]}</dd>
-          <dt className="text-muted-foreground">Säkra zoner</dt>
+          <dt className="text-muted-foreground">Mode</dt>
+          <dd>{{ full: "Whole clip", top: "Top", bottom: "Bottom" }[overlay.mode]}</dd>
+          <dt className="text-muted-foreground">Safe zones</dt>
           <dd className="tabular-nums">
-            {Math.round(safe.top * 100)} % överst och {Math.round(safe.bottom * 100)} % nederst döljs av TikTok
+            {Math.round(safe.top * 100)} % at the top and {Math.round(safe.bottom * 100)} % at the bottom are hidden by TikTok
           </dd>
         </dl>
         {overlay.exists && (
           <Button variant="outline" size="sm" onClick={remove} disabled={busy}>
             <Trash2 aria-hidden />
-            Ta bort bilden
+            Remove the image
           </Button>
         )}
       </div>
@@ -207,7 +207,7 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
             // eslint-disable-next-line @next/next/no-img-element -- overlay-bilden ska visas exakt som den är.
             <img
               src={shown}
-              alt="Overlay-bilden"
+              alt="The overlay image"
               className={cn(
                 "absolute inset-x-0 w-full",
                 overlay.mode === "full" && "inset-y-0 h-full",
@@ -219,7 +219,7 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
           <div className="absolute inset-x-0 top-0 border-b border-dashed border-white/40 bg-black/45" style={{ height: `${safe.top * 100}%` }} />
           <div className="absolute inset-x-0 bottom-0 border-t border-dashed border-white/40 bg-black/45" style={{ height: `${safe.bottom * 100}%` }}>
             {/* I hörnet, så att etiketten inte täcker overlayens egen text. */}
-            <span className="absolute top-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white/80">Döljs av TikTok</span>
+            <span className="absolute top-1 left-1 rounded bg-black/70 px-1 text-[10px] text-white/80">Hidden by TikTok</span>
           </div>
           {/* Samma regel som klippet (campaign/finish.py): den vita texten ritas bara utan overlay. */}
           {text.text && !shown && (
@@ -236,7 +236,7 @@ export function CampaignOverlay({ profile, onUpdate }: Props) {
           )}
         </StackedPreview>
         <figcaption className="mt-2 text-xs text-muted-foreground">
-          Förhandsvisning i 9:16{camera ? "" : ", utan kamera"}. Skuggade band döljs av TikToks knappar och text.
+          Preview in 9:16{camera ? "" : ", without camera"}. Shaded bands are hidden by TikTok's buttons and text.
         </figcaption>
       </figure>
     </div>

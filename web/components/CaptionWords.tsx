@@ -32,13 +32,13 @@ export function CaptionWords({ words, original, onChange, now, inS, outS, durati
   const changed = (w: CaptionWord) => !original.some((o) => o.start === w.start && o.end === w.end && o.word === w.word);
 
   return (
-    <section aria-label="Ord i undertexten" data-caption-words className="space-y-3">
+    <section aria-label="Words in the subtitles" data-caption-words className="space-y-3">
       <div className="flex items-baseline justify-between gap-3">
-        <h3 className="text-sm font-medium">Undertext</h3>
-        <p className="text-xs text-muted-foreground">Klicka på ett ord för att rätta det.</p>
+        <h3 className="text-sm font-medium">Subtitles</h3>
+        <p className="text-xs text-muted-foreground">Click a word to fix it.</p>
       </div>
       {shown.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Inga ord mellan in och ut.</p>
+        <p className="text-sm text-muted-foreground">No words between in and out.</p>
       ) : (
         <p className="max-h-36 overflow-y-auto rounded-xl border border-line bg-background px-2.5 py-2 text-sm leading-8">
           {shown.map(({ w, i }) => {
@@ -71,7 +71,7 @@ export function CaptionWords({ words, original, onChange, now, inS, outS, durati
       {sel && picked != null && (
         <div className="flex flex-wrap items-center gap-2">
           <input
-            aria-label="Ordet"
+            aria-label="The word"
             value={sel.word}
             maxLength={40}
             autoFocus

@@ -15,12 +15,12 @@ const FAILS_CLIPS = ["Overlay-bilden saknas", "on_screen_text.text är tom"];
 /** Vad kampanjens läge betyder för körningen. Servern skickar samma text som Kontroll (state). */
 export function readyText(p: CampaignProfile): string {
   if (p.state) return p.state;
-  if (!p.ready) return "Inte redo";
-  if (p.problems.length === 0) return "Redo";
+  if (!p.ready) return "Not ready";
+  if (p.problems.length === 0) return "Ready";
   if (p.problems.some((problem) => FAILS_CLIPS.some((start) => problem.startsWith(start)))) {
-    return "Går att köra, men klippen blir underkända tills varningarna är rättade";
+    return "Can run, but the clips fail the check until the warnings are fixed";
   }
-  return "Går att köra, men rätta varningarna i kampanjens inställningar först";
+  return "Can run, but fix the warnings in the campaign settings first";
 }
 
 /** Nycklar som saknas. En äldre server har dem bara i problems. */
@@ -35,14 +35,14 @@ export const ownProblems = (p: CampaignProfile) => {
 
 // Problem som rättas på ett annat ställe. Texten kommer från servern (campaign/profile.py och campaign/api.py).
 const FIX = [
-  { start: "Overlay-bilden saknas", href: (id: string) => `/campaigns/${id}?tab=installningar&del=overlay`, label: "Ladda upp overlay-bilden" },
-  { start: "Facecam- och spelrutan är inte inställd", href: (id: string) => `/campaigns/${id}?tab=installningar&del=facecam`, label: "Ställ in rutorna" },
-  { start: "on_screen_text.text är tom", href: (id: string) => `/campaigns/${id}?tab=installningar&del=oversikt#caption`, label: "Skriv texten under Ställ in" },
-  { start: "Kampanjen saknar clipsmith_config", href: (id: string) => `/campaigns/${id}?tab=installningar&del=profil`, label: "Öppna Avancerat (YAML)" },
-  { start: "Claude-nyckeln", href: () => "/settings#anthropic", label: "Lägg in nyckeln i Inställningar" },
-  { start: "Berget-nyckeln", href: () => "/settings#berget", label: "Lägg in nyckeln i Inställningar" },
-  { start: "ANTHROPIC_API_KEY saknas", href: () => "/settings#anthropic", label: "Lägg in nyckeln i Inställningar" },
-  { start: "BERGET_API_KEY saknas", href: () => "/settings#berget", label: "Lägg in nyckeln i Inställningar" },
+  { start: "Overlay-bilden saknas", href: (id: string) => `/campaigns/${id}?tab=installningar&del=overlay`, label: "Upload the overlay image" },
+  { start: "Facecam- och spelrutan är inte inställd", href: (id: string) => `/campaigns/${id}?tab=installningar&del=facecam`, label: "Set up the boxes" },
+  { start: "on_screen_text.text är tom", href: (id: string) => `/campaigns/${id}?tab=installningar&del=oversikt#caption`, label: "Write the text under Set up" },
+  { start: "Kampanjen saknar clipsmith_config", href: (id: string) => `/campaigns/${id}?tab=installningar&del=profil`, label: "Open Advanced (YAML)" },
+  { start: "Claude-nyckeln", href: () => "/settings#anthropic", label: "Add the key in Settings" },
+  { start: "Berget-nyckeln", href: () => "/settings#berget", label: "Add the key in Settings" },
+  { start: "ANTHROPIC_API_KEY saknas", href: () => "/settings#anthropic", label: "Add the key in Settings" },
+  { start: "BERGET_API_KEY saknas", href: () => "/settings#berget", label: "Add the key in Settings" },
 ];
 
 /** Länken till stället där problemet rättas, eller inget. */
@@ -63,15 +63,15 @@ export function ProblemFix({ id, problem }: { id: string; problem: string }) {
 /** En rad överst om nycklar saknas, i stället för en gång per kampanj. */
 export function MissingKeys({ problems, className }: { problems: string[]; className?: string }) {
   if (problems.length === 0) return null;
-  const names = problems.map((p) => (p.startsWith("Berget") || p.startsWith("BERGET") ? "Berget-nyckeln" : "Claude-nyckeln"));
+  const names = problems.map((p) => (p.startsWith("Berget") || p.startsWith("BERGET") ? "The Berget key" : "The Claude key"));
   return (
     <p className={cn("flex gap-2 rounded-lg border border-[#5a4416] bg-[#1b160b] px-3 py-2 text-sm text-warn", className)}>
       <KeyRound className="mt-0.5 size-4 shrink-0" aria-hidden />
       <span>
-        {names.length === 1 ? `${names[0]} saknas.` : `Två nycklar saknas: ${names.join(" och ")}.`} Utan dem går det inte
-        att hämta klipp.{" "}
-        <Link href={`/settings#${names[0] === "Berget-nyckeln" ? "berget" : "anthropic"}`} className="font-medium underline underline-offset-4 hover:text-foreground">
-          Lägg in {names.length === 1 ? "den" : "dem"} under Inställningar
+        {names.length === 1 ? `${names[0]} is missing.` : `Two keys are missing: ${names.join(" and ")}.`} Without them the app cannot
+        get clips.{" "}
+        <Link href={`/settings#${names[0] === "The Berget key" ? "berget" : "anthropic"}`} className="font-medium underline underline-offset-4 hover:text-foreground">
+          Add {names.length === 1 ? "it" : "them"} under Settings
         </Link>
       </span>
     </p>
@@ -95,14 +95,14 @@ export function ReadyBadge({ profile: p }: { profile: CampaignProfile }) {
 
 /** Appens klipplängd och kampanjens gräns, i en rad. */
 export function lengthText(p: CampaignProfile): string {
-  const app = p.clip_min_s != null && p.clip_max_s != null ? `Appen klipper ${p.clip_min_s}–${p.clip_max_s} s.` : "Appens klipplängd är okänd.";
-  const allowed = p.allowed_min_s != null && p.allowed_max_s != null ? ` Kampanjen tillåter ${p.allowed_min_s}–${p.allowed_max_s} s.` : "";
-  return `${app}${allowed}`.replace(/(\d)\.(\d)/g, "$1,$2");
+  const app = p.clip_min_s != null && p.clip_max_s != null ? `The app clips ${p.clip_min_s}–${p.clip_max_s} s.` : "The app's clip length is unknown.";
+  const allowed = p.allowed_min_s != null && p.allowed_max_s != null ? ` The campaign allows ${p.allowed_min_s}–${p.allowed_max_s} s.` : "";
+  return `${app}${allowed}`;
 }
 
 /** Källan i ord: Twitch-kanalen eller egna videor. */
 export const sourceText = (p: CampaignProfile) =>
-  p.source === "local" || (!p.channel && p.source !== "twitch") ? "Egna videor" : `twitch.tv/${p.channel}`;
+  p.source === "local" || (!p.channel && p.source !== "twitch") ? "Uploads" : `twitch.tv/${p.channel}`;
 
 /** Av eller på. Avstängda kampanjer döljs i appen utom här. */
 function ActiveSwitch({ profile: p, busy, onChange }: { profile: CampaignProfile; busy: boolean; onChange: () => void }) {
@@ -111,7 +111,7 @@ function ActiveSwitch({ profile: p, busy, onChange }: { profile: CampaignProfile
       type="button"
       role="switch"
       aria-checked={p.active}
-      aria-label={`Visa ${p.streamer} i appen`}
+      aria-label={`Show ${p.streamer} in the app`}
       disabled={busy}
       onClick={onChange}
       className="relative z-10 inline-flex items-center gap-2 rounded-full text-xs text-muted-foreground focus-visible:outline-2 focus-visible:outline-brand disabled:opacity-60"
@@ -124,14 +124,14 @@ function ActiveSwitch({ profile: p, busy, onChange }: { profile: CampaignProfile
       >
         <span className={cn("size-3.5 rounded-full bg-white transition-transform", p.active && "translate-x-4")} />
       </span>
-      {p.active ? "På" : "Av"}
+      {p.active ? "On" : "Off"}
     </button>
   );
 }
 
 const TABS = [
-  { id: "mina", label: "Mina kampanjer", href: "/campaigns" },
-  { id: "nya", label: "Nya kampanjer", href: "/campaigns?flik=nya" },
+  { id: "mina", label: "My campaigns", href: "/campaigns" },
+  { id: "nya", label: "New campaigns", href: "/campaigns?flik=nya" },
 ] as const;
 
 export function CampaignsClient({ tab = "mina" }: { tab?: "mina" | "nya" }) {
@@ -146,7 +146,7 @@ export function CampaignsClient({ tab = "mina" }: { tab?: "mina" | "nya" }) {
       const saved = await api.campaign.profile.setActive(p.name, !p.active);
       setProfiles((list) => list?.map((q) => (q.name === p.name ? { ...q, active: saved.active } : q)) ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Det gick inte att ändra kampanjen");
+      setError(err instanceof Error ? err.message : "Could not change the campaign");
     } finally {
       setBusy(null);
     }
@@ -156,7 +156,7 @@ export function CampaignsClient({ tab = "mina" }: { tab?: "mina" | "nya" }) {
     api.campaign
       .profiles()
       .then(setProfiles)
-      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte hämta kampanjerna"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load the campaigns"));
   }, []);
 
   // Nycklarna gäller alla kampanjer. Visa dem en gång.
@@ -165,14 +165,14 @@ export function CampaignsClient({ tab = "mina" }: { tab?: "mina" | "nya" }) {
   return (
     <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <h1 className="text-3xl font-bold tracking-tight">Kampanjer</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Campaigns</h1>
         <Link href="/campaigns/new" className={buttonVariants({ className: "h-9" })}>
           <Plus aria-hidden />
           Ny kampanj
         </Link>
       </div>
 
-      <nav aria-label="Kampanjer" className="mt-5 mb-6 flex gap-1 overflow-x-auto shadow-[inset_0_-1px_0_var(--color-line)]">
+      <nav aria-label="Campaigns" className="mt-5 mb-6 flex gap-1 overflow-x-auto shadow-[inset_0_-1px_0_var(--color-line)]">
         {TABS.map((t) => (
           <Link
             key={t.id}
@@ -191,8 +191,8 @@ export function CampaignsClient({ tab = "mina" }: { tab?: "mina" | "nya" }) {
       ) : (
         <>
           <p className="max-w-[760px] text-muted-foreground">
-            En kampanj klipper streams från en Twitch-kanal eller egna videor. En stream kan bara bli klipp för kampanjer med
-            samma kanal. Stäng av en kampanj för att dölja den på Hem, Projekt, Klippen och Statistik. Inget raderas.
+            A campaign clips streams from a Twitch channel or uploads. A stream can only become clips for campaigns with
+            the same channel. Turn off a campaign to hide it on Home, Projects, Clips and Stats. Nothing is deleted.
           </p>
           <MissingKeys problems={keys} className="mt-4 max-w-[760px]" />
           {error && (
@@ -200,16 +200,16 @@ export function CampaignsClient({ tab = "mina" }: { tab?: "mina" | "nya" }) {
               {error}
             </p>
           )}
-          {profiles === null && !error && <p className="mt-6 text-sm text-muted-foreground">Hämtar kampanjerna…</p>}
+          {profiles === null && !error && <p className="mt-6 text-sm text-muted-foreground">Loading the campaigns…</p>}
           {profiles?.length === 0 && (
             <p className="mt-6 rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted-foreground">
-              Inga kampanjer än.{" "}
+              No campaigns yet.{" "}
               <Link href="/campaigns/new" className="text-brand underline-offset-4 hover:underline">
-                Skapa den första kampanjen
+                Create the first campaign
               </Link>{" "}
-              eller titta under{" "}
+              or look under{" "}
               <Link href="/campaigns?flik=nya" className="text-brand underline-offset-4 hover:underline">
-                Nya kampanjer
+                New campaigns
               </Link>
               .
             </p>
@@ -251,18 +251,18 @@ function CampaignCard({ profile: p, busy, onToggle }: { profile: CampaignProfile
         </div>
       </div>
       {!p.active ? (
-        <p className="mt-3 text-sm text-muted-foreground">Avstängd. Kampanjen döljs på Hem, Projekt, Klippen och Statistik.</p>
+        <p className="mt-3 text-sm text-muted-foreground">Turned off. The campaign is hidden on Home, Projects, Clips and Stats.</p>
       ) : (
         <>
           <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
-            <dt className="text-muted-foreground">Källa</dt>
+            <dt className="text-muted-foreground">Source</dt>
             <dd>{sourceText(p)}</dd>
-            <dt className="text-muted-foreground">Språk</dt>
+            <dt className="text-muted-foreground">Language</dt>
             <dd>{p.language}</dd>
-            <dt className="text-muted-foreground">Klipplängd</dt>
+            <dt className="text-muted-foreground">Clip length</dt>
             <dd className="tabular-nums">{lengthText(p)}</dd>
             <dt className="text-muted-foreground">Format</dt>
-            <dd>{p.formats.length ? p.formats.map((f) => f.name).join(", ") : "inga"}</dd>
+            <dd>{p.formats.length ? p.formats.map((f) => f.name).join(", ") : "none"}</dd>
           </dl>
           {problems.length > 0 && (
             <ul className="mt-4 space-y-1.5 text-sm">

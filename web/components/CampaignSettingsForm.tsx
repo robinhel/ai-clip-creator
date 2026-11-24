@@ -33,8 +33,8 @@ import type {
 } from "@/lib/types";
 
 const ACCOUNT_PLATFORMS: { id: AccountPlatform; label: string; kind: string }[] = [
-  { id: "tiktok", label: "TikTok", kind: "konton" },
-  { id: "youtube_shorts", label: "YouTube Shorts", kind: "kanaler" },
+  { id: "tiktok", label: "TikTok", kind: "accounts" },
+  { id: "youtube_shorts", label: "YouTube Shorts", kind: "channels" },
 ];
 
 /** Formulärets värden som text, så att Robin kan skriva fritt. Tal tolkas först när han sparar. */
@@ -112,31 +112,31 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
   };
   const whole = (x: number | null) => x != null && Number.isInteger(x);
   const problems: Record<string, string | null> = {
-    streamer: v.streamer.trim() ? null : "Skriv streamerns eller varumärkets namn.",
+    streamer: v.streamer.trim() ? null : "Enter the streamer's or brand's name.",
     contentRewards: contentRewardsProblem(v.contentRewards),
     analytics: httpsProblem(v.analytics),
-    template: v.template.includes("{title}") ? null : "Mallen måste innehålla {title}, där klippets rubrik hamnar.",
+    template: v.template.includes("{title}") ? null : "The template must contain {title}, where the clip's headline goes.",
     allowed:
       !whole(n.allowedMin) || !whole(n.allowedMax)
-        ? "Skriv hela sekunder, till exempel 7 och 60."
+        ? "Enter whole seconds, for example 7 and 60."
         : n.allowedMin! < 1 || n.allowedMin! >= n.allowedMax!
-          ? "Kortast måste vara minst 1 och mindre än längst."
+          ? "Shortest must be at least 1 and less than longest."
           : null,
     clip:
       v.clipMin === "" && v.clipMax === ""
         ? null
         : !whole(n.clipMin) || !whole(n.clipMax)
-          ? "Skriv hela sekunder, till exempel 15 och 45."
+          ? "Enter whole seconds, for example 15 and 45."
           : n.clipMin! < 1 || n.clipMin! >= n.clipMax!
-            ? "Kortast måste vara minst 1 och mindre än längst."
+            ? "Shortest must be at least 1 and less than longest."
             : whole(n.allowedMin) && whole(n.allowedMax) && (n.clipMin! < n.allowedMin! || n.clipMax! > n.allowedMax!)
-              ? `Appen ska klippa inom det kampanjen tillåter: ${v.allowedMin}–${v.allowedMax} s.`
+              ? `The app must clip within what the campaign allows: ${v.allowedMin}–${v.allowedMax} s.`
               : null,
-    cpm: n.cpm != null && Number.isNaN(n.cpm) ? "Skriv ett tal, till exempel 1,5." : null,
-    minViews: n.minViews != null && !whole(n.minViews) ? "Skriv ett helt tal, till exempel 2000." : null,
-    maxPayout: n.maxPayout != null && Number.isNaN(n.maxPayout) ? "Skriv ett tal, till exempel 150." : null,
-    formats: v.formats.some((f) => !f.name.trim()) ? "Ge varje format ett namn, eller ta bort raden." : null,
-    platforms: v.platforms.length ? null : "Välj minst en plattform.",
+    cpm: n.cpm != null && Number.isNaN(n.cpm) ? "Enter a number, for example 1.5." : null,
+    minViews: n.minViews != null && !whole(n.minViews) ? "Enter a whole number, for example 2000." : null,
+    maxPayout: n.maxPayout != null && Number.isNaN(n.maxPayout) ? "Enter a number, for example 150." : null,
+    formats: v.formats.some((f) => !f.name.trim()) ? "Give each format a name, or remove the row." : null,
+    platforms: v.platforms.length ? null : "Choose at least one platform.",
   };
   const shown = (key: string) => (submitted || touched.has(key) ? problems[key] : null);
   const bad = Object.values(problems).filter(Boolean);
@@ -176,7 +176,7 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
       setSaved(true);
       setSubmitted(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Det gick inte att spara kampanjen");
+      setError(err instanceof Error ? err.message : "Could not save the campaign");
     } finally {
       setBusy(false);
     }
@@ -194,24 +194,24 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
 
   return (
     <form onSubmit={save} noValidate data-settings className="min-w-0">
-      <Section title="Kampanjen">
+      <Section title="Campaign">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Streamerns eller varumärkets namn" error={shown("streamer")}>
+          <Field label="Streamer's or brand's name" error={shown("streamer")}>
             <input value={v.streamer} onChange={(e) => set("streamer", e.target.value)} onBlur={leave("streamer")} aria-invalid={!!shown("streamer") || undefined} className={field} />
           </Field>
-          <Field label="Kampanjens namn" hint="Som det står på kampanjsidan.">
+          <Field label="Campaign name" hint="As it says on the campaign page.">
             <input value={v.campaign} onChange={(e) => set("campaign", e.target.value)} className={field} />
           </Field>
-          <Field label="Språk i videorna" hint="Språkkod, till exempel en eller sv." className="sm:max-w-40">
+          <Field label="Language in the videos" hint="Language code, for example en or sv." className="sm:max-w-40">
             <input value={v.language} onChange={(e) => set("language", e.target.value)} className={field} />
           </Field>
         </div>
       </Section>
 
-      <Section title="Länkar" id="lankar">
+      <Section title="Links" id="lankar">
         <Field
-          label="Länk till kampanjen i Content Rewards"
-          hint="Där du skickar in klippen. Exempelklipp och Hjälp att skicka in använder den."
+          label="Link to the campaign in Content Rewards"
+          hint="Where you submit the clips. Example clips and Submit help use it."
           error={shown("contentRewards")}
         >
           <input
@@ -223,7 +223,7 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
             className={field}
           />
         </Field>
-        <Field label="Analytics-formuläret" hint="Formuläret för klipp över minsta visningar." error={shown("analytics")}>
+        <Field label="Analytics form" hint="The form for clips above the minimum views." error={shown("analytics")}>
           <input
             value={v.analytics}
             onChange={(e) => set("analytics", e.target.value)}
@@ -236,96 +236,96 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
       </Section>
 
       <Section title="Caption" id="caption">
-        <Field label="Mall" hint="{title} byts mot klippets rubrik." error={shown("template")}>
+        <Field label="Template" hint="{title} is replaced with the clip's headline." error={shown("template")}>
           <input value={v.template} onChange={(e) => set("template", e.target.value)} onBlur={leave("template")} aria-invalid={!!shown("template") || undefined} className={field} />
         </Field>
-        <Chips label="Måste innehålla" values={v.mustInclude} onChange={(x) => set("mustInclude", x)} placeholder="Skriv och tryck Enter" />
+        <Chips label="Must include" values={v.mustInclude} onChange={(x) => set("mustInclude", x)} placeholder="Type and press Enter" />
         <Chips label="Hashtags" values={v.hashtags} onChange={(x) => set("hashtags", x)} prefix="#" placeholder="#hashtag" />
         {profile.caption.tag_line && (
           <p className="text-xs text-muted-foreground">
-            Egen rad efter texten: {profile.caption.tag_line}
-            {profile.caption.max_extra_hashtags != null && `, och högst ${profile.caption.max_extra_hashtags} hashtags till`}. Ändra den
-            under Avancerat (YAML).
+            Own line after the text: {profile.caption.tag_line}
+            {profile.caption.max_extra_hashtags != null && `, and at most ${profile.caption.max_extra_hashtags} more hashtags`}. Change it
+            under Advanced (YAML).
           </p>
         )}
         <div>
-          <span className="block text-[13px] text-muted-foreground">Så blir en caption med rubriken &quot;{EXAMPLE_TITLE}&quot;</span>
+          <span className="block text-[13px] text-muted-foreground">A caption with the headline &quot;{EXAMPLE_TITLE}&quot; looks like this</span>
           <p className="mt-1 rounded-[10px] border border-line bg-panel px-3 py-2.5 text-sm break-words">
             {previewCaption(v.template, v.mustInclude, v.hashtags)}
           </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_160px_180px]">
-          <Field label="Text på skärmen" hint="Tomt betyder ingen text.">
+          <Field label="On-screen text" hint="Empty means no text.">
             <input value={v.onScreenText} onChange={(e) => set("onScreenText", e.target.value)} className={field} />
           </Field>
-          <Field label="Var texten står">
+          <Field label="Where the text goes">
             <select value={v.textPosition} onChange={(e) => set("textPosition", e.target.value as TextPosition)} className={field}>
-              <option value="top">Överst</option>
-              <option value="bottom">Nederst</option>
+              <option value="top">Top</option>
+              <option value="bottom">Bottom</option>
             </select>
           </Field>
-          <Field label="Rubrikens stil">
+          <Field label="Headline style">
             <select value={v.hookStyle} onChange={(e) => set("hookStyle", e.target.value as HookStyle)} className={field}>
               <option value="sans">Tjock (sans-serif)</option>
-              <option value="serif">Serif i versaler</option>
+              <option value="serif">Serif in capitals</option>
             </select>
           </Field>
         </div>
       </Section>
 
-      <Section title="Klipplängd" id="langd">
+      <Section title="Clip length" id="langd">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1">
-            <p className="text-[13px] text-muted-foreground">Kampanjen tillåter (s)</p>
+            <p className="text-[13px] text-muted-foreground">The campaign allows (s)</p>
             <div className="flex items-center gap-2">
-              <input aria-label="Kampanjen tillåter, kortast" value={v.allowedMin} onChange={(e) => set("allowedMin", e.target.value)} inputMode="numeric" className={cn(field, "w-20 tabular-nums")} />
+              <input aria-label="The campaign allows, shortest" value={v.allowedMin} onChange={(e) => set("allowedMin", e.target.value)} inputMode="numeric" className={cn(field, "w-20 tabular-nums")} />
               <span className="text-muted-foreground">till</span>
-              <input aria-label="Kampanjen tillåter, längst" value={v.allowedMax} onChange={(e) => set("allowedMax", e.target.value)} onBlur={leave("allowed")} inputMode="numeric" className={cn(field, "w-20 tabular-nums")} />
+              <input aria-label="The campaign allows, longest" value={v.allowedMax} onChange={(e) => set("allowedMax", e.target.value)} onBlur={leave("allowed")} inputMode="numeric" className={cn(field, "w-20 tabular-nums")} />
             </div>
             {shown("allowed") ? (
               <p role="alert" className="text-xs text-bad">{problems.allowed}</p>
             ) : (
-              <p className="text-xs text-muted-foreground">Regelkontrollen underkänner klipp utanför.</p>
+              <p className="text-xs text-muted-foreground">The rule check fails clips outside it.</p>
             )}
           </div>
           <div className="space-y-1">
-            <p className="text-[13px] text-muted-foreground">Appen klipper (s)</p>
+            <p className="text-[13px] text-muted-foreground">The app clips (s)</p>
             <div className="flex items-center gap-2">
-              <input aria-label="Appen klipper, kortast" value={v.clipMin} onChange={(e) => set("clipMin", e.target.value)} inputMode="numeric" className={cn(field, "w-20 tabular-nums")} />
+              <input aria-label="The app clips, shortest" value={v.clipMin} onChange={(e) => set("clipMin", e.target.value)} inputMode="numeric" className={cn(field, "w-20 tabular-nums")} />
               <span className="text-muted-foreground">till</span>
-              <input aria-label="Appen klipper, längst" value={v.clipMax} onChange={(e) => set("clipMax", e.target.value)} onBlur={leave("clip")} inputMode="numeric" className={cn(field, "w-20 tabular-nums")} />
+              <input aria-label="The app clips, longest" value={v.clipMax} onChange={(e) => set("clipMax", e.target.value)} onBlur={leave("clip")} inputMode="numeric" className={cn(field, "w-20 tabular-nums")} />
             </div>
             {shown("clip") ? (
               <p role="alert" className="text-xs text-bad">{problems.clip}</p>
             ) : (
-              <p className="text-xs text-muted-foreground">Längden som appen letar efter. Ska ligga inom kampanjens gräns.</p>
+              <p className="text-xs text-muted-foreground">The length the app looks for. Must be within the campaign's limit.</p>
             )}
           </div>
         </div>
       </Section>
 
-      <Section title="Betalning" id="betalning">
+      <Section title="Payment" id="betalning">
         <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="US$ per 1 000 visningar" error={shown("cpm")}>
+          <Field label="US$ per 1,000 views" error={shown("cpm")}>
             <input value={v.cpm} onChange={(e) => set("cpm", e.target.value)} onBlur={leave("cpm")} aria-invalid={!!shown("cpm") || undefined} inputMode="decimal" className={cn(field, "tabular-nums")} />
           </Field>
-          <Field label="Minsta visningar" error={shown("minViews")}>
+          <Field label="Minimum views" error={shown("minViews")}>
             <input value={v.minViews} onChange={(e) => set("minViews", e.target.value)} onBlur={leave("minViews")} aria-invalid={!!shown("minViews") || undefined} inputMode="numeric" className={cn(field, "tabular-nums")} />
           </Field>
-          <Field label="Tak per klipp (US$)" hint="Tomt betyder inget tak." error={shown("maxPayout")}>
+          <Field label="Cap per clip (US$)" hint="Empty means no cap." error={shown("maxPayout")}>
             <input value={v.maxPayout} onChange={(e) => set("maxPayout", e.target.value)} onBlur={leave("maxPayout")} aria-invalid={!!shown("maxPayout") || undefined} inputMode="decimal" className={cn(field, "tabular-nums")} />
           </Field>
         </div>
       </Section>
 
       <Section title="Format" id="format">
-        <p className="text-sm text-muted-foreground">Claude väljer bara klipp som passar något av formaten. Skriv på engelska, som kampanjsidan.</p>
+        <p className="text-sm text-muted-foreground">Claude only chooses clips that fit one of the formats. Write in English, like the campaign page.</p>
         <FormatList formats={v.formats} onChange={(x) => set("formats", x)} />
         {shown("formats") && <p role="alert" className="text-xs text-bad">{problems.formats}</p>}
       </Section>
 
-      <Section title="Plattformar och konton" id="konton">
-        <div className="flex flex-wrap gap-x-6 gap-y-2" role="group" aria-label="Plattformar där kampanjen postas">
+      <Section title="Platforms and accounts" id="konton">
+        <div className="flex flex-wrap gap-x-6 gap-y-2" role="group" aria-label="Platforms where the campaign is posted">
           {PLATFORM_CHOICES.map((p) => (
             <Toggle key={p.id} checked={v.platforms.includes(p.id)} onChange={(on) => togglePlatform(p.id, on)} label={p.label} />
           ))}
@@ -339,13 +339,13 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
           const unknown = chosen.filter((id) => !connected.some((a) => a.id === id));
           return (
             <fieldset key={ap.id} className="space-y-2 rounded-xl border border-line px-4 py-3" data-accounts={ap.id}>
-              <legend className="px-1 text-[13px] text-muted-foreground">Vilka {ap.kind} på {ap.label} som postar</legend>
-              {!accounts && !accountsError && <p className="text-sm text-muted-foreground">Läser kontona…</p>}
+              <legend className="px-1 text-[13px] text-muted-foreground">Which {ap.kind} on {ap.label} post</legend>
+              {!accounts && !accountsError && <p className="text-sm text-muted-foreground">Loading the accounts…</p>}
               {accounts && connected.length === 0 && unknown.length === 0 && (
                 <p className="text-sm text-muted-foreground">
-                  Inga {ap.kind} är kopplade.{" "}
+                  No {ap.kind} are connected.{" "}
                   <Link href="/settings#konton" className="text-foreground underline underline-offset-4">
-                    Koppla ett under Inställningar
+                    Connect one under Settings
                   </Link>
                   .
                 </p>
@@ -356,7 +356,7 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
                   checked={chosen.includes(a.id)}
                   onChange={(on) => toggleAccount(ap.id, a.id, on)}
                   label={a.name}
-                  hint={a.connected ? undefined : "Inloggningen har gått ut. Logga in igen under Inställningar."}
+                  hint={a.connected ? undefined : "The login has expired. Log in again under Settings."}
                 />
               ))}
               {unknown.map((id, i) => (
@@ -364,15 +364,15 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
                   key={id}
                   checked
                   onChange={() => toggleAccount(ap.id, id, false)}
-                  label={`Ett konto som inte är kopplat${unknown.length > 1 ? ` (${i + 1})` : ""}`}
-                  hint="Kampanjen nämner det, men appen känner inte till det. Koppla det under Inställningar, eller ta bort bocken."
+                  label={`An account that is not connected${unknown.length > 1 ? ` (${i + 1})` : ""}`}
+                  hint="The campaign mentions it, but the app does not know it. Connect it under Settings, or uncheck it."
                 />
               ))}
               {accounts && (connected.length > 0 || unknown.length > 0) && (
                 <p className="text-xs text-muted-foreground">
                   {chosen.length === 0
-                    ? `Inget valt: alla kopplade ${ap.kind} får posta kampanjen.`
-                    : `Bara ${chosen.length === 1 ? "det valda" : `de ${chosen.length} valda`} får posta kampanjen. Appen nekar andra.`}
+                    ? `None chosen: all connected ${ap.kind} may post the campaign.`
+                    : `Only ${chosen.length === 1 ? "the chosen one" : `the ${chosen.length} chosen`} may post the campaign. The app refuses others.`}
                 </p>
               )}
             </fieldset>
@@ -381,7 +381,7 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
       </Section>
 
       <div className="sticky bottom-0 z-10 -mx-1 space-y-2 bg-background/95 px-1 py-4 backdrop-blur">
-        {submitted && bad.length > 0 && <p className="text-sm text-warn">Rätta fälten med rött innan du sparar.</p>}
+        {submitted && bad.length > 0 && <p className="text-sm text-warn">Fix the fields in red before you save.</p>}
         {error && (
           <p role="alert" className="rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">
             {error}
@@ -390,7 +390,7 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
         {saved && !dirty && (
           <p role="status" className="flex items-center gap-2 text-sm text-good">
             <CheckCircle2 className="size-4" aria-hidden />
-            Kampanjen är sparad. Det formuläret inte visar står kvar i filen.
+            The campaign is saved. What the form does not show stays in the file.
           </p>
         )}
         <div className="flex flex-wrap gap-2">
@@ -410,7 +410,7 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
               setError(null);
             }}
           >
-            Ångra ändringar
+            Undo changes
           </Button>
         </div>
       </div>

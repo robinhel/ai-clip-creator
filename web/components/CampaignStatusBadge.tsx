@@ -3,15 +3,15 @@ import { cn } from "@/lib/utils";
 import type { CampaignStatus, Platform } from "@/lib/types";
 
 export const STATUS_LABEL: Record<CampaignStatus, string> = {
-  renderad: "Att granska",
-  underkand: "Underkänd",
-  godkand: "Godkänd",
-  nekad: "Nekad",
-  postad: "Postad",
-  postad_utan_lank: "Postad utan länk",
-  inskickad: "Inskickad",
-  analytics_inskickad: "Analytics inskickad",
-  betald: "Betald",
+  renderad: "To review",
+  underkand: "Failed check",
+  godkand: "Approved",
+  nekad: "Rejected",
+  postad: "Posted",
+  postad_utan_lank: "Posted without link",
+  inskickad: "Submitted",
+  analytics_inskickad: "Analytics submitted",
+  betald: "Paid",
 };
 
 export const STATUS_ORDER: CampaignStatus[] = [

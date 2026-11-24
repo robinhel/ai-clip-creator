@@ -43,8 +43,8 @@ function useProjectIds(material: MaterialItem[] | null): Map<number, number> {
 function itemLink(item: MaterialItem, projectIds: Map<number, number>): { href: string; label: string } | null {
   if (item.run_id == null) return null;
   const projectId = projectIds.get(item.run_id);
-  if (projectId != null) return { href: `/projects/${projectId}`, label: "projekt för egna filer" };
-  return { href: `/runs/${item.run_id}`, label: `projekt #${item.run_id}` };
+  if (projectId != null) return { href: `/projects/${projectId}`, label: "project for own files" };
+  return { href: `/runs/${item.run_id}`, label: `project #${item.run_id}` };
 }
 
 function Item({ item, projectIds }: { item: MaterialItem; projectIds: Map<number, number> }) {
@@ -64,7 +64,7 @@ function Item({ item, projectIds }: { item: MaterialItem; projectIds: Map<number
       </div>
       <div className="flex flex-wrap gap-1.5">
         {item.has_video && <Tag>Video</Tag>}
-        {item.has_transcript ? <Tag tone="good">{item.has_video ? "Transkript" : "Bara transkript"}</Tag> : <Tag tone="muted">Inget transkript</Tag>}
+        {item.has_transcript ? <Tag tone="good">{item.has_video ? "Transcript" : "Transcript only"}</Tag> : <Tag tone="muted">No transcript</Tag>}
         {item.clips > 0 && <Tag tone="muted">{item.clips} klipp</Tag>}
       </div>
     </>
@@ -74,7 +74,7 @@ function Item({ item, projectIds }: { item: MaterialItem; projectIds: Map<number
       {target ? (
         <Link
           href={target.href}
-          aria-label={`Öppna projektet för ${item.title || item.vod_id}`}
+          aria-label={`Open the project for ${item.title || item.vod_id}`}
           className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3 hover:bg-panel/60"
         >
           {body}
@@ -86,11 +86,11 @@ function Item({ item, projectIds }: { item: MaterialItem; projectIds: Map<number
       {/* Servern kan inte transkribera en stream för sig. Hämta klipp gör det, och tar fram klipp samtidigt. */}
       {!item.has_transcript && item.kind === "twitch" && (
         <p className="-mt-1.5 pb-3 pl-8 text-xs text-muted-foreground">
-          Chatten kan inte leta här än.{" "}
+          The chat cannot search here yet.{" "}
           <Link href={`/?vod=${item.vod_id}`} className={link}>
-            Hämta klipp
+            Get clips
           </Link>{" "}
-          transkriberar streamen.
+          transcribes the stream.
         </p>
       )}
     </li>
@@ -106,21 +106,21 @@ function Streams({ profile }: { profile: CampaignProfileDetail }) {
     api.campaign
       .streams()
       .then((list) => alive && setStreams(list.filter((s) => s.campaigns.includes(profile.name)).slice(0, 5)))
-      .catch((err) => alive && setError(err instanceof Error ? err.message : "Kunde inte hämta streamsen"));
+      .catch((err) => alive && setError(err instanceof Error ? err.message : "Could not load the streams"));
     return () => {
       alive = false;
     };
   }, [profile.name]);
 
   return (
-    <section aria-label="Kanalens streams" className="mb-8">
-      <h2 className="mb-2 font-semibold">Senaste streams på twitch.tv/{profile.channel}</h2>
+    <section aria-label="The channel's streams" className="mb-8">
+      <h2 className="mb-2 font-semibold">Latest streams on twitch.tv/{profile.channel}</h2>
       {error ? (
         <p className="text-sm text-bad">{error}</p>
       ) : streams === null ? (
-        <p className="text-sm text-muted-foreground">Hämtar streamsen från Twitch…</p>
+        <p className="text-sm text-muted-foreground">Loading the streams from Twitch…</p>
       ) : streams.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Kanalen har inga sparade streams på Twitch just nu.</p>
+        <p className="text-sm text-muted-foreground">The channel has no saved streams on Twitch right now.</p>
       ) : (
         <ul className="rounded-2xl border border-line px-3">
           {streams.map((s) => (
@@ -129,17 +129,17 @@ function Streams({ profile }: { profile: CampaignProfileDetail }) {
                 <p className="truncate font-medium">{s.title}</p>
                 <p className="text-xs text-muted-foreground">
                   {[s.created_at ? day.format(serverTime(s.created_at)) : null, duration(s.duration_s), s.game].filter(Boolean).join(", ")}
-                  {s.live && ", sänds nu"}
+                  {s.live && ", live now"}
                 </p>
               </div>
               {s.run_id != null ? (
                 <Link href={`/runs/${s.run_id}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
-                  Öppna projektet{s.clip_count > 0 ? ` (${s.clip_count} klipp)` : ""}
+                  Open the project{s.clip_count > 0 ? ` (${s.clip_count} clips)` : ""}
                 </Link>
               ) : (
                 <Link href={`/?vod=${s.vod_id}`} className={buttonVariants({ size: "sm" })}>
                   <Scissors aria-hidden />
-                  Hämta klipp
+                  Get clips
                 </Link>
               )}
             </li>
@@ -168,34 +168,34 @@ export function CampaignMaterial({ profile, material, error }: {
         <div>
           <h2 className="font-semibold">Material</h2>
           <p className="text-sm text-muted-foreground">
-            {local ? "Egna videor" : "Streams och egna videor"} som kampanjen har. Chatten letar bara i dem som har transkript.
+            {local ? "Uploads" : "Streams and uploads"} the campaign has. The chat only searches the ones with a transcript.
           </p>
         </div>
         <Link href={uploads} className={buttonVariants({ variant: "outline" })}>
           <Plus aria-hidden />
-          Lägg till egen video
+          Add your own video
         </Link>
       </div>
 
       {error ? (
         <p role="alert" className="text-sm text-bad">{error}</p>
       ) : material === null ? (
-        <p className="text-sm text-muted-foreground">Hämtar materialet…</p>
+        <p className="text-sm text-muted-foreground">Loading the material…</p>
       ) : material.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-line px-4 py-8 text-center text-sm text-muted-foreground">
           {local ? (
             <>
-              Inget material än.{" "}
+              No material yet.{" "}
               <Link href={uploads} className={link}>
-                Lägg till en egen video
+                Add your own video
               </Link>
               .
             </>
           ) : (
             <>
-              Inget material än. Tryck Hämta klipp på en stream ovan, eller{" "}
+              No material yet. Press Get clips on a stream above, or{" "}
               <Link href={uploads} className={link}>
-                lägg till en egen video
+                add your own video
               </Link>
               .
             </>
@@ -208,7 +208,7 @@ export function CampaignMaterial({ profile, material, error }: {
             return (
               <div key={group.key}>
                 <div className="flex items-baseline gap-3 border-b border-line pb-1.5">
-                  <h3 className="font-semibold">Vecka {group.week}</h3>
+                  <h3 className="font-semibold">Week {group.week}</h3>
                   <span className="text-xs text-muted-foreground">
                     {day.format(group.start)}–{day.format(end)}
                   </span>
@@ -224,7 +224,7 @@ export function CampaignMaterial({ profile, material, error }: {
           {older.length > 0 && (
             <details className="rounded-xl border border-line px-4">
               <summary className="cursor-pointer py-3 text-sm text-muted-foreground hover:text-foreground">
-                Äldre än 4 veckor ({older.length})
+                Older than 4 weeks ({older.length})
               </summary>
               <ul className="border-t border-line">
                 {older.map((item) => (

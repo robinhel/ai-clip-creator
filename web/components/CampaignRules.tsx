@@ -9,9 +9,9 @@ const pct = (n: number) => `${String(n).replace(".", ",")} %`;
 /** Engagemangskravet i ord, till exempel "minst 0,9 % upp till 25 000 visningar, sedan 0,5 %". */
 export function engagementText(steps: { views_up_to: number | null; min: number }[]): string | null {
   if (steps.length === 0) return null;
-  const parts = steps.map((s) => (s.views_up_to == null ? `${pct(s.min)} över det` : `${pct(s.min)} upp till ${num.format(s.views_up_to)} visningar`));
-  if (steps.length === 1 && steps[0].views_up_to == null) return `Minst ${pct(steps[0].min)} engagemang.`;
-  return `Minst ${parts.join(", ")}.`;
+  const parts = steps.map((s) => (s.views_up_to == null ? `${pct(s.min)} above that` : `${pct(s.min)} up to ${num.format(s.views_up_to)} views`));
+  if (steps.length === 1 && steps[0].views_up_to == null) return `At least ${pct(steps[0].min)} engagement.`;
+  return `At least ${parts.join(", ")}.`;
 }
 
 /** Kampanjens regler: samma som på Att posta, plus material, plattformar, konton och gränser. */
@@ -21,16 +21,16 @@ export function CampaignRules({ profile: p }: { profile: CampaignProfileDetail }
   const engagement = engagementText(p.engagement ?? []);
   const link = "inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-4";
   return (
-    <section aria-label="Regler" className="space-y-3 rounded-2xl border border-line bg-panel p-5 text-sm">
-      <h2 className="font-semibold">Regler</h2>
+    <section aria-label="Rules" className="space-y-3 rounded-2xl border border-line bg-panel p-5 text-sm">
+      <h2 className="font-semibold">Rules</h2>
       {p.material?.allowed && (
         <div>
-          <h3 className="text-[13px] text-muted-foreground">Tillåtet material</h3>
+          <h3 className="text-[13px] text-muted-foreground">Allowed material</h3>
           <p>{p.material.allowed}</p>
           {p.material.banned.length > 0 && (
             <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted-foreground">
               {p.material.banned.map((b) => (
-                <li key={b}>Inte: {b}</li>
+                <li key={b}>Not: {b}</li>
               ))}
             </ul>
           )}
@@ -43,27 +43,27 @@ export function CampaignRules({ profile: p }: { profile: CampaignProfileDetail }
           ))}
         </ul>
       )}
-      {p.caption.tag_line && <p className="text-muted-foreground">Captionen har raden {p.caption.tag_line} efter texten.</p>}
+      {p.caption.tag_line && <p className="text-muted-foreground">The caption has the line {p.caption.tag_line} after the text.</p>}
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
         {platforms && (
           <>
-            <dt className="text-muted-foreground">Plattformar</dt>
+            <dt className="text-muted-foreground">Platforms</dt>
             <dd>{platforms}</dd>
           </>
         )}
-        <dt className="text-muted-foreground">Konton</dt>
-        <dd>{accounts.length ? accounts.map((a) => a.name ?? "ett konto som inte är kopplat").join(", ") : "alla kopplade"}</dd>
+        <dt className="text-muted-foreground">Accounts</dt>
+        <dd>{accounts.length ? accounts.map((a) => a.name ?? "an account that is not connected").join(", ") : "all connected"}</dd>
         {p.posting && (
           <>
-            <dt className="text-muted-foreground">Inlägg</dt>
+            <dt className="text-muted-foreground">Posts</dt>
             <dd>
-              högst {p.posting.max_per_day} per konto och dag, minst {p.posting.min_gap_minutes} minuter mellan
+              at most {p.posting.max_per_day} per account and day, at least {p.posting.min_gap_minutes} minutes between
             </dd>
           </>
         )}
         {engagement && (
           <>
-            <dt className="text-muted-foreground">Engagemang</dt>
+            <dt className="text-muted-foreground">Engagement</dt>
             <dd>{engagement}</dd>
           </>
         )}
@@ -72,21 +72,21 @@ export function CampaignRules({ profile: p }: { profile: CampaignProfileDetail }
       <p className="flex flex-wrap gap-x-5 gap-y-1">
         {p.links.content_rewards && (
           <a href={p.links.content_rewards} target="_blank" rel="noreferrer" className={link}>
-            Öppna Content Rewards
+            Open Content Rewards
             <ExternalLink className="size-3.5" aria-hidden />
           </a>
         )}
         {p.links.analytics_form && (
           <a href={p.links.analytics_form} target="_blank" rel="noreferrer" className={link}>
-            Analytics-formuläret
+            The analytics form
             <ExternalLink className="size-3.5" aria-hidden />
           </a>
         )}
       </p>
       <p className="text-xs text-muted-foreground">
-        Ändra reglerna under{" "}
+        Change the rules under{" "}
         <Link href={`/campaigns/${p.name}?tab=installningar&del=profil`} className="underline underline-offset-4 hover:text-foreground">
-          Avancerat (YAML)
+          Advanced (YAML)
         </Link>
         .
       </p>

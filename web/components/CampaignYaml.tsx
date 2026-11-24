@@ -36,7 +36,7 @@ export function CampaignYaml({ id, onUpdate, onDirty }: Props) {
         setSaved(yaml);
         setText(yaml);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte läsa kampanjens fil"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load the campaign file"));
   }, [id]);
 
   const dirty = saved !== null && text !== saved;
@@ -58,9 +58,9 @@ export function CampaignYaml({ id, onUpdate, onDirty }: Props) {
       setSaved(text);
       setOk(true);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Det gick inte att spara kampanjen";
+      const message = err instanceof Error ? err.message : "Could not save the campaign";
       // 400: servern nekade texten innan den skrev filen. Texten i rutan ligger kvar.
-      setError((err as { status?: number }).status === 400 ? `${message} Inget sparades.` : message);
+      setError((err as { status?: number }).status === 400 ? `${message} Nothing was saved.` : message);
       // Rulla till raden med felet.
       const line = errorLine(message);
       const el = box.current?.querySelector(`[data-line="${line}"]`) as HTMLElement | null;
@@ -74,14 +74,14 @@ export function CampaignYaml({ id, onUpdate, onDirty }: Props) {
     return error ? (
       <p role="alert" className="text-sm text-bad">{error}</p>
     ) : (
-      <p className="text-sm text-muted-foreground">Läser kampanjens fil…</p>
+      <p className="text-sm text-muted-foreground">Loading the campaign file…</p>
     );
   }
 
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        Hela kampanjens fil, för det som Översikt inte visar. Kommentarerna sparas som de är, och servern sparar en kopia av den gamla filen.
+        The whole campaign file, for what Overview does not show. Comments are kept as they are, and the server saves a copy of the old file.
       </p>
       {/* En enda rullningsruta: radnumren och texten rullar alltid tillsammans. */}
       <div
@@ -96,7 +96,7 @@ export function CampaignYaml({ id, onUpdate, onDirty }: Props) {
           ))}
         </div>
         <textarea
-          aria-label="Kampanjens fil som YAML"
+          aria-label="The campaign file as YAML"
           value={text}
           spellCheck={false}
           wrap="off"
@@ -116,7 +116,7 @@ export function CampaignYaml({ id, onUpdate, onDirty }: Props) {
       {ok && !dirty && (
         <p role="status" className="flex items-center gap-2 text-sm text-good">
           <CheckCircle2 className="size-4" aria-hidden />
-          Kampanjen är sparad.
+          The campaign is saved.
         </p>
       )}
       <div className="flex gap-2">
@@ -133,7 +133,7 @@ export function CampaignYaml({ id, onUpdate, onDirty }: Props) {
             setError(null);
           }}
         >
-          Ångra ändringar
+          Undo changes
         </Button>
       </div>
     </div>

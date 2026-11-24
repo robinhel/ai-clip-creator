@@ -42,9 +42,9 @@ export function pickAccount(info: ClipAccounts | null, connected: string[], curr
 }
 
 function stateText(a: ClipAccount, connected: boolean): string {
-  if (a.state === "posted") return "Postat";
-  if (a.state === "scheduled") return a.at ? `Schemalagt ${when.format(new Date(a.at))}` : "Schemalagt";
-  return connected ? "Ledigt" : "Inte kopplat";
+  if (a.state === "posted") return "Posted";
+  if (a.state === "scheduled") return a.at ? `Scheduled ${when.format(new Date(a.at))}` : "Scheduled";
+  return connected ? "Free" : "Not connected";
 }
 
 /** Kampanjens konton med läge, när kampanjen postar klippet på flera konton på plattformen. */
@@ -63,7 +63,7 @@ export function AccountList({ label, info, connected, value, onChange, disabled 
       <p className="flex justify-between gap-3 text-[13px] text-muted-foreground">
         <span>{label}</span>
         <span className={cn("tabular-nums", used >= info.max_accounts && "text-warn")}>
-          {used} av {info.max_accounts} konton används
+          {used} of {info.max_accounts} accounts used
         </span>
       </p>
       <div className="divide-y divide-line overflow-hidden rounded-lg border border-line">
@@ -128,7 +128,7 @@ export function SuggestText({ clipId, platform, account, info, onText }: {
     try {
       onText(await api.campaign.clips.variant(clipId, { platform, account }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunde inte föreslå en ny text");
+      setError(err instanceof Error ? err.message : "Could not suggest a new text");
     } finally {
       setBusy(false);
     }
@@ -139,9 +139,9 @@ export function SuggestText({ clipId, platform, account, info, onText }: {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <Button variant="outline" className="h-9" disabled={busy || !account} onClick={suggest}>
           {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
-          {busy ? "Skriver…" : "Föreslå ny text"}
+          {busy ? "Writing…" : "Suggest new text"}
         </Button>
-        <span className="text-xs text-muted-foreground">Klippet finns på ett annat konto. Texten måste skilja sig.</span>
+        <span className="text-xs text-muted-foreground">The clip is on another account. The text must differ.</span>
       </div>
       {error && (
         <p role="alert" className="rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">
