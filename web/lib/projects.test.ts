@@ -94,31 +94,31 @@ describe("projectEntries", () => {
 
 describe("waitingText", () => {
   it("säger vad som väntar, eller null när inget väntar", () => {
-    expect(waitingText({ renderad: 1 })).toBe("1 att granska");
-    expect(waitingText({ renderad: 2, underkand: 1 })).toBe("2 att granska, 1 att rätta");
+    expect(waitingText({ renderad: 1 })).toBe("1 to review");
+    expect(waitingText({ renderad: 2, underkand: 1 })).toBe("2 to review, 1 to fix");
     expect(waitingText({ godkand: 4 })).toBeNull();
   });
 });
 
 describe("projectSize", () => {
   it("räknar filer och klipp med rätt böjning", () => {
-    expect(projectSize(project({ id: 1, files: [file({ run_id: 1 })], clip_counts: { renderad: 1 } }))).toBe("1 fil, 1 klipp");
+    expect(projectSize(project({ id: 1, files: [file({ run_id: 1 })], clip_counts: { renderad: 1 } }))).toBe("1 file, 1 clip");
     expect(
       projectSize(project({ id: 1, files: [file({ run_id: 1 }), file({ run_id: 2 })], clip_counts: { renderad: 3, godkand: 2 } }))
-    ).toBe("2 filer, 5 klipp");
+    ).toBe("2 files, 5 clips");
   });
 
   it("säger bara klippen när projektet bara har uppladdningar", () => {
-    expect(projectSize(project({ id: 1, files: [], clip_counts: { godkand: 2 } }))).toBe("2 klipp");
+    expect(projectSize(project({ id: 1, files: [], clip_counts: { godkand: 2 } }))).toBe("2 clips");
   });
 });
 
 describe("fileState", () => {
   it("säger läget för en fil med steget och förloppet", () => {
-    expect(fileState(file({ run_id: 1, status: "running", stage: "transcribe", pct: 41.6 }))).toBe("Transkriberar 42 %");
-    expect(fileState(file({ run_id: 1, status: "pending" }))).toBe("I kö");
-    expect(fileState(file({ run_id: 1, status: "failed" }))).toBe("Misslyckades");
-    expect(fileState(file({ run_id: 1, status: "done" }))).toBe("Klar");
+    expect(fileState(file({ run_id: 1, status: "running", stage: "transcribe", pct: 41.6 }))).toBe("Transcribing 42 %");
+    expect(fileState(file({ run_id: 1, status: "pending" }))).toBe("Queued");
+    expect(fileState(file({ run_id: 1, status: "failed" }))).toBe("Failed");
+    expect(fileState(file({ run_id: 1, status: "done" }))).toBe("Done");
   });
 });
 

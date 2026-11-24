@@ -76,7 +76,7 @@ describe("submitDeadline", () => {
 
     it("ett för långt klipp kortas med Redigera till profilens tak, med komma i talet", () => {
       expect(rejectedFix(failed("v123", [long]))).toEqual({ kind: "lang", max: "60", caption: false });
-      expect(rejectedFix(failed("v123", [longOld]))).toEqual({ kind: "lang", max: "59,5", caption: false });
+      expect(rejectedFix(failed("v123", [longOld]))).toEqual({ kind: "lang", max: "59.5", caption: false });
       expect(rejectedFix(failed("v123", [long, caption]))).toEqual({ kind: "lang", max: "60", caption: true });
       // Redigera finns också för en egen video.
       expect(rejectedFix(failed("upload", [long]))).toEqual({ kind: "lang", max: "60", caption: false });
@@ -85,8 +85,8 @@ describe("submitDeadline", () => {
     it("texten för ett för långt klipp har kampanjens tak ur felet, inte ett fast tal", () => {
       const hint = (problems: string[]) => fixHint(rejectedFix(failed("v123", problems))!);
       // blizzard_nordics har max_seconds 45, skiimasktimmy 60.
-      expect(hint(["Klippet är 50,0 s. Profilens tak är 45 s."])).toContain("högst 45 s.");
-      expect(hint(["Klippet är 61.0 s. Profilens tak är 59.5 s."])).toContain("högst 59,5 s.");
+      expect(hint(["Klippet är 50,0 s. Profilens tak är 45 s."])).toContain("at most 45 s.");
+      expect(hint(["Klippet är 61.0 s. Profilens tak är 59.5 s."])).toContain("at most 59.5 s.");
       expect(hint(["Klippet är 50,0 s. Profilens tak är 45 s."])).not.toContain("60");
     });
 

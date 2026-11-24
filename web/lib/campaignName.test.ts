@@ -3,7 +3,7 @@ import { campaignLabel, hasCampaign, NO_CAMPAIGN } from "./campaignName";
 
 describe("campaignLabel", () => {
   it("visar den dolda kampanjen som Utan kampanj", () => {
-    expect(campaignLabel(NO_CAMPAIGN)).toBe("Utan kampanj");
+    expect(campaignLabel(NO_CAMPAIGN)).toBe("No campaign");
     expect(NO_CAMPAIGN).toBe("_ingen"); // samma som NO_CAMPAIGN i campaign/rules.py
   });
 

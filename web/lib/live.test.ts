@@ -18,28 +18,28 @@ describe("channelLogin", () => {
   });
 
   it("ger fel för ett tomt fält", () => {
-    expect(channelLogin("  ")).toEqual({ error: "Skriv en Twitch-kanal, till exempel ishowspeed." });
+    expect(channelLogin("  ")).toEqual({ error: "Enter a Twitch channel, for example ishowspeed." });
   });
 
   it("ger fel för något som inte är en kanal", () => {
     for (const text of ["ishow speed", "ishow-speed", "https://www.youtube.com/@ishowspeed", "a".repeat(26)]) {
-      expect(channelLogin(text)).toEqual({ error: "Det är ingen Twitch-kanal. Skriv namnet, till exempel ishowspeed, eller länken till kanalen." });
+      expect(channelLogin(text)).toEqual({ error: "That is not a Twitch channel. Enter the name, for example ishowspeed, or the link to the channel." });
     }
   });
 
   it("säger till när länken går till en video och inte en kanal", () => {
     for (const text of ["https://www.twitch.tv/videos/2925991945", "twitch.tv/ishowspeed/v/2925991945"]) {
-      expect(channelLogin(text)).toEqual({ error: "Det är en länk till en video. Skriv kanalens namn eller länken till kanalen." });
+      expect(channelLogin(text)).toEqual({ error: "That is a link to a video. Enter the channel name or the link to the channel." });
     }
   });
 });
 
 describe("channelStateText", () => {
   it("ger rätt text per läge för en fri kanal", () => {
-    expect(channelStateText(watch({ watching: true, live: false }))).toBe("Väntar på att kanalen går live");
-    expect(channelStateText(watch({ watching: true, live: true }))).toBe("Live nu. Appen spelar in strömmen.");
-    expect(channelStateText(watch({ watching: false, live: true }))).toBe("Bevakas inte");
-    expect(channelStateText(watch({ watching: false, live: false }))).toBe("Bevakas inte");
+    expect(channelStateText(watch({ watching: true, live: false }))).toBe("Waiting for the channel to go live");
+    expect(channelStateText(watch({ watching: true, live: true }))).toBe("Live now. The app is recording the stream.");
+    expect(channelStateText(watch({ watching: false, live: true }))).toBe("Not watched");
+    expect(channelStateText(watch({ watching: false, live: false }))).toBe("Not watched");
   });
 });
 

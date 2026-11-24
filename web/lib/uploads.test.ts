@@ -38,31 +38,31 @@ describe("längden på klippet", () => {
   });
 
   it("inom gränserna säger längden och kampanjens gränser, med decimalkomma", () => {
-    expect(lengthCheck(18.1818, 7, 45)).toEqual({ ok: true, text: "Klippet blir 18,2 s. Kampanjen tillåter 7–45 s." });
-    expect(lengthCheck(44.9, 7, 45)).toEqual({ ok: true, text: "Klippet blir 44,9 s. Kampanjen tillåter 7–45 s." });
+    expect(lengthCheck(18.1818, 7, 45)).toEqual({ ok: true, text: "The clip will be 18.2 s. The campaign allows 7–45 s." });
+    expect(lengthCheck(44.9, 7, 45)).toEqual({ ok: true, text: "The clip will be 44.9 s. The campaign allows 7–45 s." });
     expect(lengthCheck(7, 7, 45).ok).toBe(true);
     expect(lengthCheck(45, 7, 45).ok).toBe(true);
-    expect(lengthCheck(12.5, 7.5, 59.5).text).toBe("Klippet blir 12,5 s. Kampanjen tillåter 7,5–59,5 s.");
+    expect(lengthCheck(12.5, 7.5, 59.5).text).toBe("The clip will be 12.5 s. The campaign allows 7.5–59.5 s.");
   });
 
   it("över taket går inte, och texten säger vad Robin ska göra", () => {
     const check = lengthCheck(45.1, 7, 45);
     expect(check.ok).toBe(false);
-    expect(check.text).toMatch(/^Klippet blir 45,1 s\. Kampanjen tillåter högst 45 s\. /);
-    expect(check.text).toContain("högre hastighet");
+    expect(check.text).toMatch(/^The clip will be 45.1 s\. The campaign allows at most 45 s\. /);
+    expect(check.text).toContain("higher speed");
     // Två decimaler när det är för långt, så att 45,04 s inte visas som 45,0 s.
-    expect(lengthCheck(45.04, 7, 45).text).toMatch(/^Klippet blir 45,04 s\./);
+    expect(lengthCheck(45.04, 7, 45).text).toMatch(/^The clip will be 45.04 s\./);
   });
 
   it("under golvet går inte, och texten säger vad Robin ska göra", () => {
     const check = lengthCheck(6.9, 7, 45);
     expect(check.ok).toBe(false);
-    expect(check.text).toMatch(/^Klippet blir 6,9 s\. Kampanjen kräver minst 7 s\. /);
-    expect(check.text).toContain("lägre hastighet");
+    expect(check.text).toMatch(/^The clip will be 6.9 s\. The campaign requires at least 7 s\. /);
+    expect(check.text).toContain("lower speed");
   });
 
   it("utan tak från servern nämns bara golvet", () => {
-    expect(lengthCheck(80, 7, null)).toEqual({ ok: true, text: "Klippet blir 80 s. Kampanjen kräver minst 7 s." });
+    expect(lengthCheck(80, 7, null)).toEqual({ ok: true, text: "The clip will be 80 s. The campaign requires at least 7 s." });
   });
 });
 
@@ -162,9 +162,9 @@ describe("filtyper", () => {
     expect(videos.map((f) => f.name)).toEqual(["klipp.mp4"]);
     expect(rejected).toEqual(["anteckning.txt", "bild.png", "mp4"]);
     expect(rejectText(rejected)).toBe(
-      "anteckning.txt, bild.png och mp4 är ingen video och togs inte med. Välj mp4, mov, m4v, webm eller mkv."
+      "anteckning.txt, bild.png and mp4 is not a video and was not added. Choose mp4, mov, m4v, webm or mkv."
     );
-    expect(rejectText(["a.txt"])).toBe("a.txt är ingen video och togs inte med. Välj mp4, mov, m4v, webm eller mkv.");
+    expect(rejectText(["a.txt"])).toBe("a.txt is not a video and was not added. Choose mp4, mov, m4v, webm or mkv.");
   });
 });
 
@@ -177,7 +177,7 @@ describe("filtyper för musik", () => {
 
   it("nekar andra filer med en text innan uppladdningen", () => {
     expect(musicFileProblem("låtar.txt")).toBe(
-      "låtar.txt är ingen ljudfil eller video. Välj mp3, m4a, aac, wav, ogg, flac, mp4, mov, m4v, webm eller mkv."
+      "låtar.txt is not an audio file or video. Choose mp3, m4a, aac, wav, ogg, flac, mp4, mov, m4v, webm or mkv."
     );
     expect(musicFileProblem("mp3")).not.toBeNull();
   });
@@ -185,12 +185,12 @@ describe("filtyper för musik", () => {
 
 describe("varningen när originalljudet är 0 %", () => {
   it("säger att originalljudet inte hörs, och kampanjens krav när den har regler om ljud", () => {
-    expect(volumeWarning(0, [])).toEqual(["Originalljudet hörs inte i klippet."]);
+    expect(volumeWarning(0, [])).toEqual(["The original audio is not heard in the clip."]);
     expect(volumeWarning(0, ["Streamerns röst ska höras."])).toEqual([
-      "Originalljudet hörs inte i klippet.",
-      "Läs kampanjens regel ovan.",
+      "The original audio is not heard in the clip.",
+      "Read the campaign's rule above.",
     ]);
-    expect(volumeWarning(0, undefined)).toEqual(["Originalljudet hörs inte i klippet."]);
+    expect(volumeWarning(0, undefined)).toEqual(["The original audio is not heard in the clip."]);
   });
 
   it("ingen varning när originalljudet hörs", () => {

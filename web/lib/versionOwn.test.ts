@@ -62,20 +62,20 @@ describe("hasOwn: ny startpunkt", () => {
 
 describe("startLabel", () => {
   it("säger riktningen med decimalkomma", () => {
-    expect(startLabel(0)).toBe("Samma start som originalet");
-    expect(startLabel(-2)).toBe("2 s tidigare");
-    expect(startLabel(3.5)).toBe("3,5 s senare");
+    expect(startLabel(0)).toBe("Same start as the original");
+    expect(startLabel(-2)).toBe("2 s earlier");
+    expect(startLabel(3.5)).toBe("3.5 s later");
   });
 });
 
 describe("startReach: hur långt startpunkten går att flytta", () => {
   it("nämner båda hållen när båda går", () => {
-    expect(startReach(-4.5, 2)).toBe("Högst 4,5 s tidigare och 2 s senare");
+    expect(startReach(-4.5, 2)).toBe("At most 4.5 s earlier and 2 s later");
   });
 
   it("nämner bara det håll som går", () => {
-    expect(startReach(0, 6)).toBe("Högst 6 s senare");
-    expect(startReach(-3, 0)).toBe("Högst 3 s tidigare");
+    expect(startReach(0, 6)).toBe("At most 6 s later");
+    expect(startReach(-3, 0)).toBe("At most 3 s earlier");
   });
 
   it("är tom när startpunkten inte går att flytta", () => {

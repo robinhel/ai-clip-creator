@@ -49,7 +49,7 @@ describe("trimLength med length_extra_s", () => {
 
 describe("speedNote", () => {
   it("säger hastigheten med decimalkomma, och inget i vanlig hastighet", () => {
-    expect(speedNote(1.1)).toBe(" Längden gäller med hastigheten 1,1x.");
+    expect(speedNote(1.1)).toBe(" The length applies at speed 1.1x.");
     expect(speedNote(1)).toBe("");
     expect(speedNote(undefined)).toBe("");
   });

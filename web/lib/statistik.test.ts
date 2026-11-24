@@ -67,9 +67,9 @@ describe("buildPatch", () => {
     const saved = post({ status: "analytics_inskickad" });
     const badPaid = buildPatch({ ...draftFrom(saved), paid: "12,5,0" }, saved, "betald");
     expect(badPaid).not.toHaveProperty("body");
-    expect("error" in badPaid && badPaid.error).toMatch(/^Betalt/);
+    expect("error" in badPaid && badPaid.error).toMatch(/^Paid/);
     const badViews = buildPatch({ ...draftFrom(saved), views: "1,5" }, saved, "betald");
-    expect("error" in badViews && badViews.error).toMatch(/^Visningar/);
+    expect("error" in badViews && badViews.error).toMatch(/^Views/);
   });
 
   it("visar sparat belopp med komma och skickar inget belopp för en rad utan inlägg", () => {
@@ -94,11 +94,11 @@ describe("Fler mått", () => {
       const result = buildPatch({ ...draftFrom(saved), [field]: value }, saved);
       return "error" in result ? result.error : null;
     };
-    expect(errorFor("full_pct", "101")).toMatch(/^Ser klart \(%\)/);
-    expect(errorFor("countries_pct", "abc")).toMatch(/^Från kampanjens länder \(%\)/);
-    expect(errorFor("avg_watch_s", "abc")).toMatch(/^Tittartid \(s\)/);
-    expect(errorFor("fyp_pct", "6,4,1")).toMatch(/^Från För dig \(%\)/);
-    expect(errorFor("saves", "2,5")).toMatch(/^Sparningar/);
+    expect(errorFor("full_pct", "101")).toMatch(/^Watched full \(%\)/);
+    expect(errorFor("countries_pct", "abc")).toMatch(/^From the campaign's countries \(%\)/);
+    expect(errorFor("avg_watch_s", "abc")).toMatch(/^Watch time \(s\)/);
+    expect(errorFor("fyp_pct", "6,4,1")).toMatch(/^From For You \(%\)/);
+    expect(errorFor("saves", "2,5")).toMatch(/^Saves/);
   });
 
   it("visar sparade mått med komma och ser bara ändrade fält; ett tömt fält sparas som null", () => {
@@ -146,8 +146,8 @@ describe("lengthGroups", () => {
     expect(lengthGroups(rowsOf(clips))).toEqual([
       { label: "Under 15 s", posts: 1, avgViews: 500 },
       { label: "15–20 s", posts: 3, avgViews: 2000 },
-      { label: "Över 20 s", posts: 1, avgViews: 700 },
-      { label: "Okänd längd", posts: 1, avgViews: 100 },
+      { label: "Over 20 s", posts: 1, avgViews: 700 },
+      { label: "Unknown length", posts: 1, avgViews: 100 },
     ]);
   });
 
@@ -156,7 +156,7 @@ describe("lengthGroups", () => {
     expect(lengthGroups(rowsOf(clips))).toEqual([
       { label: "Under 15 s", posts: 1, avgViews: null },
       { label: "15–20 s", posts: 0, avgViews: null },
-      { label: "Över 20 s", posts: 0, avgViews: null },
+      { label: "Over 20 s", posts: 0, avgViews: null },
     ]);
   });
 });

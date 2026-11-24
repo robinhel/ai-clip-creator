@@ -53,7 +53,7 @@ describe("checklist", () => {
   it("konton: klart när varje plattform har ett inloggat konto, och inget är valt", () => {
     expect(item(checklist(profile(), both), "konton")?.done).toBe(true);
     const noYoutube = checklist(profile(), { tiktok: [acc("tt1")], youtube_shorts: [] });
-    expect(item(noYoutube, "konton")).toMatchObject({ done: false, todo: "Koppla eller välj en YouTube-kanal." });
+    expect(item(noYoutube, "konton")).toMatchObject({ done: false, todo: "Connect or choose a YouTube channel." });
   });
 
   it("konton: ett valt konto som inte är kopplat räknas inte, fast ett annat är kopplat", () => {
