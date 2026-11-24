@@ -22,20 +22,20 @@ import { cn } from "@/lib/utils";
 import type { CampaignProfileDetail, ConnectedAccounts, MaterialItem } from "@/lib/types";
 
 const TABS = [
-  { id: "skapa", label: "Skapa klipp" },
-  { id: "klipp", label: "Klipp" },
-  { id: "exempel", label: "Exempelklipp" },
+  { id: "skapa", label: "Create clips" },
+  { id: "klipp", label: "Clips" },
+  { id: "exempel", label: "Example clips" },
   { id: "material", label: "Material" },
-  { id: "installningar", label: "Ställ in" },
+  { id: "installningar", label: "Set up" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
 /** Underflikarna i Ställ in. id:t står kvar från de gamla flikarna, så att gamla länkar fungerar. */
 const PARTS = [
-  { id: "oversikt", label: "Översikt" },
+  { id: "oversikt", label: "Overview" },
   { id: "overlay", label: "Overlay" },
   { id: "facecam", label: "Facecam" },
-  { id: "profil", label: "Avancerat (YAML)" },
+  { id: "profil", label: "Advanced (YAML)" },
 ] as const;
 type Part = (typeof PARTS)[number]["id"];
 const isPart = (value?: string): value is Part => PARTS.some((p) => p.id === value);
@@ -44,7 +44,7 @@ const isTab = (value?: string): value is Tab => TABS.some((t) => t.id === value)
 // Problem som checklistan redan visar.
 const IN_CHECKLIST = ["Overlay-bilden saknas", "Facecam- och spelrutan"];
 
-const LEAVE = "Du har ändringar som inte är sparade. Vill du lämna dem?";
+const LEAVE = "You have unsaved changes. Do you want to leave them?";
 
 /** Kampanjen behöver ställas in innan klippen blir godkända: då öppnar sidan Ställ in. */
 const needsSetup = (p: CampaignProfileDetail) => !p.links.content_rewards || ownProblems(p).length > 0;
@@ -76,11 +76,11 @@ export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat,
     api.campaign
       .material(id)
       .then(setMaterial)
-      .catch((err) => setMaterialError(err instanceof Error ? err.message : "Kunde inte hämta materialet"));
+      .catch((err) => setMaterialError(err instanceof Error ? err.message : "Could not load the material"));
     api.campaign
       .accounts()
       .then(setAccounts)
-      .catch((err) => setAccountsError(err instanceof Error ? err.message : "Kunde inte läsa kontona"));
+      .catch((err) => setAccountsError(err instanceof Error ? err.message : "Could not load the accounts"));
   }, [id]);
 
   // Gamla länkar (?tab=facecam, ?del=exempel) öppnar rätt flik. Utan flik: Ställ in tills kampanjen är inställd.
@@ -149,7 +149,7 @@ export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat,
     api.campaign.profile
       .get(id)
       .then(setProfile)
-      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte hämta kampanjen"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load the campaign"));
   }
   useEffect(load, [id]);
 
@@ -160,11 +160,11 @@ export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat,
           <>
             <p role="alert" className="text-bad">{error}</p>
             <Link href="/campaigns" className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground">
-              Till alla kampanjer
+              To all campaigns
             </Link>
           </>
         ) : (
-          <p className="text-sm text-muted-foreground">Hämtar kampanjen…</p>
+          <p className="text-sm text-muted-foreground">Loading the campaign…</p>
         )}
       </main>
     );
@@ -176,7 +176,7 @@ export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat,
   return (
     <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
       <Link href="/campaigns" className="text-sm text-muted-foreground hover:text-foreground">
-        Kampanjer
+        Campaigns
       </Link>
       <div className="mt-1 flex flex-wrap items-center gap-3">
         <h1 className="text-3xl font-bold tracking-tight">{profile.streamer}</h1>
@@ -192,7 +192,7 @@ export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat,
             rel="noreferrer"
             className="inline-flex items-center gap-1.5 font-medium text-foreground underline underline-offset-4 hover:text-brand"
           >
-            Öppna kampanjen på Content Rewards
+            Open the campaign on Content Rewards
             <ExternalLink className="size-3.5 shrink-0" aria-hidden />
           </a>
         ) : (
@@ -200,12 +200,12 @@ export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat,
             href={`/campaigns/${profile.name}?tab=installningar&del=oversikt#lankar`}
             className="text-muted-foreground underline underline-offset-4 hover:text-foreground"
           >
-            Lägg in länken till kampanjen
+            Add the link to the campaign
           </Link>
         )}
       </p>
       <p className="mt-1 text-sm text-muted-foreground">
-        Källa: {sourceText(profile)}. {lengthText(profile)}
+        Source: {sourceText(profile)}. {lengthText(profile)}
       </p>
 
       <MissingKeys problems={keyProblems(profile)} className="mt-4 max-w-[760px]" />
@@ -213,7 +213,7 @@ export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat,
         <p role="status" className="mt-4 flex max-w-[760px] gap-2 rounded-lg border border-[#5a4416] bg-[#1b160b] px-3 py-2 text-sm text-warn">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>
-            Twitch svarade inte när kampanjen skapades. Kontrollera att kanalen finns:{" "}
+            Twitch did not answer when the campaign was created. Check that the channel exists:{" "}
             <a href={`https://www.twitch.tv/${profile.channel}`} target="_blank" rel="noreferrer" className="font-medium underline underline-offset-4">
               twitch.tv/{profile.channel}
             </a>
@@ -240,7 +240,7 @@ export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat,
       <div
         ref={tabs}
         role="tablist"
-        aria-label="Kampanjens delar"
+        aria-label="Campaign sections"
         // På smal skärm bryts raden, så att ingen flik göms. Varje flik har då sin egen linje.
         // På bred skärm är linjen en skugga inuti raden.
         className="mt-7 mb-6 flex flex-wrap sm:flex-nowrap sm:gap-1 sm:overflow-x-auto sm:shadow-[inset_0_-1px_0_var(--color-line)]"
@@ -269,7 +269,7 @@ export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat,
       {tab === "installningar" && (
         <>
           {/* Två rader på smal skärm, så att ingen del göms. */}
-          <div role="tablist" aria-label="Ställ in" className="mb-6 flex flex-wrap gap-1.5 text-sm">
+          <div role="tablist" aria-label="Set up" className="mb-6 flex flex-wrap gap-1.5 text-sm">
             {parts.map((p) => (
               <button
                 key={p.id}
@@ -302,7 +302,7 @@ export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat,
             (camera ? (
               <CampaignFacecam id={profile.name} channel={profile.channel} onSaved={load} onDirty={setDirty} />
             ) : (
-              <p className="text-sm text-muted-foreground">Kampanjen har ingen kamera. Klippen visar bara bilden från videon.</p>
+              <p className="text-sm text-muted-foreground">The campaign has no camera. The clips only show the picture from the video.</p>
             ))}
           {part === "profil" && <CampaignYaml id={profile.name} onUpdate={setProfile} onDirty={setDirty} />}
         </>

@@ -7,10 +7,10 @@ import { api } from "@/lib/api";
 import type { CampaignClip, CampaignProfileDetail, CampaignStatus, MaterialItem } from "@/lib/types";
 
 const FILTERS: { id: string; label: string; statuses?: CampaignStatus[] }[] = [
-  { id: "granska", label: "Att granska", statuses: ["renderad", "underkand"] },
-  { id: "godkanda", label: "Godkända", statuses: ["godkand"] },
-  { id: "postade", label: "Postade", statuses: ["postad", "postad_utan_lank", "inskickad", "analytics_inskickad", "betald"] },
-  { id: "alla", label: "Alla" },
+  { id: "granska", label: "To review", statuses: ["renderad", "underkand"] },
+  { id: "godkanda", label: "Approved", statuses: ["godkand"] },
+  { id: "postade", label: "Posted", statuses: ["postad", "postad_utan_lank", "inskickad", "analytics_inskickad", "betald"] },
+  { id: "alla", label: "All" },
 ];
 
 /** Fliken Klipp: kampanjens klipp från alla källor, med samma rader som kön. */
@@ -27,7 +27,7 @@ export function CampaignClips({ profile, material }: { profile: CampaignProfileD
         setClips(list.filter((c) => c.profile === profile.name));
         setError(null);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte hämta klippen"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load the clips"));
   }, [profile.name]);
   useEffect(load, [load]);
 
@@ -47,11 +47,11 @@ export function CampaignClips({ profile, material }: { profile: CampaignProfileD
   const source = (vodId: string) => material?.find((m) => m.vod_id === vodId)?.title || vodId;
 
   if (error) return <p role="alert" className="text-sm text-bad">{error}</p>;
-  if (!clips) return <p className="text-sm text-muted-foreground">Hämtar klippen…</p>;
+  if (!clips) return <p className="text-sm text-muted-foreground">Loading the clips…</p>;
 
   return (
-    <section aria-label="Kampanjens klipp">
-      <div role="tablist" aria-label="Visa klipp" className="flex max-w-full overflow-x-auto rounded-[9px] border border-line text-sm sm:w-fit">
+    <section aria-label="The campaign's clips">
+      <div role="tablist" aria-label="Show clips" className="flex max-w-full overflow-x-auto rounded-[9px] border border-line text-sm sm:w-fit">
         {FILTERS.map((f) => (
           <button
             key={f.id}
@@ -68,21 +68,21 @@ export function CampaignClips({ profile, material }: { profile: CampaignProfileD
         <p className="mt-6 rounded-2xl border border-dashed border-line px-4 py-8 text-center text-sm text-muted-foreground">
           {clips.length === 0 ? (
             <>
-              Kampanjen har inga klipp än.{" "}
+              The campaign has no clips yet.{" "}
               <Link href={`/campaigns/${profile.name}?tab=skapa`} className="font-medium text-foreground underline underline-offset-4">
-                Skapa klipp i chatten
+                Create clips in the chat
               </Link>
               .
             </>
           ) : (
-            "Inga klipp med den statusen."
+            "No clips with that status."
           )}
         </p>
       ) : (
         visible.map((clip, i) => (
           // Ny nyckel när servern har sparat, så att fälten visar det sparade.
           <div key={`${clip.id}-${clip.updated}`} id={`klipp-${clip.id}`} className="scroll-mt-24">
-            <p className="mt-5 -mb-3 truncate text-xs text-muted-foreground">Från: {source(clip.vod_id)}</p>
+            <p className="mt-5 -mb-3 truncate text-xs text-muted-foreground">From: {source(clip.vod_id)}</p>
             <ClipResultRow
               clip={clip}
               number={i + 1}

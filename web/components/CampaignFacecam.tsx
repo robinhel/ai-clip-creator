@@ -71,8 +71,8 @@ function defaults(split: number): { webcam: Rect; gameplay: Rect } {
 }
 
 const STYLE: Record<Kind, { label: string; box: string; handle: string; text: string }> = {
-  webcam: { label: "Kamera", box: "border-brand bg-brand/10", handle: "bg-brand", text: "text-brand" },
-  gameplay: { label: "Spel", box: "border-good bg-good/10", handle: "bg-good", text: "text-good" },
+  webcam: { label: "Camera", box: "border-brand bg-brand/10", handle: "bg-brand", text: "text-brand" },
+  gameplay: { label: "Game", box: "border-good bg-good/10", handle: "bg-good", text: "text-good" },
 };
 
 interface Props {
@@ -113,7 +113,7 @@ export function CampaignFacecam({ id, channel, onSaved, onDirty }: Props) {
     api.campaign.profile
       .reframe(id)
       .then(apply)
-      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte läsa rutorna"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load the boxes"));
   }, [id]);
 
   const frameSrc = api.campaign.profile.frameUrl(id, vodChoice || undefined);
@@ -186,7 +186,7 @@ export function CampaignFacecam({ id, channel, onSaved, onDirty }: Props) {
 
   /** Finns rutan redan? Två lika positioner går inte att spara. */
   const taken = (next: Rect | null) => !!next && !!rects?.webcams.some((r) => r.every((v, i) => v === next[i]));
-  const copies = [taken(newCam(false)) && "Lägg till kameraposition", taken(newCam(true)) && "Spegla"].filter(Boolean);
+  const copies = [taken(newCam(false)) && "Add camera position", taken(newCam(true)) && "Mirror"].filter(Boolean);
 
   function addCam(mirror: boolean) {
     const next = newCam(mirror);
@@ -223,7 +223,7 @@ export function CampaignFacecam({ id, channel, onSaved, onDirty }: Props) {
       setSavedMsg(true);
       onSaved(); // kampanjens problem ändras när rutorna är inställda
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Det gick inte att spara rutorna");
+      setError(err instanceof Error ? err.message : "Could not save the boxes");
     } finally {
       setBusy(false);
     }
@@ -232,30 +232,30 @@ export function CampaignFacecam({ id, channel, onSaved, onDirty }: Props) {
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
-        Dra den lila ramen över streamerns kamera och den gröna över spelet. Dra i hörnen för att ändra storlek. Formen
-        följer panelerna i klippet, så bilden blir aldrig utdragen.
+        Drag the purple frame over the streamer's camera and the green one over the game. Drag the corners to resize. The shape
+        follows the panels in the clip, so the picture is never stretched.
       </p>
       <p className="text-sm text-muted-foreground">
-        Har streamern kameran på olika ställen? Lägg till en position per ställe. Appen väljer rätt position för varje klipp.
+        Does the streamer have the camera in different places? Add one position per place. The app picks the right position for each clip.
       </p>
       {server && server.mode !== "stacked" && (
         <p className="text-sm text-muted-foreground">
-          Kampanjen använder inte rutorna i dag (läget {server.mode} i config-filen). När du sparar sätts läget till kameran
-          överst och spelet under.
+          The campaign does not use the boxes today (mode {server.mode} in the config file). When you save, the mode is set to camera
+          on top and game below.
         </p>
       )}
       {server && (server.source_width !== W || server.source_height !== H) && (
         <p role="alert" className="flex gap-2 rounded-lg border border-[#5a4416] bg-[#1b160b] px-3 py-2 text-sm text-warn">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
-          Servern mäter rutorna i {server.source_width} x {server.source_height}, men ramarna här ritas i {W} x {H}. Rutorna
-          kan hamna fel. Kontrollera dem i ett nytt klipp innan du postar.
+          The server measures the boxes in {server.source_width} x {server.source_height}, but the frames here are drawn in {W} x {H}. The boxes
+          may end up wrong. Check them in a new clip before you post.
         </p>
       )}
 
       <FramePicker id={id} channel={channel} vodChoice={vodChoice} onChoose={setVodChoice} />
 
       {rects && (
-        <div className="flex flex-wrap items-center gap-2 text-sm" aria-label="Kamerapositioner">
+        <div className="flex flex-wrap items-center gap-2 text-sm" aria-label="Camera positions">
           {rects.webcams.map((_, i) => (
             <span
               key={i}
@@ -265,13 +265,13 @@ export function CampaignFacecam({ id, channel, onSaved, onDirty }: Props) {
               )}
             >
               <button type="button" aria-pressed={i === sel} onClick={() => setSel(i)} className="h-full px-3 hover:text-foreground">
-                Kamera {i + 1}
-                {i === 0 && <span className="text-muted-foreground"> (förvald)</span>}
+                Camera {i + 1}
+                {i === 0 && <span className="text-muted-foreground"> (default)</span>}
               </button>
               {rects.webcams.length > 1 && (
                 <button
                   type="button"
-                  aria-label={`Ta bort kamera ${i + 1}`}
+                  aria-label={`Remove camera ${i + 1}`}
                   onClick={() => removeCam(i)}
                   className="-ml-1.5 mr-1 rounded-full p-1 text-muted-foreground hover:text-foreground"
                 >
@@ -287,17 +287,17 @@ export function CampaignFacecam({ id, channel, onSaved, onDirty }: Props) {
             onClick={() => addCam(false)}
           >
             <Plus aria-hidden />
-            Lägg till kameraposition
+            Add camera position
           </Button>
           <Button
             variant="outline"
             className="h-8"
             disabled={rects.webcams.length >= MAX_CAMS || taken(newCam(true))}
             onClick={() => addCam(true)}
-            title={`Lägger till kamera ${sel + 1} speglad i sidled`}
+            title={`Adds camera ${sel + 1} mirrored horizontally`}
           >
             <FlipHorizontal2 aria-hidden />
-            Spegla
+            Mirror
           </Button>
         </div>
       )}
@@ -305,8 +305,8 @@ export function CampaignFacecam({ id, channel, onSaved, onDirty }: Props) {
       {rects && (
         <p aria-live="polite" className="-mt-3 min-h-4 text-xs text-muted-foreground">
           {rects.webcams.length >= MAX_CAMS
-            ? `Högst ${MAX_CAMS} positioner.`
-            : copies.length > 0 && `${copies.join(" och ")} ger en ruta som redan finns. Flytta kamera ${sel + 1} först.`}
+            ? `At most ${MAX_CAMS} positions.`
+            : copies.length > 0 && `${copies.join(" and ")} gives a box that already exists. Move camera ${sel + 1} first.`}
         </p>
       )}
 
@@ -316,8 +316,8 @@ export function CampaignFacecam({ id, channel, onSaved, onDirty }: Props) {
           {image !== "ok" && (
             <p role={image === "error" ? "alert" : "status"} className="text-sm text-muted-foreground">
               {image === "loading"
-                ? "Hämtar en bildruta ur VOD:en…"
-                : (loaded?.detail ?? "Servern hittade ingen bild för VOD:en. Välj ett annat projekt eller en stream, eller skriv ett VOD-id.")}
+                ? "Loading a frame from the VOD…"
+                : (loaded?.detail ?? "The server found no frame for the VOD. Choose another project or a stream, or enter a VOD ID.")}
             </p>
           )}
           <div
@@ -330,7 +330,7 @@ export function CampaignFacecam({ id, channel, onSaved, onDirty }: Props) {
             {/* eslint-disable-next-line @next/next/no-img-element -- bildrutan ritas i källans koordinater. */}
             <img
               src={frameSrc}
-              alt="Bildruta ur VOD:en"
+              alt="Frame from the VOD"
               draggable={false}
               onLoad={() => setLoaded({ src: frameSrc, ok: true })}
               onError={() => frameFailed(frameSrc)}
@@ -348,7 +348,7 @@ export function CampaignFacecam({ id, channel, onSaved, onDirty }: Props) {
                     key={target}
                     role="group"
                     tabIndex={0}
-                    aria-label={`${label}, ruta. Flytta med piltangenterna, Skift för en pixel i taget.`}
+                    aria-label={`${label}, box. Move with the arrow keys, Shift for one pixel at a time.`}
                     data-rect={target === "gameplay" ? "gameplay" : `webcam-${target}`}
                     data-selected={target === sel || undefined}
                     onPointerDown={(e) => startDrag(e, target, "move")}
@@ -400,7 +400,7 @@ export function CampaignFacecam({ id, channel, onSaved, onDirty }: Props) {
 
           <label className="block max-w-md pt-3 text-sm">
             <span className="flex justify-between">
-              <span>Kamerans del av höjden</span>
+              <span>Camera's share of the height</span>
               <span className="tabular-nums text-muted-foreground">{Math.round(split * 100)} %</span>
             </span>
             <input
@@ -424,7 +424,7 @@ export function CampaignFacecam({ id, channel, onSaved, onDirty }: Props) {
             split={split}
           />
           <figcaption className="mt-2 text-xs text-muted-foreground">
-            Så blir klippet med kamera {sel + 1}: kameran överst och spelet under.
+            This is the clip with camera {sel + 1}: camera on top and game below.
           </figcaption>
         </figure>
       </div>
@@ -437,20 +437,20 @@ export function CampaignFacecam({ id, channel, onSaved, onDirty }: Props) {
       {savedMsg && !dirty && (
         <p role="status" className="flex items-center gap-2 text-sm text-good">
           <CheckCircle2 className="size-4" aria-hidden />
-          Rutorna är sparade. Läget sätts till kameran överst och spelet under, och nya klipp använder rutorna.
+          The boxes are saved. The mode is set to camera on top and game below, and new clips use the boxes.
         </p>
       )}
       {/* Första gången måste rutorna jämföras med en riktig bild. Annars sparas de förvalda rutorna blint. */}
       {unsaved && image !== "ok" && (
-        <p className="text-sm text-warn">Välj en bild från streamen först. Då ser du att rutorna ligger rätt innan du sparar.</p>
+        <p className="text-sm text-warn">Choose a frame from the stream first. Then you can see the boxes are right before you save.</p>
       )}
       <div className="flex flex-wrap gap-2">
         <Button className="h-9" disabled={!(dirty || unsaved) || busy || (unsaved && image !== "ok")} onClick={save}>
           {busy && <Loader2 className="animate-spin" aria-hidden />}
-          Spara rutorna
+          Save the boxes
         </Button>
         <Button variant="ghost" className="h-9" disabled={!dirty || busy} onClick={() => server && apply(server)}>
-          Ångra ändringar
+          Undo changes
         </Button>
       </div>
     </div>
@@ -499,7 +499,7 @@ function FramePicker({ id, channel, vodChoice, onChoose }: FramePickerProps) {
   return (
     <div className="flex flex-wrap items-end gap-3 text-sm">
       <label className="min-w-0 space-y-1">
-        <span className="block text-[13px] text-muted-foreground">Bild från</span>
+        <span className="block text-[13px] text-muted-foreground">Frame from</span>
         <select
           value={known || !vodChoice ? vodChoice : "annat"}
           onChange={(e) => e.target.value !== "annat" && onChoose(e.target.value)}
@@ -524,20 +524,20 @@ interface FrameOptionsProps {
 function FrameOptions({ projects, streams, other }: FrameOptionsProps) {
   return (
     <>
-      {projects.length > 0 && <option value="">Senaste projektet</option>}
-      {projects.length === 0 && streams.length === 0 && <option value="">Inget projekt än</option>}
+      {projects.length > 0 && <option value="">Latest project</option>}
+      {projects.length === 0 && streams.length === 0 && <option value="">No project yet</option>}
       {projects.length > 0 && (
-        <optgroup label="Projekt">
+        <optgroup label="Projects">
           {projects.map((r) => (
             <option key={r.run_id} value={r.vod_id}>
-              Projekt #{r.run_id}
+              Project #{r.run_id}
               {r.title ? `, ${r.title.slice(0, 40)}` : `, VOD ${r.vod_id}`}
             </option>
           ))}
         </optgroup>
       )}
       {streams.length > 0 && (
-        <optgroup label="Kanalens streams">
+        <optgroup label="The channel's streams">
           {streams.map((s) => (
             <option key={s.vod_id} value={s.vod_id}>
               {s.created_at ? `${day.format(new Date(s.created_at))}, ` : ""}
@@ -563,7 +563,7 @@ function VodIdForm({ onChoose }: { onChoose: (vod: string) => void }) {
       }}
     >
       <label className="space-y-1">
-        <span className="block text-[13px] text-muted-foreground">Eller ett VOD-id från Twitch</span>
+        <span className="block text-[13px] text-muted-foreground">Or a VOD ID from Twitch</span>
         <input
           value={vodInput}
           onChange={(e) => setVodInput(e.target.value)}
@@ -573,7 +573,7 @@ function VodIdForm({ onChoose }: { onChoose: (vod: string) => void }) {
         />
       </label>
       <Button type="submit" variant="outline" className="h-9" disabled={!/^\d{6,15}$/.test(vodInput.trim())}>
-        Visa bilden
+        Show the frame
       </Button>
     </form>
   );

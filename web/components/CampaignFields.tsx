@@ -41,7 +41,7 @@ export function contentRewardsProblem(url: string): string | null {
   } catch {
     // inte en adress
   }
-  return "Länken ska börja med https://contentrewards.com/. Kopiera den från kampanjsidan.";
+  return "The link must start with https://contentrewards.com/. Copy it from the campaign page.";
 }
 
 export function httpsProblem(url: string): string | null {
@@ -52,7 +52,7 @@ export function httpsProblem(url: string): string | null {
   } catch {
     // inte en adress
   }
-  return "Skriv hela adressen. Den börjar med https://.";
+  return "Enter the full address. It starts with https://.";
 }
 
 export function Field({ label, hint, error, children, className }: {
@@ -155,18 +155,18 @@ export function FormatList({ formats, onChange }: { formats: FormatRow[]; onChan
         {formats.map((f, i) => (
           <li key={i} className="grid items-start gap-2 sm:grid-cols-[220px_minmax(0,1fr)_auto]">
             <input
-              aria-label={`Format ${i + 1}, namn`}
+              aria-label={`Format ${i + 1}, name`}
               value={f.name}
               onChange={(e) => onChange(formats.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
-              placeholder="Namn"
+              placeholder="Name"
               aria-invalid={!f.name.trim() || undefined}
               className={field}
             />
             <input
-              aria-label={`Format ${i + 1}, beskrivning`}
+              aria-label={`Format ${i + 1}, description`}
               value={f.description}
               onChange={(e) => onChange(formats.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
-              placeholder="Vad som gör ett bra klipp i formatet"
+              placeholder="What makes a good clip in the format"
               className={field}
             />
             <Button type="button" variant="ghost" className="h-9 text-muted-foreground" aria-label={`Ta bort format ${i + 1}`} onClick={() => onChange(formats.filter((_, j) => j !== i))}>
@@ -177,7 +177,7 @@ export function FormatList({ formats, onChange }: { formats: FormatRow[]; onChan
       </ul>
       <Button type="button" variant="outline" className="h-9" onClick={() => onChange([...formats, { name: "", description: "" }])}>
         <Plus aria-hidden />
-        Lägg till format
+        Add format
       </Button>
     </>
   );

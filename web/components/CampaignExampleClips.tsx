@@ -30,7 +30,7 @@ export function CampaignExampleClips({ id, link }: { id: string; link?: string |
     api.campaign.profile
       .examples(id)
       .then((d) => alive && setData(d))
-      .catch((err) => alive && setError(err instanceof Error ? err.message : "Exempelklippen gick inte att hämta."));
+      .catch((err) => alive && setError(err instanceof Error ? err.message : "Could not load the example clips."));
     return () => {
       alive = false;
     };
@@ -46,15 +46,15 @@ export function CampaignExampleClips({ id, link }: { id: string; link?: string |
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           <Button variant="outline" size="sm" onClick={() => setAttempt((n) => n + 1)}>
             <RotateCw aria-hidden />
-            Försök igen
+            Try again
           </Button>
           {link && (
             <a href={link} target="_blank" rel="noreferrer" className={`inline-flex items-center gap-1 ${linkClass}`}>
-              Öppna kampanjsidan på Content Rewards <ExternalLink className="size-3.5" aria-hidden />
+              Open the campaign page on Content Rewards <ExternalLink className="size-3.5" aria-hidden />
             </a>
           )}
           <Link href={settings} className={linkClass}>
-            Ändra länken under Ställ in
+            Change the link under Set up
           </Link>
         </div>
       </div>
@@ -63,7 +63,7 @@ export function CampaignExampleClips({ id, link }: { id: string; link?: string |
   if (!data) {
     return (
       <p className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" aria-hidden /> Hämtar klippen från Content Rewards…
+        <Loader2 className="size-4 animate-spin" aria-hidden /> Loading the clips from Content Rewards…
       </p>
     );
   }
@@ -72,7 +72,7 @@ export function CampaignExampleClips({ id, link }: { id: string; link?: string |
       <p className="max-w-[640px] text-sm text-muted-foreground">
         {data.problem}{" "}
         <Link href={settings} className={linkClass}>
-          Öppna Ställ in
+          Open Set up
         </Link>
       </p>
     );
@@ -81,18 +81,18 @@ export function CampaignExampleClips({ id, link }: { id: string; link?: string |
   return (
     <div className="space-y-8">
       <p className="text-sm text-muted-foreground">
-        Förebilder: de klipp i kampanjen som har flest visningar. Hämtas från{" "}
+        Role models: the clips in the campaign with the most views. Loaded from{" "}
         {data.source && (
           <a href={data.source} target="_blank" rel="noreferrer" className="text-foreground underline underline-offset-4">
-            kampanjsidan på Content Rewards
+            the campaign page on Content Rewards
           </a>
         )}{" "}
-        högst en gång i timmen.
+        at most once an hour.
       </p>
 
       {data.earners.length > 0 && (
         <section>
-          <h2 className="mb-3 text-[13px] text-muted-foreground">Klipparna som tjänat mest</h2>
+          <h2 className="mb-3 text-[13px] text-muted-foreground">Top-earning clippers</h2>
           <ol className="grid gap-3 sm:grid-cols-3">
             {data.earners.map((e) => (
               <li key={e.rank} className="rounded-[10px] border border-line bg-panel px-4 py-3 text-sm">
@@ -103,7 +103,7 @@ export function CampaignExampleClips({ id, link }: { id: string; link?: string |
                   <span className="shrink-0 font-semibold">{usd.format(e.earned_usd)}</span>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {num.format(e.views)} visningar, {e.approved} godkända klipp
+                  {num.format(e.views)} views, {e.approved} approved clips
                 </p>
               </li>
             ))}
@@ -112,9 +112,9 @@ export function CampaignExampleClips({ id, link }: { id: string; link?: string |
       )}
 
       <section>
-        <h2 className="mb-3 text-[13px] text-muted-foreground">Bästa klippen</h2>
+        <h2 className="mb-3 text-[13px] text-muted-foreground">Best clips</h2>
         {data.clips.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Kampanjen har inga godkända klipp än.</p>
+          <p className="text-sm text-muted-foreground">The campaign has no approved clips yet.</p>
         ) : (
           <ol className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
             {data.clips.map((c) => (
@@ -131,11 +131,11 @@ export function CampaignExampleClips({ id, link }: { id: string; link?: string |
                   />
                 ) : (
                   <div className="flex aspect-[9/16] w-full items-center justify-center rounded-[10px] border border-line bg-panel px-2 text-center text-xs text-muted-foreground">
-                    Videon finns inte att spela här.
+                    The video cannot be played here.
                   </div>
                 )}
                 <p className="font-medium">
-                  {c.rank}. {num.format(c.views)} visningar
+                  {c.rank}. {num.format(c.views)} views
                 </p>
                 <p className="truncate text-xs text-muted-foreground">
                   {PLATFORMS[c.platform] ?? c.platform}
@@ -150,7 +150,7 @@ export function CampaignExampleClips({ id, link }: { id: string; link?: string |
                     rel="noreferrer"
                     className="inline-flex items-center gap-1 text-xs underline underline-offset-4 hover:text-foreground"
                   >
-                    Öppna inlägget <ExternalLink className="size-3" aria-hidden />
+                    Open the post <ExternalLink className="size-3" aria-hidden />
                   </a>
                 )}
               </li>

@@ -10,25 +10,25 @@ export function CampaignChecklist({ items, created }: { items: ChecklistItem[]; 
     return created ? (
       <p role="status" className="mt-4 flex items-center gap-2 rounded-lg border border-[#174a2a] bg-[#0d1a12] px-3 py-2 text-sm text-good">
         <CheckCircle2 className="size-4 shrink-0" aria-hidden />
-        Kampanjen är skapad och klar.
+        The campaign is created and ready.
       </p>
     ) : null;
   }
   return (
-    <section aria-label="Gör kampanjen klar" className="mt-5 max-w-[760px] rounded-2xl border border-line bg-panel p-4 sm:p-5">
+    <section aria-label="Get the campaign ready" className="mt-5 max-w-[760px] rounded-2xl border border-line bg-panel p-4 sm:p-5">
       <h2 className="font-semibold">
-        {created ? "Kampanjen är skapad. " : ""}Gör kampanjen klar
+        {created ? "The campaign is created. " : ""}Get the campaign ready
         <span className="ml-2 text-sm font-normal text-muted-foreground tabular-nums">
-          {items.length - left} av {items.length} klart
+          {items.length - left} of {items.length} done
         </span>
       </h2>
       <ul className="mt-3 space-y-2">
         {items.map((item) => (
           <li key={item.id} data-check={item.id} data-done={item.done} className="flex gap-2.5 text-sm">
             {item.done ? (
-              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-good" aria-label="Klart" />
+              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-good" aria-label="Done" />
             ) : (
-              <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-label="Inte klart" />
+              <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-label="Not done" />
             )}
             <span className="min-w-0">
               <Link
