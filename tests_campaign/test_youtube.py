@@ -125,7 +125,7 @@ def client(settings, fake) -> TestClient:
     app.include_router(api.router)
     app.include_router(youtube_api.router)
     app.dependency_overrides[api.get_settings] = lambda: settings
-    return TestClient(app, follow_redirects=False, client=("127.0.0.1", 50000))
+    return TestClient(app, base_url="http://127.0.0.1:8000", follow_redirects=False, client=("127.0.0.1", 50000))
 
 
 def _connect(settings, channel_id: str = "UC1", title: str = "Clip Vault", access: str = "ya29.old",
@@ -789,3 +789,12 @@ def test_status_has_the_redirect_address_from_the_server(settings) -> None:
     client = TestClient(app)
     assert client.get("/campaign/youtube/status").json()["redirect_uri"] == settings.youtube_redirect_uri
     assert client.get("/campaign/tiktok/status").json()["redirect_uri"] == settings.tiktok_redirect_uri
+
+
+@pytest.mark.parametrize("host", ["evil.example", "evil.example:8000", "localhost.evil.example"])
+def test_connect_and_callback_refuse_another_host_name(client, fake, host) -> None:
+    """DNS rebinding: a web page whose name resolves to 127.0.0.1 reaches the server from this computer."""
+    assert client.get("/campaign/youtube/connect", headers={"host": host}).status_code == 403
+    response = client.get("/campaign/youtube/callback/", params={"code": "c", "state": "s"}, headers={"host": host})
+    assert response.status_code == 403
+    assert fake.requests == []

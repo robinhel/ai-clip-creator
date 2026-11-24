@@ -133,7 +133,7 @@ def client(settings, fake) -> TestClient:
     app.include_router(api.router)
     app.include_router(tiktok_api.router)
     app.dependency_overrides[api.get_settings] = lambda: settings
-    return TestClient(app, follow_redirects=False, client=("127.0.0.1", 50000))
+    return TestClient(app, base_url="http://127.0.0.1:8000", follow_redirects=False, client=("127.0.0.1", 50000))
 
 
 ACCOUNTS = "tiktok_accounts.json"
@@ -436,7 +436,7 @@ def test_missing_file_is_refused(client, settings) -> None:
 def test_connect_and_callback_only_from_this_computer(client, settings, fake) -> None:
     # ::ffff:127.0.0.1 är samma dator, sedd genom IPv6. Servern får den adressen när den lyssnar på ::.
     for host in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
-        local = TestClient(client.app, follow_redirects=False, client=(host, 50000))
+        local = TestClient(client.app, base_url="http://127.0.0.1:8000", follow_redirects=False, client=(host, 50000))
         assert local.get("/campaign/tiktok/connect").status_code == 302
     state = parse_qs(urlparse(client.get("/campaign/tiktok/connect").headers["location"]).query)["state"][0]
 
@@ -1211,3 +1211,12 @@ def test_without_a_cover_tiktok_chooses(client, settings, fake) -> None:
     _connect(settings, publish=True)
     assert _direct(client, _clip(settings), title="x").status_code == 202
     assert "video_cover_timestamp_ms" not in _post_info(fake)["post_info"]
+
+
+@pytest.mark.parametrize("host", ["evil.example", "evil.example:8000", "localhost.evil.example"])
+def test_connect_and_callback_refuse_another_host_name(client, fake, host) -> None:
+    """DNS rebinding: a web page whose name resolves to 127.0.0.1 reaches the server from this computer."""
+    assert client.get("/campaign/tiktok/connect", headers={"host": host}).status_code == 403
+    response = client.get("/campaign/tiktok/callback/", params={"code": "c", "state": "s"}, headers={"host": host})
+    assert response.status_code == 403
+    assert fake.requests == []
