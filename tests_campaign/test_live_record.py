@@ -510,7 +510,7 @@ def test_cut_starts_where_the_recording_starts_for_a_clip_right_after_the_start(
 
 
 def test_cut_fails_when_too_little_is_left_after_the_recording_started(buffer, tmp_path):
-    with pytest.raises(PartFailed, match="för nära"):
+    with pytest.raises(PartFailed, match="too close"):
         cut(buffer, T0 - 10.0, T0 + 12.0, tmp_path / "del")  # 12 s kvar, under 30 s
 
 
@@ -527,7 +527,7 @@ def test_cut_fails_when_there_are_no_segments(tmp_path):
 def test_cut_fails_when_holes_are_more_than_30_percent(buffer, tmp_path):
     lines = (buffer / "index.tsv").read_text().splitlines(keepends=True)
     (buffer / "index.tsv").write_text("".join(lines[:1] + lines[3:]))  # 4 s reklam av 10 s fönster
-    with pytest.raises(PartFailed, match="[Hh]ål"):
+    with pytest.raises(PartFailed, match="gaps"):
         cut(buffer, T0, T0 + 10.0, tmp_path / "del")
 
 
@@ -564,7 +564,7 @@ def test_cut_pushes_a_hole_together_and_says_where_the_pictures_come_from(buffer
 def test_cut_fails_with_a_short_text_when_a_segment_was_cleaned_up_meanwhile(buffer, tmp_path):
     rows = _index(buffer)
     (buffer / rows[1][2]).unlink()
-    with pytest.raises(PartFailed, match="städa"):
+    with pytest.raises(PartFailed, match="cleaned out"):
         cut(buffer, T0, T0 + 4.0, tmp_path / "del")
 
 

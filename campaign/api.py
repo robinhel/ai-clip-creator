@@ -24,7 +24,8 @@ from clipsmith.db.models import Run, RunStatus
 from . import editor, estimate, pipeline, preferences, runinfo, streams, vodfiles
 from .budget import BudgetExceeded, budget_from_settings
 from .caption import PROBLEM_STARTS, check_caption
-from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog, UploadRunning, card_runs
+from .cliplog import (OLD_OWN_FILES_TITLE, OWN_FILES_TITLE, POST_STATUSES, STAT_KEYS, STATUSES, ClipLog,
+                      UploadRunning, card_runs)
 from .config import Settings, load_settings
 from .media import need, probe, run
 from .metrics import clip_length, reached_min_7d
@@ -469,7 +470,9 @@ def list_runs(db: Session = Depends(get_db), settings: Settings = Depends(get_se
 def _describe_project(project: dict, log: ClipLog, db: Session, settings: Settings) -> dict:
     runs, clips = log.runs(), log.list()
     files = runinfo.project_files([m for m in runs if m["project_id"] == project["id"]], db, clips, settings)
-    streamer = project["title"].removeprefix("Egna filer för ")  # titeln har streamerns namn
+    streamer = project["title"].removeprefix(OWN_FILES_TITLE).removeprefix(OLD_OWN_FILES_TITLE)  # streamerns namn
+    if project["title"].startswith(OLD_OWN_FILES_TITLE):  # gamla projekt har svensk titel i klipp.db
+        project = {**project, "title": f"{OWN_FILES_TITLE}{streamer}"}
     return runinfo.describe_project(project, streamer, files, runinfo.project_clips(project, runs, clips))
 
 

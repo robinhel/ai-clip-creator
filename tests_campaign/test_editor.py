@@ -198,7 +198,7 @@ def test_editing_is_refused_while_the_approved_clip_uploads(setup, settings) -> 
     _, done, _ = _paths(settings)
     before = done.read_bytes()
     response = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0})
-    assert response.status_code == 409 and "laddas upp" in response.json()["detail"]
+    assert response.status_code == 409 and "being uploaded" in response.json()["detail"]
     assert (log.get(clip_id)["status"], done.read_bytes()) == ("godkand", before)  # filen byts inte under uppladdningen
     assert _scheduled_status(settings, post_id) == "running"
     assert not [p for p in settings.out_dir.rglob(".*")]

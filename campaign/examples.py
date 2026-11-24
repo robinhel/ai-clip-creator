@@ -43,10 +43,10 @@ def clear_cache() -> None:
 def link_problem(url: str | None) -> str | None:
     """Varför länken inte går att använda, annars None."""
     if not url:
-        return "Länken till kampanjen i Content Rewards saknas. Lägg in den under Ställ in."
+        return "The link to the campaign in Content Rewards is missing. Add it under Set up."
     parsed = urlparse(url)
     if parsed.scheme != "https" or parsed.hostname not in HOSTS:
-        return "Exempelklipp kräver kampanjens länk från contentrewards.com, till exempel https://contentrewards.com/c/campaigns/…"
+        return "Example clips need the campaign's link from contentrewards.com, for example https://contentrewards.com/c/campaigns/…"
     return None
 
 
@@ -81,7 +81,7 @@ def _int(value: object) -> int:
 
 
 def _earner(e: dict) -> dict:
-    return {"rank": _int(e.get("rank")), "name": str(e.get("username") or e.get("whopUsername") or "Okänd"),
+    return {"rank": _int(e.get("rank")), "name": str(e.get("username") or e.get("whopUsername") or "Unknown"),
             "earned_usd": round(_int(e.get("earnedCents")) / 100, 2), "views": _int(e.get("totalViews")),
             "approved": _int(e.get("approvedSubmissionCount"))}
 
@@ -106,10 +106,10 @@ def parse(html: str) -> dict:
     try:
         flight = "".join(json.loads(m.group(1)) for m in _PUSH.finditer(html))
     except json.JSONDecodeError as error:
-        raise ValueError("Kampanjsidan gick inte att läsa. Content Rewards kan ha ändrat sidan.") from error
+        raise ValueError("The campaign page could not be read. Content Rewards may have changed the page.") from error
     found = {key: _value(flight, key, kind) for key, kind in FIELDS.items()}
     if all(value is None for value in found.values()):
-        raise ValueError("Kampanjsidan hittade inga klipp. Content Rewards kan ha ändrat sidan.")
+        raise ValueError("No clips found on the campaign page. Content Rewards may have changed the page.")
     top_earners = _dicts(found["topEarners"])
     earners = [_earner(e) for e in top_earners]
     by_user = {e.get("userId"): earner for e, earner in zip(top_earners, earners, strict=True)}
@@ -138,9 +138,9 @@ def fetch(url: str) -> dict:
         with http_client() as http:
             response = http.get(url)
     except httpx.HTTPError as error:
-        raise RuntimeError("Content Rewards svarar inte. Försök igen om en stund.") from error
+        raise RuntimeError("Content Rewards does not answer. Try again in a while.") from error
     if response.status_code != 200:
-        raise RuntimeError(f"Content Rewards svarade {response.status_code}. Försök igen om en stund.")
+        raise RuntimeError(f"Content Rewards answered {response.status_code}. Try again in a while.")
     try:
         data = parse(response.text)
     except ValueError as error:

@@ -65,8 +65,8 @@ def test_parse_joins_clips_with_their_clipper_and_keeps_only_safe_links() -> Non
     assert len(second["title"]) <= 300
 
 
-def test_parse_without_data_raises_a_swedish_error() -> None:
-    with pytest.raises(ValueError, match="hittade inga klipp"):
+def test_parse_without_data_raises_a_plain_error() -> None:
+    with pytest.raises(ValueError, match="No clips found"):
         examples.parse("<html>Inloggning krävs</html>")
 
 
@@ -177,7 +177,7 @@ def _set_link(settings, link: str) -> None:
 def test_examples_need_a_content_rewards_link(client, settings) -> None:
     http, calls = client
     body = http.get("/campaign/profiles/skiimasktimmy/examples").json()
-    assert body["clips"] == [] and "Ställ in" in body["problem"]
+    assert body["clips"] == [] and "Set up" in body["problem"]
     _set_link(settings, "https://whop.com/x/")
     body = http.get("/campaign/profiles/skiimasktimmy/examples").json()
     assert body["clips"] == [] and "contentrewards.com" in body["problem"]
@@ -200,7 +200,7 @@ def test_examples_report_when_the_page_cannot_be_read(client, settings) -> None:
     _set_link(settings, "https://contentrewards.com/c/campaigns/trasig")
     response = http.get("/campaign/profiles/skiimasktimmy/examples")
     assert response.status_code == 502
-    assert "Content Rewards svarade 503" in response.json()["detail"]
+    assert "Content Rewards answered 503" in response.json()["detail"]
 
 
 def test_examples_say_in_plain_words_when_content_rewards_does_not_answer(settings, monkeypatch) -> None:
@@ -215,7 +215,7 @@ def test_examples_say_in_plain_words_when_content_rewards_does_not_answer(settin
     _set_link(settings, PAGE_URL)
     response = TestClient(app).get("/campaign/profiles/skiimasktimmy/examples")
     assert response.status_code == 502
-    assert response.json()["detail"] == "Content Rewards svarar inte. Försök igen om en stund."
+    assert response.json()["detail"] == "Content Rewards does not answer. Try again in a while."
 
 
 def test_the_real_client_can_build_a_request() -> None:

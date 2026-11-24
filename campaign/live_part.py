@@ -39,7 +39,7 @@ def _run(cmd: list[str], timeout: float) -> tuple[int, str]:
             cmd, capture_output=True, text=True, errors="replace", timeout=timeout
         )
     except subprocess.TimeoutExpired as error:
-        raise PartFailed(f"twitch-dl svarade inte på {timeout:.0f} sekunder.") from error
+        raise PartFailed(f"twitch-dl did not answer in {timeout:.0f} seconds.") from error
     return done.returncode, done.stdout + done.stderr
 
 
@@ -54,7 +54,7 @@ def _first_index(downloaded: Path) -> int:
     lines = downloaded.read_text(encoding="utf-8").splitlines()
     first = next((line for line in lines if line.strip() and not line.startswith("#")), None)
     if first is None:
-        raise PartFailed("twitch-dl hämtade inga delar.")
+        raise PartFailed("twitch-dl fetched no segments.")
     return int(Path(first.strip()).stem)
 
 
@@ -62,20 +62,20 @@ def _check_ready(output: str, playlist: Path, end_s: float) -> None:
     """PartNotReady när Twitch säger försök senare, eller när slutet inte är inspelat än.
     Har spellistan ENDLIST är streamen slut: då räcker det som finns, även om det slutar före end_s."""
     if TRY_LATER in output:
-        raise PartNotReady("Twitch har inte VOD:en klar än.")
+        raise PartNotReady("Twitch does not have the VOD ready yet.")
     if not playlist.exists() or ENDLIST in playlist.read_text(encoding="utf-8"):
         return
     if sum(_durations(playlist)) < end_s:
-        raise PartNotReady("Slutet av delen är inte inspelat än.")
+        raise PartNotReady("The end of the part is not recorded yet.")
 
 
 def _check_done(code: int, output: str, playlist: Path) -> None:
     """PartFailed när twitch-dl avslutade med fel eller inte skrev någon spellista."""
     if code != 0:
-        last = output.strip().splitlines()[-1:] or ["inget svar"]
-        raise PartFailed(f"Kunde inte hämta delen ur VOD:en: {last[0][:300]}")
+        last = output.strip().splitlines()[-1:] or ["no answer"]
+        raise PartFailed(f"Could not fetch the part from the VOD: {last[0][:300]}")
     if not playlist.exists():
-        raise PartFailed("twitch-dl skrev ingen spellista.")
+        raise PartFailed("twitch-dl wrote no playlist.")
 
 
 def fetch_part(vod_id: str, start_s: float, end_s: float, folder: Path) -> float:
@@ -103,6 +103,6 @@ def fetch_part(vod_id: str, start_s: float, end_s: float, folder: Path) -> float
     try:
         join_segments(cache, folder / f"{folder.name}.mp4")
     except (RuntimeError, OSError) as error:
-        raise PartFailed(f"Kunde inte slå ihop delarna: {str(error)[:300]}") from error
+        raise PartFailed(f"Could not join the segments: {str(error)[:300]}") from error
     shutil.rmtree(cache, ignore_errors=True)
     return start

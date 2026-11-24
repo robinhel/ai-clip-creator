@@ -175,11 +175,11 @@ def test_cliplog_follows_a_clip_to_payment(settings):
                       caption="c", start_s=100.0, end_s=130.0, signals=["audio_energy"])
     assert log.get(clip_id)["status"] == "renderad"
     log.update(clip_id, status="godkand", format="clutch")
-    assert "posta klippet" in log.todo()[0]
+    assert "post the clip" in log.todo()[0]
     log.update(clip_id, status="postad", url="https://example.com/1")
-    assert "skicka in länken" in log.todo()[0]
+    assert "submit the link" in log.todo()[0]
     log.update(clip_id, status="inskickad", views=2500, likes=40, comments=5)
-    assert "skärminspelningen" in log.todo()[0]
+    assert "screen recording" in log.todo()[0]
     assert log.engagement(log.get(clip_id)) == pytest.approx(1.8)
     log.update(clip_id, status="betald")
     assert log.todo() == []

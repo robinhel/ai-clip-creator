@@ -51,7 +51,7 @@ def test_two_own_files_and_an_upload_are_one_project(client, settings) -> None: 
     _clip(settings, TWITCH)  # ett Twitch-klipp i samma kampanj hör inte till projektet
 
     project = _project(client)
-    assert (project["title"], project["streamer"]) == ("Egna filer för SkiiMaskTimmy", "SkiiMaskTimmy")
+    assert (project["title"], project["streamer"]) == ("Own files for SkiiMaskTimmy", "SkiiMaskTimmy")
     assert [(f["run_id"], f["vod_id"], f["status"]) for f in project["files"]] == [(a, FILE_A, "done"),
                                                                                     (b, FILE_B, "done")]
     assert project["files"][0]["title"] == "Skyborne Test A" and project["files"][0]["duration_s"] == 20
@@ -69,9 +69,17 @@ def test_a_campaign_with_only_uploads_gets_a_project_without_files(client, setti
     upload = _upload(settings)
     project = _project(client)
     assert (project["files"], project["clip_counts"], project["title"]) == ([], {"renderad": 1},
-                                                                            "Egna filer för SkiiMaskTimmy")
+                                                                            "Own files for SkiiMaskTimmy")
     assert _project(client)["id"] == project["id"]  # samma projekt nästa gång
     assert [c["id"] for c in client.get("/campaign/clips", params={"project_id": project["id"]}).json()] == [upload]
+
+
+def test_an_old_swedish_project_title_is_shown_in_english(client, settings) -> None:  # noqa: F811
+    _upload(settings)
+    with sqlite3.connect(settings.data_dir / "klipp.db") as db:  # projekt från före översättningen
+        db.execute("UPDATE projects SET title = 'Egna filer för SkiiMaskTimmy'")
+    project = _project(client)
+    assert (project["title"], project["streamer"]) == ("Own files for SkiiMaskTimmy", "SkiiMaskTimmy")
 
 
 def test_reading_the_projects_writes_nothing(client, settings) -> None:  # noqa: F811
@@ -208,8 +216,8 @@ def test_the_migration_saves_a_copy_first_and_puts_own_files_in_one_project_per_
     projects = {(profile, kind): (pid, title) for pid, profile, kind, title in after["projects"]}
     assert projects.keys() == {("blizzard_nordics", "egna"), (CAMPAIGN, "egna"), ("annan", "egna")}
     blizzard, timmy = projects["blizzard_nordics", "egna"][0], projects[CAMPAIGN, "egna"][0]
-    assert projects["blizzard_nordics", "egna"][1] == "Egna filer för Blizzard Entertainment"
-    assert projects[CAMPAIGN, "egna"][1] == "Egna filer för SkiiMaskTimmy"
+    assert projects["blizzard_nordics", "egna"][1] == "Own files for Blizzard Entertainment"
+    assert projects[CAMPAIGN, "egna"][1] == "Own files for SkiiMaskTimmy"
     assert dict(after["project_ids"]) == {11: None, 12: blizzard, 13: blizzard, 14: timmy, 22: blizzard}
 
 

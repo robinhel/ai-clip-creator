@@ -149,10 +149,10 @@ def test_four_500_in_a_row_names_the_part_and_hides_the_key(settings) -> None:
     assert len(calls) == 4
     assert pauses == [10, 30, 60]
     message = str(error.value)
-    assert "Del 1 av 2" in message
-    assert "sparade" in message
-    assert "Kör projektet igen" in message and "fortsätter" in message
-    assert "körning" not in message  # samma ord i hela appen: projekt
+    assert "Part 1 of 2" in message
+    assert "saved" in message
+    assert "Run the project again" in message and "continues" in message
+    assert "run " not in message.lower().replace("run the project", "")  # samma ord i hela appen: projekt
     assert "hemlig-nyckel" not in message
 
 
@@ -179,7 +179,7 @@ def test_a_new_run_sends_only_the_missing_parts(settings) -> None:
     mp4 = make_clip(settings.work_dir / "123" / "123.mp4", size="320x180", seconds=5)
     out = mp4.parent / "transcript.json"
     post, _ = _scripted_post(["a", None])
-    with pytest.raises(RuntimeError, match="Del 2 av 3"):
+    with pytest.raises(RuntimeError, match="Part 2 of 3"):
         transcribe_vod(mp4, "123", out, post=post, model="m", language="en", chunk_s=2)
     assert (mp4.parent / "berget" / "del_01.json").exists()
     assert not (mp4.parent / "berget" / "del_02.json").exists()

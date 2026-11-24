@@ -17,7 +17,7 @@ def folder(vod_id: str, settings: Settings) -> Path:
     """work/<id>/. Kastar UnsafeVod när mappen hamnar någon annanstans, också via en länk."""
     path = settings.work_dir / vod_id
     if not vod_id or path.resolve().parent != settings.work_dir.resolve():
-        raise UnsafeVod(f"VOD-id:t {vod_id!r} går inte att använda som mapp i work/.")
+        raise UnsafeVod(f"The VOD id {vod_id!r} cannot be used as a folder in work/.")
     return path
 
 

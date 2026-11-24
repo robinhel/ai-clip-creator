@@ -18,7 +18,7 @@ FONT_CANDIDATES = [
 def need(tool: str) -> str:
     path = shutil.which(tool)
     if path is None:
-        raise SystemExit(f"{tool} hittades inte. Installera ffmpeg och försök igen.")
+        raise SystemExit(f"{tool} was not found. Install ffmpeg and try again.")
     return path
 
 
@@ -26,7 +26,7 @@ def run(cmd: list[str]) -> None:
     """Kör ett kommando och visa slutet av felutskriften om det misslyckas."""
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        raise RuntimeError(f"{Path(cmd[0]).name} misslyckades:\n{result.stderr[-1500:]}")
+        raise RuntimeError(f"{Path(cmd[0]).name} failed:\n{result.stderr[-1500:]}")
 
 
 def probe(path: Path) -> dict:
@@ -37,11 +37,11 @@ def probe(path: Path) -> dict:
         text=True,
     )
     if out.returncode != 0:
-        raise RuntimeError(f"ffprobe kunde inte läsa {path}: {out.stderr[-500:]}")
+        raise RuntimeError(f"ffprobe could not read {path}: {out.stderr[-500:]}")
     data = json.loads(out.stdout)
     video = next((s for s in data["streams"] if s["codec_type"] == "video"), None)
     if video is None:
-        raise RuntimeError(f"{path} har ingen videoström.")
+        raise RuntimeError(f"{path} has no video stream.")
     return {
         "width": int(video["width"]),
         "height": int(video["height"]),

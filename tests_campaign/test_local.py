@@ -65,7 +65,7 @@ def test_a_file_that_is_already_run_becomes_a_done_project_with_its_clips(blizza
     # Filen hamnar i kampanjens enda projekt för egna filer.
     [project] = _runs(blizzard, "/campaign/projects")
     assert run["project_id"] == project["id"] and run["origin"] is None
-    assert project["title"] == "Egna filer för Blizzard Entertainment"
+    assert project["title"] == "Own files for Blizzard Entertainment"
     assert [(f["run_id"], f["vod_id"]) for f in project["files"]] == [(run["run_id"], STEM)]
 
 

@@ -159,7 +159,7 @@ def test_a_page_without_campaign_data_gives_none_and_a_warning(monkeypatch, capl
         transport=httpx.MockTransport(lambda request: httpx.Response(200, text="<html>Inloggning krävs</html>"))))
     content_views.examples.clear_cache()
     assert content_views.campaign_page(CR) is None
-    assert "hittade inga klipp" in caplog.text
+    assert "No clips found" in caplog.text
 
 
 def test_a_page_that_cannot_be_read_gives_none(monkeypatch) -> None:

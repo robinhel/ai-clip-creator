@@ -141,9 +141,9 @@ def test_todo_reminds_about_each_post(settings) -> None:
     log.update_post(a, status="inskickad")
     log.update_post(b, status="inskickad", views=2500)
     todo = log.todo()
-    assert any("TikTok" in item and "visningar" in item for item in todo)
-    assert any("Reels" in item and "skärminspelningen" in item for item in todo)
-    assert not any("posta klippet" in item for item in todo)
+    assert any("TikTok" in item and "views" in item for item in todo)
+    assert any("Reels" in item and "screen recording" in item for item in todo)
+    assert not any("post the clip" in item for item in todo)
 
 
 def test_the_same_link_again_is_fine_but_another_link_is_409(client, settings) -> None:  # noqa: F811

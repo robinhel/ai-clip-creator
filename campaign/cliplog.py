@@ -71,6 +71,8 @@ PROJECTS_TABLE = """CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT, profile TEXT NOT NULL, kind TEXT NOT NULL, title TEXT, created TEXT)"""
 PROJECTS_UNIQUE = "CREATE UNIQUE INDEX IF NOT EXISTS projects_kind ON projects (profile, kind)"
 OWN_FILES = "egna"  # projects.kind: egna filer (python -m campaign local) och uppladdningar (Egna videor)
+OWN_FILES_TITLE = "Own files for "  # projektets titel, följd av streamerns namn
+OLD_OWN_FILES_TITLE = "Egna filer för "  # titeln i projekt från före översättningen, kvar i klipp.db
 UPLOADS = "upload"  # vod_id för klipp från Egna videor, samma som uploads_api.UPLOAD
 LIVE_PART = re.compile(r"\d+_live_\d+")  # vod_id för en del från live-klipparen, samma som live.part_id
 BACKUP_SUFFIX = ".fore-projekt-"  # kopian före migreringen: klipp.db.fore-projekt-<tidsstämpel>
@@ -92,7 +94,7 @@ def card_runs(runs: list[dict], key: Callable[[dict], Hashable]) -> dict:
 def _project_id(db: sqlite3.Connection, profile: str, streamer: str) -> int:
     """Kampanjens projekt för egna filer. Skapas första gången, med streamerns namn i titeln."""
     db.execute("INSERT OR IGNORE INTO projects (profile, kind, title, created) VALUES (?, ?, ?, ?)",
-               (profile, OWN_FILES, f"Egna filer för {streamer}", _now()))
+               (profile, OWN_FILES, f"{OWN_FILES_TITLE}{streamer}", _now()))
     return db.execute("SELECT id FROM projects WHERE profile = ? AND kind = ?", (profile, OWN_FILES)).fetchone()[0]
 
 
@@ -174,7 +176,7 @@ def _cancel_uploads(db: sqlite3.Connection, clip_id: int) -> None:
                          (clip_id,)).fetchone()
     if running:
         name = "YouTube" if running[0] == "youtube" else "TikTok"
-        raise UploadRunning(f"Klippet laddas upp nu på {name}. Vänta tills uppladdningen är klar.")
+        raise UploadRunning(f"The clip is being uploaded to {name} now. Wait until the upload is done.")
     db.execute("UPDATE scheduled_posts SET status = 'cancelled', updated = ? WHERE clip_id = ? AND status = 'waiting'",
                (_now(), clip_id))
 
@@ -317,7 +319,7 @@ class ClipLog:
             review: dict | None = None, score: int | None = None, reason: str = "",
             subscores: dict | None = None, version_of: int | None = None, headline: str | None = None) -> int:
         if status not in STATUSES:
-            raise ValueError(f"Okänd status: {status}")
+            raise ValueError(f"Unknown status: {status}")
         with self._db() as db:
             cursor = db.execute(
                 """INSERT INTO clips (vod_id, profile, start_s, end_s, title, format, signals,
@@ -338,7 +340,7 @@ class ClipLog:
         with self._db() as db:
             row = db.execute(f"SELECT {COLUMNS} FROM clips WHERE id = ?", (clip_id,)).fetchone()
         if row is None:
-            raise SystemExit(f"Hittar inget klipp med id {clip_id}.")
+            raise SystemExit(f"No clip with id {clip_id}.")
         return self._row(row)
 
     def family(self, clip_id: int) -> list[int]:
@@ -360,13 +362,13 @@ class ClipLog:
     def update(self, clip_id: int, **fields) -> None:
         """Ändra fält på ett klipp, t.ex. status, url, format eller note."""
         if "status" in fields and fields["status"] not in STATUSES:
-            raise ValueError(f"Okänd status: {fields['status']}")
+            raise ValueError(f"Unknown status: {fields['status']}")
         allowed = {"status", "platform", "url", "views", "likes", "comments", "shares",
                    "note", "format", "title", "caption", "problems", "warnings", "review", "file",
                    "start_s", "end_s", "score", "reason", "subscores", "headline"}
         unknown = set(fields) - allowed
         if unknown:
-            raise ValueError(f"Fält som inte får ändras: {sorted(unknown)}")
+            raise ValueError(f"Fields that cannot be changed: {sorted(unknown)}")
         for key in ("problems", "warnings", "review", "subscores"):
             if key in fields:
                 fields[key] = json.dumps(fields[key], ensure_ascii=False) if fields[key] is not None else None
@@ -400,7 +402,7 @@ class ClipLog:
         with self._db() as db:
             row = db.execute(f"SELECT {POST_COLUMNS} FROM posts WHERE id = ?", (post_id,)).fetchone()
         if row is None:
-            raise SystemExit(f"Hittar inget inlägg med id {post_id}.")
+            raise SystemExit(f"No post with id {post_id}.")
         return dict(row)
 
     def add_post(self, clip_id: int, platform: str, url: str, created: str | None = None,
@@ -423,10 +425,10 @@ class ClipLog:
     @staticmethod
     def _check_post_fields(fields: dict) -> None:
         if "status" in fields and fields["status"] not in POST_STATUSES:
-            raise ValueError(f"Okänd status för ett inlägg: {fields['status']}")
+            raise ValueError(f"Unknown status for a post: {fields['status']}")
         unknown = set(fields) - {"status", "url", "platform", "paid_usd", *STAT_KEYS, *METRIC_KEYS}
         if unknown:
-            raise ValueError(f"Fält som inte får ändras: {sorted(unknown)}")
+            raise ValueError(f"Fields that cannot be changed: {sorted(unknown)}")
 
     def update_post(self, post_id: int, **fields) -> None:
         """Ändra ett inlägg. Varje sparat antal visningar sparas också med sin tid i post_views."""
@@ -511,20 +513,20 @@ class ClipLog:
                 continue
             label = f"#{clip['id']} {clip['title']!r}"
             if clip["status"] == "godkand":
-                items.append(f"{label}: posta klippet och spara länken.")
+                items.append(f"{label}: post the clip and save the link.")
             # Ett klipp som postats utan inlägg (äldre sätt) räknas som ett inlägg.
             implied = [clip] if clip["status"] in POST_STATUSES else []
             for post in posts.get(clip["id"], implied):
                 name = PLATFORM_NAMES.get(post["platform"] or "", post["platform"])
-                where = f"{label} på {name}" if name else label
+                where = f"{label} on {name}" if name else label
                 if post["status"] == "postad":
-                    items.append(f"{where}: skicka in länken i Content Rewards och markera inlägget som inskickat.")
+                    items.append(f"{where}: submit the link in Content Rewards and mark the post as submitted.")
                 elif post["status"] == "inskickad" and post["views"] is None:
-                    items.append(f"{where}: fyll i visningar, gilla och kommentarer.")
+                    items.append(f"{where}: fill in views, likes and comments.")
                 elif post["status"] == "inskickad" and post["views"] >= min_views:
                     items.append(
-                        f"{where}: har {post['views']} visningar. Skicka skärminspelningen av "
-                        "inläggets analytics i analytics-formuläret, och fyll i Fler mått i Statistik."
+                        f"{where}: has {post['views']} views. Send the screen recording of "
+                        "the post's analytics in the analytics form, and fill in More metrics in Stats."
                     )
         return items
 

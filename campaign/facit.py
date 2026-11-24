@@ -13,7 +13,7 @@ def parse_time(value) -> float:
         return float(value)
     parts = [float(p) for p in str(value).strip().split(":")]
     if not 1 <= len(parts) <= 3:
-        raise ValueError(f"Kan inte läsa tiden {value!r}. Skriv t.ex. 1:23:45.")
+        raise ValueError(f"Cannot read the time {value!r}. Write e.g. 1:23:45.")
     seconds = 0.0
     for part in parts:
         seconds = seconds * 60 + part

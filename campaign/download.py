@@ -29,10 +29,10 @@ def join_segments(parts_dir: Path, out: Path) -> None:
     lines = (parts_dir / "playlist_downloaded.m3u8").read_text(encoding="utf-8").splitlines()
     inits = {m.group(1) for line in lines if (m := re.search(r'#EXT-X-MAP:URI="([^"]+)"', line))}
     if len(inits) > 1:
-        raise RuntimeError(f"VOD:en har {len(inits)} init-delar. Det stöds inte än.")
+        raise RuntimeError(f"The VOD has {len(inits)} init segments. That is not supported yet.")
     segments = [parts_dir / line.strip() for line in lines if line.strip() and not line.startswith("#")]
     if not segments:
-        raise RuntimeError(f"Inga nedladdade delar i {parts_dir}.")
+        raise RuntimeError(f"No downloaded segments in {parts_dir}.")
 
     partial = out.with_name(f"{out.stem}.del.mp4")
     container = "mp4" if inits else "mpegts"  # fmp4-delar har en init-del, .ts-delar har ingen
@@ -59,7 +59,7 @@ def join_segments(parts_dir: Path, out: Path) -> None:
         message = errors.read().decode(errors="replace")
     if code != 0:
         partial.unlink(missing_ok=True)
-        raise RuntimeError(f"ffmpeg kunde inte slå ihop delarna:\n{message[-1500:]}")
+        raise RuntimeError(f"ffmpeg could not join the segments:\n{message[-1500:]}")
     partial.replace(out)
 
 

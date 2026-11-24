@@ -67,7 +67,7 @@ def _audio_part(mp4: Path, start_s: float, length_s: float) -> bytes:
         check=False,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg kunde inte ta ut ljudet:\n{result.stderr.decode()[-1500:]}")
+        raise RuntimeError(f"ffmpeg could not extract the audio:\n{result.stderr.decode()[-1500:]}")
     return result.stdout
 
 
@@ -95,22 +95,22 @@ def berget_post(
                 )
             except httpx.TransportError as exc:
                 if pause is None:
-                    raise RuntimeError(f"Nätverksfel mot Berget: {exc}") from exc
-                print(f"  nätverksfel mot Berget, försöker igen om {pause} s", flush=True)
+                    raise RuntimeError(f"Network error talking to Berget: {exc}") from exc
+                print(f"  network error talking to Berget, trying again in {pause} s", flush=True)
                 sleep(pause)
                 continue
             if response.status_code == 200:
                 return response.json()
-            error = f"Berget svarade {response.status_code}: {response.text[:500]}"
+            error = f"Berget answered {response.status_code}: {response.text[:500]}"
             if pause is None or (response.status_code != 429 and response.status_code < 500):
                 raise RuntimeError(error)
             try:
                 wait = min(float(response.headers["Retry-After"]), 120.0)
             except (KeyError, ValueError):
                 wait = pause  # saknas eller är ett datum: använd vår egen paus
-            print(f"  {error[:80]}, försöker igen om {wait:.0f} s", flush=True)
+            print(f"  {error[:80]}, trying again in {wait:.0f} s", flush=True)
             sleep(wait)
-        raise AssertionError("nås inte")
+        raise AssertionError("unreachable")
 
     return post
 
@@ -157,18 +157,18 @@ def transcribe_vod(
         start = (number - 1) * chunk_s
         part_file = saved / f"del_{number:02d}.json"
         if part_file.exists():
-            print(f"  del {number} av {parts} finns redan sparad", flush=True)
+            print(f"  part {number} of {parts} is already saved", flush=True)
             answer = json.loads(part_file.read_text(encoding="utf-8"))
         else:
-            print(f"  del {number} av {parts} ...", flush=True)
+            print(f"  part {number} of {parts} ...", flush=True)
             length = min(chunk_s, duration - start)
             audio = _audio_part(mp4, start, length)
             try:
                 answer = post(audio, fields)
             except Exception as exc:
                 raise RuntimeError(
-                    f"Del {number} av {parts} misslyckades: {exc}\n"
-                    f"Klara delar är sparade i {saved}. Kör projektet igen, så fortsätter det där det slutade."
+                    f"Part {number} of {parts} failed: {exc}\n"
+                    f"Finished parts are saved in {saved}. Run the project again and it continues where it stopped."
                 ) from exc
             _save_json(part_file, answer)
             if budget is not None:  # bara skickade delar kostar; sparade delar är redan betalda

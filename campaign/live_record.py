@@ -130,7 +130,7 @@ def _reason(error: Exception) -> str:
 def live_playlist(login: str) -> str | None:
     """URL till kanalens mediaspellista i källkvalitet. None när kanalen inte är live. login i små bokstäver."""
     if not LOGIN.fullmatch(login):
-        raise ValueError(f"{login[:40]!r} är inget Twitch-namn.")
+        raise ValueError(f"{login[:40]!r} is not a Twitch name.")
     token = twitch.gql_query(TOKEN_QUERY % login)["data"]["streamPlaybackAccessToken"]
     if token is None:
         return None
@@ -267,7 +267,7 @@ class Recorder:
 
     def _after_error(self, url: str, error: httpx.HTTPError) -> str | None:
         """Vänta längre för varje fel i rad. Vid 403 och 404 behövs en ny URL med nytt token."""
-        log.warning("Spellistan för %s svarade inte (%s).", self.login, _reason(error))
+        log.warning("The playlist for %s did not answer (%s).", self.login, _reason(error))
         self._back_off()
         return self._resolve() if _status(error) in NEW_URL else url
 
@@ -282,7 +282,7 @@ class Recorder:
                 return self.playlist(self.login)
             except (httpx.HTTPError, click.ClickException) as error:  # GQL-fel är ClickException
                 log.warning(
-                    "Kunde inte fråga Twitch om %s är live (%s).", self.login, _reason(error)
+                    "Could not ask Twitch whether %s is live (%s).", self.login, _reason(error)
                 )
                 self._back_off()
         return None
@@ -297,7 +297,7 @@ class Recorder:
                 data = self.get(seg.url)
             except httpx.HTTPError as error:
                 log.warning(
-                    "Del %s från %s gick inte att hämta (%s).", seg.seq, self.login, _reason(error)
+                    "Segment %s from %s could not be fetched (%s).", seg.seq, self.login, _reason(error)
                 )
                 continue
             partial = self.folder / f"{name}.del"
@@ -340,7 +340,7 @@ def _window(rows: list[_Row], start_wall: float, end_wall: float) -> list[_Row]:
     covered = sum(_overlap(row, start_wall, end_wall) for row in chosen)
     if length - covered > MAX_HOLE * length:
         raise PartFailed(
-            f"Hålen i inspelningen (reklam eller avbrott) är {length - covered:.0f} s av {length:.0f} s."
+            f"The gaps in the recording (ads or breaks) are {length - covered:.0f} s of {length:.0f} s."
         )
     return chosen
 
@@ -350,13 +350,13 @@ def _check(rows: list[_Row], start_wall: float, end_wall: float) -> float:
     börjar delen där inspelningen börjar. PartFailed när bufferten är tom eller det blir för lite kvar,
     PartNotReady när slutet inte finns än."""
     if not rows:
-        raise PartFailed("Inspelningen har inga delar än.")
+        raise PartFailed("The recording has no segments yet.")
     if rows[0].start > start_wall:
         start_wall = rows[0].start
         if end_wall - start_wall < MIN_PART_S:
-            raise PartFailed("Inspelningen började för nära toppen. Det finns inte nog att klippa.")
+            raise PartFailed("The recording started too close to the peak. There is not enough to clip.")
     if rows[-1].end < end_wall:
-        raise PartNotReady("Slutet av delen är inte inspelat än.")
+        raise PartNotReady("The end of the part is not recorded yet.")
     return start_wall
 
 
@@ -384,7 +384,7 @@ def _concat(segments: Path, names: list[str], video: Path) -> None:
     )  # fmt: skip
     if result.returncode != 0:
         partial.unlink(missing_ok=True)
-        raise RuntimeError(f"ffmpeg kunde inte slå ihop delarna: {result.stderr[-1500:]}")
+        raise RuntimeError(f"ffmpeg could not join the segments: {result.stderr[-1500:]}")
     partial.replace(video)
 
 
@@ -398,9 +398,9 @@ def _join(folder: Path, chosen: list[_Row], out: Path) -> None:
             _link(folder / row.name, segments / row.name)
         _concat(segments, [row.name for row in chosen], out / f"{out.name}.mp4")
     except FileNotFoundError as error:
-        raise PartFailed("En del i tiden har redan städats bort ur inspelningen.") from error
+        raise PartFailed("A segment in that time has already been cleaned out of the recording.") from error
     except (RuntimeError, OSError) as error:
-        raise PartFailed(f"Kunde inte slå ihop delarna: {str(error)[:300]}") from error
+        raise PartFailed(f"Could not join the segments: {str(error)[:300]}") from error
     finally:
         shutil.rmtree(segments, ignore_errors=True)
 

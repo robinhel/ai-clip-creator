@@ -45,7 +45,7 @@ function project(over: Partial<CampaignProject> & { id: number }): CampaignProje
   return {
     profile: "blizzard",
     streamer: "Blizzard",
-    title: "Egna filer för Blizzard",
+    title: "Own files for Blizzard",
     created: "2026-11-01T10:00:00",
     updated: "2026-11-10T10:00:00",
     active: false,

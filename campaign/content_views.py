@@ -107,7 +107,7 @@ def campaign_page(cr_url: str) -> dict | None:
     try:
         data = examples.fetch(cr_url)
     except RuntimeError as error:
-        log.warning("Content Rewards: visningarna för %s gick inte att läsa: %s", cr_url, error)
+        log.warning("Content Rewards: the views for %s could not be read: %s", cr_url, error)
         return None
     return {"clip_views": [clip["views"] for clip in data["clips"]], "geo": data.get("geo")}
 
@@ -121,13 +121,13 @@ def _helix(request: Callable[[TwitchClient], T], what: str) -> T | None:
     har en oväntad form; what säger vad som då uteblir."""
     secrets = load_secrets()
     if not (secrets.twitch_client_id and secrets.twitch_client_secret):
-        log.warning("TWITCH_CLIENT_ID eller TWITCH_CLIENT_SECRET saknas: %s", what)
+        log.warning("TWITCH_CLIENT_ID or TWITCH_CLIENT_SECRET is missing: %s", what)
         return None
     try:
         with TwitchClient(secrets.twitch_client_id, secrets.twitch_client_secret) as client:
             return request(client)
     except Exception as error:  # nätverk, nycklar, kanalen finns inte, oväntat svar: betyget räknas ändå
-        log.warning("Twitch Helix svarade inte som väntat (%s): %s", type(error).__name__, what)
+        log.warning("Twitch Helix did not answer as expected (%s): %s", type(error).__name__, what)
         return None
 
 
@@ -142,7 +142,7 @@ def twitch_clip_views(login: str, now: datetime) -> list[int] | None:
         body = client._get("/clips", {"broadcaster_id": user_id, "first": TOP_CLIPS, **window})
         return [int(clip.get("view_count") or 0) for clip in body.get("data") or []]
 
-    return _helix(clips, f"Twitch-visningarna räknas inte för {login}")
+    return _helix(clips, f"the Twitch views are not counted for {login}")
 
 
 def twitch_login_from_vod(video_id: str) -> str | None:
@@ -153,4 +153,4 @@ def twitch_login_from_vod(video_id: str) -> str | None:
         data = client._get("/videos", {"id": video_id}).get("data") or []
         return _login(data[0].get("user_login")) if data else None
 
-    return _helix(login, f"kanalen för VOD {video_id} slås inte upp")
+    return _helix(login, f"the channel for VOD {video_id} is not looked up")

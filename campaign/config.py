@@ -58,7 +58,7 @@ def _float(name: str, default: float) -> float:
     try:
         return float(raw) if raw else default
     except ValueError:
-        raise SystemExit(f"{name} i .env måste vara ett tal, inte {raw!r}")
+        raise SystemExit(f"{name} in .env must be a number, not {raw!r}")
 
 
 def load_settings(root: str | Path | None = None) -> Settings:

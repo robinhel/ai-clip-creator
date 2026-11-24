@@ -204,7 +204,7 @@ def test_twitchdl_error_with_long_enough_playlist_is_part_failed(
     with pytest.raises(PartFailed) as error:
         fetch_part("123", 25, 55, tmp_path / "topp_1")
 
-    assert "Kunde inte hämta" in str(error.value)
+    assert "Could not fetch" in str(error.value)
     assert "HTTP 403" in str(error.value)
     assert not (tmp_path / "topp_1" / "topp_1.mp4").exists()
 
@@ -223,5 +223,5 @@ def test_twitch_says_try_later_is_part_not_ready(tmp_path, twitchdl) -> None:
 
 
 def test_run_stops_a_command_that_hangs(tmp_path) -> None:
-    with pytest.raises(PartFailed, match="svarade inte"):
+    with pytest.raises(PartFailed, match="did not answer"):
         _run([sys.executable, "-c", "import time; time.sleep(30)"], timeout=0.5)
