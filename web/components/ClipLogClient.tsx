@@ -577,7 +577,7 @@ function UndoButton({ row, busy, onSave, onRemove }: { row: Row; busy: boolean; 
   if (!back) return null;
   return (
     <Button size="sm" variant="ghost" disabled={busy} onClick={() => onSave(back)} title={`Back to ${STATUS_LABEL[back]}`}>
-      Ångra
+      Undo
     </Button>
   );
 }
