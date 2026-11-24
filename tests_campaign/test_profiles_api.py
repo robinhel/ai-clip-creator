@@ -591,7 +591,7 @@ def test_valid_font_file_is_accepted(client, settings) -> None:
 def test_new_campaign_is_not_ready_until_the_rects_are_set(client) -> None:
     detail = client.post("/campaign/profiles", json={"channel": "nykanal", "streamer": "x"}).json()
     assert detail["ready"] is False
-    assert "Facecam- och spelrutan är inte inställda. Dra dem under Facecam." in detail["problems"]
+    assert "Facecam and game boxes are not set up. Drag them under Facecam." in detail["problems"]
     assert client.put("/campaign/profiles/nykanal/reframe", json=REFRAME).status_code == 200
     detail = client.get("/campaign/profiles/nykanal").json()
     assert detail["ready"] is True, detail["problems"]
@@ -745,10 +745,10 @@ def test_the_settings_form_saves_its_fields_and_keeps_everything_else(client, se
 @pytest.mark.parametrize("body, words", [
     ({"links": {"content_rewards": "https://whop.com/x", "analytics_form": None}}, "contentrewards.com"),
     ({"links": {"content_rewards": None, "analytics_form": "javascript:alert(1)"}}, "https://"),
-    ({"platforms": []}, "plattform"),
-    ({"clip_min_s": 5, "clip_max_s": 45}, "kampanjen tillåter"),
-    ({"allowed_min_s": 30, "allowed_max_s": 20}, "kortaste"),
-    ({"formats": [{"name": " ", "description": "x"}]}, "namn"),
+    ({"platforms": []}, "platform"),
+    ({"clip_min_s": 5, "clip_max_s": 45}, "campaign allows"),
+    ({"allowed_min_s": 30, "allowed_max_s": 20}, "shortest"),
+    ({"formats": [{"name": " ", "description": "x"}]}, "name"),
     ({"caption_template": "{nope}"}, "{title}"),
     ({"campaign": "två\nrader"}, "radbrytningar"),
 ])
@@ -803,7 +803,7 @@ def test_keys_are_their_own_problems_and_the_state_is_the_same_text_everywhere(c
     timmy = client.get("/campaign/profiles").json()[0]
     assert timmy["ready"] is False  # körningen kräver nycklarna
     assert len(timmy["key_problems"]) == 2 and set(timmy["key_problems"]) <= set(timmy["problems"])
-    assert all("Inställningar" in p for p in timmy["key_problems"])
+    assert all("Settings" in p for p in timmy["key_problems"])
     assert timmy["state"].startswith("Går att köra, men klippen blir underkända")  # overlay-bilden saknas
     assert (timmy["allowed_min_s"], timmy["allowed_max_s"]) == (7, 60)
 
@@ -828,7 +828,7 @@ def test_new_campaign_is_saved_with_a_warning_when_twitch_does_not_answer(client
     twitch.error = OSError("nere")
     response = client.post("/campaign/profiles", json={"channel": "nykanal", "streamer": "Ny"})
     assert response.status_code == 201, response.text
-    assert "Twitch svarar inte" in response.json()["warning"]
+    assert "Twitch is not responding" in response.json()["warning"]
     assert (settings.profiles_dir / "nykanal.yaml").exists()
     twitch.error = None
     twitch.channels["nykanal2"] = "NyKanal2"
@@ -858,9 +858,9 @@ def test_errors_say_campaign_not_profile(client, settings) -> None:
     assert detail.startswith("Kampanjens fil") and "rofil" not in detail
     (settings.profiles_dir / "trasig.yaml").write_text("name: trasig\n", encoding="utf-8")
     broken = next(p for p in client.get("/campaign/profiles").json() if p["name"] == "trasig")
-    assert broken["problems"][0].startswith("Kampanjens fil går inte att läsa") and "rofil" not in broken["problems"][0]
+    assert broken["problems"][0].startswith("The campaign file cannot be read") and "rofil" not in broken["problems"][0]
 
 
 def test_the_frame_without_a_project_says_project(client) -> None:
     detail = client.get("/campaign/profiles/skiimasktimmy/frame").json()["detail"]
-    assert "projekt" in detail and "körning" not in detail
+    assert "project" in detail and " run" not in detail

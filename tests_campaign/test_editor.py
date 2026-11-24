@@ -274,7 +274,7 @@ def test_running_job_or_another_edit_gives_409(setup) -> None:
     client, _, clip_id = setup
     client.app.state.active_run_id = 5
     answer = client.post(f"/campaign/clips/{clip_id}/edit", json={"title": "Ny"})
-    assert (answer.status_code, answer.json()["detail"]) == (409, "Ett projekt pågår. Vänta tills det är klart.")
+    assert (answer.status_code, answer.json()["detail"]) == (409, "A project is running. Wait until it is done.")
     client.app.state.active_run_id = None
     assert editor.lock.acquire(blocking=False)
     try:

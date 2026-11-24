@@ -84,7 +84,7 @@ def test_without_the_key_the_answer_is_401(client) -> None:
 def test_an_unknown_campaign_is_404(client) -> None:
     answer = client.put("/campaign/live/finnsinte", json={"watching": True}, headers=KEY)
     assert answer.status_code == 404
-    assert answer.json()["detail"] == "Kampanjen finnsinte finns inte."
+    assert answer.json()["detail"] == "The campaign finnsinte does not exist."
 
 
 # ---------- en fri Twitch-kanal utan kampanj ----------

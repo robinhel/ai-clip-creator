@@ -83,7 +83,7 @@ def test_reading_the_projects_writes_nothing(client, settings) -> None:  # noqa:
 def test_an_unknown_project_is_404_in_swedish(client) -> None:  # noqa: F811
     response = client.get("/campaign/projects/999")
     assert response.status_code == 404
-    assert response.json()["detail"] == "Projektet finns inte."
+    assert response.json()["detail"] == "The project does not exist."
 
 
 def test_runs_still_list_each_own_file_so_the_links_from_a_clip_work(client, settings) -> None:  # noqa: F811

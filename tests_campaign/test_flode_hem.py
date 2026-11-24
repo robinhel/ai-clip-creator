@@ -249,8 +249,8 @@ def test_the_server_says_project_not_run(client, settings) -> None:  # noqa: F81
     for method, path in (("get", "/campaign/runs/999"), ("post", "/campaign/runs/999/retry"),
                          ("post", "/campaign/runs/999/cancel")):
         response = getattr(client, method)(path)
-        assert (response.status_code, response.json()["detail"]) == (404, "Projektet finns inte."), path
+        assert (response.status_code, response.json()["detail"]) == (404, "The project does not exist."), path
     done = _run("done")
     ClipLog(settings.data_dir / "klipp.db").add_run(done, VOD, "skiimasktimmy", None)
     response = client.post(f"/campaign/runs/{done}/retry")
-    assert (response.status_code, response.json()["detail"]) == (400, "Bara ett projekt som misslyckades eller avbröts kan köras igen.")
+    assert (response.status_code, response.json()["detail"]) == (400, "Only a project that failed or was cancelled can run again.")

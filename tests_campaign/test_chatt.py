@@ -302,7 +302,7 @@ def test_empty_or_long_message_gives_400(client, chatapp, message) -> None:  # n
 def test_409_while_a_run_or_a_chat_search_is_going(client, chatapp) -> None:  # noqa: F811
     client.app.state.active_run_id = 5
     answer = _new_chat(client, chatapp, _search())
-    assert answer.status_code == 409 and "projekt" in answer.json()["detail"]
+    assert answer.status_code == 409 and "project" in answer.json()["detail"]
     client.app.state.active_run_id = None
     with chat.lock:
         assert _new_chat(client, chatapp, _search()).status_code == 409
@@ -332,7 +332,7 @@ def test_a_local_source_without_video_gives_a_problem(client, chatapp) -> None: 
     answer = client.post("/campaign/chats/1/clips", json={"hit_ids": [hit["id"]]})
     assert answer.status_code == 400
     [hit] = client.get("/campaign/chats/1").json()["hits"]
-    assert (hit["status"], hit["problem"]) == ("ny", "Videon finns inte kvar.")
+    assert (hit["status"], hit["problem"]) == ("ny", "The video no longer exists.")
 
 
 def test_unknown_hits_give_400(client, chatapp) -> None:  # noqa: F811

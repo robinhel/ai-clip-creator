@@ -327,13 +327,13 @@ def test_a_draft_id_is_never_a_path(client, draft_id) -> None:
 
 def test_a_draft_takes_only_video_files(client, tmp_path) -> None:
     answer = client.post("/campaign/uploads/drafts", files={"file": ("x.txt", b"x", "text/plain")})
-    assert answer.status_code == 400 and "Filtypen" in answer.json()["detail"]
+    assert answer.status_code == 400 and "The file type" in answer.json()["detail"]
 
 
 @pytest.mark.parametrize("t", ["nan", "inf", "-inf"])
 def test_a_time_that_is_not_a_number_is_400(client, t) -> None:
     answer = client.get(f"/campaign/uploads/drafts/{'0' * 32}/frame", params={**CHOICES, "t": t})
-    assert answer.status_code == 400 and "Tiden" in answer.json()["detail"], answer.text
+    assert answer.status_code == 400 and "The time" in answer.json()["detail"], answer.text
 
 
 def test_writing_to_drafts_needs_the_api_key(client, monkeypatch) -> None:

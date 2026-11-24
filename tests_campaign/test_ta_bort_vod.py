@@ -129,7 +129,7 @@ def test_after_delete_an_own_file_cannot_run_again(client, settings) -> None:  #
     assert client.delete(f"/campaign/runs/{run_id}/vod").json()["freed_bytes"] == MB
 
     problem = client.get(f"/campaign/runs/{run_id}").json()["retry_problem"]
-    assert "Kör igen går inte" in problem
+    assert "Run again does not work" in problem
     response = client.post(f"/campaign/runs/{run_id}/retry")
     assert (response.status_code, response.json()["detail"]) == (409, problem)
 

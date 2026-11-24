@@ -12,7 +12,7 @@ from mcp import Client
 
 from campaign import mcp_server
 
-PUBLISH = "Publicerar utåt. Fråga Robin först."
+PUBLISH = "Publishes externally. Ask Robin first."
 PUBLISHING = {"upload_youtube", "send_tiktok", "schedule_upload", "mark_submitted"}
 READING = {"summary", "list_projects", "get_project", "list_clips", "clip_transcript", "list_streams",
            "list_campaigns", "get_campaign", "get_campaign_yaml", "list_scout", "list_schedule",
@@ -145,7 +145,7 @@ def test_app_not_running_says_so(monkeypatch):
                         lambda: httpx.Client(base_url=mcp_server.BASE_URL, transport=httpx.MockTransport(down)))
     monkeypatch.setattr(mcp_server, "api_key", lambda: None)
     result = _call("summary", {})
-    assert result.is_error and "Appen svarar inte" in result.content[0].text
+    assert result.is_error and "The app is not answering" in result.content[0].text
 
 
 def test_a_link_that_is_not_a_vod_is_refused_without_a_call(app):
@@ -214,14 +214,14 @@ def test_tools_that_cost_money_say_so_first():
             if tool.annotations.open_world_hint and not tool.annotations.destructive_hint and name != "refresh_scout"]
     assert {"start_run", "retry_run", "finish_run"} <= set(paid)
     for name in paid:
-        assert tools[name].description.startswith("Kostar pengar"), name
-    assert tools["finish_run"].description.startswith("Kostar pengar (bildgranskning med Claude). Fråga Robin först.")
+        assert tools[name].description.startswith("Costs money"), name
+    assert tools["finish_run"].description.startswith("Costs money (image review with Claude). Ask Robin first.")
 
 
 def test_risky_descriptions_ask_robin_first():
     tools = _tools()
-    assert tools["update_clip"].description.startswith("Att godkänna (godkand) kräver Robins ja.")
-    assert tools["delete_post"].description.startswith("Tar bort för gott. Fråga Robin först.")
+    assert tools["update_clip"].description.startswith("Approving (godkand) requires Robin's yes.")
+    assert tools["delete_post"].description.startswith("Deletes for good. Ask Robin first.")
 
 
 def test_a_timeout_says_the_call_may_have_gone_through(monkeypatch):
@@ -233,8 +233,8 @@ def test_a_timeout_says_the_call_may_have_gone_through(monkeypatch):
     monkeypatch.setattr(mcp_server, "api_key", lambda: None)
     result = _call("upload_youtube", {"clip_id": 5, "title": "x", "privacy": "public", "made_for_kids": False})
     assert result.is_error
-    assert ("Appen svarade inte inom 10 minuter. Anropet kan ha gått igenom. Kolla upload_status eller "
-            "list_schedule innan du försöker igen.") in result.content[0].text
+    assert ("The app did not answer within 10 minutes. The call may have gone through. Check upload_status or "
+            "list_schedule before you try again.") in result.content[0].text
 
 
 def test_api_key_is_read_fresh_from_the_environment_or_env_file(monkeypatch, tmp_path):
@@ -259,7 +259,7 @@ def test_a_too_big_overlay_is_refused_before_it_is_read(app, tmp_path):
 def test_the_accounts_of_a_clip_and_a_new_text_for_another_account(app):
     tools = _tools()
     assert tools["clip_accounts"].annotations.read_only_hint
-    assert tools["suggest_variant"].description.startswith("Kostar pengar (Claude). Fråga Robin först.")
+    assert tools["suggest_variant"].description.startswith("Costs money (Claude). Ask Robin first.")
     _call("clip_accounts", {"clip_id": 5, "platform": "tiktok"})
     assert (app.requests[-1].method, app.requests[-1].url.raw_path.decode()) == (
         "GET", "/campaign/clips/5/accounts?platform=tiktok")
@@ -302,4 +302,4 @@ def test_chat_tools_call_the_chat_routes(app):
     tools = _tools()
     for name in ("chat_send", "chat_make_clips"):
         assert tools[name].annotations.open_world_hint and not tools[name].annotations.destructive_hint
-        assert tools[name].description.startswith("Kostar pengar"), name
+        assert tools[name].description.startswith("Costs money"), name

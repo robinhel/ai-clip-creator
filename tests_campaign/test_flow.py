@@ -248,7 +248,7 @@ def test_new_run_checks_channel_length_and_disk(client, settings, fake_twitch, s
     monkeypatch.setattr(estimate, "disk_gb", lambda path: (9.7, 228.0))
     full = client.post("/campaign/runs", json=body)
     assert full.status_code == 400
-    assert "Disken" in full.json()["detail"]
+    assert "disk" in full.json()["detail"]
     assert started == []
 
     mp4 = settings.work_dir / VOD / f"{VOD}.mp4"
@@ -446,7 +446,7 @@ def test_new_caption_and_a_new_status_in_one_patch_is_refused(client, settings) 
     response = client.patch(f"/campaign/clips/{clip_id}", json={
         "caption": CAPTION + " #new", "status": "postad", "url": "https://www.tiktok.com/@me/video/1", "platform": "tiktok"})
     assert response.status_code == 400
-    assert response.json()["detail"] == "Spara captionen först. Sedan behövs ett nytt ja."
+    assert response.json()["detail"] == "Save the caption first. Then a new yes is needed."
     assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["caption"] == CAPTION
     assert client.patch(f"/campaign/clips/{clip_id}", json={"caption": "x", "status": "nekad"}).status_code == 200
 
@@ -482,7 +482,7 @@ def test_vod_without_owner_matches_no_campaign(client, settings, fake_twitch, st
     assert vod["campaigns"] == []
     response = client.post("/campaign/runs", json={"profile": "skiimasktimmy", "vod_id": "333333333"})
     assert response.status_code == 400
-    assert "kanal" in response.json()["detail"]
+    assert "channel" in response.json()["detail"]
     assert started == []
 
 
@@ -704,7 +704,7 @@ def test_retry_of_a_run_from_an_own_file_that_is_gone_says_why(client, settings,
     run_id = _run_with_events(settings, ["download"], "failed", vod=OWN_FILE)
     response = client.post(f"/campaign/runs/{run_id}/retry")
     assert response.status_code == 409
-    assert "Källfilen" in response.json()["detail"]
+    assert "source file" in response.json()["detail"]
     assert started == []
     assert client.get(f"/campaign/runs/{run_id}").json()["retry_problem"] == response.json()["detail"]
     twitch = _run_with_events(settings, ["download"], "failed")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 
 import pytest
@@ -340,5 +341,5 @@ def test_the_api_docs_say_project_not_run() -> None:
 
     routes = [*api.router.routes, *editor_api.router.routes, *versions_api.router.routes]
     summaries = [route.summary for route in routes if getattr(route, "summary", None)]
-    assert any("projekt" in s for s in summaries)
-    assert [s for s in summaries if "körning" in s.lower()] == []
+    assert any("project" in s for s in summaries)
+    assert [s for s in summaries if re.search(r"\b(a|the) runs?\b|\bruns\b", s.lower())] == []

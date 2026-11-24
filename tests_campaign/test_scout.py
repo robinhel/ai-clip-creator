@@ -679,7 +679,7 @@ def test_refresh_needs_the_key_runs_and_waits_two_minutes(client, settings, fake
     assert client.post("/campaign/scout/refresh", headers=key).status_code == 202
     assert [c["ref"] for c in client.get("/campaign/scout").json()["campaigns"]] == ["timmy/streams"]
     response = client.post("/campaign/scout/refresh", headers=key)
-    assert (response.status_code, response.json()["detail"]) == (429, "Vänta en stund. Senaste kontrollen var nyss.")
+    assert (response.status_code, response.json()["detail"]) == (429, "Wait a moment. The last check was just now.")
     _later(monkeypatch, minutes=3)
     assert client.post("/campaign/scout/refresh", headers=key).status_code == 202
 

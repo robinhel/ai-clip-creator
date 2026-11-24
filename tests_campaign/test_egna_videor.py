@@ -86,7 +86,7 @@ def test_two_uploads_with_the_same_name_get_their_own_files(client, tmp_path, mo
 
 @needs_ffmpeg
 @pytest.mark.parametrize(("form", "text"), [
-    ({"profile": "finns-inte"}, "Kampanjen"),
+    ({"profile": "finns-inte"}, "The campaign"),
     ({"speed": "1.33"}, "Hastigheten 1,33 går inte. Välj 1, 1,05, 1,1, 1,15, 1,2."),
     ({"filter": "nope"}, "Filtret"),
 ])
@@ -114,7 +114,7 @@ def test_only_video_file_types_are_taken(client, tmp_path, name) -> None:
     path.write_bytes(b"x")
     answer = client.post("/campaign/uploads", files={"file": (name, path.read_bytes(), "video/mp4")},
                          data={"profile": "skiimasktimmy"})
-    assert answer.status_code == 400 and "Filtypen" in answer.json()["detail"]
+    assert answer.status_code == 400 and "The file type" in answer.json()["detail"]
 
 
 # ---------- Hela bilden, font, klipp i början, overlay och klistermärke ----------

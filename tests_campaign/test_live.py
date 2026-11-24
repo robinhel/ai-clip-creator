@@ -627,7 +627,7 @@ def test_a_broken_campaign_file_gives_a_readable_reason(world, settings) -> None
     job = _one_peak(world, settings)
     (settings.profiles_dir / "skiimasktimmy.yaml").write_text("streamer: [", encoding="utf-8")
     world.watcher.handle(job)
-    assert _peaks(settings)[0]["reason"] == "Kampanjen skiimasktimmy går inte att läsa."
+    assert _peaks(settings)[0]["reason"] == "The campaign skiimasktimmy cannot be read."
 
 
 @pytest.mark.parametrize("why", ["avstängd", "inte redo"])

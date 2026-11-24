@@ -21,8 +21,8 @@ from .test_api import client  # noqa: F401  (fixture)
 from .test_keys import CLIENT_ID, _client, env, twitch  # noqa: F401  (fixtures)
 
 VOD = "2925991945"
-LIVE = "Streamen pågår. Vänta tills den är slut."
-SSD = "SSD:n är inte ansluten."
+LIVE = "The stream is live. Wait until it ends."
+SSD = "The SSD is not connected."
 BODY = {"profile": "skiimasktimmy", "vod_id": VOD}
 
 
@@ -187,7 +187,7 @@ def test_finish_again_is_refused_for_a_failed_run(client, settings, started) -> 
     run_id = _run("failed")
     ClipLog(settings.data_dir / "klipp.db").add_run(run_id, VOD, "skiimasktimmy", "Bodycam")
     response = client.post(f"/campaign/runs/{run_id}/finish")
-    assert (response.status_code, response.json()["detail"]) == (400, "Projektet misslyckades. Tryck Kör igen.")
+    assert (response.status_code, response.json()["detail"]) == (400, "The project failed. Press Run again.")
     assert client.app.state.active_run_id is None
 
 
@@ -217,14 +217,14 @@ def test_finish_run_puts_the_summary_in_the_runs_message(client, settings, monke
 # ---------- 4. budget ----------
 
 
-@pytest.mark.parametrize(("month_cap", "day_cap", "words"), [(200.0, 10.0, "Dagstaket"), (15.0, 100.0, "Månadstaket")])
+@pytest.mark.parametrize(("month_cap", "day_cap", "words"), [(200.0, 10.0, "daily cap"), (15.0, 100.0, "monthly cap")])
 def test_a_run_does_not_start_when_the_budget_is_used(client, settings, vod, started,  # noqa: F811
                                                       month_cap, day_cap, words) -> None:
     settings.budget_month_usd, settings.budget_day_usd = month_cap, day_cap
     budget_from_settings(settings).record("okänd-modell", "granska", 2_000_000, 0)  # 16 dollar
     response = client.post("/campaign/runs", json=BODY)
     assert response.status_code == 400
-    assert words in response.json()["detail"] and "Projektet startar inte" in response.json()["detail"]
+    assert words in response.json()["detail"] and "The project does not start" in response.json()["detail"]
     assert started == []
 
 
