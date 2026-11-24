@@ -801,7 +801,7 @@ export function VersionButton({ clip, onCreated }: { clip: CampaignClip; onCreat
     <div className="space-y-1.5">
       <Button className="h-9 w-full" variant="outline" onClick={() => setOpen(true)}>
         <Copy aria-hidden />
-        Ny version
+        New version
       </Button>
       {open && (
         <VersionDialog

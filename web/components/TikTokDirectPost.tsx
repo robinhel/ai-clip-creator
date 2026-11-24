@@ -22,7 +22,7 @@ const PRIVACY_LABEL: Record<TikTokPrivacy, string> = {
   PUBLIC_TO_EVERYONE: "Everyone",
   MUTUAL_FOLLOW_FRIENDS: "Friends",
   FOLLOWER_OF_CREATOR: "Followers",
-  SELF_ONLY: "Bara jag",
+  SELF_ONLY: "Only me",
 };
 
 /** TikTok räknar beskrivningen i UTF-16-enheter, som String.length. */

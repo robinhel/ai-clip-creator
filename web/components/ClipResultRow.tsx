@@ -585,7 +585,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
           {clip.title || <em className="text-muted-foreground">untitled</em>}
         </h3>
         {/* Klippets id, som trådarna säger "klipp 44" om. #1 ovan är ordningen i projektet. Två klipp kan ha samma titel. */}
-        <span className="text-xs text-muted-foreground tabular-nums">Klipp {clip.id}</span>
+        <span className="text-xs text-muted-foreground tabular-nums">Clip {clip.id}</span>
         <CampaignStatusBadge status={clip.status} />
         {clip.version_of != null && <Badge variant="outline">Version av klipp {clip.version_of}</Badge>}
         {clip.format && <Badge variant="outline">{formatName}</Badge>}

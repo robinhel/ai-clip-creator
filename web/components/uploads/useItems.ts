@@ -199,7 +199,7 @@ export function useItems() {
     update(item.key, { state: "busy", message: undefined });
     try {
       const clip = await uploadsApi.save(item.draft.draft_id, choicesForm(item.choices, profile, item.title));
-      update(item.key, { state: "done", message: `Klipp ${clip.id}` });
+      update(item.key, { state: "done", message: `Clip ${clip.id}` });
       return true;
     } catch (err) {
       update(item.key, { state: "error", message: errorText(err, "Could not make it") });
