@@ -51,12 +51,12 @@ def http_client() -> httpx.Client:
 
 def _profile_path(profile_id: str, settings: Settings) -> Path:
     if profile_id.startswith("_"):  # dolda kampanjer, som _ingen för liveklipp utan kampanj
-        raise HTTPException(404, f"Kampanjen {profile_id} finns inte.")
+        raise HTTPException(404, f"The campaign {profile_id} does not exist.")
     if not edit.ID.fullmatch(profile_id):
-        raise HTTPException(400, "Kampanjens id får bara ha små bokstäver, siffror och _ (2–40 tecken).")
+        raise HTTPException(400, "The campaign ID may only have lowercase letters, digits and _ (2–40 characters).")
     path = settings.profiles_dir / f"{profile_id}.yaml"
     if not path.exists():
-        raise HTTPException(404, f"Kampanjen {profile_id} finns inte.")
+        raise HTTPException(404, f"The campaign {profile_id} does not exist.")
     return path
 
 
@@ -65,7 +65,7 @@ def _load(profile_id: str, settings: Settings) -> Profile:
     try:
         return load_profile(profile_id, settings.profiles_dir)
     except (SystemExit, Exception) as error:  # SystemExit från load_profile, YAML-fel m.m.
-        raise HTTPException(400, f"Kampanjen {profile_id} går inte att läsa: {error}") from error
+        raise HTTPException(400, f"The campaign {profile_id} cannot be read: {error}") from error
 
 
 def _overlay_target(profile: Profile, settings: Settings) -> Path | None:
@@ -86,7 +86,7 @@ def _check_config(expected: dict | None = None) -> Callable[[Path], None]:
         cfg = edit.read_config(tmp)
         for key, value in (expected or {}).items():
             if getattr(cfg.reframe, key) != value:
-                raise ValueError(f"reframe.{key} blev inte rätt i config-filen. Ändra den för hand.")
+                raise ValueError(f"reframe.{key} did not come out right in the config file. Change it by hand.")
     return check
 
 
@@ -96,7 +96,7 @@ def _check_answer(profile_id: str, settings: Settings) -> Callable[[Path], None]
         try:
             _describe_profile(profile_id, settings, path=tmp)
         except (SystemExit, Exception) as error:  # SystemExit från load_profile, typfel m.m.
-            raise ValueError(f"Kampanjen går inte att läsa efter ändringen: {error}") from None
+            raise ValueError(f"The campaign cannot be read after the change: {error}") from None
     return check
 
 
@@ -144,7 +144,7 @@ def _detail(profile_id: str, settings: Settings) -> dict:
     try:
         out = _describe_profile(profile_id, settings)
     except (SystemExit, Exception) as error:
-        raise HTTPException(400, f"Kampanjen {profile_id} går inte att läsa: {error}") from error
+        raise HTTPException(400, f"The campaign {profile_id} cannot be read: {error}") from error
     links, source = _as_dict(profile.raw.get("links")), _as_dict(profile.raw.get("source"))
     connected = _connected(settings)
     out.update(
@@ -186,7 +186,7 @@ def _connected(settings: Settings) -> dict[str, list[dict]]:
                 "names": {str(n).lstrip("@").lower() for n in (account_id, *names) if n}}
 
     return {
-        "tiktok": [entry(key, t.get("display_name") or t.get("username") or "TikTok-konto",
+        "tiktok": [entry(key, t.get("display_name") or t.get("username") or "TikTok account",
                          (t.get("username"), t.get("display_name")), TikTok.connected(t))
                    for key, t in TikTok(settings).accounts().items()],
         "youtube_shorts": [entry(key, a.get("title") or a.get("handle") or "YouTube-kanal",
@@ -214,7 +214,7 @@ def _chosen_accounts(profile: Profile) -> Iterator[tuple[str, str]]:
     return ((platform, entry) for platform in ACCOUNT_PLATFORMS for entry in profile.accounts.get(platform, []))
 
 
-@router.get("/accounts", summary="Kopplade TikTok-konton och YouTube-kanaler, och kampanjerna som postar från dem")
+@router.get("/accounts", summary="Connected TikTok accounts and YouTube channels, and the campaigns that post from them")
 def get_accounts(settings: Settings = Depends(get_settings)) -> dict:
     connected = _connected(settings)
     used: dict[tuple[str, str], list[dict]] = {}
@@ -235,7 +235,7 @@ def _https(value: object) -> str | None:
 # ---------- kampanjen ----------
 
 
-@router.get("/profiles/{profile_id}", summary="En kampanj med overlay, text, caption och betalning")
+@router.get("/profiles/{profile_id}", summary="A campaign with overlay, text, caption and payment")
 def get_profile(profile_id: str, settings: Settings = Depends(get_settings)) -> dict:
     return _detail(profile_id, settings)
 
@@ -243,11 +243,11 @@ def get_profile(profile_id: str, settings: Settings = Depends(get_settings)) -> 
 # ---------- overlay ----------
 
 
-@router.put("/profiles/{profile_id}/overlay", summary="Ladda upp overlay-bilden (rå PNG, högst 10 MB)",
+@router.put("/profiles/{profile_id}/overlay", summary="Upload the overlay image (raw PNG, at most 10 MB)",
             dependencies=[Depends(verify_api_key)])
 async def put_overlay(profile_id: str, request: Request, settings: Settings = Depends(get_settings)) -> dict:
     profile = _load(profile_id, settings)
-    too_big = HTTPException(400, "Bilden är större än 10 MB.")
+    too_big = HTTPException(400, "The image is larger than 10 MB.")
     if int(request.headers.get("content-length") or 0) > OVERLAY_MAX:
         raise too_big
     data = bytearray()
@@ -285,11 +285,11 @@ def get_overlay(profile_id: str, settings: Settings = Depends(get_settings)) -> 
     except ValueError:
         target = None
     if target is None or not target.is_file():
-        raise HTTPException(404, "Kampanjen har ingen overlay-bild än.")
+        raise HTTPException(404, "The campaign has no overlay image yet.")
     return FileResponse(target, media_type="image/png")
 
 
-@router.delete("/profiles/{profile_id}/overlay", summary="Ta bort overlay-bilden. Filens namn står kvar i profilen",
+@router.delete("/profiles/{profile_id}/overlay", summary="Remove the overlay image. The file name stays in the profile",
                dependencies=[Depends(verify_api_key)])
 def delete_overlay(profile_id: str, settings: Settings = Depends(get_settings)) -> dict:
     profile = _load(profile_id, settings)
@@ -299,7 +299,7 @@ def delete_overlay(profile_id: str, settings: Settings = Depends(get_settings)) 
         raise HTTPException(400, str(error)) from error
     with _write_lock:
         if target is None or not target.is_file():
-            raise HTTPException(404, "Kampanjen har ingen overlay-bild.")
+            raise HTTPException(404, "The campaign has no overlay image.")
         target.unlink()
     return _detail(profile_id, settings)
 
@@ -307,7 +307,7 @@ def delete_overlay(profile_id: str, settings: Settings = Depends(get_settings)) 
 # ---------- exempelklipp ----------
 
 
-@router.get("/profiles/{profile_id}/examples", summary="Kampanjens bästa klipp och klippare från Content Rewards")
+@router.get("/profiles/{profile_id}/examples", summary="The campaign's best clips and clippers from Content Rewards")
 def get_examples(profile_id: str, settings: Settings = Depends(get_settings)) -> dict:
     url = _load(profile_id, settings).content_rewards_url
     problem = examples.link_problem(url)
@@ -327,7 +327,7 @@ class YamlBody(BaseModel):
     yaml: str = Field(max_length=200_000)
 
 
-@router.get("/profiles/{profile_id}/yaml", summary="Profilen som text, med kommentarer")
+@router.get("/profiles/{profile_id}/yaml", summary="The profile as text, with comments")
 def get_yaml(profile_id: str, settings: Settings = Depends(get_settings)) -> dict:
     return {"yaml": _profile_path(profile_id, settings).read_bytes().decode("utf-8")}
 
@@ -353,7 +353,7 @@ class ActiveBody(BaseModel):
     active: bool
 
 
-@router.put("/profiles/{profile_id}/active", summary="Slå på eller stäng av kampanjen i appen",
+@router.put("/profiles/{profile_id}/active", summary="Turn the campaign on or off in the app",
             dependencies=[Depends(verify_api_key)])
 def put_active(profile_id: str, body: ActiveBody, settings: Settings = Depends(get_settings)) -> dict:
     path = _profile_path(profile_id, settings)
@@ -396,12 +396,12 @@ def _cr_problem(url: str | None) -> str | None:
     """Länken till kampanjen i Content Rewards måste vara en https-adress på contentrewards.com."""
     if _https(url) and urlparse(url).hostname in examples.HOSTS:
         return None
-    return ("Länken till kampanjen ska börja med https://contentrewards.com/, till exempel "
-            "https://contentrewards.com/c/campaigns/… Kopiera den från kampanjsidan.") if url else None
+    return ("The link to the campaign must start with https://contentrewards.com/, for example "
+            "https://contentrewards.com/c/campaigns/… Copy it from the campaign page.") if url else None
 
 
 def _form_problem(url: str | None) -> str | None:
-    return "Länken till analytics-formuläret måste vara en hel adress som börjar med https://." \
+    return "The link to the analytics form must be a full address starting with https://." \
         if url and not _https(url) else None
 
 
@@ -410,7 +410,7 @@ class NoControl(BaseModel):
     def _no_control_characters(self) -> NoControl:
         """En radbrytning kan annars lägga in egna fält i profilens YAML eller i kommentaren överst."""
         if any(edit.CONTROL.search(text) for text in _texts(self.model_dump())):
-            raise ValueError("Texten får inte ha radbrytningar, tabbar eller andra styrtecken.")
+            raise ValueError("The text cannot have line breaks, tabs or other control characters.")
         return self
 
 
@@ -449,10 +449,10 @@ def _check_channel(login: str) -> str | None:
     try:
         user = twitch.gql_query(f'{{ user(login: "{login}") {{ id login displayName }} }}')["data"]["user"]
     except Exception:  # twitch-dl kastar olika fel när Twitch inte svarar
-        return (f"Twitch svarar inte, så appen kunde inte kontrollera att kanalen {login} finns. Kontrollera "
-                f"stavningen på twitch.tv/{login}.")
+        return (f"Twitch is not responding, so the app could not check that the channel {login} exists. Check "
+                f"the spelling at twitch.tv/{login}.")
     if not user:
-        raise HTTPException(400, f"Twitch-kanalen {login} finns inte.")
+        raise HTTPException(400, f"The Twitch channel {login} does not exist.")
     return None
 
 
@@ -460,7 +460,7 @@ def _check_template(template: str) -> None:
     try:
         template.format(title="x")
     except (KeyError, IndexError, ValueError) as error:
-        raise ValueError("Captionens mall får bara ha {title} inom klamrar.") from error
+        raise ValueError("The caption template may only have {title} inside braces.") from error
 
 
 def _check_links(content_rewards: str | None, analytics_form: str | None) -> None:
@@ -471,13 +471,13 @@ def _check_links(content_rewards: str | None, analytics_form: str | None) -> Non
 
 def _check_platforms(platforms: Sequence[str] | None) -> None:
     if platforms is not None and not platforms:
-        raise ValueError("Välj minst en plattform där kampanjen postas.")
+        raise ValueError("Choose at least one platform where the campaign is posted.")
 
 
 def _check_new(body: NewCampaign) -> None:
     """Fälten i Ny kampanj som servern kan kontrollera innan något skrivs."""
     if not 1 <= body.clip_min_s < body.clip_max_s:
-        raise ValueError("Klippens kortaste längd måste vara minst 1 sekund och kortare än den längsta.")
+        raise ValueError("The clips' shortest length must be at least 1 second and shorter than the longest.")
     _check_template(body.caption_template or "{title}")
     _check_links(body.content_rewards_url, body.analytics_form_url)
     _check_platforms(body.platforms)
@@ -494,13 +494,13 @@ def _bad_request() -> Iterator[None]:
 
 def _no_files(files: tuple[Path, ...], profile_id: str) -> None:
     if any(f.exists() for f in files):
-        raise HTTPException(409, f"Kampanjen {profile_id} finns redan.")
+        raise HTTPException(409, f"The campaign {profile_id} already exists.")
 
 
 def _template(settings: Settings) -> Path:
     template = settings.root / TEMPLATE_CONFIG
     if not template.is_file():
-        raise HTTPException(500, f"Mallen {TEMPLATE_CONFIG} saknas. Den behövs för nya kampanjer.")
+        raise HTTPException(500, f"The template {TEMPLATE_CONFIG} is missing. It is needed for new campaigns.")
     return template
 
 
@@ -508,8 +508,8 @@ def _new_id(body: NewCampaign) -> str:
     local = body.source == "local"
     profile_id = (body.name if local else body.channel).strip().lower()
     if not edit.ID.fullmatch(profile_id):
-        what = "Kampanjens id" if local else "Kanalens namn"
-        raise HTTPException(400, f"{what} får bara ha bokstäver a–z, siffror och _ (2–40 tecken).")
+        what = "The campaign ID" if local else "The channel name"
+        raise HTTPException(400, f"{what} may only have letters a–z, digits and _ (2–40 characters).")
     return profile_id
 
 
@@ -599,7 +599,7 @@ def _clean(value: object) -> object:
 def _text_changes(body: CampaignSettings, sent: set[str]) -> dict[str, object]:
     blank_streamer = not (body.streamer or "").strip()
     if "streamer" in sent and blank_streamer:
-        raise ValueError("Skriv streamerns namn.")
+        raise ValueError("Enter the streamer's name.")
     return {key: (getattr(body, key) or "").strip() or edit.DELETE for key in _TEXT_FIELDS if key in sent}
 
 
@@ -664,7 +664,7 @@ def _check_caption(template: str | None) -> None:
         return
     _check_template(template)
     if "{title}" not in template:
-        raise ValueError("Captionens mall måste innehålla {title}, där klippets rubrik hamnar.")
+        raise ValueError("The caption template must contain {title}, where the clip's headline goes.")
 
 
 def _check_lists(body: CampaignSettings) -> None:
@@ -672,14 +672,14 @@ def _check_lists(body: CampaignSettings) -> None:
         _check_links(body.links.content_rewards, body.links.analytics_form)
     _check_platforms(body.platforms)
     if body.formats is not None and any(not f.name.strip() for f in body.formats):
-        raise ValueError("Ge varje format ett namn, eller ta bort raden.")
+        raise ValueError("Give each format a name, or remove the row.")
 
 
 def _check_payment(body: CampaignSettings) -> None:
-    for value, label in ((body.cpm_usd, "Betalningen per 1 000 visningar"), (body.min_views, "Minsta visningar"),
-                         (body.max_payout_per_clip_usd, "Taket per klipp")):
+    for value, label in ((body.cpm_usd, "The payment per 1,000 views"), (body.min_views, "Minimum views"),
+                         (body.max_payout_per_clip_usd, "The cap per clip")):
         if value is not None and value < 0:
-            raise ValueError(f"{label} får inte vara mindre än 0.")
+            raise ValueError(f"{label} cannot be less than 0.")
 
 
 def _pick(value: int | None, fallback: float) -> float:
@@ -691,11 +691,11 @@ def _check_lengths(body: CampaignSettings, profile: Profile, cfg_clip: tuple[int
     low, high = _pick(body.allowed_min_s, profile.min_seconds), _pick(body.allowed_max_s, profile.max_seconds)
     clip_low, clip_high = _pick(body.clip_min_s, cfg_clip[0]), _pick(body.clip_max_s, cfg_clip[1])
     if not 1 <= low < high:
-        raise ValueError("Kampanjens kortaste längd måste vara minst 1 sekund och kortare än den längsta.")
+        raise ValueError("The campaign's shortest length must be at least 1 second and shorter than the longest.")
     if not 1 <= clip_low < clip_high:
-        raise ValueError("Appens kortaste klipp måste vara minst 1 sekund och kortare än det längsta.")
+        raise ValueError("The app's shortest clip must be at least 1 second and shorter than the longest.")
     if not (low <= clip_low and clip_high <= high):
-        raise ValueError(f"Appen ska klippa inom det kampanjen tillåter: {_seconds(low)}–{_seconds(high)} s.")
+        raise ValueError(f"The app must clip within what the campaign allows: {_seconds(low)}–{_seconds(high)} s.")
 
 
 _LENGTHS = ("allowed_min_s", "allowed_max_s", "clip_min_s", "clip_max_s")
@@ -756,7 +756,7 @@ def _save_settings(profile_id: str, body: CampaignSettings, profile: Profile, se
     edit.write_atomic(settings.profiles_dir / f".{profile_id}.yaml.bak", text.encode("utf-8"))
 
 
-@router.put("/profiles/{profile_id}/settings", summary="Spara formuläret Ställ in. Resten av profilen är orörd",
+@router.put("/profiles/{profile_id}/settings", summary="Save the Set up form. The rest of the profile is untouched",
             dependencies=[Depends(verify_api_key)])
 def put_settings(profile_id: str, body: CampaignSettings, settings: Settings = Depends(get_settings)) -> dict:
     profile = _load(profile_id, settings)
@@ -800,27 +800,27 @@ def _reframe(path: Path, mp4: Path | None) -> dict:
         except (RuntimeError, SystemExit):
             pass  # filen går inte att läsa: visa standardstorleken
     if (width, height) != (edit.SOURCE_W, edit.SOURCE_H):
-        warning = (f"VOD:en är {width}x{height}, inte {edit.SOURCE_W}x{edit.SOURCE_H}. Rutorna mäts i "
-                   f"{edit.SOURCE_W}x{edit.SOURCE_H} och hamnar fel i den här VOD:en. Ladda ner den i 1080p.")
+        warning = (f"The VOD is {width}x{height}, not {edit.SOURCE_W}x{edit.SOURCE_H}. The boxes are measured in "
+                   f"{edit.SOURCE_W}x{edit.SOURCE_H} and end up wrong in this VOD. Download it in 1080p.")
     rects = reframe.webcam_rects or ([reframe.webcam_rect] if reframe.webcam_rect else [])
     return {"mode": reframe.mode, "split_ratio": reframe.split_ratio, "webcam_rect": reframe.webcam_rect,
             "webcam_rects": rects, "gameplay_rect": reframe.gameplay_rect, "source_width": width, "source_height": height,
             "webcam_aspect": webcam_aspect, "gameplay_aspect": gameplay_aspect, "warning": warning}
 
 
-@router.get("/profiles/{profile_id}/reframe", summary="Facecam- och spelrutan")
+@router.get("/profiles/{profile_id}/reframe", summary="Facecam and game boxes")
 def get_reframe(profile_id: str, vod_id: str | None = Query(default=None, pattern=r"^\d{6,15}$"),
                 settings: Settings = Depends(get_settings)) -> dict:
     path = _config_path(_load(profile_id, settings), settings)
     return _reframe(path, _local_mp4(profile_id, settings, vod_id))
 
 
-@router.put("/profiles/{profile_id}/reframe", summary="Spara facecam- och spelrutan",
+@router.put("/profiles/{profile_id}/reframe", summary="Save the facecam and game boxes",
             dependencies=[Depends(verify_api_key)])
 def put_reframe(profile_id: str, body: ReframeBody, settings: Settings = Depends(get_settings)) -> dict:
     path = _config_path(_load(profile_id, settings), settings)
     if not 0.1 <= body.split_ratio <= 0.9:
-        raise HTTPException(400, "split_ratio måste ligga mellan 0.1 och 0.9.")
+        raise HTTPException(400, "split_ratio must be between 0.1 and 0.9.")
     webcam_aspect, gameplay_aspect = edit.panel_aspects(body.split_ratio)
     try:
         if body.webcam_rects is not None:
@@ -849,7 +849,7 @@ def _ffmpeg(inputs: list[str], frame: Path) -> None:
              "-vf", f"scale={edit.SOURCE_W}:{edit.SOURCE_H}", "-q:v", "3", str(tmp)])
         os.replace(tmp, frame)
     except (RuntimeError, SystemExit) as error:  # SystemExit från need() när ffmpeg saknas
-        raise HTTPException(500, "Kunde inte göra en bild av VOD:en med ffmpeg.") from error
+        raise HTTPException(500, "Could not make a frame of the VOD with ffmpeg.") from error
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -859,17 +859,17 @@ def _frame_from_twitch(vod_id: str, frame: Path) -> None:
         video = twitch.gql_query(
             f'{{ video(id: "{vod_id}") {{ previewThumbnailURL(width: 1920, height: 1080) }} }}')["data"]["video"]
     except Exception as error:  # twitch-dl kastar olika fel när Twitch inte svarar
-        raise HTTPException(502, "Twitch svarar inte. Försök igen om en stund.") from error
+        raise HTTPException(502, "Twitch is not responding. Try again in a while.") from error
     url = str((video or {}).get("previewThumbnailURL") or "")
     parsed = urlparse(url)
     if parsed.scheme != "https" or parsed.hostname != THUMB_HOST:
-        raise HTTPException(404, f"Twitch har ingen bild för VOD {vod_id}.")
-    too_big = HTTPException(502, "Bilden från Twitch är större än 5 MB.")
+        raise HTTPException(404, f"Twitch has no image for VOD {vod_id}.")
+    too_big = HTTPException(502, "The image from Twitch is larger than 5 MB.")
     data = bytearray()
     try:
         with http_client() as http, http.stream("GET", url) as response:
             if response.status_code != 200:
-                raise HTTPException(502, "Twitch skickade ingen bild.")
+                raise HTTPException(502, "Twitch sent no image.")
             if int(response.headers.get("content-length") or 0) > IMAGE_MAX:
                 raise too_big
             for chunk in response.iter_bytes():  # storleken kontrolleras under hämtningen
@@ -877,9 +877,9 @@ def _frame_from_twitch(vod_id: str, frame: Path) -> None:
                 if len(data) > IMAGE_MAX:
                     raise too_big
     except httpx.HTTPError as error:
-        raise HTTPException(502, "Twitch svarar inte. Försök igen om en stund.") from error
+        raise HTTPException(502, "Twitch is not responding. Try again in a while.") from error
     if not data:
-        raise HTTPException(502, "Twitch skickade ingen bild.")
+        raise HTTPException(502, "Twitch sent no image.")
     src = frame.with_name(f".{frame.stem}.src.jpg")
     try:
         src.write_bytes(bytes(data))
@@ -889,13 +889,13 @@ def _frame_from_twitch(vod_id: str, frame: Path) -> None:
         src.unlink(missing_ok=True)
 
 
-@router.get("/profiles/{profile_id}/frame", summary="En bild ur VOD:en i 1920x1080 att rita rutorna på")
+@router.get("/profiles/{profile_id}/frame", summary="A frame from the VOD in 1920x1080 to draw the boxes on")
 def get_frame(profile_id: str, vod_id: str | None = Query(default=None, pattern=r"^\d{6,15}$"),
               settings: Settings = Depends(get_settings)) -> FileResponse:
     _load(profile_id, settings)
     vod_id = vod_id or _latest_vod(profile_id, settings)
     if not vod_id:
-        raise HTTPException(404, "Kampanjen har inget projekt än. Välj en stream eller skriv ett VOD-id.")
+        raise HTTPException(404, "The campaign has no project yet. Choose a stream or enter a VOD ID.")
     frames = settings.work_dir / "frames"
     from_vod, from_twitch = frames / f"{vod_id}.vod.jpg", frames / f"{vod_id}.twitch.jpg"
     mp4 = settings.work_dir / vod_id / f"{vod_id}.mp4"
@@ -905,7 +905,7 @@ def get_frame(profile_id: str, vod_id: str | None = Query(default=None, pattern=
             try:
                 seconds = probe(mp4)["duration"] * 0.25  # en bit in, förbi startskärmen
             except (RuntimeError, SystemExit) as error:
-                raise HTTPException(500, "VOD-filen går inte att läsa.") from error
+                raise HTTPException(500, "The VOD file cannot be read.") from error
             _ffmpeg(["-ss", f"{seconds:.2f}", "-i", str(mp4)], from_vod)
         if from_vod.exists():
             return FileResponse(from_vod, media_type="image/jpeg")
