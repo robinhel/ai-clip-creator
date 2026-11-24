@@ -11,7 +11,7 @@ interface Props {
   className?: string;
 }
 
-export function CopyButton({ text, label = "Kopiera", disabled = false, className }: Props) {
+export function CopyButton({ text, label = "Copy", disabled = false, className }: Props) {
   const [result, setResult] = useState<"copied" | "failed" | null>(null);
 
   async function handleCopy() {
@@ -28,7 +28,7 @@ export function CopyButton({ text, label = "Kopiera", disabled = false, classNam
   return (
     <Button type="button" size={className ? "default" : "sm"} variant="outline" onClick={handleCopy} disabled={disabled || !text} className={className}>
       {result === "copied" ? <Check /> : <Copy />}
-      {result === "copied" ? "Kopierad" : result === "failed" ? "Gick inte att kopiera" : label}
+      {result === "copied" ? "Copied" : result === "failed" ? "Could not copy" : label}
     </Button>
   );
 }

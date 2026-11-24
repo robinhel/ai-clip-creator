@@ -72,8 +72,8 @@ export function ClipPosts({ clip, onUpdate, readOnly = false }: { clip: Campaign
       copied = false;
     }
     setAsked(post.id);
-    if (!copied) setHelpNote("Webbläsaren lät inte appen kopiera länken. Kopiera den från raden ovanför.");
-    else if (!tab) setHelpNote("Webbläsaren stoppade den nya fliken. Länken är kopierad; öppna kampanjen i Content Rewards själv.");
+    if (!copied) setHelpNote("The browser did not let the app copy the link. Copy it from the row above.");
+    else if (!tab) setHelpNote("The browser blocked the new tab. The link is copied; open the campaign in Content Rewards yourself.");
   }
 
   /** true när servern sparade. */
@@ -85,7 +85,7 @@ export function ClipPosts({ clip, onUpdate, readOnly = false }: { clip: Campaign
       window.dispatchEvent(new Event(SUMMARY_CHANGED));
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Det gick inte att spara");
+      setError(err instanceof Error ? err.message : "Could not save");
       return false;
     } finally {
       setBusy(false);
@@ -93,13 +93,13 @@ export function ClipPosts({ clip, onUpdate, readOnly = false }: { clip: Campaign
   }
 
   function remove(post: ClipPost) {
-    if (!window.confirm(`Ta bort inlägget på ${PLATFORM_LABEL[post.platform]}? Länken och siffrorna försvinner.`)) return;
+    if (!window.confirm(`Remove the post on ${PLATFORM_LABEL[post.platform]}? The link and the numbers are deleted.`)) return;
     run(() => api.campaign.posts.remove(post.id));
   }
 
   return (
-    <section aria-label="Inlägg" className="space-y-2">
-      <p className="text-[13px] text-muted-foreground">Inlägg</p>
+    <section aria-label="Posts" className="space-y-2">
+      <p className="text-[13px] text-muted-foreground">Posts</p>
       <ul className="space-y-2">
         {posts.map((post) => (
           <li key={post.id} data-post={post.platform} className="space-y-2 rounded-[10px] border border-line bg-panel px-3 py-2.5 text-sm">
@@ -112,13 +112,13 @@ export function ClipPosts({ clip, onUpdate, readOnly = false }: { clip: Campaign
               )}
               <CampaignStatusBadge status={post.status} />
               {post.views != null && (
-                <span className="text-xs text-muted-foreground tabular-nums">{post.views.toLocaleString("en-US")} visningar</span>
+                <span className="text-xs text-muted-foreground tabular-nums">{post.views.toLocaleString("en-US")} views</span>
               )}
             </div>
             {editing === post.id ? (
               <div className="space-y-2">
                 <Input
-                  aria-label={`Ny länk till inlägget på ${PLATFORM_LABEL[post.platform]}`}
+                  aria-label={`New link to the post on ${PLATFORM_LABEL[post.platform]}`}
                   type="url"
                   value={editUrl}
                   onChange={(e) => setEditUrl(e.target.value)}
@@ -132,7 +132,7 @@ export function ClipPosts({ clip, onUpdate, readOnly = false }: { clip: Campaign
                       if (await run(() => api.campaign.posts.patch(post.id, { url: editUrl.trim() }))) setEditing(null);
                     }}
                   >
-                    Spara länken
+                    Save the link
                   </Button>
                   <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(null)}>
                     Avbryt
@@ -159,35 +159,35 @@ export function ClipPosts({ clip, onUpdate, readOnly = false }: { clip: Campaign
                     <p className="flex items-start gap-1.5 text-[13px] tabular-nums">
                       <Clock className="mt-0.5 size-3.5 shrink-0 text-brand" aria-hidden />
                       <span>
-                        Skicka in före kl. {stockholm.format(deadline)} ({left} min kvar).{" "}
-                        <span className="text-muted-foreground">Appen räknar 30 minuter från att länken sparades.</span>
+                        Submit before {stockholm.format(deadline)} ({left} min left).{" "}
+                        <span className="text-muted-foreground">The app counts 30 minutes from when the link was saved.</span>
                       </span>
                     </p>
                   ) : (
                     <p className="flex items-start gap-1.5 rounded-lg border border-[#3a3018] px-2.5 py-1.5 text-[13px] text-warn/80">
                       <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                      Mer än 30 minuter har gått. Content Rewards tar troligen inte emot inlägget.
+                      More than 30 minutes have passed. Content Rewards will probably not accept the post.
                     </p>
                   )}
                   {clip.content_rewards_url ? (
                     <Button size="sm" className="h-auto min-h-7 py-1.5 whitespace-normal" disabled={busy} onClick={() => openRewards(post, clip.content_rewards_url!)}>
                       <Copy aria-hidden />
-                      Kopiera länken och öppna Content Rewards
+                      Copy the link and open Content Rewards
                     </Button>
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      Länken till kampanjen i Content Rewards saknas.{" "}
+                      The link to the campaign in Content Rewards is missing.{" "}
                       <Link href={`/campaigns/${clip.profile}?tab=installningar&del=oversikt#lankar`} className="underline underline-offset-4 hover:text-foreground">
-                        Lägg in den under kampanjens Ställ in
+                        Add it under the campaign's Set up
                       </Link>
                       .
                     </p>
                   )}
                   {asked === post.id && (
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm">
-                      <span>Gick inskicket igenom?</span>
+                      <span>Did the submission go through?</span>
                       <Button size="sm" variant="outline" disabled={busy} onClick={() => run(() => api.campaign.posts.patch(post.id, { status: "inskickad" }))}>
-                        Ja, markera inskickad
+                        Yes, mark submitted
                       </Button>
                     </div>
                   )}
@@ -197,11 +197,11 @@ export function ClipPosts({ clip, onUpdate, readOnly = false }: { clip: Campaign
             })()}
             {!readOnly && editing !== post.id && (
               <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                {/* Efter Kopiera länken och öppna Content Rewards frågar hjälpen själv; en knapp räcker. */}
+                {/* Efter Copy the link and open Content Rewards frågar hjälpen själv; en knapp räcker. */}
                 {post.status === "postad" && asked !== post.id && (
                   <Button size="sm" variant={helper ? "outline" : "default"} disabled={busy} onClick={() => run(() => api.campaign.posts.patch(post.id, { status: "inskickad" }))}>
                     <Send aria-hidden />
-                    Inskickad i Content Rewards
+                    Submitted in Content Rewards
                   </Button>
                 )}
                 {BACK[post.status] && (
@@ -211,7 +211,7 @@ export function ClipPosts({ clip, onUpdate, readOnly = false }: { clip: Campaign
                     disabled={busy}
                     onClick={() => run(() => api.campaign.posts.patch(post.id, { status: BACK[post.status] }))}
                   >
-                    Ångra
+                    Undo
                   </Button>
                 )}
                 {post.status === "postad" && (
@@ -225,10 +225,10 @@ export function ClipPosts({ clip, onUpdate, readOnly = false }: { clip: Campaign
                         setEditing(post.id);
                       }}
                     >
-                      Ändra länk
+                      Change link
                     </Button>
                     <Button size="sm" variant="ghost" className="text-muted-foreground" disabled={busy} onClick={() => remove(post)}>
-                      Ta bort
+                      Remove
                     </Button>
                   </>
                 )}

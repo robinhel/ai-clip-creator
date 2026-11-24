@@ -26,22 +26,22 @@ const isOwnFile = (run: VodRun) => !/^\d+$/.test(run.vod_id);
 function Consequences({ own }: { own: boolean }) {
   return (
     <ul className="list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
-      <li>Klippen, transkriptet, chatten och klipploggen finns kvar.</li>
-      <li>Redigera, Ny version och postningen fungerar som förut. De använder klippens egna filer.</li>
+      <li>The clips, the transcript, the chat and the clip log are kept.</li>
+      <li>Edit, New version and posting work as before. They use the clips' own files.</li>
       {own ? (
         <>
           <li className="text-warn">
-            ⚠️ Det här är en egen fil. Filen i work/ är den enda kopian i appen. Kör igen går inte efteråt.
+            ⚠️ This is your own file. The file in work/ is the only copy in the app. Run again does not work afterwards.
           </li>
-          <li>Kampanjens chatt kan inte spela upp videon eller klippa nya klipp ur den.</li>
+          <li>The campaign's chat cannot play the video or cut new clips from it.</li>
         </>
       ) : (
         <>
-          <li>Kör igen hämtar hela VOD:en från Twitch igen.</li>
-          <li>Kampanjens chatt kan inte spela upp videon. Nya klipp ur chatten hämtar bara sin del från Twitch.</li>
+          <li>Run again downloads the whole VOD from Twitch again.</li>
+          <li>The campaign's chat cannot play the video. New clips from the chat only download their part from Twitch.</li>
         </>
       )}
-      <li>Att skära om klipp i ett nytt bildläge (python -m campaign reframe) kräver VOD-filen.</li>
+      <li>Recutting clips in a new layout (python -m campaign reframe) needs the VOD file.</li>
     </ul>
   );
 }
@@ -57,7 +57,7 @@ function DeleteVodDialog({ run, bytes, onClose, onDone }: { run: VodRun; bytes: 
     try {
       onDone((await deleteRunVod(run.run_id)).freed_bytes);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunde inte ta bort VOD-filen");
+      setError(err instanceof Error ? err.message : "Could not delete the VOD file");
       setBusy(false);
     }
   }
@@ -66,9 +66,9 @@ function DeleteVodDialog({ run, bytes, onClose, onDone }: { run: VodRun; bytes: 
     <Dialog open onOpenChange={(next) => !next && !busy && onClose()}>
       <DialogContent className="gap-4 p-5 sm:max-w-md">
         <div>
-          <DialogTitle className="text-lg font-semibold">Ta bort VOD-filen?</DialogTitle>
+          <DialogTitle className="text-lg font-semibold">Delete the VOD file?</DialogTitle>
           <DialogDescription className="mt-1">
-            Det frigör {diskSize(bytes)} på disken. Bara VOD-filen och delarna från hämtningen tas bort.
+            It frees {diskSize(bytes)} on disk. Only the VOD file and the download parts are deleted.
           </DialogDescription>
         </div>
         <Consequences own={isOwnFile(run)} />
@@ -79,11 +79,11 @@ function DeleteVodDialog({ run, bytes, onClose, onDone }: { run: VodRun; bytes: 
         )}
         <div className="flex flex-wrap justify-end gap-2">
           <Button variant="outline" className="h-9" onClick={onClose} disabled={busy}>
-            Nej, behåll den
+            No, keep it
           </Button>
           <Button variant="destructive" className="h-9" onClick={remove} disabled={busy}>
             {busy && <Loader2 className="animate-spin" aria-hidden />}
-            Ja, ta bort VOD-filen
+            Yes, delete the VOD file
           </Button>
         </div>
       </DialogContent>
@@ -104,7 +104,7 @@ export function DeleteVod({ run, onDeleted, small }: { run: VodRun; onDeleted?: 
   if (freed !== null) {
     return (
       <p role="status" className="text-[13px] text-good">
-        VOD-filen är borttagen. {freed ? `${diskSize(freed)} frigjordes.` : "Den var redan borttagen."}
+        The VOD file is deleted. {freed ? `${diskSize(freed)} freed.` : "It was already deleted."}
       </p>
     );
   }
@@ -114,7 +114,7 @@ export function DeleteVod({ run, onDeleted, small }: { run: VodRun; onDeleted?: 
     <>
       <Button variant="outline" className={cn(small ? "h-7 text-[13px]" : "h-9")} onClick={() => setOpen(true)}>
         <HardDrive aria-hidden />
-        Ta bort VOD-filen, {diskSize(bytes)}
+        Delete the VOD file, {diskSize(bytes)}
       </Button>
       {open && (
         <DeleteVodDialog

@@ -24,8 +24,8 @@ const exactSec = new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maxi
 
 /** Felet för längden, eller null om den ligger inom kampanjens gränser. Exakt min–max, som servern. */
 export function lengthProblem(length: number, min: number | null, max: number | null): string | null {
-  if (min != null && length < min) return `Klippet är ${exactSec.format(length)} s. Kampanjen kräver minst ${min} s.`;
-  if (max != null && length > max) return `Klippet är ${exactSec.format(length)} s. Kampanjen tillåter högst ${max} s.`;
+  if (min != null && length < min) return `The clip is ${exactSec.format(length)} s. The campaign requires at least ${min} s.`;
+  if (max != null && length > max) return `The clip is ${exactSec.format(length)} s. The campaign allows at most ${max} s.`;
   return null;
 }
 
@@ -47,11 +47,11 @@ export function ClipEditor(props: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-4 p-6 sm:max-w-[460px]">
-        <DialogTitle className="text-lg font-semibold">Klippet går inte att redigera</DialogTitle>
-        <DialogDescription>{info.reason ?? "Servern säger inte varför."}</DialogDescription>
+        <DialogTitle className="text-lg font-semibold">The clip cannot be edited</DialogTitle>
+        <DialogDescription>{info.reason ?? "The server does not say why."}</DialogDescription>
         <div className="flex justify-end">
           <Button variant="outline" className="h-9" onClick={() => onOpenChange(false)}>
-            Stäng
+            Close
           </Button>
         </div>
       </DialogContent>
@@ -92,9 +92,9 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
   const wordProblem = !wordsChanged
     ? null
     : words.some((w) => !w.word.trim())
-      ? "Ett ord i undertexten är tomt. Skriv det eller ta bort det."
+      ? "A word in the subtitles is empty. Type it or remove it."
       : words.some((w) => w.word.trim().length > 40)
-        ? "Ett ord i undertexten får vara högst 40 tecken."
+        ? "A word in the subtitles can be at most 40 characters."
         : null;
   // Slutet längst ut är originalets exakta längd; tidslinjen visar den avrundad till 0,1 s.
   // En egen video spelas snabbare, så klippet blir kortare än råtiden (som servern).
@@ -105,7 +105,7 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
   const block =
     (inChanged || outChanged ? problem : null) ??
     wordProblem ??
-    (!title.trim() ? "Skriv en titel." : !inChanged && !outChanged && !textChanged && !wordsChanged ? "Inget är ändrat." : null);
+    (!title.trim() ? "Enter a title." : !inChanged && !outChanged && !textChanged && !wordsChanged ? "Nothing has changed." : null);
   // Råklippet saknar undertext, så raden som sägs ritas ovanpå videon.
   const style = subs?.style ?? "box";
   const line = subs?.editable ? lineAt(words.filter((w) => inRange(w, inS, outExact)), now, style) : null;
@@ -206,7 +206,7 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
       if (wordsChanged) body.words = words.map((w) => ({ ...w, word: w.word.trim() }));
       onSaved(await api.campaign.clips.saveEdit(clip.id, body), inChanged || outChanged, wordsChanged);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Det gick inte att spara klippet");
+      setError(err instanceof Error ? err.message : "Could not save the clip");
       setBusy(false);
     }
   }
@@ -222,9 +222,9 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
     >
       <DialogContent className="max-h-[calc(100vh-2rem)] gap-5 overflow-y-auto p-6 sm:max-w-[860px]" onKeyDown={onKeyDown}>
         <div>
-          <DialogTitle className="text-lg font-semibold">Redigera klippet</DialogTitle>
+          <DialogTitle className="text-lg font-semibold">Edit the clip</DialogTitle>
           <DialogDescription className="mt-1">
-            Dra handtagen för att trimma start och slut. Klippet kan bara bli kortare än råklippet.
+            Drag the handles to trim the start and end. The clip can only get shorter than the raw clip.
           </DialogDescription>
         </div>
 
@@ -235,7 +235,7 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
               src={`${api.campaign.proxied(info.original.url)}#t=${startAt}`}
               playsInline
               preload="auto"
-              aria-label="Råklippet"
+              aria-label="The raw clip"
               onClick={togglePlay}
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
@@ -276,20 +276,20 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
 
           <div className="flex min-w-0 flex-col gap-5">
             <label className="block space-y-1">
-              <span className="block text-[13px] text-muted-foreground">Text i bilden</span>
+              <span className="block text-[13px] text-muted-foreground">On-screen text</span>
               <input
                 value={headline}
                 onChange={(e) => setHeadline(e.target.value)}
                 maxLength={HEADLINE_MAX}
-                placeholder="Samma som titeln"
+                placeholder="Same as the title"
                 className="h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none placeholder:text-muted-foreground focus:border-brand"
               />
               <span className="block text-xs text-muted-foreground">
-                Kräver kampanjen ingen egen text, står den här texten överst i bilden under hela klippet. Tomt fält: titeln står där.
+                If the campaign does not require its own text, this text shows at the top of the frame for the whole clip. Empty field: the title shows there.
               </span>
             </label>
             <label className="block space-y-1">
-              <span className="block text-[13px] text-muted-foreground">Titel</span>
+              <span className="block text-[13px] text-muted-foreground">Title</span>
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -297,7 +297,7 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
                 className="h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand"
               />
               <span className="block text-xs text-muted-foreground">
-                Första raden i captionen. Ny titel ger ny caption från kampanjens mall. En caption du har skrivit själv behålls.
+                The first line of the caption. A new title gives a new caption from the campaign's template. A caption you wrote yourself is kept.
               </span>
             </label>
 
@@ -305,8 +305,8 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
               {(
                 [
                   ["In", fmt(inS), "in"],
-                  ["Ut", fmt(outS), "out"],
-                  ["Längd", fmt(length), "length"],
+                  ["Out", fmt(outS), "out"],
+                  ["Length", fmt(length), "length"],
                 ] as const
               ).map(([label, value, id]) => (
                 <div
@@ -325,20 +325,20 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
               ))}
             </dl>
             <p className="-mt-2 text-xs text-muted-foreground">
-              Kampanjen tillåter {info.min_s ?? 0}–{info.max_s ?? "∞"} s. Råklippet är {fmt(total)}.
+              The campaign allows {info.min_s ?? 0}–{info.max_s ?? "∞"} s. The raw clip is {fmt(total)}.
               {speedNote(info.speed)}
             </p>
 
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" className="h-9" onClick={togglePlay} aria-label={playing ? "Pausa" : "Spela"}>
+              <Button variant="outline" className="h-9" onClick={togglePlay} aria-label={playing ? "Pause" : "Play"}>
                 {playing ? <Pause aria-hidden /> : <Play aria-hidden />}
-                {playing ? "Pausa" : "Spela"}
+                {playing ? "Pause" : "Play"}
               </Button>
               <Button variant="outline" className="h-9" onClick={() => setHandle("in", video.current?.currentTime ?? now)}>
-                Sätt in här
+                Set in here
               </Button>
               <Button variant="outline" className="h-9" onClick={() => setHandle("out", video.current?.currentTime ?? now)}>
-                Sätt ut här
+                Set out here
               </Button>
               <Button
                 variant="ghost"
@@ -347,11 +347,11 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
                 onClick={() => setLoop(!loop)}
               >
                 <Repeat aria-hidden />
-                Slinga
+                Loop
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Piltangenterna flyttar det valda handtaget 0,1 s, med Skift 1 s. Klicka på ett handtag för att välja det.
+              The arrow keys move the selected handle 0.1 s, with Shift 1 s. Click a handle to select it.
             </p>
           </div>
         </div>
@@ -386,7 +386,7 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
                   key={handle}
                   role="slider"
                   tabIndex={0}
-                  aria-label={handle === "in" ? "Start" : "Slut"}
+                  aria-label={handle === "in" ? "Start" : "End"}
                   aria-valuemin={handle === "in" ? 0 : inS + STEP}
                   aria-valuemax={handle === "in" ? outS - STEP : total}
                   aria-valuenow={t}
@@ -434,7 +434,7 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
         )}
 
         {clip.status === "godkand" && (
-          <p className="text-sm text-warn">Klippet är godkänt. Efter ändringen behöver det ett nytt ja, och schemalagda uppladdningar avbryts.</p>
+          <p className="text-sm text-warn">The clip is approved. After the change it needs a new yes, and scheduled uploads are cancelled.</p>
         )}
         {(error || block) && (
           <p
@@ -457,15 +457,15 @@ function Editor({ clip, info, open, onOpenChange, onSaved }: Omit<Props, "info">
             }}
           >
             <RotateCcw aria-hidden />
-            Återställ
+            Reset
           </Button>
           <div className="flex gap-2">
             <Button variant="outline" className="h-9" disabled={busy} onClick={() => onOpenChange(false)}>
-              Avbryt
+              Cancel
             </Button>
             <Button className="h-9 px-4" disabled={busy || !!block} title={block ?? undefined} onClick={save}>
               {busy && <Loader2 className="animate-spin" aria-hidden />}
-              {busy ? "Gör klippet klart igen..." : "Spara"}
+              {busy ? "Making the clip ready again..." : "Save"}
             </Button>
           </div>
         </div>
