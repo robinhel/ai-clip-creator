@@ -1,6 +1,6 @@
 // Längden i Redigera (ClipEditor), räknad som servern (campaign/editor.py _check_trim).
 
-const speedText = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 2 });
+const speedText = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
 /**
  * Klippets längd: råtiden (ut − in) delad med hastigheten, plus serverns extra tid (length_extra_s),
@@ -12,5 +12,5 @@ export function trimLength(inS: number, outS: number, speed = 1, extraS = 0): nu
 
 /** " Längden gäller med hastigheten 1,1x." under längden, eller tomt när klippet går i vanlig hastighet. */
 export function speedNote(speed = 1): string {
-  return speed === 1 ? "" : ` Längden gäller med hastigheten ${speedText.format(speed)}x.`;
+  return speed === 1 ? "" : ` The length applies at speed ${speedText.format(speed)}x.`;
 }

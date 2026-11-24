@@ -6,9 +6,9 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { cn, usd } from "@/lib/utils";
 import type { CampaignProfile, ScoutCampaign } from "@/lib/types";
 
-const dollars = new Intl.NumberFormat("sv-SE", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-const views = new Intl.NumberFormat("sv-SE");
-const points = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
+const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+const views = new Intl.NumberFormat("en-US");
+const points = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 
 const PLATFORM: Record<string, string> = { tiktok: "TikTok", youtube: "YouTube", instagram: "Instagram" };
 

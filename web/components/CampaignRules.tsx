@@ -3,7 +3,7 @@ import { ExternalLink } from "lucide-react";
 import { PLATFORM_LABEL } from "@/components/CampaignStatusBadge";
 import type { CampaignProfileDetail } from "@/lib/types";
 
-const num = new Intl.NumberFormat("sv-SE");
+const num = new Intl.NumberFormat("en-US");
 const pct = (n: number) => `${String(n).replace(".", ",")} %`;
 
 /** Engagemangskravet i ord, till exempel "minst 0,9 % upp till 25 000 visningar, sedan 0,5 %". */

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { NewCampaignClient } from "@/components/NewCampaignClient";
 import type { Platform } from "@/lib/types";
 
-export const metadata: Metadata = { title: "Ny kampanj · Klipp" };
+export const metadata: Metadata = { title: "New campaign · Clips" };
 
 type Query = string | string[] | undefined;
 type Keys = "channel" | "streamer" | "campaign" | "source" | "cpm" | "min_views" | "max_payout" | "platforms" | "scout" | "link";

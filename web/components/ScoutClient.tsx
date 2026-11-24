@@ -8,8 +8,8 @@ import { api } from "@/lib/api";
 import { serverTime } from "@/lib/utils";
 import type { CampaignProfile, ScoutCampaign, ScoutStatus } from "@/lib/types";
 
-const views = new Intl.NumberFormat("sv-SE");
-const when = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const views = new Intl.NumberFormat("en-US");
+const when = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 // Servern kör hämtningen i bakgrunden efter 202, och den tar upp till cirka 25 s.
 // Läs om var 3:e sekund tills updated_at eller error ändras, högst 30 s.
 const POLL_MS = 3000;

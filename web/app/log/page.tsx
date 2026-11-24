@@ -3,7 +3,7 @@ import { ClipLogClient } from "@/components/ClipLogClient";
 import { parseFilter } from "@/lib/statistik";
 import { serverApi } from "@/lib/server-api";
 
-export const metadata: Metadata = { title: "Statistik · Klipp" };
+export const metadata: Metadata = { title: "Stats · Clips" };
 
 // Data hämtas vid varje besök, så att sidan syns med innehåll innan JavaScript har laddats.
 export const dynamic = "force-dynamic";

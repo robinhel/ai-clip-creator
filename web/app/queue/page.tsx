@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { QueueClient } from "@/components/QueueClient";
 
-export const metadata: Metadata = { title: "Klippen · Klipp" };
+export const metadata: Metadata = { title: "Clips · Clips" };
 
 type Query = string | string[] | undefined;
 

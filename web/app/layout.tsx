@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Klipp",
-  description: "Kampanjklipp från Twitch-streams",
+  title: "Clips",
+  description: "Campaign clips from Twitch streams",
 };
 
 export default function RootLayout({
@@ -25,7 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="sv"
+      lang="en"
       // Appen är alltid mörk; klassen slår på shadcn:s dark:-varianter.
       className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >

@@ -113,7 +113,7 @@ export function useTikTokForm(clip: CampaignClip, creator: TikTokCreatorInfo | n
   };
 }
 
-const coverSec = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const coverSec = new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 /** Omslaget: ett reglage för tiden och bilden ur videon vid den tiden. */
 function CoverPicker({ clip, value, onChange }: { clip: CampaignClip; value: number | null; onChange: (s: number | null) => void }) {

@@ -30,7 +30,7 @@ export interface DraftRender {
   choices_key: string;
 }
 
-const DOWN = "Appens server svarar inte. Starta den och försök igen.";
+const DOWN = "The app server is not responding. Start it and try again.";
 
 /** Felet för Robin ur serverns svar: detail på svenska när den finns. */
 function errorFor(status: number, body: string): Error {
@@ -42,8 +42,8 @@ function errorFor(status: number, body: string): Error {
   }
   if (status === 503 && detail === "Backend unavailable") return new Error(DOWN);
   if (typeof detail === "string") return new Error(detail);
-  if (status === 422) return new Error("Servern godtog inte valen. Kontrollera fälten och försök igen.");
-  return new Error(`Servern svarade med fel ${status}. Försök igen.`);
+  if (status === 422) return new Error("The server did not accept the choices. Check the fields and try again.");
+  return new Error(`The server answered with error ${status}. Try again.`);
 }
 
 async function send<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -62,7 +62,7 @@ const draftPath = (id: string) => `${BASE}/drafts/${encodeURIComponent(id)}`;
 
 export class UploadAborted extends Error {
   constructor() {
-    super("Uppladdningen avbröts.");
+    super("The upload was cancelled.");
   }
 }
 

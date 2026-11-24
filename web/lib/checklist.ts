@@ -9,7 +9,7 @@ export interface ChecklistItem {
   href: string;
 }
 
-const ACCOUNT_LABEL: Record<AccountPlatform, string> = { tiktok: "ett TikTok-konto", youtube_shorts: "en YouTube-kanal" };
+const ACCOUNT_LABEL: Record<AccountPlatform, string> = { tiktok: "a TikTok account", youtube_shorts: "a YouTube channel" };
 
 /** Punkterna som gör kampanjen klar. Facecam bara när kampanjen har kamera, overlay bara när den krävs. */
 export function checklist(p: CampaignProfileDetail, accounts: ConnectedAccounts | null): ChecklistItem[] {
@@ -17,27 +17,27 @@ export function checklist(p: CampaignProfileDetail, accounts: ConnectedAccounts 
   const items: ChecklistItem[] = [
     {
       id: "lank",
-      label: "Länken till kampanjen i Content Rewards",
+      label: "The link to the campaign in Content Rewards",
       done: !!p.links.content_rewards,
-      todo: "Klistra in länken från kampanjsidan. Exempelklipp och inskicket använder den.",
+      todo: "Paste the link from the campaign page. Example clips and submitting use it.",
       href: `${base}&del=oversikt#lankar`,
     },
   ];
   if (p.overlay.required) {
     items.push({
       id: "overlay",
-      label: "Overlay-bilden",
+      label: "The overlay image",
       done: p.overlay.exists,
-      todo: "Ladda upp bilden från kampanjsidan. Utan den blir klippen underkända.",
+      todo: "Upload the image from the campaign page. Without it the clips fail the check.",
       href: `${base}&del=overlay`,
     });
   }
   if (p.facecam?.camera ?? true) {
     items.push({
       id: "facecam",
-      label: "Facecam- och spelrutan",
+      label: "Facecam and game boxes",
       done: p.facecam?.rects_set ?? !p.problems.some((x) => x.startsWith("Facecam- och spelrutan")),
-      todo: "Dra rutorna över kameran och spelet i en bild från streamen.",
+      todo: "Drag the boxes over the camera and the game in a frame from the stream.",
       href: `${base}&del=facecam`,
     });
   }
@@ -53,11 +53,11 @@ export function checklist(p: CampaignProfileDetail, accounts: ConnectedAccounts 
     });
     items.push({
       id: "konton",
-      label: "Kontona som postar",
+      label: "The accounts that post",
       done: accounts !== null && missing.length === 0,
       todo: accounts
-        ? `Koppla eller välj ${missing.map((m) => ACCOUNT_LABEL[m]).join(" och ")}.`
-        : "Läser kontona…",
+        ? `Connect or choose ${missing.map((m) => ACCOUNT_LABEL[m]).join(" and ")}.`
+        : "Loading the accounts…",
       href: `${base}&del=oversikt#konton`,
     });
   }

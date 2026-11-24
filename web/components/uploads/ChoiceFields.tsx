@@ -8,7 +8,7 @@ import type { CampaignProfile, StickerPosition } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { field, label } from "./ui";
 
-const num = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const num = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export type SetChoice = <K extends keyof Choices>(key: K, value: Choices[K]) => void;
 

@@ -20,7 +20,7 @@ const FOCUS_MAX = 300;
 const RUNS_POLL_MS = 5000;
 const SHOWN_PROJECTS = 6;
 const VIDEO_TYPES = [".mp4", ".mov", ".m4v", ".webm", ".mkv"];
-const gb = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
+const gb = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 
 /** Ett hinder före start. Med en länk till stället där det rättas, när det finns ett. */
 type Blocker = { text: string; href?: string; linkText?: string };
@@ -109,7 +109,7 @@ function WhopCard({ count }: { count: number }) {
   );
 }
 
-const streamDay = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" });
+const streamDay = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short" });
 /** Twitch kan sakna datumet; då sorteras streamen sist bland de nyaste. */
 const streamTime = (s: StreamInfo) => (s.created_at ? serverTime(s.created_at) : 0);
 

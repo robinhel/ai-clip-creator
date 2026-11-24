@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { CampaignDetailClient } from "@/components/CampaignDetailClient";
 
-export const metadata: Metadata = { title: "Kampanj · Klipp" };
+export const metadata: Metadata = { title: "Campaign · Clips" };
 
 type Query = string | string[] | undefined;
 type Props = {

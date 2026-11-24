@@ -42,11 +42,11 @@ import {
 import { cn, serverTime, SUMMARY_CHANGED } from "@/lib/utils";
 import type { CampaignClip, CampaignRunInfo, CampaignStatus, CampaignSummary, ClipPostPatch } from "@/lib/types";
 
-const usd = new Intl.NumberFormat("sv-SE", { style: "currency", currency: "USD" });
-const count = new Intl.NumberFormat("sv-SE");
-const percent = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const decimal = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
-const date = new Intl.DateTimeFormat("sv-SE", { dateStyle: "medium" });
+const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const count = new Intl.NumberFormat("en-US");
+const percent = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const decimal = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
+const date = new Intl.DateTimeFormat("en-US", { dateStyle: "medium" });
 const DAY_MS = 86_400_000;
 
 /** Klipp från Egna videor har vod_id upload (campaign/uploads_api.py). */
@@ -117,7 +117,7 @@ function BudgetSection({ budget }: { budget: CampaignSummary["budget"] }) {
 }
 
 type Earnings = NonNullable<CampaignSummary["earnings"]>;
-const monthName = new Intl.DateTimeFormat("sv-SE", { month: "short", year: "2-digit" });
+const monthName = new Intl.DateTimeFormat("en-US", { month: "short", year: "2-digit" });
 
 /** Staplar per månad i SVG, med beloppet ovanför varje stapel. */
 function MonthChart({ months }: { months: Earnings["by_month"] }) {

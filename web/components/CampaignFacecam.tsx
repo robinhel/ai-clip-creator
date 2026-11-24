@@ -14,7 +14,7 @@ const MIN = 50;
 const SPLIT_MIN = 0.25;
 const SPLIT_MAX = 0.6;
 const MAX_CAMS = 4;
-const day = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" });
+const day = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short" });
 
 type Kind = "webcam" | "gameplay";
 /** En kamerarutas plats i listan, eller spelrutan. */

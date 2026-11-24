@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { CampaignsClient } from "@/components/CampaignsClient";
 
-export const metadata: Metadata = { title: "Kampanjer · Klipp" };
+export const metadata: Metadata = { title: "Campaigns · Clips" };
 
 type Props = { searchParams: Promise<{ flik?: string | string[] }> };
 

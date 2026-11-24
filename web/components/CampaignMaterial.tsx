@@ -9,7 +9,7 @@ import { groupByWeek } from "@/lib/material";
 import { cn, duration, serverTime } from "@/lib/utils";
 import type { CampaignProfileDetail, MaterialItem, StreamInfo } from "@/lib/types";
 
-const day = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" });
+const day = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short" });
 const link = "font-medium text-foreground underline underline-offset-4";
 
 function Tag({ children, tone = "plain" }: { children: React.ReactNode; tone?: "plain" | "good" | "muted" }) {

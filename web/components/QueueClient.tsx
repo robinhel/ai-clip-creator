@@ -43,7 +43,7 @@ const TABS: Record<ClipStep, { label: string; description: string }> = {
 const POLL_MS = 15_000;
 const UPLOAD = "upload";
 const PENDING = ["waiting", "running"];
-const timeText = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit" });
+const timeText = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit" });
 
 /** Besked efter ett steg, fast längst ner, med länk till nästa steg och Ångra. */
 interface Notice {

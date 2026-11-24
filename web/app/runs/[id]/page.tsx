@@ -15,14 +15,14 @@ import { clock, cn, duration, serverTime, usd } from "@/lib/utils";
 import type { CampaignClip, CampaignProfile, CampaignRunDetail, Run, RunStep } from "@/lib/types";
 
 const POLL_INTERVAL_MS = 3000;
-const day = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" });
+const day = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short" });
 
 /** Nycklar läggs in under Inställningar. Texten kommer från servern, till exempel "Berget-nyckeln (BERGET_API_KEY) saknas. Lägg in den under Inställningar. Den behövs för transkriberingen." */
 function KeyFix({ text }: { text?: string | null }) {
-  if (!text || !/API_KEY|nyckel/i.test(text)) return null;
+  if (!text || !/API_KEY|nyckel|key/i.test(text)) return null;
   return (
     <Link href="/settings" className="mt-1 inline-block text-sm font-medium text-foreground underline underline-offset-4">
-      Lägg in nyckeln i Inställningar
+      Add the key in Settings
     </Link>
   );
 }
@@ -31,25 +31,25 @@ function KeyFix({ text }: { text?: string | null }) {
 const hms = (s: number) => `${Math.floor(s / 3600)}:${clock(s % 3600).padStart(5, "0")}`;
 
 function stepTime(step: RunStep, now: number): string {
-  if (step.status === "waiting") return step.estimate_s ? `cirka ${duration(step.estimate_s)}` : "";
+  if (step.status === "waiting") return step.estimate_s ? `about ${duration(step.estimate_s)}` : "";
   const started = step.started_at ? serverTime(step.started_at) : null;
   if (!started) return "";
   if (step.status === "done") return step.finished_at ? duration((serverTime(step.finished_at) - started) / 1000) : "";
   if (step.status !== "running") return "";
   const elapsed = duration((now - started) / 1000);
-  return step.estimate_s ? `${elapsed} av cirka ${duration(step.estimate_s)}` : elapsed;
+  return step.estimate_s ? `${elapsed} of about ${duration(step.estimate_s)}` : elapsed;
 }
 
 /** Tunn stapel när steget säger "Del N av M", som transkriberingen gör per del till Berget. */
 function PartBar({ message }: { message?: string | null }) {
-  const m = message?.match(/^Del (\d+) av (\d+)$/);
+  const m = message?.match(/^(?:Part|Del) (\d+) (?:of|av) (\d+)$/);
   if (!m || Number(m[2]) === 0) return null;
   // Meddelandet kommer när del N börjar, så N - 1 delar är klara.
   const pct = Math.min(100, ((Number(m[1]) - 1) / Number(m[2])) * 100);
   return (
     <div
       role="progressbar"
-      aria-label="Delar klara"
+      aria-label="Parts done"
       aria-valuenow={Math.round(pct)}
       aria-valuemin={0}
       aria-valuemax={100}
@@ -83,7 +83,7 @@ function StepIcon({ step, number }: { step: RunStep; number: number }) {
 
 function Steps({ steps, cancelled }: { steps: RunStep[]; cancelled?: boolean }) {
   const now = Date.now();
-  const stateText = { waiting: "Väntar", running: "Pågår", done: "Klart", failed: cancelled ? "Avbröts här" : "Misslyckades" };
+  const stateText = { waiting: "Waiting", running: "Running", done: "Done", failed: cancelled ? "Cancelled here" : "Failed" };
   return (
     <ol className="max-w-[640px]">
       {steps.map((step, i) => (
@@ -122,16 +122,16 @@ function runPart(run: CampaignRunDetail): string | null {
   const end = run.end_s ?? 0;
   if (!start && !end) return null;
   const last = end || run.duration_s;
-  return `${hms(start)}–${last ? hms(last) : "slutet"}`;
+  return `${hms(start)}–${last ? hms(last) : "the end"}`;
 }
 
 /** "Kostar cirka 0,05 US$ (Berget 0,01 US$, Claude 0,04 US$). " I snabbläget bara Berget. */
 function costText(run: CampaignRunDetail): string {
   const cost = run.cost_estimate;
-  if (run.fast && cost) return `Kostar cirka ${usd.format(cost.berget_usd)} hos Berget. Signalerna väljer, utan Claude. `;
+  if (run.fast && cost) return `Costs about ${usd.format(cost.berget_usd)} at Berget. The signals choose, without Claude. `;
   if (run.cost_estimate_usd == null) return "";
   const parts = cost ? ` (Berget ${usd.format(cost.berget_usd)}, Claude ${usd.format(cost.claude_usd)})` : "";
-  return `Kostar cirka ${usd.format(run.cost_estimate_usd)}${parts}. `;
+  return `Costs about ${usd.format(run.cost_estimate_usd)}${parts}. `;
 }
 
 function RunHeader({ run, clips }: { run: CampaignRunDetail; clips: CampaignClip[] | null }) {
@@ -156,9 +156,9 @@ function SupersededNote({ latestRunId }: { latestRunId: number | null }) {
   if (latestRunId == null) return null;
   return (
     <p role="status" className="mt-3 mb-5 rounded-lg border border-line bg-panel px-3 py-2 text-sm text-muted-foreground">
-      Det här är ett äldre försök. Projektet har körts igen.{" "}
+      This is an older run. The project has been run again.{" "}
       <Link href={`/runs/${latestRunId}`} className="font-medium text-foreground underline underline-offset-4">
-        Öppna det senaste försöket
+        Open the latest run
       </Link>
       .
     </p>
@@ -177,9 +177,9 @@ function ProjectLink({ projectId }: { projectId: number }) {
   return (
     <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
       <FolderOpen className="size-4 shrink-0" aria-hidden />
-      Del av projektet:{" "}
+      Part of the project:{" "}
       <Link href={`/projects/${projectId}`} className="font-medium text-foreground underline underline-offset-4">
-        {title ?? `projekt ${projectId}`}
+        {title ?? `project ${projectId}`}
       </Link>
     </p>
   );
@@ -210,19 +210,19 @@ function CancelBar({ onCancel }: { onCancel: () => Promise<string | null> }) {
       )}
       {step === "ask" && (
         <>
-          <span>Avbryta? Klipp som redan är klara sparas. En halv nedladdning tas bort.</span>
+          <span>Cancel? Clips that are already done are kept. A partial download is deleted.</span>
           <Button variant="destructive" className="h-8" onClick={cancel}>
-            Ja, avbryt
+            Yes, cancel
           </Button>
           <Button variant="outline" className="h-8" onClick={() => setStep("idle")}>
-            Nej, fortsätt
+            No, continue
           </Button>
         </>
       )}
       {step === "sent" && (
         <span role="status" className="inline-flex items-center gap-1.5 text-muted-foreground">
           <Loader2 className="size-3.5 animate-spin" aria-hidden />
-          Avbryter. Det stoppar vid nästa steg, före nästa anrop till Claude.
+          Cancelling. It stops at the next step, before the next call to Claude.
         </span>
       )}
       {error && <span className="text-[#fca5a5]">{error}</span>}
@@ -238,7 +238,7 @@ function NotifyLine() {
     return (
       <Button variant="outline" className="mb-3 h-8" onClick={async () => setPermission(await Notification.requestPermission())}>
         <Bell aria-hidden />
-        Få en notis när projektet är klart
+        Get a notification when the project is done
       </Button>
     );
   }
@@ -246,11 +246,11 @@ function NotifyLine() {
     return (
       <p className="mb-3 flex items-center gap-1.5 text-[13px] text-muted-foreground">
         <Bell className="size-3.5" aria-hidden />
-        Du får en notis när projektet är klart, om sidan är öppen.
+        You will get a notification when the project is done, if the page is open.
       </p>
     );
   }
-  if (permission === "denied") return <p className="mb-3 text-[13px] text-muted-foreground">Notiser är avstängda för appen i webbläsaren.</p>;
+  if (permission === "denied") return <p className="mb-3 text-[13px] text-muted-foreground">Notifications are turned off for the app in the browser.</p>;
   return null;
 }
 
@@ -259,9 +259,9 @@ function ActiveInfo({ run, onCancel }: { run: CampaignRunDetail; onCancel: () =>
   return (
     <>
       <p className="mb-2 max-w-[640px] text-sm text-muted-foreground">
-        {run.eta_s != null ? `Cirka ${duration(run.eta_s)} kvar. ` : ""}
+        {run.eta_s != null ? `About ${duration(run.eta_s)} left. ` : ""}
         {costText(run)}
-        Du kan stänga sidan. Klippen dyker upp nedanför när de är klara.
+        You can close the page. The clips show up below when they are done.
       </p>
       {run.cancellable && <CancelBar onCancel={onCancel} />}
       <NotifyLine />
@@ -282,7 +282,7 @@ function RetryButton({ run, retrying, retryError, onRetry, keyText }: RetryProps
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
         <Button className="h-9" onClick={onRetry} disabled={retrying || !!run.retry_problem}>
           {retrying ? <Loader2 className="animate-spin" aria-hidden /> : <RotateCcw aria-hidden />}
-          {retrying ? "Startar…" : "Kör igen"}
+          {retrying ? "Starting…" : "Run again"}
         </Button>
         <KeyFix text={keyText} />
       </div>
@@ -294,27 +294,27 @@ function RetryButton({ run, retrying, retryError, onRetry, keyText }: RetryProps
 /** Vad Kör igen gör efter ett fel. */
 function retryText(run: CampaignRunDetail, failedStep: string | null | undefined): string {
   if (run.retry_problem) return run.retry_problem;
-  return failedStep === "transcribe" ? "Klara delar är sparade. Kör igen fortsätter där det stoppade." : "Kör igen startar om med samma val.";
+  return failedStep === "transcribe" ? "Finished parts are saved. Run again continues where it stopped." : "Run again starts over with the same choices.";
 }
 
 /** Ett projekt som stoppade: avbrutet av Robin, misslyckat, eller ett äldre försök. */
 function FailedBox({ run, superseded, ...retry }: RetryProps & { run: CampaignRunDetail; superseded: boolean }) {
   const failedStep = run.steps.find((s) => s.status === "failed")?.id ?? run.stage;
   if (superseded) {
-    const why = run.cancelled ? "Du avbröt försöket." : `Försöket misslyckades${run.error ? `: ${run.error.replace(/\.?$/, ".")}` : "."}`;
+    const why = run.cancelled ? "You cancelled the run." : `The run failed${run.error ? `: ${run.error.replace(/\.?$/, ".")}` : "."}`;
     return (
       <p className="mb-4 max-w-[640px] text-sm text-muted-foreground">
-        {why} Projektet har körts igen, så det behöver inte köras igen.
+        {why} The project has been run again, so it does not need to run again.
       </p>
     );
   }
   if (run.cancelled) {
     return (
       <div role="status" className="mb-4 max-w-[640px] rounded-lg border border-line bg-panel p-4">
-        <p className="font-medium">Du avbröt</p>
+        <p className="font-medium">You cancelled</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Klipp som hann bli klara finns kvar nedanför. Kör igen startar om med samma val
-          {failedStep === "transcribe" ? ", och klara delar av transkriberingen används igen" : ""}.
+          Clips that were finished are still below. Run again starts over with the same choices
+          {failedStep === "transcribe" ? ", and finished parts of the transcription are reused" : ""}.
         </p>
         <RetryButton run={run} {...retry} keyText={retry.retryError} />
       </div>
@@ -322,7 +322,7 @@ function FailedBox({ run, superseded, ...retry }: RetryProps & { run: CampaignRu
   }
   return (
     <div role="alert" className="mb-4 max-w-[640px] rounded-lg border border-[#4d1d1d] bg-[#1c0f10] p-4">
-      <p className="font-medium text-[#fca5a5]">Projektet misslyckades</p>
+      <p className="font-medium text-[#fca5a5]">The project failed</p>
       {run.error && <p className="mt-1 font-mono text-[13px] break-words text-[#f2c4c4]">{run.error}</p>}
       <p className="mt-3 text-sm text-muted-foreground">{retryText(run, failedStep)}</p>
       <RetryButton run={run} {...retry} keyText={retry.retryError || run.error} />
@@ -346,7 +346,7 @@ function FinishNotes({ result, error, running }: { result: string | null; error:
       )}
       {running && (
         <p className="mt-4 rounded-lg border border-line bg-panel px-3 py-2 text-sm text-muted-foreground">
-          Overlay, text, caption och regelkontroll körs om. Det tar några minuter. Klippen nedan uppdateras när det är klart.
+          Overlay, text, caption and rule check run again. It takes a few minutes. The clips below update when it is done.
         </p>
       )}
     </>
@@ -365,12 +365,12 @@ function useDoneNotice(run: CampaignRunDetail | null, isActive: boolean) {
     if (!wasActive.current || (run.status !== "done" && run.status !== "failed")) return;
     wasActive.current = false;
     const done = run.status === "done";
-    const title = done ? "✓ Klar" : "✗ Misslyckades";
+    const title = done ? "✓ Done" : "✗ Failed";
     const name = run.title || `VOD ${run.vod_id}`;
     const previous = document.title;
     document.title = title;
     if (notifyPermission() === "granted") {
-      new Notification(title, { body: done ? `${name}: ${countClips(run.clip_counts)} klipp att granska.` : `${name}: projektet stoppade. Öppna projektet för att se varför.` });
+      new Notification(title, { body: done ? `${name}: ${countClips(run.clip_counts)} clips to review.` : `${name}: the project stopped. Open the project to see why.` });
     }
     // Fliktiteln visar resultatet tills du tittar på sidan igen.
     function restore() {
@@ -392,7 +392,7 @@ function PageMessage({ error }: { error: string | null }) {
   if (!error) {
     return (
       <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
-        <p className="text-sm text-muted-foreground">Hämtar projektet…</p>
+        <p className="text-sm text-muted-foreground">Loading the project…</p>
       </main>
     );
   }
@@ -402,7 +402,7 @@ function PageMessage({ error }: { error: string | null }) {
         {error}
       </p>
       <Link href="/projects" className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground">
-        Till alla projekt
+        To all projects
       </Link>
     </main>
   );
@@ -412,8 +412,8 @@ function PageMessage({ error }: { error: string | null }) {
 function redoneText(clips: CampaignClip[], before: Map<number, string>): string {
   const redone = clips.filter((c) => before.has(c.id) && before.get(c.id) !== c.updated).length;
   const skipped = clips.filter((c) => before.has(c.id)).length - redone;
-  const note = skipped ? ` ${skipped} klipp rördes inte, till exempel klipp som väntar på ditt ja, så att en ändrad caption inte skrivs över.` : "";
-  return `${redone} klipp gjordes om.${note}`;
+  const note = skipped ? ` ${skipped} clips were not touched, for example clips waiting for your yes, so that an edited caption is not overwritten.` : "";
+  return `${redone} clips were redone.${note}`;
 }
 
 /** Gör klippen kampanjklara igen: startar, ser när clipsmiths körning är klar och säger vilka klipp som gjordes om. */
@@ -438,7 +438,7 @@ function useFinishAgain(runId: number, run: CampaignRunDetail | null, clips: Cam
       setStartedAt(Date.now() - 1000);
     } catch (err) {
       before.current = null;
-      setError(errorText(err, "Kunde inte göra klippen kampanjklara igen. Försök igen."));
+      setError(errorText(err, "Could not make the clips campaign-ready again. Try again."));
     }
   }
 
@@ -476,7 +476,7 @@ function useRun(runId: number) {
 
   const fetchRun = useCallback(async () => {
     if (!validId) {
-      setError("Projektet finns inte. Kontrollera länken.");
+      setError("The project does not exist. Check the link.");
       return null;
     }
     try {
@@ -485,7 +485,7 @@ function useRun(runId: number) {
       setError(null);
       return data;
     } catch (err) {
-      setError(errorText(err, "Kunde inte hämta projektet"));
+      setError(errorText(err, "Could not load the project"));
       return null;
     }
   }, [runId, validId]);
@@ -528,10 +528,10 @@ function FinishButton({ running, disabled, onClick }: { running: boolean; disabl
       className="h-9"
       onClick={onClick}
       disabled={disabled || running}
-      title="Lägger på overlay och text, skriver caption och kör regelkontrollen igen"
+      title="Adds overlay and text, writes the caption and runs the rule check again"
     >
       {running ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
-      {running ? "Gör klippen klara…" : "Gör klippen kampanjklara igen"}
+      {running ? "Making the clips ready…" : "Make clips campaign-ready again"}
     </Button>
   );
 }
@@ -563,7 +563,7 @@ export default function RunDetailPage() {
       const { id } = await api.campaign.runs.retry(runId);
       router.push(`/runs/${id}`);
     } catch (err) {
-      setRetryError(errorText(err, "Kunde inte köra igen"));
+      setRetryError(errorText(err, "Could not run again"));
       setRetrying(false);
     }
   }
@@ -575,7 +575,7 @@ export default function RunDetailPage() {
       await fetchRun();
       return null;
     } catch (err) {
-      return errorText(err, "Kunde inte avbryta");
+      return errorText(err, "Could not cancel");
     }
   }
 
@@ -593,7 +593,7 @@ export default function RunDetailPage() {
   return (
     <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
       <Link href="/projects" className="text-sm text-muted-foreground hover:text-foreground">
-        ← Alla projekt
+        ← All projects
       </Link>
       {run.project_id != null && <ProjectLink projectId={run.project_id} />}
       {superseded && <SupersededNote latestRunId={latestRunId} />}
@@ -611,8 +611,8 @@ export default function RunDetailPage() {
 
       {error && (
         <p role="status" className="mt-3 text-sm text-muted-foreground">
-          Kunde inte läsa om projektet: {error}
-          {isActive || finish.running ? " Försöker igen om några sekunder." : ""}
+          Could not reload the project: {error}
+          {isActive || finish.running ? " Trying again in a few seconds." : ""}
         </p>
       )}
       <FinishNotes result={finish.result} error={finish.error} running={finish.running && !isActive} />

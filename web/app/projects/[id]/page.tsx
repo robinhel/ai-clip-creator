@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { ProjectClient } from "@/components/ProjectClient";
 
-export const metadata: Metadata = { title: "Projekt · Klipp" };
+export const metadata: Metadata = { title: "Project · Clips" };
 
 type Props = { params: Promise<{ id: string }> };
 

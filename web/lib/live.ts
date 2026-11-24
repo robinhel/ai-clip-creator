@@ -12,21 +12,21 @@ export type ChannelInput = { login: string } | { error: string };
 /** Gör om fältet "Twitch-kanal" (namn eller kanallänk) till ett login med små bokstäver. */
 export function channelLogin(text: string): ChannelInput {
   const value = text.trim();
-  if (!value) return { error: "Skriv en Twitch-kanal, till exempel ishowspeed." };
+  if (!value) return { error: "Enter a Twitch channel, for example ishowspeed." };
   if (parseTwitchLink(value).vodId) {
-    return { error: "Det är en länk till en video. Skriv kanalens namn eller länken till kanalen." };
+    return { error: "That is a link to a video. Enter the channel name or the link to the channel." };
   }
   const login = (value.match(CHANNEL_LINK)?.[1] ?? value).toLowerCase();
   if (!LOGIN.test(login)) {
-    return { error: "Det är ingen Twitch-kanal. Skriv namnet, till exempel ishowspeed, eller länken till kanalen." };
+    return { error: "That is not a Twitch channel. Enter the name, for example ishowspeed, or the link to the channel." };
   }
   return { login };
 }
 
 /** Läget för en fri kanal, som text. */
 export function channelStateText(watch: Pick<LiveWatch, "watching" | "live">): string {
-  if (!watch.watching) return "Bevakas inte";
-  return watch.live ? "Live nu. Appen spelar in strömmen." : "Väntar på att kanalen går live";
+  if (!watch.watching) return "Not watched";
+  return watch.live ? "Live now. The app is recording the stream." : "Waiting for the channel to go live";
 }
 
 /** Bevakningen för kampanjen, eller de fria kanalerna när profile är null. */
@@ -42,18 +42,18 @@ export function withChannel(channels: LiveWatch[], watch: LiveWatch): LiveWatch[
 export const errorMessage = (err: unknown, fallback: string): string => (err instanceof Error ? err.message : fallback);
 
 const STATUS_TEXT: Record<PeakStatus, string> = {
-  vantar: "Väntar",
-  hamtar: "Hämtar delen",
-  ko: "I kö",
-  kor: "Gör klippen",
-  klar: "Klar",
-  fel: "Misslyckades",
-  hoppad: "Hoppades över",
+  vantar: "Waiting",
+  hamtar: "Downloading the part",
+  ko: "Queued",
+  kor: "Making the clips",
+  klar: "Done",
+  fel: "Failed",
+  hoppad: "Skipped",
 };
 
 export const statusText = (status: PeakStatus): string => STATUS_TEXT[status];
 
-const clock = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit" });
+const clock = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit" });
 
 /** Tiden som HH:MM i svensk tid. Tom text om tiden inte går att läsa. */
 export function timeText(iso: string): string {

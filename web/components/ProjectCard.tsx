@@ -17,7 +17,7 @@ import {
 import { serverTime } from "@/lib/utils";
 import type { CampaignProject, CampaignRunInfo } from "@/lib/types";
 
-const day = new Intl.DateTimeFormat("sv-SE", { day: "numeric", month: "short" });
+const day = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short" });
 
 export const isActive = (run: CampaignRunInfo) => isRunning(run.status);
 

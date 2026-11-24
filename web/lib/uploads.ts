@@ -4,15 +4,15 @@ import type { StickerPosition } from "./types";
 // Samma val som servern (campaign/versions.py och campaign/drafts.py). Servern kontrollerar dem.
 export const SPEEDS = [1, 1.05, 1.1, 1.15, 1.2];
 export const FILTERS: [string, string][] = [
-  ["none", "Inget"],
-  ["fresh", "Fräsch"],
-  ["warm", "Varm"],
-  ["cool", "Kall"],
-  ["punch", "Kraftig"],
+  ["none", "None"],
+  ["fresh", "Fresh"],
+  ["warm", "Warm"],
+  ["cool", "Cool"],
+  ["punch", "Punchy"],
 ];
 export const FRAMINGS: [string, string, string][] = [
-  ["fill", "Fyll bilden", "Zoomar in och skär bort kanterna."],
-  ["fit", "Hela bilden", "Hela bilden på en suddig bakgrund."],
+  ["fill", "Fill the frame", "Zooms in and crops the edges."],
+  ["fit", "Whole frame", "The whole frame on a blurred background."],
 ];
 const POSITION_VALUES: StickerPosition[] = ["top_left", "top_right", "center", "bottom_left", "bottom_right"];
 
@@ -22,9 +22,9 @@ export const ACCEPT = VIDEO_TYPES.join(",");
 /** Ljudet i klippet: originalljudet, tyst eller musik ur kampanjens mapp. */
 export type Audio = "keep" | "mute" | "music";
 export const AUDIOS: [Audio, string][] = [
-  ["keep", "Behåll ljudet"],
-  ["mute", "Tyst"],
-  ["music", "Musik"],
+  ["keep", "Keep the audio"],
+  ["mute", "Mute"],
+  ["music", "Music"],
 ];
 // Samma filer som servern tar emot i POST /campaign/uploads/music: ljudfiler och videor.
 export const MUSIC_TYPES = [".mp3", ".m4a", ".aac", ".wav", ".ogg", ".flac", ...VIDEO_TYPES];
@@ -79,9 +79,9 @@ export const START_CHOICES: Choices = {
 /** Sekunder ur ett fält. Robin kan skriva komma. */
 export const seconds = (text: string) => Number(text.replace(",", "."));
 
-const oneDecimal = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
+const oneDecimal = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 // Två decimaler när längden är utanför gränserna, så att 45,04 s inte visas som 45 s när taket är 45 s.
-const twoDecimals = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 2 });
+const twoDecimals = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
 /** Sekunder med decimalkomma, högst en decimal: 18,2. */
 export const formatSeconds = (s: number) => oneDecimal.format(s);
@@ -105,18 +105,18 @@ export function lengthCheck(length: number, min: number, max: number | null | un
   if (length < min) {
     return {
       ok: false,
-      text: `Klippet blir ${twoDecimals.format(Math.max(length, 0))} s. Kampanjen kräver minst ${twoDecimals.format(min)} s. Flytta starten tidigare eller slutet senare, eller välj lägre hastighet.`,
+      text: `The clip will be ${twoDecimals.format(Math.max(length, 0))} s. The campaign requires at least ${twoDecimals.format(min)} s. Move the start earlier or the end later, or choose a lower speed.`,
     };
   }
   if (max != null && length > max) {
     return {
       ok: false,
-      text: `Klippet blir ${twoDecimals.format(length)} s. Kampanjen tillåter högst ${twoDecimals.format(max)} s. Flytta starten senare eller slutet tidigare, eller välj högre hastighet.`,
+      text: `The clip will be ${twoDecimals.format(length)} s. The campaign allows at most ${twoDecimals.format(max)} s. Move the start later or the end earlier, or choose a higher speed.`,
     };
   }
   const limits =
-    max != null ? `Kampanjen tillåter ${twoDecimals.format(min)}–${twoDecimals.format(max)} s.` : `Kampanjen kräver minst ${twoDecimals.format(min)} s.`;
-  return { ok: true, text: `Klippet blir ${oneDecimal.format(length)} s. ${limits}` };
+    max != null ? `The campaign allows ${twoDecimals.format(min)}–${twoDecimals.format(max)} s.` : `The campaign requires at least ${twoDecimals.format(min)} s.`;
+  return { ok: true, text: `The clip will be ${oneDecimal.format(length)} s. ${limits}` };
 }
 
 /** Kontrollerar klistermärkets tider. null när de går att använda. */
@@ -124,24 +124,24 @@ export function stickerProblemText(c: Choices): string | null {
   if (!c.sticker) return null;
   const startS = seconds(c.stickerStart);
   const lengthS = seconds(c.stickerLength);
-  if (!Number.isFinite(startS) || startS < 0) return "Klistermärkets start får inte vara negativ.";
+  if (!Number.isFinite(startS) || startS < 0) return "The sticker start cannot be negative.";
   const tooShortOrLong = lengthS < 0.5 || lengthS > 10;
-  return Number.isFinite(lengthS) && !tooShortOrLong ? null : "Klistermärket ska synas 0,5–10 s.";
+  return Number.isFinite(lengthS) && !tooShortOrLong ? null : "The sticker must show for 0.5–10 s.";
 }
 
 /** Kontrollerar musikens val. null när de går att använda. */
 export function audioProblemText(c: Choices): string | null {
   if (c.audio !== "music") return null;
-  if (!c.music) return "Välj en låt under Ljud, eller lägg till musik.";
+  if (!c.music) return "Choose a song under Audio, or add music.";
   const startS = seconds(c.musicStart);
-  return Number.isFinite(startS) && startS >= 0 ? null : "Starten i musiken ska vara 0 s eller mer.";
+  return Number.isFinite(startS) && startS >= 0 ? null : "The start in the music must be 0 s or more.";
 }
 
 /** Texterna vid reglaget när originalljudet är 0 %. Tom lista när det hörs. */
 export function volumeWarning(originalVolume: number, rules: string[] | null | undefined): string[] {
   if (originalVolume > 0) return [];
-  const warning = ["Originalljudet hörs inte i klippet."];
-  return rules?.length ? [...warning, "Läs kampanjens regel ovan."] : warning;
+  const warning = ["The original audio is not heard in the clip."];
+  return rules?.length ? [...warning, "Read the campaign's rule above."] : warning;
 }
 
 /** Ljudet med serverns namn. Musikens fält bara när Musik är valt. Bilden har inget ljud, så frame får dem inte. */
@@ -216,14 +216,14 @@ export function splitVideoFiles<T extends { name: string }>(files: ArrayLike<T> 
 /** Texten när filen inte är en ljudfil eller video, innan den laddas upp. null när den går att använda. */
 export function musicFileProblem(name: string): string | null {
   if (MUSIC_TYPES.some((type) => name.toLowerCase().endsWith(type))) return null;
-  return `${name} är ingen ljudfil eller video. Välj mp3, m4a, aac, wav, ogg, flac, mp4, mov, m4v, webm eller mkv.`;
+  return `${name} is not an audio file or video. Choose mp3, m4a, aac, wav, ogg, flac, mp4, mov, m4v, webm or mkv.`;
 }
 
 /** "a.txt och b.png är ingen video …", eller null när alla filer var videor. */
 export function rejectText(rejected: string[]): string | null {
   if (rejected.length === 0) return null;
-  const names = rejected.length === 1 ? rejected[0] : `${rejected.slice(0, -1).join(", ")} och ${rejected.at(-1)}`;
-  return `${names} är ingen video och togs inte med. Välj mp4, mov, m4v, webm eller mkv.`;
+  const names = rejected.length === 1 ? rejected[0] : `${rejected.slice(0, -1).join(", ")} and ${rejected.at(-1)}`;
+  return `${names} is not a video and was not added. Choose mp4, mov, m4v, webm or mkv.`;
 }
 
 /** Som localStorage. Ett eget gränssnitt, så att testerna kan använda ett i minnet. */
@@ -292,7 +292,7 @@ export function copyChoices(from: Choices, to: Choices): Choices {
 /** ", där 2 egna klipp redan väntar" i texten överst. */
 export function alreadyWaiting(approved: number): string {
   if (approved === 0) return "";
-  return approved === 1 ? ", där 1 eget klipp redan väntar" : `, där ${approved} egna klipp redan väntar`;
+  return approved === 1 ? ", where 1 own clip is already waiting" : `, where ${approved} own clips are already waiting`;
 }
 
 /** Storleken på en fil: 12,3 MB. */

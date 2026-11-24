@@ -3,22 +3,22 @@ import { serverTime } from "./utils";
 
 /** Siffrorna som fylls i per inlägg, med orden som Statistik visar. */
 export const STATS = [
-  { key: "views", label: "Visningar" },
-  { key: "likes", label: "Gillningar" },
-  { key: "comments", label: "Kommentarer" },
-  { key: "shares", label: "Delningar" },
+  { key: "views", label: "Views" },
+  { key: "likes", label: "Likes" },
+  { key: "comments", label: "Comments" },
+  { key: "shares", label: "Shares" },
 ] as const;
 export type StatKey = (typeof STATS)[number]["key"];
 
-const PERCENT = { max: 100, hint: "skriv ett tal från 0 till 100, till exempel 45,5." } as const;
+const PERCENT = { max: 100, hint: "enter a number from 0 to 100, for example 45.5." } as const;
 
 /** Fler mått per inlägg, ifyllda från TikTok Studio. Sparningar är ett helt tal, de andra tal med decimaler upp till max. */
 export const METRICS = [
-  { key: "avg_watch_s", label: "Tittartid (s)", max: Infinity, hint: "skriv sekunderna, till exempel 6,4." },
-  { key: "full_pct", label: "Ser klart (%)", ...PERCENT },
-  { key: "fyp_pct", label: "Från För dig (%)", ...PERCENT },
-  { key: "saves", label: "Sparningar", hint: "skriv ett helt tal utan decimaler, till exempel 12." },
-  { key: "countries_pct", label: "Från kampanjens länder (%)", ...PERCENT },
+  { key: "avg_watch_s", label: "Watch time (s)", max: Infinity, hint: "enter the seconds, for example 6.4." },
+  { key: "full_pct", label: "Watched full (%)", ...PERCENT },
+  { key: "fyp_pct", label: "From For You (%)", ...PERCENT },
+  { key: "saves", label: "Saves", hint: "enter a whole number without decimals, for example 12." },
+  { key: "countries_pct", label: "From the campaign's countries (%)", ...PERCENT },
 ] as const;
 export type MetricKey = (typeof METRICS)[number]["key"];
 type Metric = (typeof METRICS)[number];
@@ -102,8 +102,8 @@ export function buildPatch(draft: Draft, saved: Saved, status?: CampaignStatus):
 
 /** Felet när Betalt eller ett av de fyra talen inte går att läsa. */
 function errorFor(key: Field): string {
-  if (key === "paid") return "Betalt: skriv beloppet i dollar, till exempel 12,50.";
-  return `${STATS.find((s) => s.key === key)!.label}: skriv ett helt tal utan decimaler, till exempel 2500.`;
+  if (key === "paid") return "Paid: enter the amount in dollars, for example 12.50.";
+  return `${STATS.find((s) => s.key === key)!.label}: enter a whole number without decimals, for example 2500.`;
 }
 
 /** Tittartiden i procent av klippets längd, med en decimal. null: längden eller tittartiden saknas. */
@@ -122,7 +122,7 @@ export interface LengthGroup {
 const LENGTHS: { label: string; has: (seconds: number) => boolean }[] = [
   { label: "Under 15 s", has: (s) => s < 15 },
   { label: "15–20 s", has: (s) => s >= 15 && s <= 20 },
-  { label: "Över 20 s", has: (s) => s > 20 },
+  { label: "Over 20 s", has: (s) => s > 20 },
 ];
 
 function lengthGroup(label: string, rows: Row[]): LengthGroup {
@@ -138,7 +138,7 @@ export function lengthGroups(rows: Row[]): LengthGroup[] {
     lengthGroup(label, posts.filter(({ clip }) => clip.length_s != null && has(clip.length_s)))
   );
   const unknown = posts.filter(({ clip }) => clip.length_s == null);
-  return unknown.length ? [...groups, lengthGroup("Okänd längd", unknown)] : groups;
+  return unknown.length ? [...groups, lengthGroup("Unknown length", unknown)] : groups;
 }
 
 /** Statusar där klippet har minst ett inlägg. */

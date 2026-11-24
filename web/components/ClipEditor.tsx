@@ -16,11 +16,11 @@ type Handle = "in" | "out";
 
 const STEP = 0.1;
 const tenth = (s: number) => Math.round(s * 10) / 10;
-const sec = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const sec = new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const fmt = (s: number) => `${sec.format(s)} s`;
 
 // Två decimaler i felet, så att 14,97 s inte visas som 15,0 s när gränsen är 15 s.
-const exactSec = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+const exactSec = new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 2 });
 
 /** Felet för längden, eller null om den ligger inom kampanjens gränser. Exakt min–max, som servern. */
 export function lengthProblem(length: number, min: number | null, max: number | null): string | null {

@@ -7,8 +7,8 @@ export default function Page() {
     return (
       <main className="flex min-h-screen items-center justify-center">
         <div className="text-center space-y-2">
-          <p className="text-lg font-semibold">Tjänsten är pausad</p>
-          <p className="text-sm text-muted-foreground">Klippverktyget är avstängt just nu. Försök igen senare.</p>
+          <p className="text-lg font-semibold">The service is paused</p>
+          <p className="text-sm text-muted-foreground">The clip tool is turned off right now. Try again later.</p>
         </div>
       </main>
     );

@@ -8,7 +8,7 @@ import { inRange, nudge } from "@/lib/words";
 import type { CaptionWord } from "@/lib/types";
 
 const STEP = 0.1;
-const sec = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const sec = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 interface Props {
   words: CaptionWord[];

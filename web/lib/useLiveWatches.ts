@@ -21,7 +21,7 @@ export function useLiveWatches(profile: string | null) {
         setWatches(watchesOf(all, profile));
         setError(null);
       })
-      .catch((err) => setError(errorMessage(err, "Kunde inte läsa bevakningen")));
+      .catch((err) => setError(errorMessage(err, "Could not load the watch")));
   }, [profile]);
   useEffect(load, [load]);
 

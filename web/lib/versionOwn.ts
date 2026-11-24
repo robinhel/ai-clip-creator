@@ -1,11 +1,11 @@
 /** Eget bidrag i en ny version: samma regler som campaign/versions.py, så att dialogen varnar som servern. */
 
 /** Sekunder med högst en decimal och decimalkomma. */
-export const sec = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
+export const sec = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 
 /** Samma text som NO_OWN i campaign/versions.py. */
 export const NO_OWN =
-  "Versionen har ingen ny hook och ingen ny startpunkt. Bara spegling, hastighet, filter eller font kan ge strike på YouTube och stoppa klippet från För dig på TikTok.";
+  "The version has no new hook and no new start point. Only mirroring, speed, filter or font can get a strike on YouTube and keep the clip out of For You on TikTok.";
 
 /** Som _norm i campaign/schedule.py: gemener, utan blanksteg och utan hashtaggar först och sist. */
 function norm(text: string): string {
@@ -28,14 +28,14 @@ export function hasOwn(v: { hook_text: boolean; hook: string; hooks_used: string
   return !used.has(norm(v.hook));
 }
 
-/** "Samma start som originalet", "2 s tidigare" eller "3,5 s senare". */
+/** "Same start as the original", "2 s tidigare" eller "3,5 s senare". */
 export function startLabel(startCutS: number): string {
-  if (Math.abs(startCutS) < 0.05) return "Samma start som originalet";
-  return `${sec.format(Math.abs(startCutS))} s ${startCutS < 0 ? "tidigare" : "senare"}`;
+  if (Math.abs(startCutS) < 0.05) return "Same start as the original";
+  return `${sec.format(Math.abs(startCutS))} s ${startCutS < 0 ? "earlier" : "later"}`;
 }
 
 /** Hur långt reglaget går, bara åt de håll som går: "Högst 4,5 s tidigare och 2 s senare". Tom när inget håll går. */
 export function startReach(lo: number, hi: number): string {
-  const parts = [lo < 0 ? `${sec.format(-lo)} s tidigare` : "", hi > 0 ? `${sec.format(hi)} s senare` : ""].filter(Boolean);
-  return parts.length ? `Högst ${parts.join(" och ")}` : "";
+  const parts = [lo < 0 ? `${sec.format(-lo)} s earlier` : "", hi > 0 ? `${sec.format(hi)} s later` : ""].filter(Boolean);
+  return parts.length ? `At most ${parts.join(" and ")}` : "";
 }

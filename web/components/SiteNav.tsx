@@ -25,7 +25,7 @@ const STEPS: { step: ClipStep; label: string; tone: string }[] = [
   { step: "skicka-in", label: "Skicka in", tone: "bg-violet-500/25 text-violet-200" },
 ];
 
-const gb = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 1 });
+const gb = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 
 export function isActive(pathname: string, href: string, also: string[] = []): boolean {
   if (href === "/") return pathname === "/" || also.some((p) => pathname.startsWith(p));

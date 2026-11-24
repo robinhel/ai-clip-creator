@@ -20,7 +20,7 @@ const BACK: Partial<Record<PostStatus, PostStatus>> = {
 
 // Content Rewards tar bara emot ett inlägg inom 30 minuter efter att det publicerats.
 const WINDOW_MS = 30 * 60_000;
-const stockholm = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit" });
+const stockholm = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit" });
 
 /** Klippets inlägg, ett per plattform. Fler plattformar läggs till med Publicera i klippraden.
  * readOnly: utanför Klippen visas bara inläggen; inskicket görs i Klippen. */
@@ -112,7 +112,7 @@ export function ClipPosts({ clip, onUpdate, readOnly = false }: { clip: Campaign
               )}
               <CampaignStatusBadge status={post.status} />
               {post.views != null && (
-                <span className="text-xs text-muted-foreground tabular-nums">{post.views.toLocaleString("sv-SE")} visningar</span>
+                <span className="text-xs text-muted-foreground tabular-nums">{post.views.toLocaleString("en-US")} visningar</span>
               )}
             </div>
             {editing === post.id ? (

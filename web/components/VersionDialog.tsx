@@ -34,7 +34,7 @@ const POSITION_CLASS: Record<StickerPosition, string> = {
 
 const FILTER_LABEL: Record<string, string> = { none: "Inget", fresh: "Fräsch", warm: "Varm", cool: "Kall", punch: "Kraftig" };
 
-const num = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const num = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const field = "mt-1 h-9 w-full rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand disabled:opacity-60 [&>option]:bg-panel";
 const alert = "rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]";
 

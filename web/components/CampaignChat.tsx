@@ -9,7 +9,7 @@ import { clock, cn, duration, usd } from "@/lib/utils";
 import type { CampaignChat as Chat, CampaignProfileDetail, ChatHit, ChatMessage, ChatSummary, MaterialItem } from "@/lib/types";
 
 const MAX = 1000;
-const when = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", day: "numeric", month: "short" });
+const when = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", day: "numeric", month: "short" });
 const GENERAL_IDEAS = ["Stora reaktioner", "De roligaste ögonblicken", "Ögonblick med mest hype i chatten"];
 
 /** Förslag till en tom chatt: kampanjens format först, sedan allmänna förslag. */

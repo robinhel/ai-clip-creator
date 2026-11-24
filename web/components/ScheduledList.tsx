@@ -12,8 +12,8 @@ import { cn } from "@/lib/utils";
 import type { ScheduledPost, ScheduleStatus, TikTokStatus, YouTubeStatus } from "@/lib/types";
 
 // Svensk tid, var webbläsaren än står.
-const dayText = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", day: "numeric", month: "short" });
-const timeText = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit" });
+const dayText = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", day: "numeric", month: "short" });
+const timeText = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm", hour: "2-digit", minute: "2-digit" });
 
 // "Schemalagd", inte "Väntar": Väntar betydde också ett klipp att granska.
 const STATUS: Record<ScheduleStatus, [string, string]> = {

@@ -8,7 +8,7 @@ import { api } from "@/lib/api";
 import { usd } from "@/lib/utils";
 import type { CampaignExamples } from "@/lib/types";
 
-const num = new Intl.NumberFormat("sv-SE");
+const num = new Intl.NumberFormat("en-US");
 const PLATFORMS: Record<string, string> = {
   tiktok: "TikTok",
   youtube: "YouTube Shorts",

@@ -56,14 +56,14 @@ const PROXY = "/api";
 const DIRECT = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 
 const FIELD_LABEL: Record<string, string> = {
-  views: "visningar",
-  likes: "gilla",
-  comments: "kommentarer",
-  shares: "delningar",
-  url: "länken",
-  platform: "plattform",
-  caption: "captionen",
-  title: "titeln",
+  views: "views",
+  likes: "likes",
+  comments: "comments",
+  shares: "shares",
+  url: "the link",
+  platform: "platform",
+  caption: "the caption",
+  title: "the title",
 };
 
 // shortcut: läst en gång per sidladdning och delad av alla klipprader; en ändring i en annan flik syns först efter omladdning.
@@ -88,17 +88,17 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
       detail = undefined;
     }
     if (res.status === 503 && detail === "Backend unavailable") {
-      throw new Error("Appens server är inte igång. Starta den och tryck Försök igen.");
+      throw new Error("The app server is not running. Start it and press Try again.");
     }
     if (typeof detail === "string") throw Object.assign(new Error(detail), { status: res.status });
     // FastAPI:s valideringsfel (422) har detail som en lista med fält och meddelande.
     if (Array.isArray(detail)) {
       const fields = detail.map((d) => d?.loc?.at?.(-1)).filter(Boolean).map((f) => FIELD_LABEL[f] ?? f);
       throw new Error(
-        `Servern godtog inte värdet${fields.length ? ` i ${fields.join(", ")}` : ""}. Kontrollera fälten och försök igen.`
+        `The server did not accept the value${fields.length ? ` in ${fields.join(", ")}` : ""}. Check the fields and try again.`
       );
     }
-    throw new Error(`Servern svarade med fel ${res.status}. Försök igen.`);
+    throw new Error(`The server answered with error ${res.status}. Try again.`);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -328,10 +328,10 @@ export function uploadWithProgress(form: FormData, onProgress: (percent: number)
       } catch {
         detail = undefined;
       }
-      if (xhr.status === 503 && detail === "Backend unavailable") return reject(new Error("Appens server svarar inte."));
-      reject(new Error(typeof detail === "string" ? detail : `Servern svarade med fel ${xhr.status}. Försök igen.`));
+      if (xhr.status === 503 && detail === "Backend unavailable") return reject(new Error("The app server is not responding."));
+      reject(new Error(typeof detail === "string" ? detail : `The server answered with error ${xhr.status}. Try again.`));
     };
-    xhr.onerror = () => reject(new Error("Appens server svarar inte."));
+    xhr.onerror = () => reject(new Error("The app server is not responding."));
     xhr.send(form);
   });
 }
