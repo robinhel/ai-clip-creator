@@ -64,11 +64,11 @@ def _link_problem(link: str, platform: str | None) -> str | None:
     parts = urlparse(link)
     host = (parts.hostname or "").lower()
     if parts.scheme != "https" or "." not in host:
-        return "Länken måste vara en hel adress som börjar med https://, till exempel https://www.tiktok.com/@du/video/123."
+        return "The link must be a full address starting with https://, for example https://www.tiktok.com/@you/video/123."
     hosts = PLATFORM_HOSTS.get(platform or "", ())
     if hosts and not any(host == h or host.endswith("." + h) for h in hosts):
         name = PLATFORM_NAMES.get(platform or "", platform)
-        return f"Länken går till {host}, men plattformen är {name}. Kontrollera länken och plattformen."
+        return f"The link goes to {host}, but the platform is {name}. Check the link and the platform."
     return None
 
 
@@ -84,7 +84,7 @@ def _profile(name: str, settings: Settings) -> Profile:
     try:
         return load_profile(name, settings.profiles_dir)
     except (SystemExit, Exception) as error:
-        raise HTTPException(400, f"Kampanjen {name} går inte att läsa.") from error
+        raise HTTPException(400, f"The campaign {name} cannot be read.") from error
 
 
 def _profile_names(settings: Settings) -> list[str]:
@@ -108,8 +108,8 @@ def _turned_off(settings: Settings) -> set[str]:
 
 # Nycklarna gäller hela appen. De står i problems, så att en körning stoppas, och i key_problems, så att
 # webben kan visa dem en gång i stället för på varje kampanj.
-KEY_PROBLEMS = (("berget_api_key", "Berget-nyckeln (BERGET_API_KEY) saknas. Lägg in den under Inställningar."),
-                ("anthropic_api_key", "Claude-nyckeln (ANTHROPIC_API_KEY) saknas. Lägg in den under Inställningar."))
+KEY_PROBLEMS = (("berget_api_key", "Berget key (BERGET_API_KEY) is missing. Add it under Settings."),
+                ("anthropic_api_key", "Claude key (ANTHROPIC_API_KEY) is missing. Add it under Settings."))
 # Profilens problem som gör varje klipp underkänt i regelkontrollen (campaign/rules.py).
 FAILS_CLIPS = ("Overlay-bilden saknas", "on_screen_text.text är tom")
 
@@ -141,7 +141,7 @@ def _describe_profile(name: str, settings: Settings, path: Path | None = None) -
     clip_min_s = clip_max_s = None
     mode, rects_set = None, False
     if not profile.clipsmith_config:
-        blocking.append("Kampanjen saknar clipsmith_config, inställningsfilen. Lägg till den under Avancerat (YAML).")
+        blocking.append("The campaign has no clipsmith_config, the settings file. Add it under Advanced (YAML).")
     else:
         try:  # bara en .yaml-fil i projektmappen, och felets text citerar aldrig filen
             cfg = read_config(config_file(settings.root, profile.clipsmith_config))
@@ -154,7 +154,7 @@ def _describe_profile(name: str, settings: Settings, path: Path | None = None) -
             mode = cfg.reframe.mode
             rects_set = bool(cfg.reframe.webcam_rect and cfg.reframe.gameplay_rect)
             if mode == "stacked" and not rects_set:
-                blocking.append("Facecam- och spelrutan är inte inställda. Dra dem under Facecam.")
+                blocking.append("Facecam and game boxes are not set up. Drag them under Facecam.")
     keys = [text for field, text in KEY_PROBLEMS if not getattr(settings, field)]
     return {
         "name": name,
@@ -181,7 +181,7 @@ def _describe_profile(name: str, settings: Settings, path: Path | None = None) -
     }
 
 
-@router.get("/profiles", summary="Kampanjer som går att köra")
+@router.get("/profiles", summary="Campaigns that can run")
 def list_profiles(settings: Settings = Depends(get_settings)) -> list[dict]:
     result = []
     for name in _profile_names(settings):
@@ -191,7 +191,7 @@ def list_profiles(settings: Settings = Depends(get_settings)) -> list[dict]:
             result.append({"name": name, "streamer": "", "campaign": name, "language": "",
                            "channel": "", "clip_min_s": None, "clip_max_s": None,
                            "formats": [], "ready": False, "active": True, "source": "twitch",
-                           "problems": [f"Kampanjens fil går inte att läsa: {error}"], "key_problems": [],
+                           "problems": [f"The campaign file cannot be read: {error}"], "key_problems": [],
                            "state": "Inte redo"})
     return result
 
@@ -199,8 +199,8 @@ def list_profiles(settings: Settings = Depends(get_settings)) -> list[dict]:
 # ---------- VOD ----------
 
 
-LIVE = "Streamen pågår. Vänta tills den är slut."
-SSD_MISSING = "SSD:n är inte ansluten."
+LIVE = "The stream is live. Wait until it ends."
+SSD_MISSING = "The SSD is not connected."
 
 
 def _mp4(vod_id: str, settings: Settings) -> Path:
@@ -211,9 +211,9 @@ def _facts(vod_id: str, fresh: bool = False) -> dict:
     try:
         return vod_facts(vod_id, fresh)
     except VodNotFound as error:
-        raise HTTPException(404, f"Hittar ingen VOD med id {vod_id} på Twitch.") from error
+        raise HTTPException(404, f"No VOD with ID {vod_id} found on Twitch.") from error
     except Exception as error:  # twitch-dl kastar olika fel när Twitch inte svarar
-        raise HTTPException(502, "Twitch svarar inte. Försök igen om en stund.") from error
+        raise HTTPException(502, "Twitch is not responding. Try again in a while.") from error
 
 
 def storage(settings: Settings) -> dict:
@@ -258,7 +258,7 @@ def _estimate(facts: dict, settings: Settings, disk: dict) -> dict:
                                           _berget_price(settings), transcribed)}
 
 
-@router.get("/vod/{vod_id}", summary="Fakta om en Twitch-VOD innan projektet startar")
+@router.get("/vod/{vod_id}", summary="Facts about a Twitch VOD before the project starts")
 def vod_info(vod_id: str = PathParam(pattern=r"^\d{6,15}$"),
              settings: Settings = Depends(get_settings)) -> dict:
     facts = _facts(vod_id)
@@ -270,7 +270,7 @@ def vod_info(vod_id: str = PathParam(pattern=r"^\d{6,15}$"),
             "fast_campaigns": [name for name in campaigns if runinfo.fast(name, settings)]}
 
 
-@router.get("/streams", summary="De senaste streamsen för kampanjernas kanaler")
+@router.get("/streams", summary="The latest streams for the campaigns' channels")
 def list_streams(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> list[dict]:
     campaigns: dict[str, list[str]] = {}
     games: dict[str, set[str]] = {}  # kanal -> kampanjernas preferred_games, små bokstäver
@@ -291,7 +291,7 @@ def list_streams(db: Session = Depends(get_db), settings: Settings = Depends(get
             logger.warning("Twitch svarade inte för kanalen %s: %s", channel, error)
             failed += 1
     if campaigns and failed == len(campaigns):
-        raise HTTPException(502, "Twitch svarar inte. Försök igen om en stund.")
+        raise HTTPException(502, "Twitch is not responding. Try again in a while.")
     log = _log(settings)
     clips = log.list()
     latest = card_runs(log.runs(), lambda m: m["vod_id"])  # den senaste, men inte chattens om det finns en annan
@@ -315,7 +315,7 @@ class CampaignRunCreate(BaseModel):
     max_s: int | None = None
 
 
-@router.post("/runs", status_code=201, summary="Starta ett projekt för en kampanj",
+@router.post("/runs", status_code=201, summary="Start a project for a campaign",
              dependencies=[Depends(verify_api_key)])
 def create_run(
     body: CampaignRunCreate,
@@ -325,7 +325,7 @@ def create_run(
     settings: Settings = Depends(get_settings),
 ) -> dict:
     if body.profile.startswith("_"):  # dold kampanj, som _ingen: bara livebevakningen kör den
-        raise HTTPException(404, f"Kampanjen {body.profile} finns inte.")
+        raise HTTPException(404, f"The campaign {body.profile} does not exist.")
     return _create_run(body, request, background_tasks, db, settings)
 
 
@@ -334,8 +334,8 @@ def _own_file_missing(vod_id: str, settings: Settings) -> str | None:
     från work/<id>/<id>.mp4. Finns filen inte kvar, kan appen inte köra den igen."""
     if vod_id.isdigit() or _mp4(vod_id, settings).exists():
         return None
-    return (f"Källfilen till projektet finns inte längre ({vod_id}.mp4 i work/), till exempel för att den togs "
-            "bort för att frigöra plats. Kör igen går inte. Kör filen igen med python -m campaign local.")
+    return (f"The project's source file no longer exists ({vod_id}.mp4 in work/), for example because it was deleted "
+            "to free up space. Run again does not work. Run the file again with python -m campaign local.")
 
 
 def _create_run(body: CampaignRunCreate, request: Request, background_tasks: BackgroundTasks, db: Session,
@@ -349,16 +349,16 @@ def _create_run(body: CampaignRunCreate, request: Request, background_tasks: Bac
     low, high = ready["clip_min_s"], ready["clip_max_s"]
     min_s, max_s = body.min_s or low, body.max_s or high
     if not low <= min_s <= max_s <= high:
-        raise HTTPException(400, f"Klippens längd måste ligga mellan {low} och {high} sekunder, "
-                                 "och den kortaste längden får inte vara längre än den längsta.")
+        raise HTTPException(400, f"The clip length must be between {low} and {high} seconds, "
+                                 "and the shortest length cannot be longer than the longest.")
     disk = storage(settings)
     if not disk["connected"]:
         raise HTTPException(400, SSD_MISSING)
     try:
         budget_from_settings(settings).check()  # dags- och månadstaket, innan 15 GB hämtas
     except BudgetExceeded as error:
-        raise HTTPException(400, f"{error} Projektet startar inte. Vänta tills taket går över, "
-                                 "eller höj det i .env.") from error
+        raise HTTPException(400, f"{error} The project does not start. Wait until the cap resets, "
+                                 "or raise it in .env.") from error
     if own_file is not None:
         problem = _own_file_missing(body.vod_id, settings)
         if problem:
@@ -369,22 +369,22 @@ def _create_run(body: CampaignRunCreate, request: Request, background_tasks: Bac
         if facts["live"]:
             raise HTTPException(400, LIVE)
         if not facts["channel"] or facts["channel"] != ready["channel"].lower():
-            raise HTTPException(400, f"VOD:en är från {facts['channel_name'] or 'en okänd kanal'}, inte från "
-                                     f"kampanjens kanal {ready['channel']}. Kampanjen får bara använda "
-                                     "streamerns egna streams.")
+            raise HTTPException(400, f"The VOD is from {facts['channel_name'] or 'an unknown channel'}, not from "
+                                     f"the campaign's channel {ready['channel']}. The campaign may only use "
+                                     "the streamer's own streams.")
         space = _estimate(facts, settings, disk)
         if not space["estimate"]["fits"]:
             need = space["estimate"]["download_gb"] * 1.1 + 1
-            raise HTTPException(400, f"Disken räcker inte. VOD:en behöver ungefär {need:.1f} GB med marginal, "
-                                     f"och det finns {space['estimate']['disk_free_gb']} GB ledigt.")
+            raise HTTPException(400, f"Not enough disk. The VOD needs about {need:.1f} GB with margin, "
+                                     f"and {space['estimate']['disk_free_gb']} GB is free.")
 
     focus = body.focus.strip()
     game = (body.game or "").strip() or None
     with _start_lock:
         if request.app.state.active_run_id is not None:
-            raise HTTPException(429, "Ett projekt hämtar redan klipp. Vänta tills det är klart.")
+            raise HTTPException(429, "A project is already getting clips. Wait until it is done.")
         if editor.lock.locked():  # redigeraren kollar active_run_id under samma lås
-            raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
+            raise HTTPException(409, "A clip is being edited right now. Wait until the edit is done.")
         # Kollas igen här, där ingen annan körning kan skriva filen: en halv video används aldrig.
         if own_file is None and _mp4(body.vod_id, settings).exists() and not _downloaded(facts, settings):
             _remove_half_download(body.vod_id, settings)
@@ -399,7 +399,7 @@ def _create_run(body: CampaignRunCreate, request: Request, background_tasks: Bac
                                channel_name=facts["channel_name"], thumbnail_url=facts["thumbnail_url"],
                                duration_s=facts["duration_s"], start_s=body.start_s, end_s=body.end_s)
     except Exception:  # annars står körningen som pågående, och appen säger 429 tills servern startas om
-        run.status, run.error = RunStatus.failed, "Projektet kunde inte sparas i klipploggen. Försök igen."
+        run.status, run.error = RunStatus.failed, "The project could not be saved in the clip log. Try again."
         db.commit()
         request.app.state.active_run_id = None
         raise
@@ -409,7 +409,7 @@ def _create_run(body: CampaignRunCreate, request: Request, background_tasks: Bac
     return run.to_dict()
 
 
-@router.post("/runs/{run_id}/retry", status_code=201, summary="Kör ett projekt som misslyckades igen",
+@router.post("/runs/{run_id}/retry", status_code=201, summary="Run a failed project again",
              dependencies=[Depends(verify_api_key)])
 def retry_run(
     run_id: int,
@@ -421,10 +421,10 @@ def retry_run(
     """En ny körning med samma kampanj, VOD och val. Samma kontroller som en ny körning."""
     meta = _log(settings).run(run_id)
     if meta is None:
-        raise HTTPException(404, "Projektet finns inte.")
+        raise HTTPException(404, "The project does not exist.")
     run = db.get(Run, run_id)
     if run is not None and run.status != RunStatus.failed:  # saknas den i clipsmiths databas visas den som failed
-        raise HTTPException(400, "Bara ett projekt som misslyckades eller avbröts kan köras igen.")
+        raise HTTPException(400, "Only a project that failed or was cancelled can run again.")
     values = dict(profile=meta["profile"], vod_id=meta["vod_id"], game=meta["game"],
                   start_s=meta.get("start_s") or 0.0, end_s=meta.get("end_s") or 0.0,
                   focus=meta["focus"] or "", min_s=meta["min_s"], max_s=meta["max_s"])
@@ -448,7 +448,7 @@ def _with_facts(meta: dict, log: ClipLog) -> dict:
     return {**meta, **fields}
 
 
-@router.get("/runs", summary="Projekten, ett per stream och kampanj, nyast först")
+@router.get("/runs", summary="The projects, one per stream and campaign, newest first")
 def list_runs(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> list[dict]:
     log = _log(settings)
     clips = log.list()
@@ -473,7 +473,7 @@ def _describe_project(project: dict, log: ClipLog, db: Session, settings: Settin
     return runinfo.describe_project(project, streamer, files, runinfo.project_clips(project, runs, clips))
 
 
-@router.get("/projects", summary="Kampanjernas projekt för egna filer och uppladdningar, senaste först")
+@router.get("/projects", summary="The campaigns' projects for own files and uploads, latest first")
 def list_projects(db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> list[dict]:
     log = _log(settings)
     off = _turned_off(settings)
@@ -482,22 +482,22 @@ def list_projects(db: Session = Depends(get_db), settings: Settings = Depends(ge
     return sorted(found, key=lambda p: (p["updated"] or "", p["id"]), reverse=True)
 
 
-@router.get("/projects/{project_id}", summary="Ett projekt för egna filer, med filerna och klippen")
+@router.get("/projects/{project_id}", summary="A project for own files, with the files and clips")
 def get_project(project_id: int, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> dict:
     log = _log(settings)
     project = log.get_project(project_id)
     if project is None:
-        raise HTTPException(404, "Projektet finns inte.")
+        raise HTTPException(404, "The project does not exist.")
     return _describe_project(project, log, db, settings)
 
 
-@router.get("/runs/{run_id}", summary="Ett projekt med förloppet per steg")
+@router.get("/runs/{run_id}", summary="A project with progress per step")
 def get_run(run_id: int, db: Session = Depends(get_db),
             settings: Settings = Depends(get_settings)) -> dict:
     log = _log(settings)
     meta = log.run(run_id)
     if meta is None:
-        raise HTTPException(404, "Projektet finns inte.")
+        raise HTTPException(404, "The project does not exist.")
     meta = _with_facts(meta, log)
     out, progress = runinfo.describe(meta, db, log.list(), settings)
     out.update(runinfo.steps_and_cost(progress, meta["duration_s"], _berget_price(settings),
@@ -506,17 +506,17 @@ def get_run(run_id: int, db: Session = Depends(get_db),
     return out
 
 
-@router.post("/runs/{run_id}/cancel", status_code=202, summary="Avbryt ett projekt som pågår",
+@router.post("/runs/{run_id}/cancel", status_code=202, summary="Cancel a running project",
              dependencies=[Depends(verify_api_key)])
 def cancel_run(run_id: int, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> dict:
     """Körningen stoppar vid nästa steg: före nästa anrop till Claude, före nästa klipp, och hämtningen direkt.
     Klara filer behålls, en halv nedladdning tas bort. Den markeras som misslyckad med texten CANCELLED."""
     if _log(settings).run(run_id) is None:
-        raise HTTPException(404, "Projektet finns inte.")
+        raise HTTPException(404, "The project does not exist.")
     run = db.get(Run, run_id)
     in_progress = run is not None and run.status in (RunStatus.pending, RunStatus.running)
     if not (in_progress and pipeline.cancel(run_id)):
-        raise HTTPException(409, "Projektet hämtar inga klipp just nu, så det finns inget att avbryta.")
+        raise HTTPException(409, "The project is not getting clips right now, so there is nothing to cancel.")
     return {"cancelling": True}
 
 
@@ -530,7 +530,7 @@ def _vod_in_use(vod_id: str, run_id: int, request: Request, db: Session) -> bool
     return active is not None and active.vod_id == vod_id
 
 
-@router.delete("/runs/{run_id}/vod", summary="Ta bort projektets VOD-fil och delar för att frigöra plats",
+@router.delete("/runs/{run_id}/vod", summary="Delete the project's VOD file and parts to free up space",
                dependencies=[Depends(verify_api_key)])
 def delete_run_vod(run_id: int, request: Request, db: Session = Depends(get_db),
                    settings: Settings = Depends(get_settings)) -> dict:
@@ -538,10 +538,10 @@ def delete_run_vod(run_id: int, request: Request, db: Session = Depends(get_db),
     Kör igen hämtar VOD:en från Twitch igen. En egen fil går inte att köra igen efteråt."""
     meta = _log(settings).run(run_id)
     if meta is None:
-        raise HTTPException(404, "Projektet finns inte.")
+        raise HTTPException(404, "The project does not exist.")
     with _start_lock:  # ingen körning startar medan filerna tas bort
         if _vod_in_use(meta["vod_id"], run_id, request, db):
-            raise HTTPException(409, "Projektet använder VOD-filen just nu. Vänta tills det är klart.")
+            raise HTTPException(409, "The project is using the VOD file right now. Wait until it is done.")
         try:
             freed = vodfiles.remove(meta["vod_id"], settings)
         except vodfiles.UnsafeVod as error:
@@ -549,7 +549,7 @@ def delete_run_vod(run_id: int, request: Request, db: Session = Depends(get_db),
     return {"freed_bytes": freed, "freed_gb": round(freed / estimate.GB, 2)}
 
 
-@router.post("/runs/{run_id}/finish", status_code=202, summary="Gör klippen kampanjklara igen",
+@router.post("/runs/{run_id}/finish", status_code=202, summary="Make the clips campaign-ready again",
              dependencies=[Depends(verify_api_key)])
 def refinish_run(
     run_id: int,
@@ -560,15 +560,15 @@ def refinish_run(
 ) -> dict:
     meta = _log(settings).run(run_id)
     if meta is None:
-        raise HTTPException(404, "Projektet hör inte till någon kampanj.")
+        raise HTTPException(404, "The project does not belong to any campaign.")
     run = db.get(Run, run_id)
     if run is not None and run.status == RunStatus.failed:
-        raise HTTPException(400, "Projektet misslyckades. Tryck Kör igen.")
+        raise HTTPException(400, "The project failed. Press Run again.")
     with _start_lock:
         if request.app.state.active_run_id is not None:
-            raise HTTPException(429, "Ett projekt hämtar redan klipp. Vänta tills det är klart.")
+            raise HTTPException(429, "A project is already getting clips. Wait until it is done.")
         if editor.lock.locked():  # redigeraren kollar active_run_id under samma lås
-            raise HTTPException(409, "Ett klipp redigeras just nu. Vänta tills redigeringen är klar.")
+            raise HTTPException(409, "A clip is being edited right now. Wait until the edit is done.")
         request.app.state.active_run_id = run_id
     background_tasks.add_task(finish_run, run_id, meta["vod_id"], meta["profile"], meta["game"],
                               settings, app=request.app)
@@ -645,7 +645,7 @@ def _get(log: ClipLog, clip_id: int) -> dict:
     try:
         return log.get(clip_id)
     except SystemExit as error:
-        raise HTTPException(404, "Klippet finns inte.") from error
+        raise HTTPException(404, "The clip does not exist.") from error
 
 
 def _scoped(log: ClipLog, clips: list[dict], run_id: int | None, project_id: int | None) -> list[dict] | None:
@@ -660,7 +660,7 @@ def _scoped(log: ClipLog, clips: list[dict], run_id: int | None, project_id: int
     return None
 
 
-@router.get("/clips", summary="Klipp i klipploggen")
+@router.get("/clips", summary="Clips in the clip log")
 def list_clips(status: str | None = None, vod_id: str | None = None, run_id: int | None = None,
                profile: str | None = None, project_id: int | None = None, posted_off: bool = False,
                settings: Settings = Depends(get_settings)) -> list[dict]:
@@ -686,7 +686,7 @@ def _without_off(clips: list[dict], settings: Settings, posted_off: bool) -> lis
     return [c for c in clips if c["profile"] not in off or c["status"] in shown_off]
 
 
-@router.get("/clips/{clip_id}/transcript", summary="Det som sägs i klippet")
+@router.get("/clips/{clip_id}/transcript", summary="What is said in the clip")
 def clip_transcript(clip_id: int, settings: Settings = Depends(get_settings)) -> dict:
     clip = _get(_log(settings), clip_id)
     path = settings.work_dir / clip["vod_id"] / "transcript.json"
@@ -711,7 +711,7 @@ def _clip_path(clip_id: int, settings: Settings) -> Path:
     return path
 
 
-@router.get("/clips/{clip_id}/poster", summary="En bild ur klippet, 360 bred")
+@router.get("/clips/{clip_id}/poster", summary="A frame from the clip, 360 wide")
 def clip_poster(clip_id: int, settings: Settings = Depends(get_settings)) -> FileResponse:
     path = _clip_path(clip_id, settings)
     poster = path.with_name(f".{path.stem}.poster.jpg")
@@ -722,13 +722,13 @@ def clip_poster(clip_id: int, settings: Settings = Depends(get_settings)) -> Fil
                  "-vf", "scale=360:-2", "-q:v", "4", str(tmp)])
             os.replace(tmp, poster)
         except (RuntimeError, OSError, SystemExit) as error:  # SystemExit från need() när ffmpeg saknas
-            raise HTTPException(500, "Kunde inte göra en bild av klippet.") from error
+            raise HTTPException(500, "Could not make a frame of the clip.") from error
         finally:
             tmp.unlink(missing_ok=True)
     return FileResponse(poster, media_type="image/jpeg")
 
 
-@router.get("/clips/{clip_id}/file", summary="Spela upp eller ladda ner ett klipp")
+@router.get("/clips/{clip_id}/file", summary="Play or download a clip")
 def clip_file(clip_id: int, download: bool = False,
               settings: Settings = Depends(get_settings)) -> FileResponse:
     path = _clip_path(clip_id, settings)
@@ -756,14 +756,14 @@ def _caption_problems(problems: list[str], caption: str, profile: Profile) -> li
     return others + check_caption(caption, profile)
 
 
-@router.patch("/clips/{clip_id}", summary="Ändra ett klipp: status, caption, länk eller statistik",
+@router.patch("/clips/{clip_id}", summary="Change a clip: status, caption, link or stats",
               dependencies=[Depends(verify_api_key)])
 def patch_clip(clip_id: int, body: ClipPatch, settings: Settings = Depends(get_settings)) -> dict:
     # Status och caption kan byta klippets status, så de väntar inte in en redigering som pågår.
     changes_status = bool({"status", "caption"} & body.model_fields_set)
     if changes_status and not editor.lock.acquire(blocking=False):
         if editor.editing == clip_id:
-            raise HTTPException(409, "Klippet redigeras just nu. Försök igen när redigeringen är klar.")
+            raise HTTPException(409, "The clip is being edited right now. Try again when the edit is done.")
         changes_status = False  # låset gäller ett annat klipp: det här klippet rörs inte av redigeringen
     try:
         return _patch_clip(clip_id, body, settings)
@@ -789,12 +789,12 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
     profile = _profile(clip["profile"], settings)
     fields = body.model_dump(exclude_unset=True)
     if "status" in fields and fields["status"] is None:
-        raise HTTPException(400, "Status får inte vara tom.")
+        raise HTTPException(400, "Status cannot be empty.")
 
     if "format" in fields and profile.formats and fields["format"] not in profile.format_ids:
-        raise HTTPException(400, f"Formatet {fields['format']!r} finns inte i kampanjen.")
+        raise HTTPException(400, f"The format {fields['format']!r} does not exist in the campaign.")
     if "platform" in fields and fields["platform"] not in PLATFORMS:
-        raise HTTPException(400, "Plattformen måste vara tiktok, youtube_shorts eller instagram_reels.")
+        raise HTTPException(400, "The platform must be tiktok, youtube_shorts or instagram_reels.")
     if "url" in fields and fields["url"]:
         problem = _link_problem(fields["url"], fields.get("platform") or clip["platform"])
         if problem:
@@ -804,7 +804,7 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
     status = clip["status"]
     if "caption" in fields:
         if fields["caption"] != clip["caption"] and body.status not in (None, status, "nekad"):
-            raise HTTPException(400, "Spara captionen först. Sedan behövs ett nytt ja.")
+            raise HTTPException(400, "Save the caption first. Then a new yes is needed.")
         problems = _caption_problems(problems, fields["caption"], profile)
         fields["problems"] = problems
         # Ett ja gäller den caption som fanns. Ändras den måste klippet godkännas igen.
@@ -814,22 +814,22 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
     new = body.status
     if new and new != status:
         if new not in NEXT_STATUS[status]:
-            raise HTTPException(400, f"Ett klipp med status {status} kan inte bli {new}.")
+            raise HTTPException(400, f"A clip with status {status} cannot become {new}.")
         _check_campaign(clip, new)
         if new == "godkand":
             if problems:
-                raise HTTPException(400, "Klippet har problem. Rätta dem innan du godkänner.")
+                raise HTTPException(400, "The clip has problems. Fix them before you approve.")
             if profile.formats and not (fields.get("format") or clip["format"]):
-                raise HTTPException(400, "Välj ett format innan du godkänner.")
+                raise HTTPException(400, "Choose a format before you approve.")
         if new == "renderad" and problems:
             fields["status"] = "underkand"
         if new == "postad":
             if problems:
-                raise HTTPException(400, "Klippet har problem. Det får inte postas.")
+                raise HTTPException(400, "The clip has problems. It may not be posted.")
             if not (fields.get("url") or clip["url"]):
-                raise HTTPException(400, "Klistra in länken till det postade klippet.")
+                raise HTTPException(400, "Paste the link to the posted clip.")
             if not (fields.get("platform") or clip["platform"]):
-                raise HTTPException(400, "Välj plattform.")
+                raise HTTPException(400, "Choose a platform.")
         if new == "analytics_inskickad":
             _check_min_views(fields.get("views", clip["views"]), profile)
 
@@ -845,8 +845,8 @@ def _patch_clip(clip_id: int, body: ClipPatch, settings: Settings) -> dict:
 def _check_min_views(views: int | None, profile: Profile) -> None:
     """Analytics inskickad går först när inlägget har nått kampanjens min_views."""
     if (views or 0) < profile.min_views:
-        raise HTTPException(400, f"Analytics skickas in först vid {profile.min_views} visningar. "
-                                 f"Inlägget har {views or 0}.")
+        raise HTTPException(400, f"Analytics is submitted only at {profile.min_views} views. "
+                                 f"The post has {views or 0}.")
 
 
 def _apply_to_posts(log: ClipLog, clip: dict, fields: dict) -> None:
@@ -873,7 +873,7 @@ def _apply_to_posts(log: ClipLog, clip: dict, fields: dict) -> None:
     stats = {key: fields.pop(key) for key in STAT_KEYS if key in fields}
     if (link or stats) and posts:
         if len(posts) > 1:
-            raise HTTPException(400, "Klippet har flera inlägg. Ändra länk och siffror per inlägg.")
+            raise HTTPException(400, "The clip has several posts. Change link and numbers per post.")
         log.update_post(posts[0]["id"], **link, **stats)
     elif link or stats:
         fields.update(link, **stats)
@@ -887,12 +887,12 @@ class Preferences(BaseModel):
     submit_helper: bool
 
 
-@router.get("/preferences", summary="Robins val: hjälpen för inskick till Content Rewards")
+@router.get("/preferences", summary="Robin's choices: the submit help for Content Rewards")
 def get_preferences(settings: Settings = Depends(get_settings)) -> dict:
     return {"submit_helper": preferences.submit_helper(settings)}
 
 
-@router.put("/preferences", summary="Slå på eller av hjälpen för inskick", dependencies=[Depends(verify_api_key)])
+@router.put("/preferences", summary="Turn the submit help on or off", dependencies=[Depends(verify_api_key)])
 def put_preferences(body: Preferences, settings: Settings = Depends(get_settings)) -> dict:
     preferences.save_submit_helper(settings, body.submit_helper)
     return {"submit_helper": preferences.submit_helper(settings)}
@@ -901,7 +901,7 @@ def put_preferences(body: Preferences, settings: Settings = Depends(get_settings
 # ---------- översikt ----------
 
 
-@router.get("/summary", summary="Budget, antal klipp per status och att göra")
+@router.get("/summary", summary="Budget, number of clips per status and to do")
 def summary(settings: Settings = Depends(get_settings)) -> dict:
     log = _log(settings)
     off = _turned_off(settings)
