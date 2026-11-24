@@ -249,5 +249,5 @@ def test_a_project_cannot_be_started_for_the_hidden_campaign(client, hidden, mon
     monkeypatch.setattr(api, "_facts", lambda *a, **k: pytest.fail("ingen Twitch"))
     monkeypatch.setattr(api, "run_campaign_vod", lambda *a, **k: pytest.fail("ingen körning"))
     answer = client.post("/campaign/runs", json={"profile": NO_CAMPAIGN, "vod_id": "2925991945"}, headers=KEY)
-    assert (answer.status_code, answer.json()["detail"]) == (404, f"Kampanjen {NO_CAMPAIGN} finns inte.")
+    assert (answer.status_code, answer.json()["detail"]) == (404, f"The campaign {NO_CAMPAIGN} does not exist.")
     assert ClipLog(hidden.data_dir / "klipp.db").runs() == []
