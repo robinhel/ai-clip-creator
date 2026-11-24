@@ -266,6 +266,9 @@ def make_clips(
     run_dir = settings.out_dir / vod_id
     if run_id is not None:
         run_dir /= f"run_{run_id}"
+        # work/<vod>/candidates.json skrivs över av nästa körning; tidslinjen läser körningens kopia.
+        run_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy(mp4.parent / "candidates.json", run_dir / "candidates.json")
     picks: list[PickResult] = []
     asked = 0
     if candidates:

@@ -109,3 +109,91 @@ def test_timeline_404_with_a_clear_text_when_the_files_are_missing(client, setti
     response = client.get(f"/campaign/runs/{run_id}/timeline")
     assert response.status_code == 404
     assert "candidates.json" in response.json()["detail"]
+
+
+def _candidates(path, t_center: float) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps([{"t_center": t_center, "score": 5.0, "sources": ["chat_density"],
+                                 "reasons": []}]), encoding="utf-8")
+
+
+def test_two_runs_of_the_same_vod_each_show_their_own_candidates_and_picks(client, settings) -> None:
+    first, second = _run(settings, 7), _run(settings, 8)
+    _files(settings, first)  # work/ holds the latest run's files
+    _candidates(settings.out_dir / VOD / f"run_{first}" / "candidates.json", 100.0)
+    _candidates(settings.out_dir / VOD / f"run_{second}" / "candidates.json", 2000.0)
+    (settings.out_dir / VOD / f"run_{second}" / "picks.json").write_text("[]", encoding="utf-8")
+
+    one = client.get(f"/campaign/runs/{first}/timeline").json()
+    two = client.get(f"/campaign/runs/{second}/timeline").json()
+
+    assert [c["score"] for c in one["candidates"]] == [5.0]
+    assert one["candidates"][0]["start_s"] == 100.0 - timeline_api.CANDIDATE_HALF_S
+    assert two["candidates"][0]["start_s"] == 2000.0 - timeline_api.CANDIDATE_HALF_S
+    assert one["picks"] == [{"start_s": 3480.0, "end_s": 3530.5, "title": "Last-second clutch"}]
+    assert two["picks"] == []
+
+
+def test_an_older_run_without_its_own_files_does_not_show_the_latest_runs(client, settings) -> None:
+    older, latest = _run(settings, 7), _run(settings, 8)
+    _files(settings, latest)  # work/ files belong to run 8; run 7 has no copies
+    (settings.work_dir / VOD / "picks.json").write_text(json.dumps([{"pick": {
+        "start_offset_s": 1.0, "end_offset_s": 2.0, "title": "Run 8"}}]), encoding="utf-8")
+    (settings.out_dir / VOD / "picks.json").write_text(json.dumps([{"pick": {
+        "start_offset_s": 3.0, "end_offset_s": 4.0, "title": "Before run folders"}}]), encoding="utf-8")
+    (settings.out_dir / VOD / f"run_{latest}" / "picks.json").unlink()
+
+    assert client.get(f"/campaign/runs/{older}/timeline").status_code == 404
+    latest_data = client.get(f"/campaign/runs/{latest}/timeline").json()
+    assert len(latest_data["candidates"]) == 3  # the latest run may still read work/
+    assert latest_data["picks"] == [{"start_s": 1.0, "end_s": 2.0, "title": "Run 8"}]
+
+
+def test_broken_rows_are_skipped(client, settings) -> None:
+    run_id = _run(settings)
+    _files(settings, run_id)
+    work = settings.work_dir / VOD
+    chat = json.loads((work / "chat.json").read_text(encoding="utf-8"))
+    chat["messages"] += [{"time_in_seconds": None}, {"time_in_seconds": "soon"}, "text"]
+    (work / "chat.json").write_text(json.dumps(chat), encoding="utf-8")
+    (work / "audio_rms_v2.json").write_text(json.dumps([[1.0, -40.0], [1, None], ["x", 2], [3.0, -20.0]]),
+                                            encoding="utf-8")
+    candidates = json.loads((work / "candidates.json").read_text(encoding="utf-8"))
+    candidates += [{"t_center": None}, {"t_center": "x"}, {"t_center": 50.0, "score": None, "sources": None, "reasons": None}]
+    (work / "candidates.json").write_text(json.dumps(candidates), encoding="utf-8")
+    picks_path = settings.out_dir / VOD / f"run_{run_id}" / "picks.json"
+    picks = json.loads(picks_path.read_text(encoding="utf-8"))
+    picks += [{"pick": None}, {"pick": {"start_offset_s": None, "end_offset_s": 2.0}}, None]
+    picks_path.write_text(json.dumps(picks), encoding="utf-8")
+
+    response = client.get(f"/campaign/runs/{run_id}/timeline")
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert [t for t, _ in data["audio_energy"]] == [1.0, 3.0]
+    assert len(data["candidates"]) == 4  # the row with score null counts as score 0
+    assert data["candidates"][3] == {"start_s": 35.0, "end_s": 65.0, "score": 0.0, "sources": [], "breakdown": {}}
+    assert data["picks"] == [{"start_s": 3480.0, "end_s": 3530.5, "title": "Last-second clutch"}]
+    assert sum(1 for _, v in data["chat_density"] if v > 0) == 2
+
+
+def test_make_clips_keeps_a_copy_of_the_runs_candidates(settings, monkeypatch) -> None:
+    import shutil
+
+    from campaign import pipeline
+    from campaign.profile import load_profile
+    from tests_campaign.conftest import PAKET
+
+    shutil.copy(PAKET / "config.timmy.yaml", settings.root / "config.timmy.yaml")
+    mp4 = settings.work_dir / VOD / f"{VOD}.mp4"
+    mp4.parent.mkdir(parents=True)
+    mp4.touch()
+    (mp4.parent / "transcript.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(pipeline, "download_vod", lambda vod_id, work_dir, **k: mp4)
+    monkeypatch.setattr(pipeline, "_twitch_ids", lambda *a: ("", ""))
+    monkeypatch.setattr(pipeline, "process_vod",
+                        lambda *a, **k: (mp4.parent / "candidates.json").write_text("[]", encoding="utf-8"))
+    run_id = _run(settings, 7)
+    pipeline.make_clips(VOD, load_profile("skiimasktimmy", settings.profiles_dir), settings, game=None,
+                        emit=lambda *e: None, run_id=run_id)
+    assert (settings.out_dir / VOD / f"run_{run_id}" / "candidates.json").read_text(encoding="utf-8") == "[]"
