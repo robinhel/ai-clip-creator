@@ -29,7 +29,7 @@ export function RemoveFromQueue({ clip, pending, onRemoved }: Props) {
       // Servern avbryter de väntande uppladdningarna i samma steg, och nekar medan klippet laddas upp.
       onRemoved(await api.campaign.clips.patch(clip.id, { status }), waiting);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Klippet gick inte att ändra");
+      setError(err instanceof Error ? err.message : "Could not change the clip");
       setBusy(false);
     }
   }
@@ -42,38 +42,38 @@ export function RemoveFromQueue({ clip, pending, onRemoved }: Props) {
             className="h-9"
             variant="outline"
             disabled={uploading || busy}
-            title={uploading ? "Klippet laddas upp nu. Vänta tills uppladdningen är klar." : "Postat utan länk. Klippet hamnar inte i Skicka in."}
+            title={uploading ? "The clip is uploading now. Wait until the upload is done." : "Posted without link. The clip does not go to Submit."}
             onClick={() => leave("postad_utan_lank")}
           >
             {busy ? <Loader2 className="animate-spin" aria-hidden /> : <Check aria-hidden />}
-            Postad
+            Posted
           </Button>
           <Button
             className="h-9"
             variant="outline"
             disabled={uploading || busy}
-            title={uploading ? "Klippet laddas upp nu. Vänta tills uppladdningen är klar." : undefined}
+            title={uploading ? "The clip is uploading now. Wait until the upload is done." : undefined}
             onClick={() => setConfirm(true)}
           >
             <Trash2 aria-hidden />
-            Ta bort
+            Remove
           </Button>
         </div>
       )}
-      {uploading && <p className="text-xs text-muted-foreground">Laddas upp nu. Postad och Ta bort går när uppladdningen är klar.</p>}
+      {uploading && <p className="text-xs text-muted-foreground">Uploading now. Posted and Remove work when the upload is done.</p>}
       {confirm && (
-        <div role="group" aria-label="Ta bort klippet?" className="space-y-2 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] p-2.5 text-sm">
+        <div role="group" aria-label="Remove the clip?" className="space-y-2 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] p-2.5 text-sm">
           <p className="text-[#fca5a5]">
-            Är du säker? Klippet tas bort från Att posta och postas inte.
-            {waiting > 0 && ` ${waiting === 1 ? "Den schemalagda uppladdningen" : `De ${waiting} schemalagda uppladdningarna`} avbryts.`}
+            Are you sure? The clip is removed from Ready to post and is not posted.
+            {waiting > 0 && ` ${waiting === 1 ? "The scheduled upload is" : `The ${waiting} scheduled uploads are`} cancelled.`}
           </p>
           <div className="flex flex-wrap gap-2">
             <Button variant="destructive" size="sm" disabled={busy} onClick={() => leave("nekad")}>
               {busy && <Loader2 className="animate-spin" aria-hidden />}
-              Ja, ta bort
+              Yes, remove
             </Button>
             <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirm(false)}>
-              Avbryt
+              Cancel
             </Button>
           </div>
         </div>

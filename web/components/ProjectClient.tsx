@@ -14,13 +14,13 @@ import { cn } from "@/lib/utils";
 import type { CampaignClip, CampaignProfile, CampaignProject, CampaignStatus, ProjectFile } from "@/lib/types";
 
 const FILTERS: { id: string; label: string; statuses?: CampaignStatus[] }[] = [
-  { id: "alla", label: "Alla" },
-  { id: "granska", label: "Att granska", statuses: ["renderad"] },
-  { id: "godkanda", label: "Godkända", statuses: ["godkand"] },
+  { id: "alla", label: "All" },
+  { id: "granska", label: "To review", statuses: ["renderad"] },
+  { id: "godkanda", label: "Approved", statuses: ["godkand"] },
   // Allt efter Markera som postad, så att ett postat klipp inte försvinner ur flikarna.
-  { id: "postade", label: "Postade", statuses: ["postad", "postad_utan_lank", "inskickad", "analytics_inskickad", "betald"] },
-  { id: "nekade", label: "Nekade", statuses: ["nekad"] },
-  { id: "underkanda", label: "Underkända", statuses: ["underkand"] },
+  { id: "postade", label: "Posted", statuses: ["postad", "postad_utan_lank", "inskickad", "analytics_inskickad", "betald"] },
+  { id: "nekade", label: "Rejected", statuses: ["nekad"] },
+  { id: "underkanda", label: "Failed check", statuses: ["underkand"] },
 ];
 
 type Sort = "score" | "time";
@@ -32,12 +32,12 @@ function sortClips(clips: CampaignClip[], sort: Sort): CampaignClip[] {
 }
 
 const KEYS: [string, string][] = [
-  ["J", "nästa klipp"],
-  ["K", "föregående klipp"],
-  ["Y", "ja"],
-  ["N", "nej"],
-  ["E", "redigera"],
-  ["C", "kopiera caption"],
+  ["J", "next clip"],
+  ["K", "previous clip"],
+  ["Y", "yes"],
+  ["N", "no"],
+  ["E", "edit"],
+  ["C", "copy caption"],
 ];
 
 function KeysHelp() {
@@ -45,7 +45,7 @@ function KeysHelp() {
     <details className="relative">
       <summary className="flex cursor-pointer items-center gap-1.5 rounded-[9px] border border-line px-3 py-1.5 text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
         <Keyboard className="size-3.5" aria-hidden />
-        Tangenter
+        Keys
       </summary>
       <dl className="absolute right-0 z-10 mt-1.5 grid w-56 grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 rounded-xl border border-line bg-panel p-3 shadow-lg">
         {KEYS.map(([key, label]) => (
@@ -56,7 +56,7 @@ function KeysHelp() {
             <dd className="text-muted-foreground">{label}</dd>
           </div>
         ))}
-        <p className="col-span-2 mt-1 text-xs text-muted-foreground">Inte när du skriver i ett fält.</p>
+        <p className="col-span-2 mt-1 text-xs text-muted-foreground">Not while you type in a field.</p>
       </dl>
     </details>
   );
@@ -82,7 +82,7 @@ function ClipToolbar({
   return (
     <div className="mb-2 flex flex-wrap items-center gap-3 text-[13px]">
       {/* flex-wrap: på en smal skärm går flikarna på två rader i stället för att skäras av. */}
-      <div role="tablist" aria-label="Visa klipp" className="flex max-w-full flex-wrap overflow-hidden rounded-[9px] border border-line">
+      <div role="tablist" aria-label="Show clips" className="flex max-w-full flex-wrap overflow-hidden rounded-[9px] border border-line">
         {FILTERS.map((f) => (
           <button
             key={f.id}
@@ -98,12 +98,12 @@ function ClipToolbar({
       <span className="flex-1" />
       <KeysHelp />
       <span className="flex items-center gap-3">
-        <span className="text-muted-foreground">Sortera:</span>
+        <span className="text-muted-foreground">Sort:</span>
         <div className="flex overflow-hidden rounded-[9px] border border-line">
           {(
             [
-              ["score", "Betyg"],
-              ["time", "Tidsordning"],
+              ["score", "Score"],
+              ["time", "Time order"],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -199,13 +199,13 @@ export function ClipsSection({
     <section className="mt-8">
       {running && (
         <p className="mb-3 text-sm text-muted-foreground">
-          {clips.length === 1 ? "1 klipp är klart." : `${clips.length} klipp är klara.`} Fler kan komma medan projektet pågår.
+          {clips.length === 1 ? "1 clip is done." : `${clips.length} clips are done.`} More can come while the project runs.
         </p>
       )}
       {clips.length > 0 && <ClipToolbar clips={clips} filter={filter} onFilter={chooseFilter} sort={sort} onSort={setSort} />}
       {visible.length === 0 ? (
         <p className="mt-4 rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted-foreground">
-          {clips.length === 0 ? "Inga klipp i det här projektet." : "Inga klipp med den statusen."}
+          {clips.length === 0 ? "No clips in this project." : "No clips with that status."}
         </p>
       ) : (
         visible.map((clip) => (
@@ -239,7 +239,7 @@ function RetryFile({ file, onStarted }: { file: ProjectFile; onStarted: () => vo
       await api.campaign.runs.retry(file.run_id);
       onStarted();
     } catch (err) {
-      setError(errorText(err, "Kunde inte köra igen"));
+      setError(errorText(err, "Could not run again"));
     }
     setBusy(false);
   }
@@ -247,7 +247,7 @@ function RetryFile({ file, onStarted }: { file: ProjectFile; onStarted: () => vo
     <>
       <Button className="h-7 text-[13px]" onClick={retry} disabled={busy}>
         {busy ? <Loader2 className="animate-spin" aria-hidden /> : <RotateCcw aria-hidden />}
-        {busy ? "Startar…" : "Kör igen"}
+        {busy ? "Starting…" : "Run again"}
       </Button>
       {error && <p className="basis-full text-[13px] text-[#fca5a5]">{error}</p>}
     </>
@@ -280,7 +280,7 @@ function FileRow({ file, onChanged }: { file: ProjectFile; onChanged: () => void
           {failed && <RetryFile file={file} onStarted={onChanged} />}
           <DeleteVod run={file} small onDeleted={onChanged} />
           <Link href={`/runs/${file.run_id}`} className={buttonVariants({ variant: "outline", size: "sm" })}>
-            Öppna filens sida
+            Open the file's page
             <ChevronRight aria-hidden />
           </Link>
         </div>
@@ -291,10 +291,10 @@ function FileRow({ file, onChanged }: { file: ProjectFile; onChanged: () => void
 
 function Files({ project, onChanged }: { project: CampaignProject; onChanged: () => void }) {
   return (
-    <section aria-label="Filer" className="mt-7 max-w-[860px]">
-      <h2 className="mb-1 font-semibold">Filer</h2>
+    <section aria-label="Files" className="mt-7 max-w-[860px]">
+      <h2 className="mb-1 font-semibold">Files</h2>
       {project.files.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Inga egna filer än. Klippen nedan är uppladdade videor.</p>
+        <p className="text-sm text-muted-foreground">No own files yet. The clips below are uploaded videos.</p>
       ) : (
         <ul className="rounded-2xl border border-line px-3.5">
           {project.files.map((file) => (
@@ -315,11 +315,11 @@ function PageMessage({ error }: { error: string | null }) {
             {error}
           </p>
           <Link href="/projects" className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground">
-            Till alla projekt
+            To all projects
           </Link>
         </>
       ) : (
-        <p className="text-sm text-muted-foreground">Hämtar projektet…</p>
+        <p className="text-sm text-muted-foreground">Loading the project…</p>
       )}
     </main>
   );
@@ -350,7 +350,7 @@ function useProject(id: number) {
   const validId = Number.isInteger(id) && id > 0;
   const [project, setProject] = useState<CampaignProject | null>(null);
   const [clips, setClips] = useState<CampaignClip[] | null>(null);
-  const [error, setError] = useState<string | null>(validId ? null : "Projektet finns inte. Kontrollera länken.");
+  const [error, setError] = useState<string | null>(validId ? null : "The project does not exist. Check the link.");
   const fetchClips = useCallback(async () => {
     try {
       setClips(await api.campaign.clips.list({ project_id: id }));
@@ -365,7 +365,7 @@ function useProject(id: number) {
       setProject(await api.campaign.projects.get(id));
       setError(null);
     } catch (err) {
-      setError(errorText(err, "Kunde inte hämta projektet"));
+      setError(errorText(err, "Could not load the project"));
     }
     await fetchClips();
   }, [id, validId, fetchClips]);
@@ -383,7 +383,7 @@ function ProjectHeader({ project }: { project: CampaignProject }) {
   return (
     <div className="mt-2 flex flex-wrap items-start gap-4">
       <div className="min-w-0 flex-[1_1_20rem]">
-        <h1 className="text-3xl font-bold tracking-tight break-words">{project.title || `Egna filer för ${project.streamer}`}</h1>
+        <h1 className="text-3xl font-bold tracking-tight break-words">{project.title || `Own files for ${project.streamer}`}</h1>
         <p className="mt-1.5 text-muted-foreground">
           {projectSize(project)}
           {todo && <span className="font-medium text-brand">, {todo}</span>}
@@ -392,7 +392,7 @@ function ProjectHeader({ project }: { project: CampaignProject }) {
       </div>
       <Link href={`/uploads?kampanj=${encodeURIComponent(project.profile)}`} className={buttonVariants({ variant: "outline" })}>
         <Upload aria-hidden />
-        Ladda upp fler
+        Upload more
       </Link>
     </div>
   );
@@ -412,13 +412,13 @@ export function ProjectClient({ id }: { id: number }) {
   return (
     <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
       <Link href="/projects" className="text-sm text-muted-foreground hover:text-foreground">
-        ← Alla projekt
+        ← All projects
       </Link>
       <ProjectHeader project={project} />
       {error && (
         <p role="status" className="mt-3 text-sm text-muted-foreground">
-          Kunde inte läsa om projektet: {error}
-          {project.active ? " Försöker igen om några sekunder." : ""}
+          Could not reload the project: {error}
+          {project.active ? " Trying again in a few seconds." : ""}
         </p>
       )}
       <Files project={project} onChanged={reload} />

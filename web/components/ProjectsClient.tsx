@@ -12,11 +12,11 @@ const POLL_MS = 5000;
 
 // Filtret på status. Ett projekt räknas till Att granska när det har klipp att granska eller rätta.
 const STATUS_FILTERS = [
-  { id: "alla", label: "Alla" },
-  { id: "pagar", label: "Pågår" },
-  { id: "granska", label: "Att granska" },
-  { id: "klara", label: "Klara" },
-  { id: "misslyckade", label: "Misslyckade" },
+  { id: "alla", label: "All" },
+  { id: "pagar", label: "Running" },
+  { id: "granska", label: "To review" },
+  { id: "klara", label: "Done" },
+  { id: "misslyckade", label: "Failed" },
 ] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number]["id"];
 
@@ -59,7 +59,7 @@ function Filters({
 }) {
   return (
     <div className="mb-4 flex flex-wrap items-center gap-3 text-[13px]">
-      <div role="tablist" aria-label="Visa projekt" className="flex flex-wrap overflow-hidden rounded-[9px] border border-line">
+      <div role="tablist" aria-label="Show projects" className="flex flex-wrap overflow-hidden rounded-[9px] border border-line">
         {STATUS_FILTERS.map((f) => (
           <button
             key={f.id}
@@ -74,13 +74,13 @@ function Filters({
       </div>
       {campaigns.length > 1 && (
         <label className="flex items-center gap-2 text-muted-foreground">
-          Kampanj:
+          Campaign:
           <select
             value={campaign}
             onChange={(e) => onCampaign(e.target.value)}
             className="h-8 rounded-[9px] border border-line bg-background px-2 text-foreground [&>option]:bg-panel"
           >
-            <option value="">Alla</option>
+            <option value="">All</option>
             {campaigns.map((c) => (
               <option key={c.name} value={c.name}>
                 {c.label}
@@ -90,7 +90,7 @@ function Filters({
         </label>
       )}
       <Link href="/uploads" className="ml-auto text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
-        Ladda upp en egen video
+        Upload your own video
       </Link>
     </div>
   );
@@ -101,7 +101,7 @@ function LoadError({ error, onRetry }: { error: string; onRetry: () => void }) {
     <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">
       <span className="flex-1">{error}</span>
       <button type="button" onClick={onRetry} className="inline-flex h-8 items-center rounded-lg border border-[#4d1d1d] px-3 font-medium hover:bg-white/5">
-        Försök igen
+        Try again
       </button>
     </div>
   );
@@ -110,15 +110,15 @@ function LoadError({ error, onRetry }: { error: string; onRetry: () => void }) {
 function NoProjects() {
   return (
     <p className="rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted-foreground">
-      Inga projekt än.{" "}
+      No projects yet.{" "}
       <Link href="/" className="text-brand underline-offset-4 hover:underline">
-        Klistra in en Twitch-länk
+        Paste a Twitch link
       </Link>{" "}
-      eller{" "}
+      or{" "}
       <Link href="/uploads" className="text-brand underline-offset-4 hover:underline">
-        ladda upp en egen video
+        upload your own video
       </Link>{" "}
-      för att göra det första.
+      to make the first one.
     </p>
   );
 }
@@ -137,7 +137,7 @@ function useProjects() {
     api.campaign.runs
       .list()
       .then(setRuns)
-      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte hämta projekten"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load the projects"));
     // Ett fel här döljer bara korten för egna filer.
     api.campaign.projects.list().then(setProjects).catch(() => setProjects([]));
     api.campaign.profiles().then(setProfiles).catch(() => {});
@@ -176,12 +176,12 @@ function projectCards(runs: CampaignRunInfo[], projects: CampaignProject[], camp
 
 /** Texten när listan är tom: hämtar, inga projekt alls, eller inga med filtret. */
 function ListState({ loading, total, shown }: { loading: boolean; total: number | null; shown: number }) {
-  if (loading) return <p className="text-sm text-muted-foreground">Hämtar projekten…</p>;
+  if (loading) return <p className="text-sm text-muted-foreground">Loading the projects…</p>;
   if (total === 0) return <NoProjects />;
   if (total && shown === 0) {
     return (
       <p className="rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted-foreground">
-        Inga projekt med det filtret.
+        No projects with that filter.
       </p>
     );
   }
@@ -199,11 +199,11 @@ export function ProjectsClient() {
   return (
     <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
       <Link href="/" className="text-sm text-muted-foreground hover:text-foreground">
-        ← Hem
+        ← Home
       </Link>
-      <h1 className="mt-2 text-3xl font-bold tracking-tight">Projekt</h1>
+      <h1 className="mt-2 text-3xl font-bold tracking-tight">Projects</h1>
       <p className="mt-1.5 mb-6 text-muted-foreground">
-        En stream per projekt, och ett projekt per kampanj för egna filer. Öppna ett projekt för att se förloppet eller granska klippen.
+        One stream per project, and one project per campaign for own files. Open a project to see the progress or review the clips.
       </p>
       {error && <LoadError error={error} onRetry={load} />}
       {total > 0 && (

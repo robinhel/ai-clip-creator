@@ -27,16 +27,16 @@ import type {
 
 const TABS: Record<ClipStep, { label: string; description: string }> = {
   granska: {
-    label: "Att granska",
-    description: "Alla klipp som väntar på ditt ja eller nej, från alla projekt och egna videor. J och K byter klipp, Y är ja och N är nej.",
+    label: "To review",
+    description: "All clips waiting for your yes or no, from all projects and uploads. J and K switch clips, Y is yes and N is no.",
   },
   posta: {
-    label: "Att posta",
-    description: "Godkända klipp. Tryck Publicera och välj konto, nu eller senare, utkast, direkt eller posta själv.",
+    label: "Ready to post",
+    description: "Approved clips. Press Publish and choose an account, now or later, draft, direct or post yourself.",
   },
   "skicka-in": {
-    label: "Skicka in",
-    description: "Postade klipp. Skicka in länken i Content Rewards inom 30 minuter från att du sparade den.",
+    label: "Submit",
+    description: "Posted clips. Submit the link in Content Rewards within 30 minutes of saving it.",
   },
 };
 
@@ -58,19 +58,19 @@ const back = (clip: CampaignClip, status: CampaignClip["status"]) => () => api.c
 // Beskedet per stegbyte, som "från>till". Att granska är både renderad och underkand.
 const NOTICES: Record<string, (clip: CampaignClip, name: string) => Notice> = {
   "granska>godkand": (clip, name) => ({
-    text: `Godkänt. ${name} ligger i Att posta.`,
+    text: `Approved. ${name} is in Ready to post.`,
     href: `/queue?tab=posta#klipp-${clip.id}`,
-    linkText: "Öppna Att posta",
+    linkText: "Open Ready to post",
     undo: back(clip, "renderad"),
   }),
-  "granska>nekad": (clip, name) => ({ text: `Nekat. ${name} finns under Nekade.`, undo: back(clip, "renderad") }),
+  "granska>nekad": (clip, name) => ({ text: `Rejected. ${name} is under Rejected.`, undo: back(clip, "renderad") }),
   "godkand>postad": (clip) => ({
-    text: "Postat. Skicka in länken i Content Rewards inom 30 minuter.",
+    text: "Posted. Submit the link in Content Rewards within 30 minutes.",
     href: `/queue?tab=skicka-in#klipp-${clip.id}`,
-    linkText: "Öppna Skicka in",
+    linkText: "Open Submit",
   }),
-  "postad>inskickad": () => ({ text: "Inskickat. Fyll i visningarna på Statistik när de kommer.", href: "/log", linkText: "Öppna Statistik" }),
-  "nekad>renderad": (clip, name) => ({ text: `${name} ligger i Att granska igen.`, href: `/queue?tab=granska#klipp-${clip.id}`, linkText: "Visa" }),
+  "postad>inskickad": () => ({ text: "Submitted. Fill in the views on Stats when they come.", href: "/log", linkText: "Open Stats" }),
+  "nekad>renderad": (clip, name) => ({ text: `${name} is in To review again.`, href: `/queue?tab=granska#klipp-${clip.id}`, linkText: "Show" }),
 };
 
 function transition(prev: CampaignClip, next: CampaignClip): string {
@@ -81,7 +81,7 @@ function transition(prev: CampaignClip, next: CampaignClip): string {
 }
 
 const noticeFor = (prev: CampaignClip, next: CampaignClip): Notice | null =>
-  NOTICES[transition(prev, next)]?.(next, next.title || "Klippet") ?? null;
+  NOTICES[transition(prev, next)]?.(next, next.title || "The clip") ?? null;
 
 /** Reglerna för kampanjerna som har klipp att granska, posta eller skicka in. En kampanj som inte går att läsa hoppas över. */
 async function profileDetails(clips: CampaignClip[]): Promise<CampaignProfileDetail[]> {
@@ -146,7 +146,7 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
       api.campaign.youtube.status().then(setYoutube).catch(() => setYoutube(null));
       api.campaign.tiktok.status().then(setTiktok).catch(() => setTiktok(null));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunde inte hämta klippen");
+      setError(err instanceof Error ? err.message : "Could not load the clips");
     } finally {
       setRefreshing(false);
     }
@@ -209,9 +209,9 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
     setClips((list) => list?.map((c) => (c.id === clip.id ? clip : c)) ?? null);
     window.dispatchEvent(new Event(SUMMARY_CHANGED));
     setUndoError(null);
-    const done = clip.status === "postad_utan_lank" ? "markerat som postat" : "borttaget från Att posta";
+    const done = clip.status === "postad_utan_lank" ? "marked as posted" : "removed from Ready to post";
     setNotice({
-      text: `${clip.title || "Klippet"} är ${done}.${cancelled > 0 ? " Den schemalagda uppladdningen är avbruten och startar inte igen vid Ångra." : ""}`,
+      text: `${clip.title || "The clip"} is ${done}.${cancelled > 0 ? " The scheduled upload is cancelled and does not start again on Undo." : ""}`,
       undo: () => api.campaign.clips.patch(clip.id, { status: "godkand" }),
     });
     if (cancelled > 0) loadSchedule();
@@ -227,7 +227,7 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
       setNotice(null);
       setUndoError(null);
     } catch (err) {
-      setUndoError(err instanceof Error ? err.message : "Det gick inte att ångra");
+      setUndoError(err instanceof Error ? err.message : "Could not undo");
     } finally {
       setUndoing(false);
     }
@@ -238,7 +238,7 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
     return runs.filter((r) => r.vod_id === clip.vod_id && r.profile === clip.profile).sort((a, b) => b.run_id - a.run_id)[0];
   }
   function sourceFor(clip: CampaignClip) {
-    if (clip.vod_id === UPLOAD) return { label: "Egen video", href: "/uploads" };
+    if (clip.vod_id === UPLOAD) return { label: "Own video", href: "/uploads" };
     const run = runFor(clip);
     return run ? { label: run.title || `VOD ${clip.vod_id}`, href: `/runs/${run.run_id}` } : undefined;
   }
@@ -337,23 +337,23 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
     <main className="w-full max-w-[1180px] px-4 py-6 pb-28 sm:px-6 md:px-11 md:py-9">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Klippen</h1>
-          <p className="mt-1.5 text-muted-foreground">Granska, posta och skicka in klippen från alla projekt och egna videor.</p>
+          <h1 className="text-3xl font-bold tracking-tight">Clips</h1>
+          <p className="mt-1.5 text-muted-foreground">Review, post and submit the clips from all projects and uploads.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {/* Egna videor finns inte i menyn. Härifrån når Robin sidan där han lägger in ett eget klipp. */}
           <Link href="/uploads" className={buttonVariants({ variant: "outline" })}>
             <Upload aria-hidden />
-            Lägg in eget klipp
+            Add own clip
           </Link>
           <Button variant="outline" onClick={load} disabled={refreshing}>
             <RefreshCw className={refreshing ? "animate-spin" : undefined} aria-hidden />
-            Uppdatera
+            Refresh
           </Button>
         </div>
       </div>
 
-      <div role="tablist" aria-label="Steg" className="mt-6 flex gap-1 overflow-x-auto border-b border-line [scrollbar-width:none]">
+      <div role="tablist" aria-label="Steps" className="mt-6 flex gap-1 overflow-x-auto border-b border-line [scrollbar-width:none]">
         {order.map((step) => {
           const n = stepCount(counts, step);
           return (
@@ -393,12 +393,12 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
         >
           <span>{error}</span>
           <Button size="sm" variant="outline" onClick={load}>
-            Försök igen
+            Try again
           </Button>
         </div>
       )}
 
-      {clips === null && !error && <p className="mt-6 text-sm text-muted-foreground">Hämtar klipp…</p>}
+      {clips === null && !error && <p className="mt-6 text-sm text-muted-foreground">Loading clips…</p>}
 
       {clips && tab === "granska" && (
         <div role="group" aria-label="Visa" className="mt-4 inline-flex overflow-hidden rounded-lg border border-line text-sm">
@@ -410,7 +410,7 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
               onClick={() => setShowRejected(rej)}
               className="px-3 py-1.5 text-muted-foreground hover:text-foreground aria-pressed:bg-panel aria-pressed:text-foreground"
             >
-              {rej ? `Nekade (${rejected.length})` : `Att granska (${list("granska").length})`}
+              {rej ? `Rejected (${rejected.length})` : `To review (${list("granska").length})`}
             </button>
           ))}
         </div>
@@ -419,7 +419,7 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
       {clips && tab === "skicka-in" && deadline != null && (
         <p className="mt-4 flex items-center gap-2 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-sm text-violet-100">
           <Clock className="size-4 shrink-0" aria-hidden />
-          Första länken ska vara inskickad före kl. {timeText.format(deadline)} ({minutesLeft} min kvar).
+          The first link must be submitted before {timeText.format(deadline)} ({minutesLeft} min left).
         </p>
       )}
 
@@ -435,22 +435,22 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
 
       {clips &&
         (visible.length > 0 ? (
-          <section aria-label={showRejected ? "Nekade" : TABS[tab].label} className="mt-2">
+          <section aria-label={showRejected ? "Rejected" : TABS[tab].label} className="mt-2">
             {visible.map(row)}
           </section>
         ) : tab === "granska" ? (
           empty(
             showRejected ? (
-              "Inga nekade klipp."
+              "No rejected clips."
             ) : (
               <>
-                Inga klipp att granska. Hämta klipp från en stream på{" "}
+                No clips to review. Get clips from a stream on{" "}
                 <Link href="/" className={linkClass}>
-                  Hem
+                  Home
                 </Link>{" "}
-                eller ladda upp en{" "}
+                or upload your{" "}
                 <Link href="/uploads" className={linkClass}>
-                  egen video
+                  own video
                 </Link>
                 .
               </>
@@ -459,19 +459,19 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
         ) : tab === "posta" ? (
           empty(
             <>
-              Inget att posta just nu. Klipp du säger ja till under{" "}
+              Nothing to post right now. Clips you say yes to under{" "}
               <button type="button" className={linkClass} onClick={() => openTab("granska")}>
-                Att granska
+                To review
               </button>{" "}
-              hamnar här.
+              end up here.
             </>
           )
         ) : (
           empty(
             <>
-              Inget att skicka in. Inskickade klipp följer du på{" "}
+              Nothing to submit. You follow submitted clips on{" "}
               <Link href="/log" className={linkClass}>
-                Statistik
+                Stats
               </Link>
               .
             </>
@@ -481,7 +481,7 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
       {clips && tab === "posta" && morePlatforms.length > 0 && (
         <details className="mt-8 rounded-2xl border border-line px-4 py-3">
           <summary className="cursor-pointer text-sm text-muted-foreground hover:text-foreground">
-            Inskickade klipp som kan postas på fler plattformar ({morePlatforms.length})
+            Submitted clips that can be posted on more platforms ({morePlatforms.length})
           </summary>
           {morePlatforms.map(row)}
         </details>
@@ -503,10 +503,10 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
             )}
             {notice.undo && (
               <Button size="sm" variant="outline" disabled={undoing} onClick={undo}>
-                Ångra
+                Undo
               </Button>
             )}
-            <Button size="icon-sm" variant="ghost" aria-label="Stäng" onClick={() => setNotice(null)}>
+            <Button size="icon-sm" variant="ghost" aria-label="Close" onClick={() => setNotice(null)}>
               <X aria-hidden />
             </Button>
           </span>

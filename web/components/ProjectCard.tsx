@@ -22,11 +22,11 @@ const day = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "short" })
 export const isActive = (run: CampaignRunInfo) => isRunning(run.status);
 
 function statusTag(run: CampaignRunInfo): string {
-  if (run.cancelled) return "Avbruten";
-  if (run.status === "failed") return "Misslyckades";
-  if (run.status === "pending") return "I kö";
+  if (run.cancelled) return "Cancelled";
+  if (run.status === "failed") return "Failed";
+  if (run.status === "pending") return "Queued";
   if (run.status === "running") return stageText(run.stage, run.pct);
-  return `Klar, ${countClips(run.clip_counts)} klipp`;
+  return `Done, ${countClips(run.clip_counts)} clips`;
 }
 
 function Card({
@@ -88,7 +88,7 @@ function metaLine(run: CampaignRunInfo): string {
 function RunPicture({ run }: { run: CampaignRunInfo }) {
   const own = !/^\d+$/.test(run.vod_id); // en egen fil har filens namn som VOD-id
   const src = run.thumbnail_url ?? (run.poster_url ? api.campaign.proxied(run.poster_url) : null);
-  return <Picture src={src} dim={isActive(run)} fallback={own ? "Egen fil" : `VOD ${run.vod_id}`} />;
+  return <Picture src={src} dim={isActive(run)} fallback={own ? "Own file" : `VOD ${run.vod_id}`} />;
 }
 
 export function Progress({ pct }: { pct: number | null | undefined }) {
@@ -96,7 +96,7 @@ export function Progress({ pct }: { pct: number | null | undefined }) {
     <div
       className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-line"
       role="progressbar"
-      aria-label="Förlopp"
+      aria-label="Progress"
       aria-valuenow={Math.round(pct ?? 0)}
       aria-valuemin={0}
       aria-valuemax={100}
@@ -139,7 +139,7 @@ export function ProjectCard({ run }: { run: CampaignRunInfo }) {
 function projectTag(project: CampaignProject): string {
   const file = activeFile(project);
   if (!file) return projectSize(project);
-  return file.status === "pending" ? "I kö" : stageText(file.stage, project.pct ?? file.pct);
+  return file.status === "pending" ? "Queued" : stageText(file.stage, project.pct ?? file.pct);
 }
 
 /** Kampanjens projekt för egna filer och uppladdningar: ett kort i stället för ett per fil. */
@@ -150,10 +150,10 @@ export function CampaignProjectCard({ project }: { project: CampaignProject }) {
   return (
     <Card
       href={`/projects/${project.id}`}
-      image={<Picture src={poster} dim={project.active} fallback="Egen fil" />}
+      image={<Picture src={poster} dim={project.active} fallback="Own file" />}
       tag={projectTag(project)}
       tagTone="bg-black/70"
-      title={project.title || `Egna filer för ${project.streamer || project.profile}`}
+      title={project.title || `Own files for ${project.streamer || project.profile}`}
       meta={
         <>
           {projectMeta(project)}
