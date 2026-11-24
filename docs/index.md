@@ -52,4 +52,3 @@ Clips appear in `out/<video_id>/`.
 | [Cloud Mode](cloud.md) | ACI workflow, design decisions, cost, troubleshooting |
 | [Examples](examples.md) | Colab notebook, usage patterns |
 | [Dev Setup](dev/contributing.md) | Running tests, mypy, bandit, CI |
-| [Azure Setup](dev/azure-cloud-setup.md) | One-time cloud infrastructure provisioning |

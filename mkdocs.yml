@@ -37,5 +37,4 @@ nav:
   - Examples: examples.md
   - Developer:
     - Dev Setup: dev/contributing.md
-    - Azure Cloud Setup: dev/azure-cloud-setup.md
     - Improvement Plan: dev/plan.md
