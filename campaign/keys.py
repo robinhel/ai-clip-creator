@@ -17,8 +17,7 @@ from typing import Any
 
 import httpx
 from dotenv import dotenv_values
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from clipsmith.api.deps import verify_api_key
 from clipsmith.twitch.client import TwitchClient
@@ -44,8 +43,15 @@ VALUE = re.compile(r"[!%&(-~]{1,300}")
 _env_lock = threading.Lock()  # två Spara samtidigt får inte skriva över varandras rader i .env
 
 
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
+
+
 def _only_local(request: Request) -> None:
-    """clipsmith serve lyssnar på 0.0.0.0. Ingen annan på nätverket får byta nycklarna."""
+    """Bara datorn där servern körs får byta nycklarna, även om servern startas med --host 0.0.0.0.
+    Host-namnet kontrolleras också: en webbsida vars namn pekar på 127.0.0.1 (DNS rebinding) är ingen lokal klient."""
+    host = request.headers.get("host", "").lower()
+    if (host.rsplit(":", 1)[0] if not host.endswith("]") else host) not in LOCAL_HOSTS:
+        raise HTTPException(403, "Nycklarna kan bara ändras från datorn där servern körs.")
     try:
         address = ipaddress.ip_address(request.client.host if request.client else "")
     except ValueError:  # inte en IP-adress, till exempel testclient
@@ -130,13 +136,12 @@ def get_keys(settings: Settings = Depends(get_settings)) -> dict:
     return {"groups": _groups(settings.root)}
 
 
-class KeysBody(BaseModel):
-    values: dict[str, Any]  # Any: ett fel om typen ska inte citera värdet i ett 422-svar
-
-
 @router.put("/keys", summary="Spara nycklar i .env", dependencies=[Depends(verify_api_key), Depends(_only_local)])
-def put_keys(body: KeysBody, settings: Settings = Depends(get_settings)) -> dict:
-    values = _check(body.values)
+def put_keys(body: Any = Body(None), settings: Settings = Depends(get_settings)) -> dict:
+    # Any och egen kontroll: FastAPIs 422-svar citerar fel indata, och den kan vara en nyckel.
+    if not (isinstance(body, dict) and isinstance(body.get("values"), dict)):
+        raise HTTPException(400, 'Skicka nycklarna som {"values": {"NAMN": "värde"}}.')
+    values = _check(body["values"])
     with _env_lock:
         _write_env(settings.root / ".env", values)
         # load_dotenv skriver inte över en variabel som redan finns i processen, så den sätts här.

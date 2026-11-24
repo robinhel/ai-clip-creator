@@ -76,7 +76,7 @@ def _client(settings, host: str = "127.0.0.1") -> TestClient:
     app = FastAPI()
     app.include_router(keys.router)
     app.dependency_overrides[api.get_settings] = lambda: settings
-    return TestClient(app, client=(host, 50000))
+    return TestClient(app, base_url="http://127.0.0.1:8000", client=(host, 50000))
 
 
 @pytest.fixture
@@ -202,3 +202,35 @@ def test_changing_keys_needs_the_api_key_and_this_computer(settings, env, twitch
     assert local.post("/campaign/keys/test/twitch").status_code == 401
     assert local.put("/campaign/keys", json=body, headers={"X-Api-Key": "nyckel"}).status_code == 200
     assert env.read_text() == ENV + f"BERGET_API_KEY={SECRET}\n"
+
+
+@pytest.mark.parametrize("body", [{"values": SECRET}, {"values": [SECRET]}, {"other": SECRET}, [SECRET], SECRET])
+def test_a_badly_shaped_body_is_refused_without_echoing_it(client, env, body) -> None:
+    response = client.put("/campaign/keys", json=body)
+    assert response.status_code == 400
+    assert SECRET not in response.text
+    assert env.read_text() == ENV
+
+
+def test_a_plain_text_body_is_refused_without_echoing_it(client, env) -> None:
+    response = client.put("/campaign/keys", content=SECRET, headers={"content-type": "text/plain"})
+    assert response.status_code == 400
+    assert SECRET not in response.text
+    assert env.read_text() == ENV
+
+
+@pytest.mark.parametrize("host", ["evil.example", "evil.example:8000", "192.168.1.20:8000", "localhost.evil.example"])
+def test_a_page_under_another_host_name_cannot_change_keys(settings, env, twitch, host) -> None:
+    """DNS rebinding: a web page whose name resolves to 127.0.0.1 reaches the server from this computer."""
+    local = _client(settings)
+    body = {"values": {"BERGET_API_KEY": SECRET}}
+    assert local.put("/campaign/keys", json=body, headers={"host": host}).status_code == 403
+    assert local.post("/campaign/keys/test/twitch", headers={"host": host}).status_code == 403
+    assert env.read_text() == ENV
+
+
+@pytest.mark.parametrize("host", ["localhost:8000", "127.0.0.1:8000", "[::1]:8000", "localhost"])
+def test_local_host_names_can_change_keys(settings, env, twitch, host) -> None:
+    local = _client(settings)
+    body = {"values": {"BERGET_API_KEY": SECRET}}
+    assert local.put("/campaign/keys", json=body, headers={"host": host}).status_code == 200
