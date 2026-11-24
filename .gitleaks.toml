@@ -1,0 +1,15 @@
+title = "ai-clip-creator gitleaks config"
+
+# Keep all of gitleaks' default rules.
+[extend]
+useDefault = true
+
+# Only clearly fake values used as placeholders in tests. Never add a real key here:
+# remove it from the code and rotate it instead.
+[[allowlists]]
+description = "Fake key values in the test suite"
+regexTarget = "secret"
+regexes = [
+  '''^zyxwvutsrq9876543210ponmlkjihg$''',  # tests_campaign/test_keys.py: the alphabet backwards
+  '''^(hemligt-varde|secret-value)-123$''',  # tests_campaign/test_rekommendation.py
+]
