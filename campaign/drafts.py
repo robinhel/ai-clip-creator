@@ -144,11 +144,6 @@ class Plan:
         return self.key("framing", "start_s", "end_s")  # råklippet beror bara på de här
 
 
-def comma(value: float, fmt: str) -> str:
-    """Tal i ett meddelande, som 4.6. (Hette komma när appen var på svenska.)"""
-    return format(value, fmt)
-
-
 def with_advice(problems: list[str]) -> list[str]:
     """En egen video går inte att göra kampanjklar igen: säg vad Robin kan göra i stället."""
     return [f"{p} Upload a longer video or press No." if TOO_SHORT in p else p for p in problems]
@@ -162,7 +157,7 @@ def _span(choices: Choices, duration: float) -> tuple[float, float]:
     if duration < end <= duration + EXTRA_S:  # webben avrundar till tiondelar
         end = duration
     if not 0 <= start < end <= duration:
-        raise VersionError(f"Start and end must be within the video, 0–{comma(duration, '.1f')} s, "
+        raise VersionError(f"Start and end must be within the video, 0–{duration:.1f} s, "
                            "and the start before the end.")
     return start, end
 
@@ -170,8 +165,8 @@ def _span(choices: Choices, duration: float) -> tuple[float, float]:
 def _check_choices(choices: Choices) -> dict[str, str]:
     """Valen som inte beror på videon. Returnerar fonterna som finns."""
     if choices.speed not in versions.SPEEDS:
-        raise VersionError(f"The speed {comma(choices.speed, 'g')} is not possible. "
-                           f"Choose {', '.join(comma(s, 'g') for s in versions.SPEEDS)}.")
+        raise VersionError(f"The speed {choices.speed:g} is not possible. "
+                           f"Choose {', '.join(f'{s:g}' for s in versions.SPEEDS)}.")
     if choices.framing not in FRAMINGS:
         raise VersionError(f"The framing {choices.framing!r} does not exist. Choose {', '.join(FRAMINGS)}.")
     found = versions.fonts()
@@ -204,12 +199,12 @@ def _wanted(choices: Choices) -> dict | None:
 def check_length(plan: Plan) -> None:
     """Kampanjens min och max, före rendering."""
     campaign, length = plan.campaign, plan.length_s
-    said = f"The clip will be {comma(max(length, 0), '.1f')} s."
+    said = f"The clip will be {max(length, 0):.1f} s."
     if length < campaign.min_seconds:
-        raise VersionError(f"{said} The campaign requires at least {comma(campaign.min_seconds, 'g')} s. "
+        raise VersionError(f"{said} The campaign requires at least {campaign.min_seconds:g} s. "
                            "Move the start or end on the timeline.")
     if length > campaign.max_seconds:
-        raise VersionError(f"{said} The campaign allows at most {comma(campaign.max_seconds, 'g')} s. "
+        raise VersionError(f"{said} The campaign allows at most {campaign.max_seconds:g} s. "
                            "Move the end on the timeline.")
 
 

@@ -9,23 +9,11 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { CampaignProfile } from "@/lib/types";
 
-// Profilens problem som gör varje klipp underkänt i regelkontrollen (campaign/rules.py).
-const FAILS_CLIPS = ["The overlay image is missing", "on_screen_text.text is empty"];
-
 /** Vad kampanjens läge betyder för körningen. Servern skickar samma text som Kontroll (state). */
-export function readyText(p: CampaignProfile): string {
-  if (p.state) return p.state;
-  if (!p.ready) return "Not ready";
-  if (p.problems.length === 0) return "Ready";
-  if (p.problems.some((problem) => FAILS_CLIPS.some((start) => problem.startsWith(start)))) {
-    return "Can run, but the clips fail the check until the warnings are fixed";
-  }
-  return "Can run, but fix the warnings in the campaign settings first";
-}
+export const readyText = (p: CampaignProfile) => p.state;
 
-/** Nycklar som saknas. En äldre server har dem bara i problems. */
-export const keyProblems = (p: CampaignProfile) =>
-  p.key_problems ?? p.problems.filter((problem) => /API_KEY\) is missing/.test(problem));
+/** Nycklar som saknas. */
+export const keyProblems = (p: CampaignProfile) => p.key_problems;
 
 /** Kampanjens egna problem, utan nycklarna, som visas en gång överst. */
 export const ownProblems = (p: CampaignProfile) => {

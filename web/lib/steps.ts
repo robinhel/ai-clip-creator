@@ -58,10 +58,10 @@ export function bySubmitTime(now = Date.now()) {
 }
 
 // Texterna från serverns regelkontroll (rules.py och caption.py). Gamla klipp har svensk text: englishProblem
-// gör om den först, så de gamla mönstren finns bara i oldProblems.ts. Talen kan ha punkt eller komma.
+// gör om den först, så de gamla mönstren finns bara i oldProblems.ts. Efter englishProblem har talen punkt.
 const isCaption = (p: string) => p.startsWith("Caption ") || isOldCaptionProblem(p);
 const isShort = (p: string) => englishProblem(p).includes("The campaign requires at least");
-const LONG = /The campaign allows at most ([\d.,]+) s/;
+const LONG = /The campaign allows at most ([\d.]+) s/;
 
 /** Hur Robin rättar ett underkänt klipp. caption: felet är bara i captionen. kort: klippet kan inte bli längre, för
  * Redigera kortar bara. lang: korta klippet med Redigera till högst max sekunder, och rätta captionen om caption.
@@ -72,7 +72,7 @@ export type ClipFix = { kind: "caption" | "kort" | "projekt" } | { kind: "lang";
 function lengthFix(others: string[], caption: boolean): ClipFix | undefined {
   if (others.length !== 1) return undefined;
   const long = LONG.exec(englishProblem(others[0]));
-  if (long) return { kind: "lang", max: long[1].replace(",", "."), caption };
+  if (long) return { kind: "lang", max: long[1], caption };
   if (isShort(others[0])) return { kind: "kort" };
 }
 

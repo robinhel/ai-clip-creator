@@ -215,14 +215,14 @@ def _check_trim(state: dict, trim: tuple[float, float], profile: Profile, look: 
     egen video med val-fil blir drafts.EXTRA_S längre, som i utkastens kontroll."""
     new_in, new_out = trim
     if not 0 <= new_in < new_out <= state["duration_s"]:
-        shown = drafts.comma(state["duration_s"], "g")
-        raise ValueError(f"Start and end must be within the clip: 0 to {shown} s, and the start before the end.")
+        raise ValueError(f"Start and end must be within the clip: 0 to {state['duration_s']:g} s, "
+                         "and the start before the end.")
     min_s, max_s = limits(profile)
     extra = drafts.EXTRA_S if look.choices else 0.0
     length = round((new_out - new_in) / look.speed + extra, 3)  # exakt kampanjens gränser
     if not min_s <= length <= max_s:
-        raise ValueError(f"The clip will be {drafts.comma(length, '.1f')} s. "
-                         f"The campaign allows {drafts.comma(min_s, 'g')}–{drafts.comma(max_s, 'g')} s.")
+        raise ValueError(f"The clip will be {length:.1f} s. "
+                         f"The campaign allows {min_s:g}–{max_s:g} s.")
 
 
 def _texts(clip: dict, title: str | None, headline: str | None) -> tuple[str, str | None, str, str]:

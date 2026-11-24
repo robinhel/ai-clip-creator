@@ -42,7 +42,6 @@ LANGUAGES = ("spanish", "german", "french", "portuguese", "italian", "arabic", "
              "tagalog", "filipino", "urdu", "bengali", "malay")
 PLATFORM_NAMES = {"tiktok": "TikTok", "youtube": "YouTube", "instagram": "Instagram"}
 NOT_PAID = "Does not pay for views from"  # början på orsaken, landet följer
-OLD_NOT_PAID = "Betalar inte för visningar från"  # lagrat före översättningen, tills nästa omräkning
 OTHER_LANGUAGE = re.compile(rf"\b(?:in|language:?)\s+(?:{'|'.join(LANGUAGES)})\b", re.IGNORECASE)
 
 
@@ -211,7 +210,7 @@ def _pays_nothing(rates: dict[str, float] | None) -> bool:
 
 def excluded_for_country(excluded: str | None) -> bool:
     """Orsaken är att kampanjen inte betalar för landet. Priserna kan ändras, så sidan läses om ändå."""
-    return (excluded or "").startswith((NOT_PAID, OLD_NOT_PAID))
+    return (excluded or "").startswith(NOT_PAID)
 
 
 def country_note(data: dict, country: str) -> str | None:

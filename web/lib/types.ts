@@ -865,9 +865,9 @@ export interface CampaignProfile {
   allowed_min_s?: number;
   allowed_max_s?: number;
   /** Nycklar som saknas. De står också i problems, men visas en gång överst. */
-  key_problems?: string[];
+  key_problems: string[];
   /** Kampanjens läge i ord, utan nycklarna. Samma text som Kontroll under Inställningar. */
-  state?: string;
+  state: string;
   facecam?: { required: boolean; camera: boolean; rects_set: boolean };
   /** Kampanjen i Bevakning som den lades in från. */
   scout_ref?: string | null;

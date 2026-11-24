@@ -11,6 +11,8 @@ function profile(over: Partial<CampaignProfileDetail> = {}): CampaignProfileDeta
     channel: "timmy",
     formats: [],
     problems: [],
+    key_problems: [],
+    state: "Ready",
     ready: true,
     active: true,
     clip_min_s: 15,
