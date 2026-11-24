@@ -48,12 +48,16 @@ Inside Docker the loopback check cannot work as it is: the dashboard's proxy cal
 `http://api:8000` from the web container, and a browser on your computer reaches the API through Docker's
 gateway address, never through `127.0.0.1`. So:
 
-- **Keys.** Docker Compose sets `TRUSTED_PROXY_HOSTS=api`. The key endpoints then also accept a request
-  whose `Host` is exactly `api` and that comes from a private address (the Compose network). Only a
-  container on the Compose network can send that: the browser and other web sites reach the API through
-  `localhost`, and the port is published on `127.0.0.1` only. The proxy has already checked `Host` and
-  `Origin`, so another web page still cannot save keys. Local names such as `localhost` are never trusted
-  this way; they always need a loopback address. Without the variable (outside Docker) nothing changes.
+- **Keys.** Docker Compose sets `TRUSTED_PROXY_HOSTS=api` and `TRUSTED_PROXY_NET=172.29.0.0/24`, and
+  gives the Compose network that fixed subnet. The key endpoints then also accept a request whose `Host` is
+  exactly `api` and whose address is inside that subnet. Two kinds of callers have such an address: the
+  containers on the Compose network (the dashboard's proxy), and this computer, because a request to the
+  port on `127.0.0.1` reaches the API from Docker's gateway (`172.29.0.1`). So only this computer and the
+  containers on the Compose network can send `Host: api` and save keys. Other computers on your network
+  cannot, as long as the ports stay published on `127.0.0.1`: **never publish them on `0.0.0.0`** (for
+  example `"8000:8000"` without the address). The proxy has already checked `Host` and `Origin`, so another
+  web page still cannot save keys. Local names such as `localhost` are never trusted this way; they always
+  need a loopback address. Without both variables (outside Docker) no proxy is trusted.
 - **Where keys are saved.** Compose sets `KLIPP_ENV_FILE=/app/data/.env`, so keys saved on the Settings
   page go to `data/.env` on your computer (`data/` is mounted) and are loaded again on the next start.
   A `.env` in the project folder is read too, if you have one.

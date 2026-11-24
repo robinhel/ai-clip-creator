@@ -236,7 +236,14 @@ def test_local_host_names_can_change_keys(settings, env, twitch, host) -> None:
     assert local.put("/campaign/keys", json=body, headers={"host": host}).status_code == 200
 
 
-DOCKER_WEB = "172.18.0.3"  # the web container on the Compose network
+DOCKER_WEB = "172.29.0.3"  # the web container on the Compose network (docker-compose.yml: 172.29.0.0/24)
+COMPOSE_NET = "172.29.0.0/24"
+
+
+@pytest.fixture(autouse=True)
+def _compose_net(monkeypatch):
+    """What Compose sets. Tests that need it unset remove it."""
+    monkeypatch.setenv("TRUSTED_PROXY_NET", COMPOSE_NET)
 
 
 @pytest.mark.parametrize("host", ["api", "api:8000"])
@@ -263,7 +270,9 @@ def test_trusted_proxy_hosts_lets_the_docker_proxy_change_keys(settings, env, tw
     (DOCKER_WEB, "evil.example"), (DOCKER_WEB, "evil.example:8000"), (DOCKER_WEB, "api.evil.example"),
     (DOCKER_WEB, "apix:8000"), (DOCKER_WEB, ""),
     ("8.8.8.8", "api:8000"),  # the trusted name from a public address
-    ("172.18.0.1", "localhost:8000"), ("172.18.0.1", "127.0.0.1:8000"),  # local names stay loopback-only
+    ("192.168.1.5", "api:8000"), ("100.64.0.1", "api:8000"),  # the LAN or CGNAT, if the port were on 0.0.0.0
+    ("172.18.0.3", "api:8000"), ("10.0.0.5", "api:8000"),  # private, but not the Compose network
+    ("172.29.0.1", "localhost:8000"), ("172.29.0.1", "127.0.0.1:8000"),  # local names stay loopback-only
 ])
 def test_trusted_proxy_hosts_still_refuses_other_hosts_and_addresses(settings, env, twitch, monkeypatch,
                                                                      ip, host) -> None:
@@ -286,3 +295,27 @@ def test_klipp_env_file_moves_the_saved_keys(settings, env, twitch, monkeypatch)
     assert env.read_text() == ENV
     monkeypatch.setenv("BERGET_API_KEY", "")  # a fresh process: the value is read from the file
     assert _set(client.get("/campaign/keys").json())["BERGET_API_KEY"] is True
+
+
+@pytest.mark.parametrize("net", [None, "", "not-a-network", "0.0.0.0/0"])
+def test_without_a_usable_trusted_proxy_net_no_proxy_is_trusted(settings, env, twitch, monkeypatch, net) -> None:
+    monkeypatch.setenv("TRUSTED_PROXY_HOSTS", "api")
+    if net is None:
+        monkeypatch.delenv("TRUSTED_PROXY_NET", raising=False)
+    else:
+        monkeypatch.setenv("TRUSTED_PROXY_NET", net)
+    web = _client(settings, host=DOCKER_WEB)
+    assert web.put("/campaign/keys", json={"values": {"BERGET_API_KEY": SECRET}},
+                   headers={"host": "api:8000"}).status_code == 403
+    assert env.read_text() == ENV
+
+
+def test_the_compose_files_set_the_same_network(settings) -> None:
+    import yaml
+
+    from tests_campaign.conftest import PAKET
+
+    for name in ("docker-compose.yml", "docker-compose.release.yml"):
+        compose = yaml.safe_load((PAKET / name).read_text(encoding="utf-8"))
+        assert compose["services"]["api"]["environment"]["TRUSTED_PROXY_NET"] == COMPOSE_NET, name
+        assert compose["networks"]["default"]["ipam"]["config"] == [{"subnet": COMPOSE_NET}], name

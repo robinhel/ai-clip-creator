@@ -14,6 +14,7 @@ services:
       ALLOWED_HOSTS: api  # the web container calls http://api:8000
       # The dashboard's proxy (Host "api", from the Compose network) may save keys. See SECURITY.md.
       TRUSTED_PROXY_HOSTS: api
+      TRUSTED_PROXY_NET: 172.29.0.0/24  # only callers on the Compose network below (the web container)
       KLIPP_ENV_FILE: /app/data/.env  # data/ is mounted, so saved keys end up on your computer
     volumes:
       - ./config.yaml:/app/config.yaml:ro
@@ -44,3 +45,10 @@ services:
     depends_on:
       api:
         condition: service_healthy
+
+# A fixed subnet, so the API can trust the web container by address (TRUSTED_PROXY_NET above).
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24

@@ -66,22 +66,34 @@ def is_local(request: Request) -> bool:
     return address.is_loopback
 
 
+def _proxy_net() -> ipaddress.IPv4Network | ipaddress.IPv6Network | None:
+    """TRUSTED_PROXY_NET: the Compose network's subnet (docker-compose.yml sets 172.29.0.0/24).
+    None when it is missing, unreadable or not a private network: then no proxy is trusted."""
+    try:
+        net = ipaddress.ip_network(os.getenv("TRUSTED_PROXY_NET", "").strip())
+    except ValueError:
+        return None
+    return net if net.is_private else None
+
+
 def is_trusted_proxy(request: Request) -> bool:
     """True for the dashboard's proxy in Docker: Host is a name in TRUSTED_PROXY_HOSTS (Compose sets ``api``)
-    and the caller has a private address (the Compose network). The proxy has already checked Host and Origin.
-    Lokala namn räknas aldrig här: de kräver loopback, annars kunde vem som helst på nätet skriva Host: localhost."""
+    and the caller's address is in TRUSTED_PROXY_NET (the Compose network). The proxy has already checked
+    Host and Origin. Lokala namn räknas aldrig här: de kräver loopback, annars kunde vem som helst på nätet
+    skriva Host: localhost."""
+    net = _proxy_net()
     names = {host_name(h) for h in os.getenv("TRUSTED_PROXY_HOSTS", "").split(",") if h.strip()} - LOCAL_HOSTS
-    if host_name(request.headers.get("host", "")) not in names:
+    if net is None or host_name(request.headers.get("host", "")) not in names:
         return False
     try:
-        return ipaddress.ip_address(request.client.host if request.client else "").is_private
+        return ipaddress.ip_address(request.client.host if request.client else "") in net
     except ValueError:
         return False
 
 
 def only_local(request: Request) -> None:
     """Nycklar och kontoinloggning: bara datorn där servern körs, med loopback-IP och lokal Host,
-    eller webbens proxy i Docker (TRUSTED_PROXY_HOSTS)."""
+    eller webbens proxy i Docker (TRUSTED_PROXY_HOSTS och TRUSTED_PROXY_NET)."""
     if not (is_local(request) or is_trusted_proxy(request)):
         raise HTTPException(403, "This can only be done from the computer where the server runs.")
 

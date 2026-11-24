@@ -15,6 +15,7 @@ services:
     environment:
       ALLOWED_HOSTS: api
       TRUSTED_PROXY_HOSTS: api
+      TRUSTED_PROXY_NET: 172.29.0.0/24
       KLIPP_ENV_FILE: /app/data/.env
     volumes:
       - ./config.yaml:/app/config.yaml:ro
@@ -41,3 +42,9 @@ services:
     depends_on:
       api:
         condition: service_healthy
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
