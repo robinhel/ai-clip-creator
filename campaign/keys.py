@@ -46,20 +46,25 @@ _env_lock = threading.Lock()  # två Spara samtidigt får inte skriva över vara
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
 
 
-def _only_local(request: Request) -> None:
-    """Bara datorn där servern körs får byta nycklarna, även om servern startas med --host 0.0.0.0.
+def is_local(request: Request) -> bool:
+    """True only for a request from the computer where the server runs, even if it listens on 0.0.0.0.
     Host-namnet kontrolleras också: en webbsida vars namn pekar på 127.0.0.1 (DNS rebinding) är ingen lokal klient."""
     host = request.headers.get("host", "").lower()
     if (host.rsplit(":", 1)[0] if not host.endswith("]") else host) not in LOCAL_HOSTS:
-        raise HTTPException(403, "Nycklarna kan bara ändras från datorn där servern körs.")
+        return False
     try:
         address = ipaddress.ip_address(request.client.host if request.client else "")
     except ValueError:  # inte en IP-adress, till exempel testclient
-        address = None
+        return False
     if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:  # ::ffff:127.0.0.1
         address = address.ipv4_mapped
-    if address is None or not address.is_loopback:
-        raise HTTPException(403, "Nycklarna kan bara ändras från datorn där servern körs.")
+    return address.is_loopback
+
+
+def _only_local(request: Request) -> None:
+    """Bara datorn där servern körs får byta nycklarna."""
+    if not is_local(request):
+        raise HTTPException(403, "Keys can only be changed from the computer where the server runs.")
 
 
 def _value(name: str, root: Path) -> str:

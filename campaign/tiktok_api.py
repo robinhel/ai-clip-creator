@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
-import ipaddress
 import secrets
 from datetime import UTC, datetime
 from time import monotonic
@@ -20,6 +19,7 @@ from clipsmith.api.deps import verify_api_key
 from . import editor
 from .api import _get, _log, get_settings
 from .config import Settings
+from .keys import is_local
 from .schedule import Schedule, ScheduleError, clip_file, clip_seconds
 from .tiktok import AUTH_URL, SCOPES, TikTok, TikTokError
 
@@ -29,14 +29,9 @@ _pending: dict[str, tuple[float, str]] = {}  # state -> (när, code_verifier). B
 
 
 def _only_local(request: Request) -> None:
-    """clipsmith serve lyssnar på 0.0.0.0. Ingen annan på nätverket får koppla in sitt eget konto."""
-    try:
-        address = ipaddress.ip_address(request.client.host if request.client else "")
-    except ValueError:
-        address = None
-    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:  # ::ffff:127.0.0.1, samma dator
-        address = address.ipv4_mapped
-    if address is None or not address.is_loopback:
+    """clipsmith serve lyssnar på 0.0.0.0. Ingen annan på nätverket, och ingen annan webbsida, får koppla in sitt
+    eget konto. Samma IP- och Host-kontroll som för nycklarna."""
+    if not is_local(request):
         raise HTTPException(403, "The account can only be connected from the computer where the server runs.")
 
 
