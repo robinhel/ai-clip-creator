@@ -203,7 +203,7 @@ export function YouTubeCard({ refresh }: { /** Ändras när YouTube-nycklarna sp
             <li>Paste Client ID and Client secret above and press Save. The server uses them right away.</li>
           </ol>
           <p className="mt-2 text-xs text-muted-foreground">
-            Medan appen är i läget Testing går inloggningen ut efter 7 dagar. Då står det Log in again vid kanalen.
+            While the app is in Testing mode, the login expires after 7 days. Then Log in again shows next to the channel.
           </p>
         </details>
       )}
