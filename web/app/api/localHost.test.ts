@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-import { isLocalHost } from "./localHost";
+import { isLocalHost, isSameOrigin } from "./localHost";
 import { GET, POST } from "./[...path]/route";
 
 const ctx = { params: Promise.resolve({ path: ["campaign", "tiktok", "disconnect"] }) };
@@ -52,5 +52,72 @@ describe("the API proxy", () => {
       expect((await POST(request("POST", host), ctx)).status).toBe(200);
     }
     expect(fetch).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("the API proxy and the Origin header", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function withOrigin(method: string, host: string, origin?: string): NextRequest {
+    const headers: Record<string, string> = { host, "content-type": "application/json" };
+    if (origin !== undefined) headers.origin = origin;
+    return new NextRequest(`http://${host}/api/runs`, { method, headers, body: method === "GET" ? undefined : "{}" });
+  }
+
+  function okFetch() {
+    const fetch = vi.fn(
+      async (_url: string, _init: RequestInit) =>
+        new Response("{}", { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  }
+
+  it.each([
+    ["localhost:3000", "http://localhost:3000"],
+    ["localhost:3106", "http://localhost:3106"],
+    ["127.0.0.1:3001", "http://127.0.0.1:3001"],
+    ["[::1]:3001", "http://[::1]:3001"],
+    ["[::1]:3000", "https://[::1]:3000"],
+  ])("forwards a write from the dashboard on %s, without the Origin header", async (host, origin) => {
+    const fetch = okFetch();
+    expect((await POST(withOrigin("POST", host, origin), ctx)).status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const sent = fetch.mock.calls[0][1].headers as Record<string, string>;
+    expect(Object.keys(sent).map((k) => k.toLowerCase())).not.toContain("origin");
+  });
+
+  it.each([
+    ["localhost:3106", "https://evil.example"],
+    ["localhost:3106", "http://localhost:3000"],
+    ["localhost:3000", "http://localhost.evil.example:3000"],
+    ["[::1]:3001", "http://[::1]:3000"],
+    ["localhost:3000", "null"],
+  ])("answers 403 on %s to Origin %s and never calls the API", async (host, origin) => {
+    const fetch = okFetch();
+    expect((await POST(withOrigin("POST", host, origin), ctx)).status).toBe(403);
+    expect((await GET(withOrigin("GET", host, origin), ctx)).status).toBe(403);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("forwards a GET without Origin", async () => {
+    const fetch = okFetch();
+    expect((await GET(withOrigin("GET", "localhost:3106"), ctx)).status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("isSameOrigin", () => {
+  it("accepts no Origin and the same host on http or https", () => {
+    expect(isSameOrigin(null, "localhost:3106")).toBe(true);
+    expect(isSameOrigin("http://localhost:3106", "localhost:3106")).toBe(true);
+    expect(isSameOrigin("https://[::1]:3001", "[::1]:3001")).toBe(true);
+  });
+
+  it("refuses another host, another port, null and a missing Host", () => {
+    expect(isSameOrigin("http://localhost:3000", "localhost:3106")).toBe(false);
+    expect(isSameOrigin("https://evil.example", "localhost:3106")).toBe(false);
+    expect(isSameOrigin("null", "localhost:3106")).toBe(false);
+    expect(isSameOrigin("http://localhost:3106", null)).toBe(false);
   });
 });

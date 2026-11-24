@@ -116,6 +116,17 @@ describe("valen till servern", () => {
     expect(stickerProblemText(choices({ sticker: "pil.png", stickerStart: "0", stickerLength: "2,5" }))).not.toBeNull();
   });
 
+  it("skiljer på ett fält som inte är ett tal och ett negativt tal", () => {
+    const sticker = (stickerStart: string, stickerLength = "3") => choices({ sticker: "pil.png", stickerStart, stickerLength });
+    expect(stickerProblemText(sticker("1,5"))).toBe("The sticker start is not a number. Write seconds like 1.5.");
+    expect(stickerProblemText(sticker("-1"))).toBe("The sticker start cannot be negative.");
+    expect(stickerProblemText(sticker("0", "abc"))).toBe("The sticker length is not a number. Write seconds like 1.5.");
+    expect(stickerProblemText(sticker("0", "20"))).toBe("The sticker must show for 0.5–10 s.");
+    const music = (musicStart: string) => choices({ audio: "music", music: "a.mp3", musicStart });
+    expect(audioProblemText(music("abc"))).toBe("The start in the music is not a number. Write seconds like 1.5.");
+    expect(audioProblemText(music("-2"))).toBe("The start in the music must be 0 s or more.");
+  });
+
   it("startar med Behåll ljudet och originalljudet 30 %", () => {
     expect(START_CHOICES.audio).toBe("keep");
     expect(START_CHOICES.originalVolume).toBe(30);
