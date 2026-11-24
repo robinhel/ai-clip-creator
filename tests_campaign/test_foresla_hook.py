@@ -113,7 +113,7 @@ def test_a_suggested_hook_that_is_taken_or_too_long_twice_is_400(vclip, monkeypa
     client, _, clip_id = vclip
     fake = _claude_hook(monkeypatch, "No way")
     answer = _suggest(client, clip_id)
-    assert answer.status_code == 400 and "Försök igen" in answer.json()["detail"], answer.text
+    assert answer.status_code == 400 and "Try again" in answer.json()["detail"], answer.text
     assert len(fake.messages.calls) == 2
     _claude_hook(monkeypatch, "THIS HOOK IS FAR TOO LONG TO FIT IN THREE SHORT LINES AT THE TOP OF THE CLIP")
     assert _suggest(client, clip_id).status_code == 400
@@ -126,5 +126,5 @@ def test_a_suggested_hook_without_a_key_is_400_in_swedish(vclip, settings) -> No
     client, _, clip_id = vclip
     settings.anthropic_api_key = ""
     answer = _suggest(client, clip_id)
-    assert answer.status_code == 400 and "nyckel" in answer.json()["detail"].lower()
+    assert answer.status_code == 400 and "key" in answer.json()["detail"].lower()
     assert _suggest(client, 999).status_code == 404

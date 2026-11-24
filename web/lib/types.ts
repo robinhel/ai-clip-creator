@@ -642,7 +642,7 @@ export interface ScoutStatus {
   calls_today: number;
   call_limit: number;
   median_views: number;
-  median_source: "dina inlägg" | "standard";
+  median_source: "your posts" | "standard";
   campaigns: ScoutCampaign[];
   excluded: ScoutCampaign[];
 }

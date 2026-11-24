@@ -125,7 +125,7 @@ export function ProjectCard({ run }: { run: CampaignRunInfo }) {
       meta={
         <>
           {metaLine(run)}
-          <span className="block">Kampanj: {campaignLabel(run.profile)}</span>
+          <span className="block">Campaign: {campaignLabel(run.profile)}</span>
         </>
       }
     >
@@ -158,7 +158,7 @@ export function CampaignProjectCard({ project }: { project: CampaignProject }) {
       meta={
         <>
           {projectMeta(project)}
-          <span className="block">Kampanj: {campaignLabel(project.profile)}</span>
+          <span className="block">Campaign: {campaignLabel(project.profile)}</span>
         </>
       }
     >

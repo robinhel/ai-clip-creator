@@ -188,7 +188,7 @@ def test_edit_counts_the_extra_tenth_for_an_own_video(out_s, choices, ok) -> Non
     try:
         editor._check_trim({"duration_s": 6.0}, (0.0, out_s), campaign, drafts.EditLook(choices))
     except ValueError as error:
-        assert not ok and "Kampanjen tillåter 3–5 s." in str(error), error
+        assert not ok and "The campaign allows 3–5 s." in str(error), error
     else:
         assert ok
 
@@ -255,9 +255,9 @@ def test_edit_keeps_mirror_speed_filter_and_sticker(client, settings, tmp_path) 
 
 @needs_ffmpeg
 @pytest.mark.parametrize(("form", "text"), [
-    ({}, "Klippet blir 7,1 s. Kampanjen tillåter högst 5 s."),
-    ({"start_s": "1", "end_s": "6.5", "speed": "1"}, "Klippet blir 5,6 s. Kampanjen tillåter högst 5 s."),
-    ({"start_s": "5"}, "Kampanjen kräver minst 3 s."),
+    ({}, "The clip will be 7.1 s. The campaign allows at most 5 s."),
+    ({"start_s": "1", "end_s": "6.5", "speed": "1"}, "The clip will be 5.6 s. The campaign allows at most 5 s."),
+    ({"start_s": "5"}, "The campaign requires at least 3 s."),
 ])
 def test_a_clip_outside_the_campaigns_length_is_refused_before_rendering(client, settings, tmp_path, monkeypatch,
                                                                          form, text) -> None:
@@ -358,8 +358,8 @@ def test_a_sticker_after_the_new_end_moves_back_inside_the_clip(client, settings
 
 
 @needs_ffmpeg
-def test_the_sticker_error_has_a_decimal_comma(client, settings) -> None:
-    with pytest.raises(drafts.VersionError, match="mellan 0 och 3,5 s"):
+def test_the_sticker_error_has_a_decimal_point(client, settings) -> None:
+    with pytest.raises(drafts.VersionError, match="between 0 and 3.5 s"):
         drafts.versions._sticker(settings, api._profile("skiimasktimmy", settings),
                                  {"file": "fire.png", "start_s": 4, "duration_s": 1}, 3.5)
 

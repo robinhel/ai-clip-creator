@@ -710,7 +710,7 @@ def _check_settings(body: CampaignSettings, profile: Profile, cfg_clip: tuple[in
 
 
 def _seconds(value: float) -> str:
-    return f"{value:g}".replace(".", ",")
+    return f"{value:g}"
 
 
 def _clip_of(config: Path) -> tuple[int, int]:
@@ -826,8 +826,8 @@ def put_reframe(profile_id: str, body: ReframeBody, settings: Settings = Depends
         if body.webcam_rects is not None:
             webcams = edit.check_rects(body.webcam_rects, webcam_aspect)
         else:
-            webcams = [edit.check_rect(body.webcam_rect, webcam_aspect, "Facecam-rutan")]
-        gameplay = edit.check_rect(body.gameplay_rect, gameplay_aspect, "Spelrutan")
+            webcams = [edit.check_rect(body.webcam_rect, webcam_aspect, "The facecam box")]
+        gameplay = edit.check_rect(body.gameplay_rect, gameplay_aspect, "The game box")
         with _write_lock:
             text = edit.reframe_text(path.read_bytes().decode("utf-8"), webcams, gameplay, body.split_ratio)
             edit.write_atomic(path, text.encode("utf-8"), check=_check_config(

@@ -107,7 +107,7 @@ def brain(settings: Settings) -> Brain:
     return Brain(settings, budget_from_settings(settings))
 
 
-NO_KEY = "Claude-nyckeln saknas. Lägg in den under Inställningar, så kan chatten leta."
+NO_KEY = "Claude key is missing. Add it under Settings, and the chat can search."
 
 
 def blocker(available: bool, sources: list[dict], twitch: bool) -> str | None:
@@ -116,9 +116,9 @@ def blocker(available: bool, sources: list[dict], twitch: bool) -> str | None:
     if not available:
         return NO_KEY
     if not any(m["has_transcript"] for m in sources):
-        return ("Inget material med transkript än. " + (
-            "Hämta klipp från en stream på Hem, så transkriberas den." if twitch
-            else "Ladda upp en egen video under Egna videor, så transkriberas den."))
+        return ("No material with a transcript yet. " + (
+            "Get clips from a stream on Home, and it gets transcribed." if twitch
+            else "Upload your own video under Own videos, and it gets transcribed."))
     return None
 
 
@@ -390,10 +390,10 @@ def _context(profile: Profile, sources: list[dict], hits: list[dict], history: l
 
 def _found_text(hits: list[dict], sources: list[dict], skipped: list[dict]) -> str:
     vods = len({hit["vod_id"] for hit in hits})
-    text = f"Hittade {len(hits)} träffar i {vods} av {len(sources)} videor." if hits else \
-        f"Hittade inga träffar i {len(sources)} videor."
+    text = f"Found {len(hits)} hits in {vods} of {len(sources)} videos." if hits else \
+        f"Found no hits in {len(sources)} videos."
     if skipped:
-        text += " Hoppade över (inget transkript): " + ", ".join(m["title"] for m in skipped) + "."
+        text += " Skipped (no transcript): " + ", ".join(m["title"] for m in skipped) + "."
     return text
 
 
@@ -421,7 +421,7 @@ def send(settings: Settings, profile_name: str, *, chat_id: int | None = None, m
     if confirm:
         pending = history[-1].get("confirm") if history and history[-1]["role"] == "assistant" else None
         if not pending:
-            raise ChatError(400, "Det finns ingen sökning att bekräfta.")
+            raise ChatError(400, "There is no search to confirm.")
         chosen = [by_id[vod] for vod in pending["sources"] if vod in by_id]
         found, cost = _search(b, history[-1].get("query", ""), chosen, cfg, kept, settings)
         reply = {"role": "assistant", "text": _found_text(found, chosen, []), "created": _now(),
@@ -454,15 +454,15 @@ def send(settings: Settings, profile_name: str, *, chat_id: int | None = None, m
     query = str(decision.get("query") or message)
     reply["sources"] = [m["vod_id"] for m in chosen]
     if not chosen:
-        reply.update(text=_found_text([], [], skipped) if skipped else "Det finns inget material med transkript "
-                     "att leta i.", cost_usd=round(cost, 4))
+        reply.update(text=_found_text([], [], skipped) if skipped else "There is no material with a transcript "
+                     "to search in.", cost_usd=round(cost, 4))
         return store.add_turn(chat_id, profile.name, [user, reply])
     transcripts = {m["vod_id"]: _transcript(settings, m["vod_id"]) for m in chosen}
     estimate = _estimate(_calls(chosen, transcripts), SEARCH, query, cfg.llm.model_anthropic, settings)
     if estimate > CONFIRM_USD:
         minutes = round(sum(m["duration_s"] or 0 for m in chosen) / 60, 1)
-        reply.update(text=f"Sökningen kostar ungefär {estimate:.2f} dollar: {minutes} minuter i {len(chosen)} "
-                          "videor. Ska jag köra den?", cost_usd=round(cost, 4), query=query,
+        reply.update(text=f"The search costs about {estimate:.2f} dollars: {minutes} minutes in {len(chosen)} "
+                          "videos. Should I run it?", cost_usd=round(cost, 4), query=query,
                      confirm={"cost_usd": round(estimate, 4), "sources": reply["sources"], "minutes": minutes})
         return store.add_turn(chat_id, profile.name, [user, reply])
     found, search_cost = _search(b, query, chosen, cfg, kept, settings)
@@ -497,7 +497,7 @@ def _clip_vod(db, run_id: int, vod_id: str, hits: list[dict], game: str | None, 
     mp4, offset, part = folder / f"{vod_id}.mp4", 0, None
     transcript = _transcript(settings, vod_id)
     if not mp4.exists():  # bara Twitch: en egen fil utan video stoppas innan körningen startar
-        _emit(db, run_id, "download", 5.0, "Hämtar delen av VOD:en")
+        _emit(db, run_id, "download", 5.0, "Downloading the part of the VOD")
         offset = max(0, int(min(h["start_s"] for h in hits)) - MARGIN_S)
         end = math.ceil(max(h["end_s"] for h in hits)) + MARGIN_S
         part = download.download_part(vod_id, offset, end, folder / f"del_{offset}_{end}.mp4")
@@ -507,7 +507,7 @@ def _clip_vod(db, run_id: int, vod_id: str, hits: list[dict], game: str | None, 
                                       title=h["title"], reason=h["reason"], score=(h["grade"] or 0) * 10))
              for h in hits]
     run_dir = settings.out_dir / vod_id / f"run_{run_id}"
-    _emit(db, run_id, "clip", 40.0, "Skär klippen")
+    _emit(db, run_id, "clip", 40.0, "Cutting the clips")
     try:
         cut = [replace(p, pick=replace(p.pick, start_offset_s=p.pick.start_offset_s - offset,
                                        end_offset_s=p.pick.end_offset_s - offset)) for p in picks]
@@ -520,7 +520,7 @@ def _clip_vod(db, run_id: int, vod_id: str, hits: list[dict], game: str | None, 
     run_dir.mkdir(parents=True, exist_ok=True)
     for path in (run_dir / "picks.json", folder / "picks.json"):  # som en vanlig körning
         save_picks(picks, path)
-    _emit(db, run_id, "finish", 90.0, "Lägger på overlay, text och caption och kontrollerar reglerna")
+    _emit(db, run_id, "finish", 90.0, "Adding overlay, text and caption and checking the rules")
     results = pipeline.finish(vod_id, profile, settings, game, run_id)
     done = 0
     left = {h["id"] for h in hits}
@@ -534,11 +534,11 @@ def _clip_vod(db, run_id: int, vod_id: str, hits: list[dict], game: str | None, 
             store.set_hits([hit["id"]], status="gjord", clip_id=result["id"], problem=None)
             done += 1
         else:
-            store.set_hits([hit["id"]], status="ny", problem=f"Inget klipp: {result['skipped']}.")
+            store.set_hits([hit["id"]], status="ny", problem=f"No clip: {result['skipped']}.")
     if left:
-        store.set_hits(sorted(left), status="ny", problem="Klippet blev inte gjort.")
+        store.set_hits(sorted(left), status="ny", problem="The clip was not made.")
     _harvest_clips(db, run_id, vod_id, cfg)
-    _emit(db, run_id, "done", 100.0, f"{done} klipp från chatten.", status=RunStatus.done)
+    _emit(db, run_id, "done", 100.0, f"{done} clip{'' if done == 1 else 's'} from the chat.", status=RunStatus.done)
 
 
 def make_clips(chat_id: int, jobs: list[tuple[int, str, list[int]]], profile_name: str, settings: Settings,
@@ -557,7 +557,7 @@ def make_clips(chat_id: int, jobs: list[tuple[int, str, list[int]]], profile_nam
                 _clip_vod(db, run_id, vod_id, hits, game, profile, settings, store)
             except BaseException as error:  # SystemExit från kampanjlagret ska också synas i appen
                 pipeline._fail(db, run_id, error)
-                store.set_hits(hit_ids, status="ny", problem=f"Klippet kunde inte göras: {error}")
+                store.set_hits(hit_ids, status="ny", problem=f"The clip could not be made: {error}")
                 if not isinstance(error, Exception | SystemExit):
                     raise
     finally:

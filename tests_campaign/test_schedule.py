@@ -118,7 +118,7 @@ def test_post_runs_after_its_time_and_only_once(client, settings, clip_id, notes
     assert row["status"] == "done" and json.loads(row["result"])["video_id"] == "v1"
     assert len(notes) == 1
     message, url = notes[0]
-    assert re.fullmatch(r"Timmy lands it är uppe på YouTube\. Skicka in länken i Content Rewards före kl\. "
+    assert re.fullmatch(r"Timmy lands it is up on YouTube\. Submit the link in Content Rewards before "
                         r"\d\d:\d\d\.", message), message
     assert url == "http://localhost:3000/queue?tab=skicka-in"
 
@@ -151,7 +151,7 @@ def test_rejected_or_broken_clip_fails_at_the_time(client, settings, clip_id, no
     row = _row(settings, post_id)
     assert row["status"] == "failed" and row["error"]
     assert FakeYouTube.calls == []
-    assert notes == [(f"Timmy lands it laddades inte upp: {row['error']}", "http://localhost:3000/queue?tab=posta")]
+    assert notes == [(f"Timmy lands it was not uploaded: {row['error']}", "http://localhost:3000/queue?tab=posta")]
 
 
 def test_late_under_six_hours_runs_and_says_late(client, settings, clip_id, notes):
@@ -159,7 +159,7 @@ def test_late_under_six_hours_runs_and_says_late(client, settings, clip_id, note
     post_id = _post(client, clip_id, at=at).json()["id"]
     _run(settings, at, timedelta(hours=5))
     assert _row(settings, post_id)["status"] == "done"
-    assert "försenad" in notes[0][0].lower()
+    assert "late" in notes[0][0].lower()
     listed = client.get("/campaign/schedule").json()
     assert listed[0]["late"] is True
 
@@ -169,9 +169,9 @@ def test_late_over_six_hours_fails(client, settings, clip_id, notes):
     post_id = _post(client, clip_id, at=at).json()["id"]
     _run(settings, at, timedelta(hours=6, minutes=1))
     row = _row(settings, post_id)
-    assert row["status"] == "failed" and row["error"] == "Missad: Macen var avstängd vid tiden."
+    assert row["status"] == "failed" and row["error"] == "Missed: the Mac was off at the time."
     assert FakeYouTube.calls == []
-    assert notes == [("Timmy lands it laddades inte upp: Missad: Macen var avstängd vid tiden.",
+    assert notes == [("Timmy lands it was not uploaded: Missed: the Mac was off at the time.",
                       "http://localhost:3000/queue?tab=posta")]
 
 
@@ -198,7 +198,7 @@ def test_tiktok_without_direct_post_becomes_a_reminder(client, settings, clip_id
     _run(settings, at, timedelta(seconds=1))
     assert _row(settings, post_id)["status"] == "reminded"
     assert FakeTikTok.calls == []
-    assert notes == [("Dags att posta Timmy lands it på TikTok", "http://localhost:3000/queue?tab=posta")]
+    assert notes == [("Time to post Timmy lands it on TikTok", "http://localhost:3000/queue?tab=posta")]
 
 
 def test_tiktok_with_direct_post_posts_with_saved_fields(client, settings, clip_id, notes):
@@ -210,7 +210,7 @@ def test_tiktok_with_direct_post_posts_with_saved_fields(client, settings, clip_
     assert _row(settings, post_id)["status"] == "done"
     assert FakeTikTok.calls[0][1] == "open1"
     assert FakeTikTok.calls[0][2]["privacy_level"] == "PUBLIC_TO_EVERYONE"
-    assert notes[0][0].startswith("Timmy lands it skickades till TikTok. Skicka in länken i Content Rewards före kl. ")
+    assert notes[0][0].startswith("Timmy lands it was sent to TikTok. Submit the link in Content Rewards before ")
 
 
 def test_reminder_stays_a_reminder_when_the_account_can_publish_later(client, settings, clip_id, notes):
@@ -255,7 +255,7 @@ def test_clip_already_on_the_youtube_channel_cannot_be_scheduled(client, setting
     client.delete("/campaign/schedule/1")
     _youtube_row(settings, clip_id)
     answer = _post(client, clip_id)
-    assert answer.status_code == 409 and answer.json()["detail"] == "Klippet finns redan på kanalen."
+    assert answer.status_code == 409 and answer.json()["detail"] == "The clip is already on the channel."
 
 
 def test_button_upload_after_scheduling_stops_the_scheduled_upload(client, settings, clip_id, notes):
@@ -264,9 +264,9 @@ def test_button_upload_after_scheduling_stops_the_scheduled_upload(client, setti
     _youtube_row(settings, clip_id)  # Robin tryckte på knappen kl. 19, schemat är kl. 20
     _run(settings, at, timedelta(seconds=1))
     row = _row(settings, post_id)
-    assert row["status"] == "failed" and row["error"] == "Klippet finns redan på kanalen."
+    assert row["status"] == "failed" and row["error"] == "The clip is already on the channel."
     assert FakeYouTube.calls == []
-    assert notes == [("Timmy lands it laddades inte upp: Klippet finns redan på kanalen.",
+    assert notes == [("Timmy lands it was not uploaded: The clip is already on the channel.",
                       "http://localhost:3000/queue?tab=posta")]
 
 
@@ -279,9 +279,9 @@ def test_clip_already_direct_posted_to_the_tiktok_account_is_stopped(client, set
     post_id = _post(client, clip_id, "tiktok", at=at, fields=fields, account="open1").json()["id"]
     _tiktok_row(settings, clip_id)
     _run(settings, at, timedelta(seconds=1))
-    assert _row(settings, post_id)["error"] == "Klippet finns redan på kanalen." and FakeTikTok.calls == []
+    assert _row(settings, post_id)["error"] == "The clip is already on the channel." and FakeTikTok.calls == []
     answer = _post(client, clip_id, "tiktok", fields=fields, account="open1")
-    assert answer.status_code == 409 and answer.json()["detail"] == "Klippet finns redan på kanalen."
+    assert answer.status_code == 409 and answer.json()["detail"] == "The clip is already on the channel."
 
 
 @pytest.mark.parametrize(("url", "opens"), [
@@ -304,7 +304,7 @@ def test_second_waiting_post_for_same_platform_is_409(client, clip_id):
 
 def test_time_in_the_past_is_400(client, clip_id):
     answer = _post(client, clip_id, at=_at(-timedelta(minutes=1)))
-    assert answer.status_code == 400 and "passerat" in answer.json()["detail"]
+    assert answer.status_code == 400 and "passed" in answer.json()["detail"]
 
 
 @pytest.mark.parametrize("fields", [{**YT_FIELDS, "privacy": None}, {k: v for k, v in YT_FIELDS.items()
@@ -429,7 +429,7 @@ def test_with_the_helper_the_notice_says_the_time_in_swedish_time(client, settin
     _post(client, clip_id, at=at)
     monkeypatch.setattr(schedule, "_now", lambda: datetime(2026, 11, 20, 16, 53, 10, tzinfo=UTC))  # 17:53 i Sverige
     _run(settings, at, timedelta(seconds=1))
-    assert notes == [("Timmy lands it är uppe på YouTube. Skicka in länken i Content Rewards före kl. 18:23.",
+    assert notes == [("Timmy lands it is up on YouTube. Submit the link in Content Rewards before 18:23.",
                       "http://localhost:3000/queue?tab=skicka-in")]
 
 
@@ -439,19 +439,19 @@ def test_without_the_helper_the_notice_is_as_before(client, settings, clip_id, n
     at = _at(timedelta(hours=1))
     _post(client, clip_id, at=at)
     _run(settings, at, timedelta(seconds=1))
-    assert notes == [("Timmy lands it är uppe på YouTube. Skicka in länken i Content Rewards inom 30 minuter.", CR)]
+    assert notes == [("Timmy lands it is up on YouTube. Submit the link in Content Rewards within 30 minutes.", CR)]
 
 
 def test_a_reminder_notice_does_not_change_with_the_helper(client, settings, clip_id, notes):
     at = _at(timedelta(hours=1))
     _post(client, clip_id, "tiktok", at=at, fields={}, account="open1")
     _run(settings, at, timedelta(seconds=1))
-    assert notes == [("Dags att posta Timmy lands it på TikTok", "http://localhost:3000/queue?tab=posta")]
+    assert notes == [("Time to post Timmy lands it on TikTok", "http://localhost:3000/queue?tab=posta")]
 
 
 @pytest.mark.parametrize(("platforms", "platform", "text"), [
-    (["tiktok"], "youtube", "Kampanjen postar inte på YouTube."),
-    (["youtube_shorts"], "tiktok", "Kampanjen postar inte på TikTok.")])
+    (["tiktok"], "youtube", "The campaign does not post on YouTube."),
+    (["youtube_shorts"], "tiktok", "The campaign does not post on TikTok.")])
 def test_a_platform_the_campaign_does_not_use_cannot_be_scheduled(client, settings, clip_id, platforms, platform,
                                                                   text):
     set_profile(settings, platforms=platforms)
@@ -465,7 +465,7 @@ def test_a_platform_removed_after_scheduling_fails_at_the_time(client, settings,
     set_profile(settings, platforms=["tiktok"])
     _run(settings, at, timedelta(seconds=1))
     row = _row(settings, post_id)
-    assert (row["status"], row["error"]) == ("failed", "Kampanjen postar inte på YouTube.")
+    assert (row["status"], row["error"]) == ("failed", "The campaign does not post on YouTube.")
     assert FakeYouTube.calls == []
 
 
@@ -513,7 +513,7 @@ def test_the_tiktok_notice_uses_the_upload_time(client, settings, clip_id, notes
     fields = {"title": "Big play #ad", "privacy_level": "PUBLIC_TO_EVERYONE"}
     _post(client, clip_id, "tiktok", at=at, fields=fields, account="open1")
     _run(settings, at, timedelta(seconds=1))
-    assert notes[0][0] == "Timmy lands it skickades till TikTok. Skicka in länken i Content Rewards före kl. 18:10."
+    assert notes[0][0] == "Timmy lands it was sent to TikTok. Submit the link in Content Rewards before 18:10."
 
 
 # ---------- spärrarna för konton ----------
@@ -573,7 +573,7 @@ def test_the_day_limit_counts_posts_on_the_same_account_and_swedish_day(client, 
     assert _post(client, second, at=_stockholm(1, 14)).status_code == 201
     full = _post(client, third, at=_stockholm(1, 23, 30))
     assert full.status_code == 400
-    assert "högst 2" in full.json()["detail"]
+    assert "at most 2" in full.json()["detail"]
     # 00:30 svensk tid är nästa dag, fast UTC-datumet är detsamma som 23:30 dagen före på vintern.
     assert _post(client, third, at=_stockholm(2, 0, 30)).status_code == 201
     assert _post(client, fourth, at=_stockholm(1, 18), account="UC2").status_code == 201  # ett annat konto
@@ -616,7 +616,7 @@ def test_a_post_close_to_another_on_the_same_account_gets_a_warning(client, sett
     first = _post(client, clip_id, at=_stockholm(1, 12)).json()
     assert first["warning"] is None
     close = _post(client, other, at=_stockholm(1, 13)).json()
-    assert "120 minuter" in close["warning"]
+    assert "120 minutes" in close["warning"]
     assert _post(client, far, at=_stockholm(1, 16)).json()["warning"] is None
     listed = {post["id"]: post["warning"] for post in client.get("/campaign/schedule").json()}
     assert listed[first["id"]] is not None  # den första ligger nu också för nära

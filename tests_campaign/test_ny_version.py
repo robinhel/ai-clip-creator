@@ -64,7 +64,7 @@ def test_an_old_log_gets_the_version_column(settings) -> None:
 def test_a_version_cannot_be_edited(settings) -> None:
     clip = {"status": "renderad", "version_of": 3}
     assert editor.why_not(clip, settings.out_dir / "x.mp4") == (
-        "En version går inte att redigera. Gör en ny version av originalet i stället.")
+        "A version cannot be edited. Make a new version of the original instead.")
 
 
 # ---------- 2. font, egen overlay och klistermärke i renderingen ----------
@@ -145,7 +145,7 @@ def test_the_sticker_box_is_placed_just_outside_the_safe_zones() -> None:
 def test_a_sticker_that_reaches_into_a_safe_zone_is_refused() -> None:
     from campaign import versions
 
-    with pytest.raises(versions.VersionError, match="säkra zon"):
+    with pytest.raises(versions.VersionError, match="safe zone"):
         versions.sticker_box("center", 320, 1154, _profile())  # 383 + 1154 = 1537, en pixel in i safe_bottom
     with pytest.raises(versions.VersionError):
         versions.sticker_box("upp", 320, 200, _profile())
@@ -156,7 +156,7 @@ def test_a_sticker_at_the_top_goes_below_the_text_up_there() -> None:
 
     assert versions.sticker_box("top_right", 320, 200, _profile(), text_end=214) == (720, 234)  # 20 px under
     assert versions.sticker_box("bottom_left", 320, 200, _profile(), text_end=214) == (40, 1336)  # nere: som förut
-    with pytest.raises(versions.VersionError, match="täcker"):
+    with pytest.raises(versions.VersionError, match="covers"):
         versions.sticker_box("center", 320, 1152, _profile(), text_end=500)  # börjar vid 384, texten slutar 500
 
 
@@ -224,7 +224,7 @@ from .conftest import make_clip, make_overlay, needs_ffmpeg, needs_subtitles, se
 RAW = "clip_01_no_way.mp4"
 WORDS = [{"start": 0.5, "end": 0.9, "word": "Bro,"}, {"start": 1.0, "end": 1.5, "word": "no"},
          {"start": 2.0, "end": 2.6, "word": "wei"}, {"start": 6.0, "end": 6.5, "word": "wow"}]
-NO_WORDS = "Ny version kräver ett klipp som appen har skurit med ordfil."
+NO_WORDS = "A new version needs a clip that the app cut with a word file."
 
 
 def _png(path: Path, size: str = "400x400") -> Path:
@@ -330,7 +330,7 @@ def test_the_options_list_fonts_stickers_overlays_and_the_accounts_style(vclip, 
 def test_a_campaign_with_one_account_needs_no_version(vclip, settings) -> None:
     client, _, clip_id = vclip
     set_profile(settings, accounts={"tiktok": ["openA"]})  # som Blizzard
-    reason = "Kampanjen har bara ett konto på TikTok. Ny version behövs inte."
+    reason = "The campaign has only one account on TikTok. A new version is not needed."
     assert (_options(client, clip_id)["allowed"], _options(client, clip_id)["reason"]) == (False, reason)
     answer = _make(client, clip_id)
     assert (answer.status_code, answer.json()["detail"]) == (400, reason)
@@ -379,23 +379,23 @@ def test_a_version_cuts_the_start_shifts_the_words_and_changes_only_its_own_font
 
 @needs_ffmpeg
 @pytest.mark.parametrize(("body", "text"), [
-    ({"start_cut_s": 7.5}, "minst 3"),  # 10 s - 7,5 s = 2,5 s
-    ({"start_cut_s": -1}, "originalfilen"),  # klippet är inte trimmat: inget finns före
-    ({"hook": "Två\nrader"}, "styrtecken"),
+    ({"start_cut_s": 7.5}, "at least 3"),  # 10 s - 7,5 s = 2,5 s
+    ({"start_cut_s": -1}, "original file"),  # klippet är inte trimmat: inget finns före
+    ({"hook": "Två\nrader"}, "control characters"),
     ({"hook": "THIS HOOK IS FAR TOO LONG TO FIT IN THREE SHORT LINES AT THE TOP OF THE CLIP"},
-     "Gör den kortare"),  # fyra rader i Montserrat
-    ({"font": "Wingdings"}, "Fonten"),
-    ({"overlay": "overlays/annan.png"}, "kräver sin egen overlay"),
+     "Make it shorter"),  # fyra rader i Montserrat
+    ({"font": "Wingdings"}, "The font"),
+    ({"overlay": "overlays/annan.png"}, "requires its own overlay"),
     ({"sticker": {"file": "../overlays/skiimasktimmy.png", "position": "center", "start_s": 0, "duration_s": 2}},
      "stickers/"),
-    ({"sticker": {"file": "fire.png", "position": "center", "start_s": 0, "duration_s": 0.2}}, "0,5–10"),
-    ({"sticker": {"file": "fire.png", "position": "center", "start_s": 0, "duration_s": 11}}, "0,5–10"),
-    ({"sticker": {"file": "fire.png", "position": "center", "start_s": 20, "duration_s": 2}}, "inom klippet"),
-    ({"sticker": {"file": "tall.png", "position": "center", "start_s": 0, "duration_s": 2}}, "säkra zon"),
-    ({"speed": 1.33}, "Hastigheten"),
-    ({"filter": "nope"}, "Filtret"),
-    ({"brightness": 0.5}, "Ljusstyrkan"),
-    ({"saturation": -0.9}, "Mättnaden"),
+    ({"sticker": {"file": "fire.png", "position": "center", "start_s": 0, "duration_s": 0.2}}, "0.5–10"),
+    ({"sticker": {"file": "fire.png", "position": "center", "start_s": 0, "duration_s": 11}}, "0.5–10"),
+    ({"sticker": {"file": "fire.png", "position": "center", "start_s": 20, "duration_s": 2}}, "within the clip"),
+    ({"sticker": {"file": "tall.png", "position": "center", "start_s": 0, "duration_s": 2}}, "safe zone"),
+    ({"speed": 1.33}, "The speed"),
+    ({"filter": "nope"}, "The filter"),
+    ({"brightness": 0.5}, "Brightness"),
+    ({"saturation": -0.9}, "Saturation"),
 ])
 def test_bad_choices_are_refused_and_nothing_is_made(vclip, settings, body, text) -> None:
     client, log, clip_id = vclip
@@ -440,7 +440,7 @@ def test_a_version_too_short_after_the_speed_up_is_refused(vclip, settings) -> N
     client, _, clip_id = vclip
     set_profile(settings, clip={"min_seconds": 9, "max_seconds": 60})
     answer = _make(client, clip_id, speed=1.2)  # 10 s / 1,2 = 8,3 s
-    assert answer.status_code == 400 and "minst 9" in answer.json()["detail"]
+    assert answer.status_code == 400 and "at least 9" in answer.json()["detail"]
 
 
 @needs_ffmpeg
@@ -448,7 +448,7 @@ def test_a_clip_too_short_after_the_cut_is_refused(vclip, settings) -> None:
     client, _, clip_id = vclip
     set_profile(settings, clip={"min_seconds": 6, "max_seconds": 60})
     answer = _make(client, clip_id, start_cut_s=4.5)
-    assert answer.status_code == 400 and "minst 6" in answer.json()["detail"]
+    assert answer.status_code == 400 and "at least 6" in answer.json()["detail"]
 
 
 @needs_ffmpeg
@@ -533,7 +533,7 @@ def test_versions_count_towards_the_five_accounts(sched, settings) -> None:  # n
         log.add_post(original, "tiktok", f"https://www.tiktok.com/@a/video/{i}", account=f"open{account}")
     assert _schedule(sched, version, "openE", title="Fifth").status_code == 201
     sixth = _schedule(sched, original, "openF", title="Sixth", at=_stockholm(1, 18))
-    assert sixth.status_code == 400 and "5 konton" in sixth.json()["detail"]
+    assert sixth.status_code == 400 and "5 accounts" in sixth.json()["detail"]
 
 
 def test_a_version_needs_its_own_text(sched, settings) -> None:  # noqa: F811
@@ -547,7 +547,7 @@ def test_a_version_close_in_time_to_the_original_gets_the_warning(sched, setting
     original, version = _family(settings)
     _schedule(sched, original, "openA", title="Huge clutch")
     near = _schedule(sched, version, "openB", title="Second take", at=_stockholm(1, 13)).json()
-    assert near["warning"].startswith("Samma klipp ligger på openA kl. 12:00. "), near["warning"]
+    assert near["warning"].startswith("The same clip is on openA at 12:00. "), near["warning"]
 
 
 def test_the_original_lists_the_account_of_its_version(sched, settings) -> None:  # noqa: F811
@@ -561,8 +561,8 @@ def test_the_original_lists_the_account_of_its_version(sched, settings) -> None:
 
 from campaign.versions import NO_OWN  # noqa: E402
 
-NO_ACCOUNT = ("Klippet har ett inlägg utan konto på TikTok. Det kan redan ligga på det här kontot. Kontrollera "
-              "innan du postar.")
+NO_ACCOUNT = ("The clip has a post without an account on TikTok. It may already be on this account. Check "
+              "before you post.")
 
 
 @needs_subtitles
@@ -656,9 +656,9 @@ def test_a_start_that_makes_the_version_too_long_is_refused(vclip, settings) -> 
     set_profile(settings, clip={"min_seconds": 3, "max_seconds": 8})
     count = len(log.list())
     answer = _make(client, clip_id, start_cut_s=-4)  # 6 s + 4 s = 10 s
-    assert answer.status_code == 400 and "högst 8" in answer.json()["detail"], answer.text
+    assert answer.status_code == 400 and "at most 8" in answer.json()["detail"], answer.text
     answer = _make(client, clip_id, start_cut_s=-4.5)  # före originalfilens början
-    assert answer.status_code == 400 and "originalfilen" in answer.json()["detail"], answer.text
+    assert answer.status_code == 400 and "original file" in answer.json()["detail"], answer.text
     assert len(log.list()) == count
 
 

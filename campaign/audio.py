@@ -28,7 +28,7 @@ MUSIC_TYPES = (*SOUND_TYPES, ".mp4", ".mov", ".m4v", ".webm", ".mkv")  # en vide
 FOLDER = "musik"
 FADE_IN_S, FADE_OUT_S = 0.5, 1.0
 RULE_WORDS = re.compile(r"musik|ljud|music|audio", re.IGNORECASE)
-NO_SOUND = "Filen {} har inget ljud. Välj en ljudfil eller en video med ljud."
+NO_SOUND = "The file {} has no sound. Choose an audio file or a video with sound."
 
 
 def _refuse(message: str) -> NoReturn:
@@ -69,7 +69,7 @@ def music_path(root: Path, profile: str, file: object) -> Path:
     named = isinstance(file, str) and "\x00" not in file  # NUL: resolve kastar ValueError
     target = (base / str(file)).resolve() if named else None
     if target is None or not _inside(base, target):
-        _refuse(f"Musiken {file} finns inte. Välj en fil i {FOLDER}/{profile}/.")
+        _refuse(f"The music {file} does not exist. Choose a file in {FOLDER}/{profile}/.")
     return target
 
 
@@ -102,22 +102,22 @@ def choose(root: Path, choices: SoundChoices) -> dict:
     """Ljudvalet kontrollerat, klart för replace_audio."""
     mode, music, start_s, volume = choices.audio, choices.music, choices.music_start_s, choices.original_volume
     if mode not in MODES:
-        _refuse("Ljudläget finns inte. Välj Behåll, Tyst eller Musik.")
+        _refuse("That sound mode does not exist. Choose Keep, Mute or Music.")
     if mode != "music":
         return {"mode": mode}
     if not music:
-        _refuse("Välj en musikfil, eller välj Behåll eller Tyst.")
+        _refuse("Choose a music file, or choose Keep or Mute.")
     if not 0 <= volume <= 1:
-        _refuse("Originalljudet får vara 0–100 %.")
+        _refuse("The original sound can be 0–100 %.")
     path = music_path(root, choices.profile, music)
     info = sound_info(path)
     if info is None:
         _refuse(NO_SOUND.format(music))
     if not start_s >= 0:  # också NaN
-        _refuse("Musiken börjar vid 0 s eller senare.")
+        _refuse("The music starts at 0 s or later.")
     if start_s >= info["duration_s"]:
-        shown = f"{round(info['duration_s'], 1):g}".replace(".", ",")
-        _refuse(f"Musiken är {shown} s lång. Välj en start före slutet.")
+        shown = f"{round(info['duration_s'], 1):g}"
+        _refuse(f"The music is {shown} s long. Choose a start before the end.")
     return {"mode": mode, "path": path, "start_s": start_s, "volume": volume, "duration_s": info["duration_s"]}
 
 
@@ -188,7 +188,7 @@ def add_music(root: Path, profile: str, file: BinaryIO, name: str) -> dict:
     """Spara en ljudfil eller video i kampanjens musikmapp. Ett namn som finns får ett tillägg."""
     suffix = Path(name).suffix.lower()
     if suffix not in MUSIC_TYPES:
-        _refuse(f"Filtypen {suffix or 'saknas'} går inte. Välj {', '.join(MUSIC_TYPES)}.")
+        _refuse(f"The file type {suffix or '(none)'} is not supported. Choose {', '.join(MUSIC_TYPES)}.")
     base = folder(root, profile)
     base.mkdir(parents=True, exist_ok=True)
     tmp = base / f".uppladdning-{uuid.uuid4().hex}{suffix}"  # punkt först: listas inte

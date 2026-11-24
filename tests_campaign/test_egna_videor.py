@@ -87,8 +87,8 @@ def test_two_uploads_with_the_same_name_get_their_own_files(client, tmp_path, mo
 @needs_ffmpeg
 @pytest.mark.parametrize(("form", "text"), [
     ({"profile": "finns-inte"}, "The campaign"),
-    ({"speed": "1.33"}, "Hastigheten 1,33 går inte. Välj 1, 1,05, 1,1, 1,15, 1,2."),
-    ({"filter": "nope"}, "Filtret"),
+    ({"speed": "1.33"}, "The speed 1.33 is not possible. Choose 1, 1.05, 1.1, 1.15, 1.2."),
+    ({"filter": "nope"}, "The filter"),
 ])
 def test_bad_choices_are_refused_and_nothing_is_saved(client, settings, tmp_path, form, text) -> None:
     answer = _upload(client, make_clip(tmp_path / "a.mp4", seconds=4), **form)
@@ -226,17 +226,17 @@ def test_without_new_choices_the_upload_is_made_as_before(client, extras, tmp_pa
 
 @needs_ffmpeg
 @pytest.mark.parametrize(("form", "text"), [
-    ({"framing": "zoom"}, "Bildläget"),
-    ({"font": "Wingdings"}, "Fonten"),
-    ({"start_cut_s": "6"}, "Klipp i början"),
-    ({"start_cut_s": "-1"}, "Klipp i början"),
-    ({"start_cut_s": "1.5"}, "Kampanjen kräver minst 3 s"),  # 4 s minus 1,5 s blir 2,5 s
-    ({"overlay": "overlays/egen.png"}, "kräver sin egen overlay"),
+    ({"framing": "zoom"}, "The framing"),
+    ({"font": "Wingdings"}, "The font"),
+    ({"start_cut_s": "6"}, "The cut at the start"),
+    ({"start_cut_s": "-1"}, "The cut at the start"),
+    ({"start_cut_s": "1.5"}, "The campaign requires at least 3 s"),  # 4 s minus 1,5 s blir 2,5 s
+    ({"overlay": "overlays/egen.png"}, "requires its own overlay"),
     ({"sticker": "../overlays/egen.png"}, "stickers/"),
-    ({"sticker": "fire.png", "sticker_duration_s": "11"}, "0,5–10"),
-    ({"sticker": "fire.png", "sticker_start_s": "5"}, "inom klippet"),
-    ({"sticker": "tall.png", "sticker_position": "center"}, "säkra zon"),
-    ({"sticker": "fire.png", "sticker_position": "upp"}, "Platsen"),
+    ({"sticker": "fire.png", "sticker_duration_s": "11"}, "0.5–10"),
+    ({"sticker": "fire.png", "sticker_start_s": "5"}, "within the clip"),
+    ({"sticker": "tall.png", "sticker_position": "center"}, "safe zone"),
+    ({"sticker": "fire.png", "sticker_position": "upp"}, "The position"),
 ])
 def test_new_choices_that_break_the_campaigns_rules_are_refused(client, extras, tmp_path, form, text) -> None:
     answer = _upload(client, make_clip(tmp_path / "a.mp4", seconds=4), **form)

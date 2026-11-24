@@ -64,7 +64,7 @@ def _ask(brain: Brain, **kwargs: Any) -> dict:
     except BudgetExceeded as error:
         raise VariantError(str(error)) from error
     except Exception as error:  # nätverksfel, fel nyckel m.m.
-        raise VariantError("Claude svarade inte. Försök igen om en stund.", 502) from error
+        raise VariantError("Claude did not answer. Try again in a while.", 502) from error
 
 
 def _setup(settings: Settings, clip: dict) -> tuple[Profile, Brain]:
@@ -72,10 +72,10 @@ def _setup(settings: Settings, clip: dict) -> tuple[Profile, Brain]:
     try:
         profile = load_profile(clip["profile"], settings.profiles_dir)
     except SystemExit as error:
-        raise VariantError("Kampanjen går inte att läsa.") from error
+        raise VariantError("The campaign cannot be read.") from error
     brain = Brain(settings, budget_from_settings(settings))
     if not brain.available:
-        raise VariantError("Claude-nyckeln saknas. Lägg in den under Inställningar.")
+        raise VariantError("Claude key is missing. Add it under Settings.")
     return profile, brain
 
 
@@ -106,7 +106,7 @@ def suggest(settings: Settings, clip: dict, platform: str, account: str) -> dict
             break
         tried.append(title)
     else:
-        raise VariantError("Claude föreslog en text som redan finns på ett annat konto. Försök igen.")
+        raise VariantError("Claude suggested a text that is already on another account. Try again.")
     problems = check_caption(caption, profile)
     if problems:
         raise VariantError(problems[0])
@@ -150,4 +150,4 @@ def suggest_hook(settings: Settings, clip: dict) -> dict:
         if _new_hook(hook, taken, partial(hook_fits, profile, settings.root, frame=frame)):  # stil, overlay, bildläge
             return {"hook": hook}
         tried.append(hook)
-    raise VariantError("Claude föreslog en hook som redan finns eller inte ryms i bilden. Försök igen.")
+    raise VariantError("Claude suggested a hook that already exists or does not fit in the frame. Try again.")

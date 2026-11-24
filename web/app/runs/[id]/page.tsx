@@ -144,7 +144,7 @@ function RunHeader({ run, clips }: { run: CampaignRunDetail; clips: CampaignClip
       </h1>
       <p className="mt-1.5 text-muted-foreground">{runMeta(run)}</p>
       <p className="text-sm text-muted-foreground">
-        Kampanj: {campaignLabel(run.profile)}, VOD {run.vod_id}
+        Campaign: {campaignLabel(run.profile)}, VOD {run.vod_id}
       </p>
       {part && <p className="text-sm text-muted-foreground tabular-nums">Del av VOD:en: {part}</p>}
       {run.focus && <p className="mt-1 text-sm text-muted-foreground">Letade efter: {run.focus}</p>}

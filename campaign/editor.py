@@ -39,10 +39,10 @@ LOCKED = ("postad", "inskickad", "analytics_inskickad", "betald")
 ROUNDING_S = 0.05  # webben avrundar till tiondelar
 WORDS_MAX = 1000
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")  # radbrytning, tabb m.m. skulle bryta raden i undertextfilen
-BURNED = ("Undertexten är inbränd i det här klippet, så ord går inte att rätta. Det fungerar för klipp som skärs "
-          "från och med nu.")
+BURNED = ("The subtitles are burned into this clip, so words cannot be corrected. It works for clips cut "
+          "from now on.")
 NO_SUBTITLES = "Kampanjen har inga undertexter."
-STALE = "Ordlistan hör inte till klippet längre, så ord går inte att rätta."
+STALE = "The word list no longer belongs to the clip, so words cannot be corrected."
 
 
 class EditConflict(Exception):
@@ -88,13 +88,13 @@ def limits(profile: Profile) -> tuple[float, float]:
 
 def why_not(clip: dict, raw: Path | None) -> str | None:
     if clip.get("version_of"):  # versionen delar råklipp med originalet
-        return "En version går inte att redigera. Gör en ny version av originalet i stället."
+        return "A version cannot be edited. Make a new version of the original instead."
     if clip["status"] in LOCKED:
-        return "Klippet är postat. Det går inte att ändra."
+        return "The clip is posted. It cannot be changed."
     if clip["status"] == "nekad":
-        return "Klippet är nekat. Ångra nejet först om du vill ändra det."
+        return "The clip is rejected. Undo the no first if you want to change it."
     if raw is None or not raw.is_file():
-        return "Råklippet saknas, så klippet går inte att trimma."
+        return "The raw clip is missing, so the clip cannot be trimmed."
     return None
 
 
@@ -124,18 +124,18 @@ def _words(raw: Path | None, profile: Profile, settings: Settings) -> tuple[dict
 def _check_words(words: list[dict], duration: float) -> list[dict]:
     """Robins ord, kontrollerade. Ett ord som saknas är borttaget; nya ord kan inte läggas till."""
     if len(words) > WORDS_MAX:
-        raise ValueError(f"Undertexten får ha högst {WORDS_MAX} ord.")
+        raise ValueError(f"The subtitles can have at most {WORDS_MAX} words.")
     checked, last = [], 0.0
     for w in words:
         text, start, end = str(w["word"]).strip(), float(w["start"]), float(w["end"])
         if not text or len(text) > WORD_CHARS:
-            raise ValueError(f"Ett ord får vara 1–{WORD_CHARS} tecken.")
+            raise ValueError(f"A word can be 1–{WORD_CHARS} characters.")
         if CONTROL.search(text):
-            raise ValueError(f"Ordet {text!r} får inte ha radbrytningar, tabbar eller andra styrtecken.")
+            raise ValueError(f"The word {text!r} cannot have line breaks, tabs or other control characters.")
         if not 0 <= start < end <= duration + 0.5:
-            raise ValueError(f"Ordet {text!r} måste ligga inom klippet, och börja före sitt slut.")
+            raise ValueError(f"The word {text!r} must be within the clip, and start before its end.")
         if start < last:
-            raise ValueError(f"Ordet {text!r} börjar före ordet innan.")
+            raise ValueError(f"The word {text!r} starts before the word before it.")
         checked.append({"start": start, "end": end, "word": text})
         last = start
     return checked
@@ -216,13 +216,13 @@ def _check_trim(state: dict, trim: tuple[float, float], profile: Profile, look: 
     new_in, new_out = trim
     if not 0 <= new_in < new_out <= state["duration_s"]:
         shown = drafts.comma(state["duration_s"], "g")
-        raise ValueError(f"Start och slut måste ligga inom klippet: 0 till {shown} s, och starten före slutet.")
+        raise ValueError(f"Start and end must be within the clip: 0 to {shown} s, and the start before the end.")
     min_s, max_s = limits(profile)
     extra = drafts.EXTRA_S if look.choices else 0.0
     length = round((new_out - new_in) / look.speed + extra, 3)  # exakt kampanjens gränser
     if not min_s <= length <= max_s:
-        raise ValueError(f"Klippet blir {drafts.comma(length, '.1f')} s. "
-                         f"Kampanjen tillåter {drafts.comma(min_s, 'g')}–{drafts.comma(max_s, 'g')} s.")
+        raise ValueError(f"The clip will be {drafts.comma(length, '.1f')} s. "
+                         f"The campaign allows {drafts.comma(min_s, 'g')}–{drafts.comma(max_s, 'g')} s.")
 
 
 def _texts(clip: dict, title: str | None, headline: str | None) -> tuple[str, str | None, str, str]:
@@ -230,7 +230,7 @@ def _texts(clip: dict, title: str | None, headline: str | None) -> tuple[str, st
     behåller klippets, och headline "" ger titeln i bilden."""
     new_title = clip["title"] if title is None else title.strip()
     if not new_title:
-        raise ValueError("Titeln får inte vara tom.")
+        raise ValueError("The title cannot be empty.")
     new = clip["headline"] if headline is None else hook_clean(headline)
     return new_title, new, headline_text(clip), headline_text({"headline": new, "title": new_title})
 
@@ -287,7 +287,7 @@ def edit_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog, *,
         now = log.get(clip["id"])
         reason = why_not(now, raw)
         if reason:
-            raise EditConflict(f"Klippet ändrades under redigeringen. {reason}")
+            raise EditConflict(f"The clip changed during the edit. {reason}")
         log.update(clip["id"], status="renderad")
 
         if trimmed:
@@ -343,10 +343,10 @@ def reframe_clip(clip: dict, profile: Profile, settings: Settings, log: ClipLog)
     assert raw is not None
     video = settings.work_dir / clip["vod_id"] / f"{clip['vod_id']}.mp4"
     if not video.is_file():
-        raise ValueError(f"Källvideon saknas: {video}. Den behövs för att skära om klippet.")
+        raise ValueError(f"The source video is missing: {video}. It is needed to recut the clip.")
     state = _state(clip, raw)
     if state["start_s"] is None:
-        raise ValueError("Klippet saknar sin tid i källvideon, så det går inte att skära om.")
+        raise ValueError("The clip lacks its time in the source video, so it cannot be recut.")
     reframe = load_config(settings.root / (profile.clipsmith_config or "")).reframe
     data, _ = _words(raw, profile, settings)
     meta, source = edit_meta(raw), source_path(raw)

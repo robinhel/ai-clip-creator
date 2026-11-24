@@ -299,7 +299,7 @@ def test_hook_fits_measures_an_own_font_wider(tmp_path) -> None:
 
 
 def test_a_hook_with_only_emoji_is_refused() -> None:
-    with pytest.raises(versions.VersionError, match="bokstäver eller siffror"):
+    with pytest.raises(versions.VersionError, match="letters or digits"):
         versions._hook("🔥🔥 😂", lambda _: True)
     assert versions._hook(" Big play 🔥 ", lambda _: True) == "Big play 🔥"
 

@@ -36,9 +36,9 @@ MAX_WEBCAM_RECTS = 4
 SHAPE_TOLERANCE = 0.03
 NEW_REFRAME = (
     "reframe:\n"
-    "  mode: stacked         # facecam överst, gameplay under\n"
-    "  # Rutorna ställs in i appen under Kampanjer: Facecam och spelruta.\n"
-    "  split_ratio: 0.4      # facecam får 40 % av höjden\n"
+    "  mode: stacked         # facecam on top, gameplay below\n"
+    "  # Set the boxes in the app under Campaigns: Facecam and game box.\n"
+    "  split_ratio: 0.4      # facecam gets 40 % of the height\n"
 )
 
 
@@ -79,16 +79,16 @@ def check_overlay(data: bytes, mode: str) -> None:
     Med full går en banner också, den görs om till 1080x1920 med banner_to_full."""
     size = png_size(data[:24])
     if size is None:
-        raise ValueError("Filen är inte en PNG-bild.")
+        raise ValueError("The file is not a PNG image.")
     width, height = size
     if mode not in ("full", "top", "bottom"):
-        raise ValueError(f"overlay.mode är {mode!r}. Den måste vara full, top eller bottom.")
+        raise ValueError(f"overlay.mode is {mode!r}. It must be full, top or bottom.")
     if mode == "full" and size != (PANEL_W, PANEL_H) and not is_banner(width, height):
-        raise ValueError(f"Overlay-bilden är {width}x{height}. Med mode: full måste den vara 1080x1920, "
-                         "eller en banner som är minst dubbelt så bred som hög.")
+        raise ValueError(f"The overlay image is {width}x{height}. With mode: full it must be 1080x1920, "
+                         "or a banner at least twice as wide as it is tall.")
     if mode in ("top", "bottom") and (width != PANEL_W or height > PANEL_H):
-        raise ValueError(f"Overlay-bilden är {width}x{height}. Med mode: {mode} måste den vara 1080 bred "
-                         "och högst 1920 hög.")
+        raise ValueError(f"The overlay image is {width}x{height}. With mode: {mode} it must be 1080 wide "
+                         "and at most 1920 tall.")
 
 
 def banner_to_full(data: bytes, seam_y: int) -> bytes:
@@ -104,7 +104,7 @@ def banner_to_full(data: bytes, seam_y: int) -> bytes:
                  "-f", "lavfi", "-i", f"color=c=black@0.0:s={PANEL_W}x{PANEL_H},format=rgba", "-i", str(banner),
                  "-filter_complex", graph, "-frames:v", "1", str(out)])
         except RuntimeError:
-            raise ValueError("Bannern gick inte att göra om till en hel overlay. Spara den som PNG igen.") from None
+            raise ValueError("The banner could not be turned into a full overlay. Save it as PNG again.") from None
         return out.read_bytes()
 
 
@@ -114,8 +114,8 @@ def banner_to_full(data: bytes, seam_y: int) -> bytes:
 def config_file(root: Path, name: object) -> Path:
     """Kampanjens clipsmith-config. Bara en .yaml-fil direkt i projektmappen, så att ingen annan fil
     (till exempel .env) kan läsas via profilen."""
-    bad = ValueError(f"clipsmith_config är {name!r}. Den måste vara en .yaml-fil direkt i projektmappen, "
-                     "till exempel config.kanal.yaml.")
+    bad = ValueError(f"clipsmith_config is {name!r}. It must be a .yaml file directly in the project folder, "
+                     "for example config.channel.yaml.")
     if (not isinstance(name, str) or not name or Path(name).name != name or name.startswith(".")
             or not name.endswith(".yaml")):
         raise bad
@@ -133,14 +133,14 @@ def read_config(path: Path) -> AppConfig:
     try:
         return load_config(path)
     except Exception:  # yaml- och pydantic-fel citerar innehållet
-        raise ValueError(f"Config-filen {path.name} går inte att läsa.") from None
+        raise ValueError(f"The config file {path.name} cannot be read.") from None
 
 
 def overlay_target(root: Path, file: object) -> Path:
     target = (root / str(file)).resolve()
     if (not isinstance(file, str) or not target.is_relative_to((root / "overlays").resolve())
             or target.suffix.lower() != ".png"):
-        raise ValueError(f"overlay.file är {file}. Den måste ligga under overlays/ och sluta på .png.")
+        raise ValueError(f"overlay.file is {file}. It must be under overlays/ and end in .png.")
     return target
 
 
@@ -149,22 +149,22 @@ def overlay_target(root: Path, file: object) -> Path:
 
 # PyYAML:s vanligaste fel i enkel svenska. Nyckeln är början på felets text.
 YAML_PROBLEMS = (
-    ("expected ',' or ']'", "En lista inom [ ] är inte rätt skriven. Kontrollera kommatecken och klamrar."),
-    ("expected ',' or '}'", "En karta inom { } är inte rätt skriven. Kontrollera kommatecken och klamrar."),
-    ("mapping values are not allowed", "Ett kolon står på fel ställe. Sätt texten inom citattecken om den har ett kolon."),
-    ("found character '\\t'", "Raden har en tabb. Använd mellanslag för indrag."),
-    ("could not find expected ':'", "Ett kolon saknas efter fältets namn."),
-    ("found unexpected end of stream", "Ett citattecken är inte stängt."),
-    ("expected <block end>", "Indraget är fel. Rader i samma del ska ha lika många mellanslag."),
-    ("did not find expected", "Indraget är fel. Rader i samma del ska ha lika många mellanslag."),
-    ("expected a comment or a line break", "Något står efter värdet på raden. Sätt texten inom citattecken."),
+    ("expected ',' or ']'", "A list in [ ] is not written correctly. Check commas and brackets."),
+    ("expected ',' or '}'", "A map in { } is not written correctly. Check commas and brackets."),
+    ("mapping values are not allowed", "A colon is in the wrong place. Put the text in quotes if it has a colon."),
+    ("found character '\\t'", "The line has a tab. Use spaces for indentation."),
+    ("could not find expected ':'", "A colon is missing after the field name."),
+    ("found unexpected end of stream", "A quote is not closed."),
+    ("expected <block end>", "The indentation is wrong. Lines in the same section need the same number of spaces."),
+    ("did not find expected", "The indentation is wrong. Lines in the same section need the same number of spaces."),
+    ("expected a comment or a line break", "Something follows the value on the line. Put the text in quotes."),
 )
 
 
 def _yaml_problem(error: yaml.YAMLError) -> str:
     problem = str(getattr(error, "problem", None) or "")
     return next((text for start, text in YAML_PROBLEMS if problem.startswith(start)),
-                "Texten går inte att läsa. Kontrollera klamrar, citattecken, kolon och indrag.")
+                "The text cannot be read. Check brackets, quotes, colons and indentation.")
 
 
 def parse_yaml(text: str) -> object:
@@ -172,31 +172,31 @@ def parse_yaml(text: str) -> object:
     try:
         for event in yaml.parse(text, Loader=yaml.SafeLoader):
             if isinstance(event, yaml.AliasEvent) or getattr(event, "anchor", None):
-                raise ValueError("YAML med ankare och alias (& och *) går inte att spara. Skriv ut värdena.")
+                raise ValueError("YAML with anchors and aliases (& and *) cannot be saved. Write out the values.")
         return yaml.safe_load(text)
     except yaml.YAMLError as error:
         mark = getattr(error, "problem_mark", None)
-        where = f"Fel på rad {mark.line + 1}" if mark else "Fel i texten"
+        where = f"Error on line {mark.line + 1}" if mark else "Error in the text"
         raise ValueError(f"{where}: {_yaml_problem(error)}") from error
 
 
 def _check_types(data: dict, root: Path) -> None:
     def text(value: object, label: str) -> None:
         if value is not None and not isinstance(value, str):
-            raise ValueError(f"{label} måste vara text.")
+            raise ValueError(f"{label} must be text.")
 
     def texts(value: object, label: str) -> None:
         if value is not None and not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
-            raise ValueError(f"{label} måste vara en lista med text.")
+            raise ValueError(f"{label} must be a list of text.")
 
     for key in ("name", "streamer", "campaign", "language"):
         text(data.get(key), key)
     if data.get("active") is not None and not isinstance(data["active"], bool):
-        raise ValueError("active måste vara true eller false.")
+        raise ValueError("active must be true or false.")
     sections = {key: data.get(key) or {} for key in ("caption", "on_screen_text", "overlay")}
     for key, section in sections.items():
         if not isinstance(section, dict):
-            raise ValueError(f"{key} måste vara en karta med fält.")
+            raise ValueError(f"{key} must be a map with fields.")
     texts(sections["caption"].get("hashtags"), "caption.hashtags")
     texts(sections["caption"].get("must_include"), "caption.must_include")
     text(sections["caption"].get("template"), "caption.template")
@@ -205,20 +205,20 @@ def _check_types(data: dict, root: Path) -> None:
     formats = data.get("formats")
     if formats is not None and not (isinstance(formats, list) and all(
             isinstance(f, dict) and isinstance(f.get("id"), str) and f["id"] for f in formats)):
-        raise ValueError("Varje format i formats behöver ett id.")
+        raise ValueError("Each format in formats needs an id.")
     if sections["overlay"].get("file") is not None:
         overlay_target(root, sections["overlay"]["file"])
     font = sections["on_screen_text"].get("font_file")
     if font is not None and not (isinstance(font, str) and (root / font).resolve().is_relative_to(root.resolve())
                                  and Path(font).suffix.lower() in (".ttf", ".otf")):
-        raise ValueError("on_screen_text.font_file måste vara null eller en .ttf- eller .otf-fil i projektmappen.")
+        raise ValueError("on_screen_text.font_file must be null or a .ttf or .otf file in the project folder.")
 
 
 def check_profile_text(text: str, profile_id: str, root: Path) -> Profile:
     """Samma kontroller som load_profile, plus det som annars kraschar senare i kedjan."""
     data = parse_yaml(text)
     if not isinstance(data, dict):
-        raise ValueError("Kampanjens fil måste vara en YAML-karta med fält som name och streamer.")
+        raise ValueError("The campaign file must be a YAML map with fields such as name and streamer.")
     _check_types(data, root)
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / f"{profile_id}.yaml"
@@ -228,11 +228,11 @@ def check_profile_text(text: str, profile_id: str, root: Path) -> Profile:
         except SystemExit as error:
             raise ValueError(str(error)) from error
         except (TypeError, ValueError, AttributeError) as error:
-            raise ValueError(f"Kampanjens fil går inte att läsa: {error}") from error
+            raise ValueError(f"The campaign file cannot be read: {error}") from error
     try:
         profile.caption_template.format(title="x")
     except (KeyError, IndexError, ValueError) as error:
-        raise ValueError("caption.template får bara ha {title} inom klamrar.") from error
+        raise ValueError("caption.template can only have {title} in braces.") from error
     if data.get("clipsmith_config") is not None:
         read_config(config_file(root, data["clipsmith_config"]))
     return profile
@@ -247,7 +247,7 @@ def _block(lines: list[str], section: str) -> tuple[int, int] | None:
     if head is None:
         return None
     if lines[head].split("#")[0].strip() != f"{section}:":
-        raise ValueError(f"{section}: står på en rad. Ändra den i filen.")
+        raise ValueError(f"{section}: is on one line. Change it in the file.")
     end = head + 1
     # En kommentar i kolumn 0 avslutar inte delen; bara en ny nyckel på toppnivå gör det.
     while end < len(lines) and (not lines[end].strip() or lines[end][0] in " \t#"):
@@ -288,7 +288,7 @@ def set_keys(text: str, section: str, values: dict[str, str]) -> str:
 # ---------- formuläret Ställ in: ändra fält och låt resten av filen vara ----------
 
 DELETE = object()  # värdet i update_profile: ta bort fältet
-UNSAVED = "Ändringen gick inte att skriva in i filen. Gör den under Avancerat (YAML)."
+UNSAVED = "The change could not be written to the file. Make it under Advanced (YAML)."
 
 
 def _literal(value: object) -> str:
@@ -449,7 +449,7 @@ def _section(expected: dict, top: str) -> dict:
         expected[top] = {}
     section = expected[top]
     if not isinstance(section, dict):
-        raise ValueError(f"{top} måste vara en karta med fält. Ändra den under Avancerat (YAML).")
+        raise ValueError(f"{top} must be a map with fields. Change it under Advanced (YAML).")
     return section
 
 
@@ -467,7 +467,7 @@ def _expected(text: str, changes: dict[str, object]) -> dict:
     """Profilen som den ska bli efter ändringarna."""
     before = parse_yaml(text)
     if not isinstance(before, dict):
-        raise ValueError("Kampanjens fil måste vara en YAML-karta med fält som name och streamer.")
+        raise ValueError("The campaign file must be a YAML map with fields such as name and streamer.")
     expected = copy.deepcopy(before)
     for path, value in changes.items():
         _change(expected, path, value)
@@ -511,7 +511,7 @@ def set_active(text: str, active: bool) -> str:
     if count:
         return new
     end = "" if not text or text.endswith("\n") else "\n"
-    return f"{text}{end}active: {value}   # false = kampanjen döljs i appen, utom under Kampanjer\n"
+    return f"{text}{end}active: {value}   # false = the campaign is hidden in the app, except under Campaigns\n"
 
 
 def _replace_block(text: str, section: str, block: str) -> str:
@@ -536,27 +536,27 @@ def panel_aspects(split_ratio: float) -> tuple[float, float]:
 def check_rect(rect: object, aspect: float, label: str) -> list[int]:
     if not (isinstance(rect, list) and len(rect) == 4
             and all(isinstance(v, int) and not isinstance(v, bool) for v in rect)):
-        raise ValueError(f"{label} måste vara fyra heltal: x, y, bredd, höjd.")
+        raise ValueError(f"{label} must be four whole numbers: x, y, width, height.")
     x, y, w, h = rect
     if w < MIN_SIDE or h < MIN_SIDE:
-        raise ValueError(f"{label} är för liten. Bredd och höjd måste vara minst {MIN_SIDE} pixlar.")
+        raise ValueError(f"{label} is too small. Width and height must be at least {MIN_SIDE} pixels.")
     if x < 0 or y < 0 or x + w > SOURCE_W or y + h > SOURCE_H:
-        raise ValueError(f"{label} går utanför bilden ({SOURCE_W}x{SOURCE_H}).")
+        raise ValueError(f"{label} goes outside the image ({SOURCE_W}x{SOURCE_H}).")
     if abs(w / h - aspect) / aspect > SHAPE_TOLERANCE:
-        raise ValueError(f"{label} har fel form: {w}x{h} är {w / h:.3f} (bredd/höjd), panelen är {aspect:.3f}. "
-                         "Skillnaden får vara högst 3 %, annars blir bilden utdragen.")
+        raise ValueError(f"{label} has the wrong shape: {w}x{h} is {w / h:.3f} (width/height), the panel is {aspect:.3f}. "
+                         "The difference can be at most 3 %, otherwise the image gets stretched.")
     return rect
 
 
 def check_rects(rects: object, aspect: float) -> list[list[int]]:
     """1 till 4 kamerarutor. clipsmith väljer per klipp den ruta där ansiktet syns."""
     if not (isinstance(rects, list) and 1 <= len(rects) <= MAX_WEBCAM_RECTS):
-        raise ValueError(f"webcam_rects måste vara en lista med 1 till {MAX_WEBCAM_RECTS} rutor.")
-    checked = [check_rect(rect, aspect, f"Facecam-ruta {i}") for i, rect in enumerate(rects, 1)]
+        raise ValueError(f"webcam_rects must be a list of 1 to {MAX_WEBCAM_RECTS} boxes.")
+    checked = [check_rect(rect, aspect, f"Facecam box {i}") for i, rect in enumerate(rects, 1)]
     for i, rect in enumerate(checked, 1):
         if rect in checked[:i - 1]:
-            raise ValueError(f"Facecam-ruta {i} är samma som Facecam-ruta {checked.index(rect) + 1}. "
-                             "Flytta den eller ta bort den.")
+            raise ValueError(f"Facecam box {i} is the same as Facecam box {checked.index(rect) + 1}. "
+                             "Move it or remove it.")
     return checked
 
 
@@ -620,9 +620,9 @@ def _new_extras(body: dict) -> dict:
 
 def _new_header(streamer: object, local: bool) -> str:
     name = " ".join(str(streamer).split())  # en radbrytning här skulle lämna kommentaren
-    return (f"# Kampanj: {name}. Skapad i appen {date.today().isoformat()}.\n"
-            + ("# Bara egna videor, ingen Twitch-kanal.\n" if local else "")
-            + "# Ändra den under Ställ in i appen eller här. Kontrollera reglerna mot kampanjsidan.\n\n")
+    return (f"# Campaign: {name}. Created in the app {date.today().isoformat()}.\n"
+            + ("# Own videos only, no Twitch channel.\n" if local else "")
+            + "# Change it under Set up in the app or here. Check the rules against the campaign page.\n\n")
 
 
 def new_profile_text(profile_id: str, body: dict, config_name: str) -> str:
@@ -655,7 +655,7 @@ def new_profile_text(profile_id: str, body: dict, config_name: str) -> str:
 
 NEW_REFRAME_LOCAL = (
     "reframe:\n"
-    "  mode: zoom            # egna videor: mitten av bilden, ingen kamera\n"
+    "  mode: zoom            # own videos: middle of the frame, no camera\n"
 )
 
 
@@ -666,10 +666,10 @@ def new_config_text(template: str, profile_id: str, clip: tuple[int, int], local
     start = 0
     while start < len(lines) and lines[start].startswith("#"):
         start += 1
-    run = ("clipsmith process <fil.mp4>" if local else "clipsmith run-vod <VOD-id>")
-    text = (f"# clipsmith-inställningar för kampanjen {profile_id}. Skapad i appen {date.today().isoformat()}\n"
-            f"# som en kopia av config.timmy.yaml.\n"
-            f"# Används så här:  {run} --config config.{profile_id}.yaml\n"
+    run = ("clipsmith process <file.mp4>" if local else "clipsmith run-vod <VOD-id>")
+    text = (f"# clipsmith settings for the campaign {profile_id}. Created in the app {date.today().isoformat()}\n"
+            f"# as a copy of config.timmy.yaml.\n"
+            f"# Use it like this:  {run} --config config.{profile_id}.yaml\n"
             + "".join(lines[start:]))
     text = _replace_block(text, "channels", "channels: []\n" if local else f"channels:\n  - {profile_id}\n")
     text = _replace_block(text, "reframe", NEW_REFRAME_LOCAL if local else NEW_REFRAME)

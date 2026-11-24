@@ -36,12 +36,12 @@ STEP_S = 30  # tråden sover högst så länge, så att en sovande Mac märks di
 LATE_S = 120  # senare än så efter tiden räknas som försenad
 MISSED_S = 6 * 3600
 YOUTUBE_DAILY = 100
-MISSED = "Missad: Macen var avstängd vid tiden."
-ALREADY = "Klippet finns redan på kanalen."
-ONE_PER_ACCOUNT = "Klippet har redan ett inlägg på det här kontot."
+MISSED = "Missed: the Mac was off at the time."
+ALREADY = "The clip is already on the channel."
+ONE_PER_ACCOUNT = "The clip already has a post on this account."
 MAX_ACCOUNTS = 5  # Content Rewards villkor 14.2
-SAME_TEXT = ("Samma text finns redan på ett annat konto för det här klippet. Skriv en ny text eller tryck Föreslå "
-             "ny text.")
+SAME_TEXT = ("The same text is already on another account for this clip. Write a new text or press Suggest "
+             "new text.")
 TIKTOK_LIVE = ("uploading", "uploaded", "processing", "published")
 FINISHED = ("done", "reminded", "failed", "cancelled")
 FINISHED_SHOWN_H = 24  # Att posta visar avslutade poster så här länge
@@ -68,25 +68,25 @@ NAMES = {"youtube": ("youtube_shorts", "YouTube"), "tiktok": ("tiktok", "TikTok"
 
 
 def clip_file(settings: Settings, clip: dict, platform: str,
-              refused: str = "Bara godkända klipp kan schemaläggas.") -> Path:
+              refused: str = "Only approved clips can be scheduled.") -> Path:
     """Klippets fil. Bara ett godkänt (eller redan postat) klipp utan problem laddas upp, av knapparna och av
     schemat, och bara till en plattform som kampanjen postar på och där klippet inte redan har ett inlägg."""
     if clip["status"] not in ("godkand", *POST_STATUSES):  # postad: inlägget kan ha skapats av hjälpen
         raise ScheduleError(refused)
     _require_campaign(clip)
     if clip["problems"]:
-        raise ScheduleError("Klippet har problem. Rätta dem innan du laddar upp.")
+        raise ScheduleError("The clip has problems. Fix them before you upload.")
     key, name = NAMES[platform]
     profile = _profile(settings, clip["profile"])
     if key not in (profile.platforms if profile else PLATFORMS):  # kampanjen finns inte: som före listan
-        raise ScheduleError(f"Kampanjen postar inte på {name}.")
+        raise ScheduleError(f"The campaign does not post on {name}.")
     multi = profile is not None and profile.multi(key)  # flera konton: reglerna per konto i check_variant
     if not multi and any(post["platform"] == key
                          for post in ClipLog(settings.data_dir / "klipp.db").posts(clip["id"])):
-        raise ScheduleError(f"Klippet har redan ett inlägg på {name}.")
+        raise ScheduleError(f"The clip already has a post on {name}.")
     path = Path(clip["file"] or "").resolve()
     if not path.is_relative_to(settings.out_dir.resolve()) or path.suffix != ".mp4" or not path.exists():
-        raise ScheduleError("Klippets fil finns inte. Gör klippet kampanjklart igen.")
+        raise ScheduleError("The clip file does not exist. Make the clip campaign-ready again.")
     return path
 
 
@@ -191,7 +191,7 @@ class Schedule:
             row = db.execute("SELECT s.*, c.title AS clip_title, c.profile FROM scheduled_posts s "
                              "LEFT JOIN clips c ON c.id = s.clip_id WHERE s.id = ?", (post_id,)).fetchone()
         if row is None:
-            raise ScheduleError("Den schemalagda posten finns inte.", 404)
+            raise ScheduleError("The scheduled post does not exist.", 404)
         return self._view(row, _now())
 
     def list(self) -> list[dict]:
@@ -211,19 +211,19 @@ class Schedule:
 
     def add(self, clip_id: int, platform: str, at: datetime, account: str | None, fields: dict) -> dict:
         if at.tzinfo is None:
-            raise ScheduleError("Tiden måste ha en tidszon.")
+            raise ScheduleError("The time must have a time zone.")
         if at <= _now():
-            raise ScheduleError("Tiden har redan passerat. Välj en tid framåt.")
+            raise ScheduleError("The time has already passed. Choose a later time.")
         try:
             clip = self.clips.get(clip_id)
         except SystemExit as error:
-            raise ScheduleError("Klippet finns inte.", 404) from error
+            raise ScheduleError("The clip does not exist.", 404) from error
         fields = self._check(platform, account, fields, clip_seconds(clip, clip_file(self.settings, clip, platform)))
         self.check_account(clip, platform, account, at)
         self._not_there_yet(clip_id, platform, account)
         self.check_variant(clip, platform, account, fields)
         name = "YouTube" if platform == "youtube" else "TikTok"
-        busy = f"Klippet är redan schemalagt för {name}. Avbryt den posten först."
+        busy = f"The clip is already scheduled for {name}. Cancel that post first."
         if not self._multi(clip, platform):  # ett konto: en väntande post per plattform, som förut
             with self._db() as db:
                 if db.execute("SELECT 1 FROM scheduled_posts WHERE clip_id = ? AND platform = ? AND status = 'waiting'",
@@ -252,17 +252,17 @@ class Schedule:
                 return video
             post = UploadBody(**fields).model_dump(exclude={"open_id", "mode"})
         except ValidationError as error:
-            raise ScheduleError("Fälten är ogiltiga. Kontrollera rubrik och val.") from error
+            raise ScheduleError("The fields are invalid. Check the title and choices.") from error
         except YouTubeError as error:
             raise ScheduleError(str(error)) from error
         if len((post.get("title") or "").encode("utf-16-le")) // 2 > TIKTOK_TITLE_MAX:
-            raise ScheduleError(f"Beskrivningen är för lång. TikTok tar högst {TIKTOK_TITLE_MAX} tecken.")
+            raise ScheduleError(f"The description is too long. TikTok takes at most {TIKTOK_TITLE_MAX} characters.")
         try:
             check_cover(post, duration_s)
         except TikTokError as error:
             raise ScheduleError(str(error)) from error
         if account and TikTok(self.settings).can_publish(account) and not post.get("privacy_level"):
-            raise ScheduleError("Välj vem som får se klippet.")
+            raise ScheduleError("Choose who can see the clip.")
         return post
 
     # ---------- spärrarna för konton ----------
@@ -276,12 +276,12 @@ class Schedule:
         if account and allowed and not self._names(platform, account) & {a.lower() for a in allowed}:
             # Profilen kan ange kontot med sitt id. Robin läser namnet.
             names = ", ".join(self.label(platform, a) for a in allowed)
-            raise ScheduleError(f"Kampanjen postar bara från {names} på {name}. Välj det kontot.")
+            raise ScheduleError(f"The campaign only posts from {names} on {name}. Choose that account.")
         limit = profile.max_posts_per_day if profile else 3
         if counts and len(self._post_times(platform, account, *_day(at))) >= limit:
             day = at.astimezone(STOCKHOLM)
-            raise ScheduleError(f"Kontot har redan {limit} inlägg på {name} den {day.day}/{day.month}. Kampanjen "
-                                f"tillåter högst {limit} per konto och dag. Välj en annan dag eller ett annat konto.")
+            raise ScheduleError(f"The account already has {limit} posts on {name} on {day.day}/{day.month}. The campaign "
+                                f"allows at most {limit} per account and day. Choose another day or another account.")
 
     def _multi(self, clip: dict, platform: str) -> bool:
         profile = _profile(self.settings, clip["profile"])
@@ -334,10 +334,10 @@ class Schedule:
         mine = uses.pop(account, None)
         if mine:
             raise ScheduleError(ONE_PER_ACCOUNT if mine["state"] == "posted" else
-                                f"Klippet är redan schemalagt för {name} på det kontot. Avbryt den posten först.", 409)
+                                f"The clip is already scheduled for {name} on that account. Cancel that post first.", 409)
         if len(uses) >= MAX_ACCOUNTS:
-            raise ScheduleError(f"Klippet ligger redan på {MAX_ACCOUNTS} konton på {name}. Content Rewards tillåter "
-                                f"högst {MAX_ACCOUNTS}.")
+            raise ScheduleError(f"The clip is already on {MAX_ACCOUNTS} accounts on {name}. Content Rewards allows "
+                                f"at most {MAX_ACCOUNTS}.")
         taken = {_norm(text) for other in uses.values() for text in other["texts"]} - {""}
         if any(_norm(text) in taken for text in _texts(fields)):
             raise ScheduleError(SAME_TEXT)
@@ -361,7 +361,7 @@ class Schedule:
     def label(self, platform: str, account: str | None) -> str:
         """Kontots namn för Robin: användarnamn eller kanalnamn, annars id."""
         if account is None:
-            return "ett konto utan namn"
+            return "an account without a name"
         if platform == "youtube":
             info = YouTube(self.settings).accounts().get(account) or {}
             return info.get("title") or info.get("handle") or account
@@ -410,8 +410,8 @@ class Schedule:
                                 _iso(at + timedelta(minutes=gap)), skip=post["id"])  # precis gap ifrån är okej
         if near:
             other = datetime.fromisoformat(min(near, key=lambda t: abs(datetime.fromisoformat(t) - at)))
-            return (f"Kontot har ett annat inlägg kl. {other.astimezone(STOCKHOLM):%H:%M}. Kampanjen vill ha minst "
-                    f"{gap} minuter mellan inläggen på samma konto.")
+            return (f"The account has another post at {other.astimezone(STOCKHOLM):%H:%M}. The campaign wants at least "
+                    f"{gap} minutes between posts on the same account.")
         # Samma klipp på ett annat konto på samma plattform.
         same = [(abs(_when(use["at"]) - at), account, _when(use["at"]))
                 for account, use in self._uses(post["clip_id"], post["platform"], skip=post["id"]).items()
@@ -419,9 +419,9 @@ class Schedule:
         if not same:
             return None
         _, account, when = min(same, key=lambda item: item[0])
-        return (f"Samma klipp ligger på {self.label(post['platform'], account)} kl. "
-                f"{when.astimezone(STOCKHOLM):%H:%M}. Kampanjen vill ha minst {gap} minuter mellan samma klipp på "
-                f"olika konton.")
+        return (f"The same clip is on {self.label(post['platform'], account)} at "
+                f"{when.astimezone(STOCKHOLM):%H:%M}. The campaign wants at least {gap} minutes between the same clip on "
+                f"different accounts.")
 
     def _not_there_yet(self, clip_id: int, platform: str, account: str | None) -> None:
         """Knapparnas spärr gäller bara 10 minuter. Ett klipp som redan finns på kanalen laddas inte upp igen."""
@@ -440,14 +440,14 @@ class Schedule:
             changed = db.execute("UPDATE scheduled_posts SET status = 'cancelled', updated = ? "
                                  "WHERE id = ? AND status = 'waiting'", (_iso(_now()), post_id)).rowcount
         if not changed:
-            raise ScheduleError(f"Bara väntande poster kan avbrytas. Den här är {post['status']}.", 409)
+            raise ScheduleError(f"Only waiting posts can be cancelled. This one is {post['status']}.", 409)
         return self.get(post_id)
 
     def fail_interrupted(self) -> None:
         """Servern dog mitt i en uppladdning. Posten körs inte igen, så att inget laddas upp två gånger."""
         with self._db() as db:
             db.execute("UPDATE scheduled_posts SET status = 'failed', error = ?, updated = ? WHERE status = 'running'",
-                       ("Servern startades om mitt i uppladdningen. Titta på kontot innan du försöker igen.",
+                       ("The server restarted in the middle of the upload. Check the account before you try again.",
                         _iso(_now())))
 
     # ---------- vid tiden ----------
@@ -495,43 +495,43 @@ class Schedule:
                 self._set(post["id"], status="waiting")
                 return
             self._set(post["id"], status="failed", error=str(error))
-            notify_mac(f"{title} laddades inte upp: {error}", queue)
+            notify_mac(f"{title} was not uploaded: {error}", queue)
             return
         except Exception:  # tråden får aldrig dö; posten körs inte igen
             log.exception("Schemalagd post %s", post["id"])
-            error_text = "Uppladdningen fick ett oväntat fel. Titta på kontot."
+            error_text = "The upload hit an unexpected error. Check the account."
             self._set(post["id"], status="failed", error=error_text)
-            notify_mac(f"{title} laddades inte upp: {error_text}", queue)
+            notify_mac(f"{title} was not uploaded: {error_text}", queue)
             return
         self._set(post["id"], status=status, error=None, result=json.dumps({**result, "late": late}))
         if status == "reminded":
-            message, url = f"Dags att posta {title} på TikTok", None
+            message, url = f"Time to post {title} on TikTok", None
         else:
-            done = "är uppe på YouTube" if post["platform"] == "youtube" else "skickades till TikTok"
+            done = "is up on YouTube" if post["platform"] == "youtube" else "was sent to TikTok"
             if submit_helper(self.settings):  # webben har länken och tiden; notisen öppnar fliken Skicka in
                 # Samma start som inlägget: TikTok-inlägget räknas från uppladdningen (TikTok.latest).
                 start = datetime.fromisoformat(result["created"]) if result.get("created") else _now()
                 before = (start + timedelta(minutes=30)).astimezone(STOCKHOLM)
-                message = f"{title} {done}. Skicka in länken i Content Rewards före kl. {before:%H:%M}."
+                message = f"{title} {done}. Submit the link in Content Rewards before {before:%H:%M}."
                 url = f"{self.settings.web_url}/queue?tab=skicka-in"
             else:
-                message = f"{title} {done}. Skicka in länken i Content Rewards inom 30 minuter."
+                message = f"{title} {done}. Submit the link in Content Rewards within 30 minutes."
                 url = self._content_rewards(post["profile"])
-        notify_mac(f"Försenad: {message}" if late else message, url or queue)
+        notify_mac(f"Late: {message}" if late else message, url or queue)
 
     def _upload(self, post: dict) -> tuple[str, dict]:
         try:
             clip = self.clips.get(post["clip_id"])
         except SystemExit as error:
-            raise ScheduleError("Klippet finns inte längre.") from error
-        path = clip_file(self.settings, clip, post["platform"], "Klippet är inte längre godkänt.")
+            raise ScheduleError("The clip no longer exists.") from error
+        path = clip_file(self.settings, clip, post["platform"], "The clip is no longer approved.")
         duration_s = clip_seconds(clip, path)
         self._not_there_yet(post["clip_id"], post["platform"], post["account"])
         self.check_variant(clip, post["platform"], post["account"], post["fields"], skip=post["id"])
         if post["platform"] == "youtube":
             youtube = YouTube(self.settings)
             if youtube.uploads_today() >= YOUTUBE_DAILY:
-                raise ScheduleError(f"Dagens gräns på {YOUTUBE_DAILY} uppladdningar till YouTube är nådd.")
+                raise ScheduleError(f"Today's limit of {YOUTUBE_DAILY} uploads to YouTube is reached.")
             return "done", youtube.upload(post["clip_id"], path, post["account"], post["fields"], duration_s)
         if self._reminds(post):
             return "reminded", {}

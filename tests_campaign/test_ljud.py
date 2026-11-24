@@ -251,14 +251,14 @@ def test_music_works_for_a_video_without_sound(client, tmp_path) -> None:
 
 @needs_ffmpeg
 @pytest.mark.parametrize(("form", "text"), [
-    ({"music": "../ton.wav"}, "Musiken ../ton.wav finns inte"),
-    ({"music": "finns-inte.wav"}, "Musiken finns-inte.wav finns inte"),
-    ({"music": ""}, "Välj en musikfil"),
-    ({"music": MUSIC, "original_volume": "1.5"}, "Originalljudet"),
-    ({"music": MUSIC, "music_start_s": "-1"}, "Musiken börjar"),
-    ({"music": MUSIC, "music_start_s": "25"}, "Musiken är 20 s lång"),
-    ({"audio": "hogt"}, "Ljudläget finns inte. Välj Behåll, Tyst eller Musik."),
-    ({"music": "ton\x00.wav"}, "finns inte"),
+    ({"music": "../ton.wav"}, "The music ../ton.wav does not exist"),
+    ({"music": "finns-inte.wav"}, "The music finns-inte.wav does not exist"),
+    ({"music": ""}, "Choose a music file"),
+    ({"music": MUSIC, "original_volume": "1.5"}, "The original sound"),
+    ({"music": MUSIC, "music_start_s": "-1"}, "The music starts"),
+    ({"music": MUSIC, "music_start_s": "25"}, "The music is 20 s long"),
+    ({"audio": "hogt"}, "That sound mode does not exist. Choose Keep, Mute or Music."),
+    ({"music": "ton\x00.wav"}, "does not exist"),
 ])
 def test_a_bad_music_choice_is_400(client, settings, tmp_path, form, text) -> None:
     _add_music(client, _music(tmp_path / MUSIC))
@@ -276,9 +276,9 @@ def test_only_sound_files_can_be_added_as_music(client, settings, tmp_path) -> N
     text = tmp_path / "a.txt"
     text.write_text("inte musik")
     answer = _add_music(client, text)
-    assert answer.status_code == 400 and "Filtypen .txt går inte" in answer.json()["detail"]
+    assert answer.status_code == 400 and "The file type .txt is not supported" in answer.json()["detail"]
     answer = _add_music(client, _video(tmp_path / "tyst.mp4", tone=None))
-    assert answer.status_code == 400 and "har inget ljud" in answer.json()["detail"]
+    assert answer.status_code == 400 and "has no sound" in answer.json()["detail"]
     assert _add_music(client, _music(tmp_path / MUSIC), profile="finns-inte").status_code == 400
     assert _add_music(client, _music(tmp_path / MUSIC), profile="../profiles").status_code == 400
     assert not (settings.root / "musik").exists() or not list((settings.root / "musik").rglob("*.*"))
@@ -393,8 +393,8 @@ def test_a_removed_song_stops_edit_only_when_the_clip_is_made_again(client, sett
     assert answer.json()["title"] == "Bara rubriken"
     answer = client.post(f"/campaign/clips/{clip['id']}/edit", json={"out_s": 4.0})
     assert answer.status_code == 400
-    assert answer.json()["detail"] == (f"Musiken {MUSIC} finns inte längre. Lägg tillbaka den i musik/skiimasktimmy/, "
-                                       "eller gör om klippet på Egna videor.")
+    assert answer.json()["detail"] == (f"The music {MUSIC} no longer exists. Put it back in musik/skiimasktimmy/, "
+                                       "or redo the clip on Own videos.")
 
 
 @needs_ffmpeg

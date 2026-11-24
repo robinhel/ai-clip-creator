@@ -121,19 +121,19 @@ def test_max_payout_per_clip_is_logarithmic_from_100_to_1000_dollars(cap, points
     data = _data()
     data["analytics"]["pay"]["maxPayoutUsd"] = cap
     part = _parts(data)[1]["max_payout"]
-    assert (part["points"], part["max"], part["label"]) == (points, 10, "Max payout per klipp")
-    assert part["fact"] == f"Högst {cap:,} dollar per klipp".replace(",", " ")
+    assert (part["points"], part["max"], part["label"]) == (points, 10, "Max payout per clip")
+    assert part["fact"] == f"At most {cap:,} dollars per clip"
 
 
 def test_max_payout_without_a_cap_is_full_and_unknown_without_analytics() -> None:
     data = _data()
     data["analytics"]["pay"]["maxPayoutUsd"] = None
     part = _parts(data)[1]["max_payout"]
-    assert (part["points"], part["fact"]) == (10, "Inget tak per klipp")
+    assert (part["points"], part["fact"]) == (10, "No cap per clip")
     del data["analytics"]["pay"]["maxPayoutUsd"]
     assert _parts(data)[1]["max_payout"]["points"] == 10
     part = _parts({"search": _item(), "campaign": _campaign()})[1]["max_payout"]
-    assert (part["points"], part["max"], part["fact"]) == (5, 10, "Okänt")
+    assert (part["points"], part["max"], part["fact"]) == (5, 10, "Unknown")
 
 
 @pytest.mark.parametrize(("cap", "minimum", "views"), [("1200", "x", "abc"), (True, True, True)])
@@ -167,7 +167,7 @@ def test_unknown_age_gives_half_and_okant() -> None:
     data = _data(launchedAt=None)
     data["search"]["launchedAt"] = None
     fresh = _parts(data)[1]["fresh"]
-    assert (fresh["points"], fresh["fact"]) == (6, "Okänt")  # halva det nya maxvärdet
+    assert (fresh["points"], fresh["fact"]) == (6, "Unknown")  # halva det nya maxvärdet
 
 
 def test_the_chance_to_reach_the_minimum_is_logarithmic() -> None:
@@ -185,10 +185,10 @@ def test_no_details_gives_half_points_and_okant() -> None:
     data = {"search": _item()}  # bara sökträffen: ingen pay, inga regler, ingen organisatör
     _, parts, excluded = _parts(data)
     assert excluded is None
-    assert (parts["minimum"]["points"], parts["minimum"]["fact"]) == (5, "Okänt")
-    assert (parts["proof"]["points"], parts["proof"]["fact"]) == (2.5, "Okänt")
-    assert (parts["max_payout"]["points"], parts["max_payout"]["fact"]) == (5, "Okänt")
-    assert (parts["views"]["points"], parts["views"]["fact"]) == (10, "Okänt: inga klipp att räkna på ännu")  # inte halva
+    assert (parts["minimum"]["points"], parts["minimum"]["fact"]) == (5, "Unknown")
+    assert (parts["proof"]["points"], parts["proof"]["fact"]) == (2.5, "Unknown")
+    assert (parts["max_payout"]["points"], parts["max_payout"]["fact"]) == (5, "Unknown")
+    assert (parts["views"]["points"], parts["views"]["fact"]) == (10, "Unknown: no clips to count on yet")  # inte halva
     assert parts["fresh"]["points"] == 12  # åldern finns i sökträffen
 
 
@@ -493,7 +493,7 @@ def test_the_median_comes_from_robins_posts_when_there_are_twenty(client, settin
     with log._db() as db:
         db.execute("UPDATE posts SET views = 3000 + id")
     answer = client.get("/campaign/scout").json()
-    assert (answer["median_views"], answer["median_source"]) == (pytest.approx(3010.5), "dina inlägg")
+    assert (answer["median_views"], answer["median_source"]) == (pytest.approx(3010.5), "your posts")
 
 
 def test_a_lost_session_is_started_again_once(settings, fake) -> None:
@@ -515,7 +515,7 @@ def test_the_limit_at_clippingalpha_waits_an_hour_not_a_day(client, settings, fa
     scout.Scout(settings).run_once()  # dör inte
     answer = client.get("/campaign/scout").json()
     # NOW är 12:00 UTC, alltså 13:00 i Stockholm i november
-    assert answer["error"] == "ClippingAlpha tar inte emot fler anrop just nu. Bevakningen försöker igen kl. 14:00."
+    assert answer["error"] == "ClippingAlpha does not take more calls right now. Scouting tries again at 14:00."
     assert answer["calls_today"] == 1  # bara anropet som faktiskt gjordes (initialize)
     assert _blocked(settings) == NOW + timedelta(hours=1)
     assert scout.Scout(settings).wait_s() == pytest.approx(3600, abs=1)
@@ -530,7 +530,7 @@ def test_the_limit_at_clippingalpha_waits_an_hour_not_a_day(client, settings, fa
     assert scout.Scout(settings).wait_s() == 0
     scout.Scout(settings).run_once()
     assert _blocked(settings) == NOW + timedelta(minutes=121)
-    assert client.get("/campaign/scout").json()["error"].endswith("kl. 15:01.")
+    assert client.get("/campaign/scout").json()["error"].endswith("at 15:01.")
     assert scout.Scout(settings).calls_today() == 2
 
     fake.limit_reached = False
@@ -579,7 +579,7 @@ def test_an_error_after_the_limit_does_not_replace_the_limit(settings, fake, mon
     monkeypatch.setattr(scout.Scout, step, broken)
     scout.Scout(settings).run_once()
     assert scout.Scout(settings).overview()["error"] == (
-        "ClippingAlpha tar inte emot fler anrop just nu. Bevakningen försöker igen kl. 14:00.")
+        "ClippingAlpha does not take more calls right now. Scouting tries again at 14:00.")
     assert "trasig" in caplog.text  # felet loggas
 
 
@@ -592,7 +592,7 @@ def test_an_error_in_the_scores_without_an_error_from_clippingalpha_is_saved(set
     monkeypatch.setattr(scout.Scout, "_rescore", broken)
     scout.Scout(settings).run_once()
     assert scout.Scout(settings).overview()["error"] == (
-        "Bevakningen fick ett fel (RuntimeError). Den försöker igen om 10 minuter.")
+        "Scouting hit an error (RuntimeError). It tries again in 10 minutes.")
 
 
 def test_a_max_payout_that_is_not_a_number_is_not_sent_to_the_web(settings, fake) -> None:
@@ -600,7 +600,7 @@ def test_a_max_payout_that_is_not_a_number_is_not_sent_to_the_web(settings, fake
     analytics["pay"]["maxPayoutUsd"] = "1200"
     _seed(settings, "timmy/streams", 50, analytics=analytics)
     (view,) = scout.Scout(settings).overview()["campaigns"]
-    assert view["max_payout_usd"] is None  # som betyget: "Inget tak per klipp"
+    assert view["max_payout_usd"] is None  # som betyget: "No cap per clip"
 
 
 # ---------- notisen ----------
@@ -622,7 +622,7 @@ def test_a_new_good_campaign_is_notified_once(settings, fake, notes, monkeypatch
     assert len(notes.calls) == 1
     assert args[0] == "/opt/homebrew/bin/terminal-notifier"
     score = next(c["score"] for c in scout.Scout(settings).overview()["campaigns"] if c["ref"] == "timmy/streams")
-    assert args[1:] == ["-title", "Klipp", "-message", f"Ny kampanj: Clip streams Twitch Streams, {score} poäng",
+    assert args[1:] == ["-title", "Klipp", "-message", f"New campaign: Clip streams Twitch Streams, {score} points",
                         "-open", "https://clippingalpha.com/campaigns/timmy/streams?via=mcp"]
     assert not kwargs.get("shell")
 
@@ -635,7 +635,7 @@ def test_without_terminal_notifier_osascript_gets_the_text_as_an_argument(settin
     scout.Scout(settings).run_once()
     ((args, kwargs),) = notes.calls
     assert args[0] == "osascript"
-    assert args[-1].startswith('Ny kampanj: Clip "x" Twitch Streams, ')  # texten är ett argument, inte kod
+    assert args[-1].startswith('New campaign: Clip "x" Twitch Streams, ')  # texten är ett argument, inte kod
     assert all('"x"' not in part for part in args[:-1])
     assert not kwargs.get("shell")
 
@@ -657,7 +657,7 @@ def test_a_new_campaign_from_65_points_is_notified(settings, notes, monkeypatch,
     _seed(settings, "timmy/streams", score)  # 24 timmar gammal
     scout.Scout(settings)._notify(NOW)
     assert [args[4] for args, _ in notes.calls] == (
-        [f"Ny kampanj: Clip streams Twitch Streams, {score} poäng"] if notified else [])
+        [f"New campaign: Clip streams Twitch Streams, {score} points"] if notified else [])
 
 
 def test_no_notification_outside_the_mac(settings, fake, notes, monkeypatch) -> None:
@@ -734,7 +734,7 @@ def test_us_in_the_about_text_does_not_exclude() -> None:
     data = _with(campaign__about="Clip the US Open streams. Paid in US dollars, United States based brand.")
     assert _parts(data)[2] is None
     data = _with(campaign__audienceNote="US viewers only")
-    assert _parts(data)[2] == "Kräver publik från USA eller andra länder."
+    assert _parts(data)[2] == "Requires an audience from the US or other countries."
 
 
 def test_a_median_of_zero_does_not_crash() -> None:
@@ -783,7 +783,7 @@ def test_the_limit_inside_the_details_still_stops_the_run(settings, fake) -> Non
     fake.limit_at = "get_campaign"
     scout.Scout(settings).run_once()
     overview = scout.Scout(settings).overview()
-    assert overview["error"].startswith("ClippingAlpha tar inte emot fler anrop just nu.")
+    assert overview["error"].startswith("ClippingAlpha does not take more calls right now.")
     assert overview["calls_today"] == 5  # initialize, initialized, två sökningar och get_campaign
     assert len(fake.calls("tools/call", "get_campaign")) == 1  # nästa kampanj provas inte
 
@@ -867,7 +867,7 @@ def test_a_run_saves_what_it_cost(settings, fake, monkeypatch) -> None:
     assert scout.Scout(settings)._get("last_cost") == "1"
 
 
-POT = "Pott som delas mellan klippare, inte betalning per visning"
+POT = "A pot shared between clippers, not pay per view"
 
 
 @pytest.mark.parametrize(("join_model", "search_model", "excluded"), [
@@ -895,9 +895,9 @@ TOP_12 = [12_000, 100, 30_000, 6_000, 25_000, 9_000, 20_000, 50, 8_000, 15_000, 
 
 def test_the_views_count_the_median_of_the_ten_best_campaign_clips() -> None:
     part = _views(clip_views=TOP_12)  # de två sämsta (100 och 50) räknas inte: medianen är 11 000, inte 9 500
-    assert (part["max"], part["label"]) == (40, "Visningar")
+    assert (part["max"], part["label"]) == (40, "Views")
     assert part["points"] == pytest.approx(40 * math.log(11_000 / 2_000) / math.log(200_000 / 2_000), abs=0.05)
-    assert part["fact"] == "Median 11 000 visningar för kampanjens 10 bästa klipp"
+    assert part["fact"] == "Median 11,000 views for the campaign's 10 best clips"
 
 
 @pytest.mark.parametrize(("views", "points"), [  # 40 · ln(median / 2 000) / ln(100), förut ln(500) med taket 1 000 000
@@ -911,7 +911,7 @@ def test_the_campaign_scale_runs_from_2000_to_200000(views, points) -> None:
 def test_twitch_goes_before_the_campaign_clips() -> None:
     part = _views(twitch_views=[1_200] * 5, clip_views=[2_000_000] * 10)
     assert part["points"] == pytest.approx(40 * math.log(1_200 / 500) / math.log(200_000 / 500), abs=0.05)
-    assert part["fact"] == "Twitch: median 1 200 visningar för kanalens bästa klipp, 30 dagar"
+    assert part["fact"] == "Twitch: median 1,200 views for the channel's best clips, 30 days"
 
 
 @pytest.mark.parametrize(("views", "points"), [
@@ -923,25 +923,25 @@ def test_the_twitch_scale_runs_from_500_to_200000(views, points) -> None:
 
 def test_four_twitch_clips_go_on_to_the_campaign_clips_and_five_are_enough() -> None:
     part = _views(twitch_views=[200_000] * 4, clip_views=[57_350] * 5)
-    assert part["fact"] == "Median 57 350 visningar för kampanjens 5 bästa klipp"
+    assert part["fact"] == "Median 57,350 views for the campaign's 5 best clips"
     part = _views(twitch_views=[200_000] * 5, clip_views=[57_350] * 5)
-    assert (part["points"], part["fact"]) == (40, "Twitch: median 200 000 visningar för kanalens bästa klipp, 30 dagar")
+    assert (part["points"], part["fact"]) == (40, "Twitch: median 200,000 views for the channel's best clips, 30 days")
 
 
 @pytest.mark.parametrize("twitch", [[], None, [200_000] * 4])
 def test_no_twitch_clips_gives_the_campaign_clips(twitch) -> None:
     part = _views(twitch_views=twitch, clip_views=[1_000_000] * 5)
-    assert (part["points"], part["fact"]) == (40, "Median 1 000 000 visningar för kampanjens 5 bästa klipp")
+    assert (part["points"], part["fact"]) == (40, "Median 1,000,000 views for the campaign's 5 best clips")
 
 
 @pytest.mark.parametrize(("data", "fact"), [
     ({"twitch_views": [200_000] * 3, "clip_views": [2_000_000] * 4},
-     "Okänt: 3 Twitch-klipp och 4 kampanjklipp, minst 5 behövs"),
-    ({"clip_views": [2_000_000] * 4}, "Okänt: 0 Twitch-klipp och 4 kampanjklipp, minst 5 behövs"),
-    ({"twitch_views": [200_000]}, "Okänt: 1 Twitch-klipp och 0 kampanjklipp, minst 5 behövs"),
-    ({"clip_views": None}, "Okänt: inga klipp att räkna på ännu"),
-    ({"twitch_views": []}, "Okänt: inga klipp att räkna på ännu"),
-    ({}, "Okänt: inga klipp att räkna på ännu")])
+     "Unknown: 3 Twitch clips and 4 campaign clips, at least 5 needed"),
+    ({"clip_views": [2_000_000] * 4}, "Unknown: 0 Twitch clips and 4 campaign clips, at least 5 needed"),
+    ({"twitch_views": [200_000]}, "Unknown: 1 Twitch clips and 0 campaign clips, at least 5 needed"),
+    ({"clip_views": None}, "Unknown: no clips to count on yet"),
+    ({"twitch_views": []}, "Unknown: no clips to count on yet"),
+    ({}, "Unknown: no clips to count on yet")])
 def test_fewer_than_five_clips_on_twitch_and_in_the_campaign_is_unknown(data, fact) -> None:
     part = _views(**data)
     assert (part["points"], part["max"], part["fact"]) == (10, 40, fact)
@@ -983,7 +983,7 @@ def test_the_details_fetch_the_channel_and_the_campaign_page_once(settings, fake
     assert fake.twitch_calls == [("timmy_tv", NOW)] and fake.clip_calls == [CR]
     assert data.get("twitch_vod") is None and fake.vod_calls == []  # kanalposten räcker
     (view,) = scout.Scout(settings).overview()["campaigns"]
-    assert next(p for p in view["parts"] if p["key"] == "views")["fact"].startswith("Twitch: median 1 200")
+    assert next(p for p in view["parts"] if p["key"] == "views")["fact"].startswith("Twitch: median 1,200")
 
     _later(monkeypatch, hours=7)  # nästa detaljuppdatering: inga nya get_assets eller /go/, Twitch är färskt
     scout.Scout(settings).run_once()
@@ -1110,7 +1110,7 @@ def test_the_limit_in_get_assets_stops_the_run(settings, fake) -> None:
     fake.add("timmy/streams")
     fake.limit_at = "get_assets"
     scout.Scout(settings).run_once()
-    assert scout.Scout(settings).overview()["error"].startswith("ClippingAlpha tar inte emot fler anrop just nu.")
+    assert scout.Scout(settings).overview()["error"].startswith("ClippingAlpha does not take more calls right now.")
     assert fake.go == []
 
 
@@ -1182,7 +1182,7 @@ def test_without_a_channel_entry_the_channel_comes_from_the_vod(settings, fake, 
     assert fake.vod_calls == ["2919796761"] and fake.twitch_calls == [("johndoe_100x", NOW)]
     assert scout.Scout(settings).calls_today() == 2 + 1 + 1 + 4  # samma som med kanalposten: inget extra anrop
     (view,) = scout.Scout(settings).overview()["campaigns"]
-    assert next(p for p in view["parts"] if p["key"] == "views")["fact"].startswith("Twitch: median 1 200")
+    assert next(p for p in view["parts"] if p["key"] == "views")["fact"].startswith("Twitch: median 1,200")
 
     _later(monkeypatch, hours=25)  # kanalen är känd: ingen ny uppslagning, bara Twitch-klippen
     scout.Scout(settings).run_once()
@@ -1212,7 +1212,7 @@ def test_without_twitch_keys_no_call_no_login_and_the_campaign_clips_count(setti
     assert (data["twitch_vod"], data["twitch_login"], fake.twitch_calls) == ("2919796761", None, [])
     (view,) = scout.Scout(settings).overview()["campaigns"]
     part = next(p for p in view["parts"] if p["key"] == "views")
-    assert (part["points"], part["fact"]) == (40, "Median 1 000 000 visningar för kampanjens 5 bästa klipp")
+    assert (part["points"], part["fact"]) == (40, "Median 1,000,000 views for the campaign's 5 best clips")
 
     _later(monkeypatch, hours=7)  # ny chans först efter ett dygn
     scout.Scout(settings).run_once()
@@ -1251,7 +1251,7 @@ def test_a_shown_campaign_outside_the_best_gets_new_clip_views_without_clippinga
 
 def test_hidden_excluded_and_old_campaigns_are_not_fetched(settings, fake) -> None:
     _seed_with_page(settings, "hidden/streams", 90, clip_age_h=7, dismissed=1)
-    _seed_with_page(settings, "excluded/streams", 90, clip_age_h=7, excluded="Bara för medlemmar.")
+    _seed_with_page(settings, "excluded/streams", 90, clip_age_h=7, excluded="Members only.")
     _seed_with_page(settings, "gone/streams", 90, clip_age_h=7, updated=scout._iso(NOW - timedelta(hours=73)))
     _seed(settings, "nopage/streams", 90, clip_views_at=scout._iso(NOW - timedelta(hours=7)),
           join_checked_at=scout._iso(NOW - timedelta(hours=7)), cr_url=None)  # /go/ kollad, ingen sida
@@ -1275,8 +1275,8 @@ def test_the_clip_views_are_capped_per_run_and_a_failure_keeps_the_old(settings,
 
 
 @pytest.mark.parametrize(("stop", "requests", "error"), [
-    ({"limit_at": "search_campaigns"}, 3, "ClippingAlpha tar inte emot fler anrop just nu."),
-    ({"down": True}, 1, "ClippingAlpha svarade 500.")])
+    ({"limit_at": "search_campaigns"}, 3, "ClippingAlpha does not take more calls right now."),
+    ({"down": True}, 1, "ClippingAlpha answered 500.")])
 def test_the_clip_views_are_refreshed_when_clippingalpha_stops_the_run(settings, fake, stop, requests,
                                                                        error) -> None:
     _seed_with_page(settings, "timmy/streams", 50, clip_age_h=7)
@@ -1363,15 +1363,15 @@ def test_the_price_comes_from_the_tier_then_rest_of_world_then_the_payout_model(
 
 def test_a_campaign_that_pays_nothing_for_sweden_is_excluded() -> None:
     pay, excluded = _geo(FRANCE)
-    assert excluded == "Betalar inte för visningar från Sverige"
-    assert pay["fact"] == "0,00 dollar per 1 000 efter avgift i Sverige, marknaden 1,05"
+    assert excluded == "Does not pay for views from Sweden"
+    assert pay["fact"] == "0.00 dollars per 1,000 after fees in Sweden, market 1.05"
 
 
 def test_a_campaign_where_only_some_platforms_pay_counts_the_best_price_for_sweden() -> None:
     pay, excluded = _geo(PARTLY)
     assert excluded is None
-    assert pay["fact"] == ("1,35 dollar per 1 000 efter avgift i Sverige, marknaden 1,05. "
-                           "TikTok betalar inte för Sverige.")
+    assert pay["fact"] == ("1.35 dollars per 1,000 after fees in Sweden, market 1.05. "
+                           "TikTok does not pay for Sweden.")
     assert pay["points"] == pytest.approx(5 * 1.35 / 1.05 * SCALE["pay"], abs=0.05)  # inte 1,80
 
 
@@ -1381,29 +1381,29 @@ def test_a_campaign_where_only_some_platforms_pay_counts_the_best_price_for_swed
     {**FRANCE, "priced": False}])  # geoPriced false: geoRates räknas inte, också när den är ifylld
 def test_without_a_price_per_country_the_usual_price_counts(geo) -> None:
     pay, excluded = _geo(geo)
-    assert (pay["fact"], excluded) == ("1,80 dollar per 1 000 efter avgift, marknaden 1,05", None)
+    assert (pay["fact"], excluded) == ("1.80 dollars per 1,000 after fees, market 1.05", None)
 
 
 @pytest.mark.parametrize("data", [_data(), {**_data(), "cr_url": CR}, {**_data(), "cr_url": None}])
 def test_without_the_campaign_page_the_country_is_unknown(data) -> None:
     _, parts, excluded = _parts(data)
-    assert (parts["pay"]["fact"], excluded) == ("1,80 dollar per 1 000 efter avgift, marknaden 1,05, Land okänt", None)
+    assert (parts["pay"]["fact"], excluded) == ("1.80 dollars per 1,000 after fees, market 1.05, country unknown", None)
 
 
 def test_a_tier_for_other_countries_does_not_touch_sweden() -> None:
     pay, excluded = _geo(WACHAA)
-    assert (pay["fact"], excluded) == ("1,80 dollar per 1 000 efter avgift i Sverige, marknaden 1,05", None)
+    assert (pay["fact"], excluded) == ("1.80 dollars per 1,000 after fees in Sweden, market 1.05", None)
 
 
 def test_from_france_the_france_campaign_counts_five_dollars() -> None:
     pay, excluded = _geo(FRANCE, "FR")
     assert excluded is None
-    assert pay["fact"] == "4,50 dollar per 1 000 efter avgift i Frankrike, marknaden 1,05"
+    assert pay["fact"] == "4.50 dollars per 1,000 after fees in France, market 1.05"
 
 
-def test_the_pay_fact_uses_a_decimal_comma() -> None:
+def test_the_pay_fact_uses_a_decimal_point() -> None:
     fact = _parts(_data())[1]["pay"]["fact"]
-    assert "1,80" in fact and "1,05" in fact and "1.8" not in fact
+    assert "1.80" in fact and "1.05" in fact and "1,8" not in fact
 
 
 def test_the_web_gets_a_country_note_only_when_some_platforms_do_not_pay(settings, fake) -> None:
@@ -1412,7 +1412,7 @@ def test_the_web_gets_a_country_note_only_when_some_platforms_do_not_pay(setting
     scout.Scout(settings)._rescore(NOW)
     overview = scout.Scout(settings).overview()
     notes = {view["ref"]: view["country_note"] for view in overview["campaigns"] + overview["excluded"]}
-    assert notes == {"partly/c": "TikTok betalar inte för visningar från Sverige.", "wachaa/c": None,
+    assert notes == {"partly/c": "TikTok does not pay for views from Sweden.", "wachaa/c": None,
                      "france/c": None, "nogeo/c": None}
     assert [view["ref"] for view in overview["excluded"]] == ["france/c"]
 
@@ -1449,10 +1449,10 @@ def _unreadable(rates: dict) -> dict:
     _unreadable({}),
     _unreadable({"restOfWorld": [], "tiers": []}),
     _unreadable({"rest_of_world": [{"platform": "tiktok", "rate": 200}]})])  # omdöpt
-def test_a_price_that_cannot_be_read_gives_land_okant_and_is_not_excluded(geo) -> None:
+def test_a_price_that_cannot_be_read_gives_country_unknown_and_is_not_excluded(geo) -> None:
     assert scout_score.country_rates(geo, "SE") is None
     pay, excluded = _geo(geo)
-    assert (pay["fact"], excluded) == ("1,80 dollar per 1 000 efter avgift, marknaden 1,05, Land okänt", None)
+    assert (pay["fact"], excluded) == ("1.80 dollars per 1,000 after fees, market 1.05, country unknown", None)
 
 
 @pytest.mark.parametrize("geo", ["trasig", ["SE"], 5])
@@ -1480,13 +1480,13 @@ def test_the_card_shows_the_price_and_the_note_for_robins_country(settings, fake
                 for view in overview["campaigns"] + overview["excluded"]}
 
     assert cards() == {  # Sverige: TikTok betalar inte för PARTLY, så 1,50 och 1,35 och inte 2,00 och 1,80
-        "partly/c": (1.5, 1.35, "TikTok betalar inte för visningar från Sverige."),
-        "france/c": (0.0, 0.0, None), "notyt/c": (1.5, 1.35, "TikTok betalar inte för visningar från Sverige."),
+        "partly/c": (1.5, 1.35, "TikTok does not pay for views from Sweden."),
+        "france/c": (0.0, 0.0, None), "notyt/c": (1.5, 1.35, "TikTok does not pay for views from Sweden."),
         "nogeo/c": (2, 1.8, None)}
     preferences.save_country(settings, "FR")
     assert cards() == {
         "partly/c": (5.0, 4.5, None), "france/c": (5.0, 4.5, None),
-        "notyt/c": (5.0, 4.5, "YouTube betalar inte för visningar från Frankrike."), "nogeo/c": (2, 1.8, None)}
+        "notyt/c": (5.0, 4.5, "YouTube does not pay for views from France."), "nogeo/c": (2, 1.8, None)}
 
 
 def test_a_campaign_excluded_for_the_country_gets_its_page_read_again(settings, fake) -> None:
@@ -1542,10 +1542,10 @@ def test_a_campaign_page_that_cannot_be_read_waits_six_hours_also_without_a_pric
 
 
 COUNTRY_CHOICES = [{"code": code, "name": name} for code, name in (
-    ("SE", "Sverige"), ("NO", "Norge"), ("DK", "Danmark"), ("FI", "Finland"), ("IS", "Island"), ("DE", "Tyskland"),
-    ("FR", "Frankrike"), ("ES", "Spanien"), ("IT", "Italien"), ("NL", "Nederländerna"), ("PL", "Polen"),
-    ("GB", "Storbritannien"), ("IE", "Irland"), ("US", "USA"), ("CA", "Kanada"), ("AU", "Australien"),
-    ("BR", "Brasilien"), ("MX", "Mexiko"), ("IN", "Indien"))]
+    ("SE", "Sweden"), ("NO", "Norway"), ("DK", "Denmark"), ("FI", "Finland"), ("IS", "Iceland"), ("DE", "Germany"),
+    ("FR", "France"), ("ES", "Spain"), ("IT", "Italy"), ("NL", "Netherlands"), ("PL", "Poland"),
+    ("GB", "United Kingdom"), ("IE", "Ireland"), ("US", "USA"), ("CA", "Canada"), ("AU", "Australia"),
+    ("BR", "Brazil"), ("MX", "Mexico"), ("IN", "India"))]
 
 
 def test_get_country_gives_sweden_and_the_list(client) -> None:
@@ -1590,7 +1590,7 @@ def _with_page(settings, refs: list[str]) -> list[str]:
 def test_shown_campaigns_without_a_campaign_page_get_one_ten_per_run(settings, fake, monkeypatch) -> None:
     refs = _seed_without_page(settings, 30)
     _seed(settings, "hidden/c", 99, dismissed=1)
-    _seed(settings, "excluded/c", 99, excluded="Bara för medlemmar.")
+    _seed(settings, "excluded/c", 99, excluded="Members only.")
     fake.clip_views = [9_000] * 5
     scout.Scout(settings).run_once()
     assert _with_page(settings, refs) == refs[:scout.JOINS_PER_RUN] and scout.JOINS_PER_RUN == 10  # de bästa först

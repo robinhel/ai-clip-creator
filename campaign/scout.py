@@ -72,7 +72,7 @@ CLIP_VIEWS_PER_RUN, CLIP_PAGE_GAP_S = 25, 1.0
 
 BLOCK_S = 3600  # efter ClippingAlphas -32001: försök igen om en timme (när deras dygn börjar är okänt)
 STOCKHOLM = ZoneInfo("Europe/Stockholm")
-OWN_LIMIT_TEXT = f"Dagens gräns på {CALL_LIMIT} anrop till ClippingAlpha är nådd. Bevakningen fortsätter i morgon."
+OWN_LIMIT_TEXT = f"Today's limit of {CALL_LIMIT} calls to ClippingAlpha is reached. Scouting continues tomorrow."
 REF = re.compile(r"[a-z0-9][a-z0-9-]{0,99}/[a-z0-9][a-z0-9-]{0,99}")
 
 _session: dict[str, str | None] = {"id": None}  # MCP-sessionen återanvänds, så att initialize inte kostar varje gång
@@ -91,7 +91,7 @@ class LimitError(ScoutError):
 
 
 def _limit_text(until: datetime) -> str:
-    return (f"ClippingAlpha tar inte emot fler anrop just nu. Bevakningen försöker igen kl. "
+    return (f"ClippingAlpha does not take more calls right now. Scouting tries again at "
             f"{until.astimezone(STOCKHOLM):%H:%M}.")
 
 
@@ -133,7 +133,7 @@ def _safe(url) -> str | None:
 
 
 def notify(title: str, score: int, page_url: str | None) -> None:
-    notify_mac(f"Ny kampanj: {title}, {score} poäng", _safe(page_url))
+    notify_mac(f"New campaign: {title}, {score} points", _safe(page_url))
 
 
 def notify_mac(message: str, url: str | None = None) -> None:
@@ -216,7 +216,7 @@ class Scout:
         except sqlite3.OperationalError:  # inga inlägg än
             views = []
         if len(views) >= POSTS_FOR_MEDIAN:
-            return statistics.median(views), "dina inlägg"
+            return statistics.median(views), "your posts"
         return DEFAULT_MEDIAN_VIEWS, "standard"
 
     # ---------- MCP ----------
@@ -233,7 +233,7 @@ class Scout:
         try:
             response = http.post(MCP_URL, json=message, headers=headers)
         except httpx.HTTPError as error:
-            raise ScoutError("ClippingAlpha svarade inte. Bevakningen försöker igen om 10 minuter.") from error
+            raise ScoutError("ClippingAlpha did not answer. Scouting tries again in 10 minutes.") from error
         finally:
             _last_call[0] = time.monotonic()
         body = _body(response, message.get("id"))
@@ -245,7 +245,7 @@ class Scout:
         if response.status_code == 404 and _session["id"]:
             raise _SessionLost
         if response.status_code >= 400:
-            raise ScoutError(f"ClippingAlpha svarade {response.status_code}. Bevakningen försöker igen om 10 minuter.")
+            raise ScoutError(f"ClippingAlpha answered {response.status_code}. Scouting tries again in 10 minutes.")
         if isinstance(error, dict):
             raise ScoutError(f"ClippingAlpha gav ett fel: {str(error.get('message'))[:120]}")
         if "mcp-session-id" in response.headers:
@@ -269,12 +269,12 @@ class Scout:
             except _SessionLost:
                 _session["id"] = None  # sessionen gick ut: starta en ny en gång
                 if attempt == 2:
-                    raise ScoutError("ClippingAlpha tappade sessionen. Bevakningen försöker igen om 10 minuter.") \
+                    raise ScoutError("ClippingAlpha lost the session. Scouting tries again in 10 minutes.") \
                         from None
                 continue
             result = (body or {}).get("result") or {}
             if result.get("isError"):
-                raise ScoutError(f"ClippingAlpha kunde inte svara på {name}.")
+                raise ScoutError(f"ClippingAlpha could not answer {name}.")
             return result.get("structuredContent") or {}
         raise AssertionError("nås inte")
 
@@ -295,7 +295,7 @@ class Scout:
             self._put(error=str(error))
         except Exception as error:
             log.exception("Kampanjbevakningen fick ett fel")
-            self._put(error=f"Bevakningen fick ett fel ({type(error).__name__}). Den försöker igen om 10 minuter.")
+            self._put(error=f"Scouting hit an error ({type(error).__name__}). It tries again in 10 minutes.")
         finally:
             _run_lock.release()
 

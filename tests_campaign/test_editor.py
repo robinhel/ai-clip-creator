@@ -119,12 +119,12 @@ def test_bad_ranges_are_refused_and_change_nothing(setup, settings, body) -> Non
     assert not original.parent.exists()
 
 
-def test_range_errors_have_a_decimal_comma(setup) -> None:
+def test_range_errors_have_a_decimal_point(setup) -> None:
     client, _, clip_id = setup
     short = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 0.0, "out_s": 2.5}).json()["detail"]
-    assert short == "Klippet blir 2,5 s. Kampanjen tillåter 3–8 s."
+    assert short == "The clip will be 2.5 s. The campaign allows 3–8 s."
     outside = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 5.0, "out_s": 4.0}).json()["detail"]
-    assert re.match(r"Start och slut måste ligga inom klippet: 0 till 10(,\d+)? s,", outside), outside
+    assert re.match(r"Start and end must be within the clip: 0 to 10(\.\d+)? s,", outside), outside
 
 
 # ---------- 3. postade och nekade ----------
@@ -148,7 +148,7 @@ def test_clip_without_its_raw_clip_cannot_be_edited(setup, settings) -> None:
     _paths(settings)[0].unlink()
     info = client.get(f"/campaign/clips/{clip_id}/edit").json()
     assert (info["editable"], info["original"]) == (False, None)
-    assert "Råklippet" in info["reason"]
+    assert "raw clip" in info["reason"]
     assert client.post(f"/campaign/clips/{clip_id}/edit", json={"title": "Ny"}).status_code == 400
     assert client.get("/campaign/clips/999/edit").status_code == 404
 
@@ -498,8 +498,8 @@ def test_an_old_original_is_not_used_for_a_new_raw_clip(setup, settings) -> None
 
 WORDS = [{"start": 0.5, "end": 0.9, "word": "Bro,"}, {"start": 1.0, "end": 1.5, "word": "no"},
          {"start": 2.0, "end": 2.6, "word": "wei"}, {"start": 6.0, "end": 6.5, "word": "wow"}]
-BURNED = ("Undertexten är inbränd i det här klippet, så ord går inte att rätta. Det fungerar för klipp som skärs "
-          "från och med nu.")
+BURNED = ("The subtitles are burned into this clip, so words cannot be corrected. It works for clips cut "
+          "from now on.")
 
 
 def _words(settings) -> None:
@@ -635,7 +635,7 @@ def test_a_word_file_for_an_older_raw_clip_says_so(setup, settings) -> None:
     subtitles.words_path(raw).write_text(json.dumps({**data, "raw_size": data["raw_size"] + 1}))
     info = client.get(f"/campaign/clips/{clip_id}/edit").json()
     assert info["subtitles"] == {"editable": False, "words": [], "style": None,
-                                 "reason": "Ordlistan hör inte till klippet längre, så ord går inte att rätta."}
+                                 "reason": "The word list no longer belongs to the clip, so words cannot be corrected."}
 
 
 def test_words_are_saved_only_after_the_new_clip_is_in_place(setup, settings, monkeypatch) -> None:

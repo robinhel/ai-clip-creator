@@ -199,8 +199,8 @@ from campaign.youtube import YouTube  # noqa: E402
 
 from .test_schedule import YT_FIELDS, FakeTikTok, FakeYouTube, _stockholm, notes  # noqa: E402, F401
 
-ONE = "Klippet har redan ett inlägg på det här kontot."
-SAME = "Samma text finns redan på ett annat konto för det här klippet. Skriv en ny text eller tryck Föreslå ny text."
+ONE = "The clip already has a post on this account."
+SAME = "The same text is already on another account for this clip. Write a new text or press Suggest new text."
 
 
 @pytest.fixture
@@ -245,14 +245,14 @@ def test_a_campaign_with_one_or_no_account_allows_one_post_per_platform_as_befor
     clip_id = _clip(settings)
     ClipLog(settings.data_dir / "klipp.db").add_post(clip_id, "tiktok", TT_A, account=account)
     answer = _schedule(sched, clip_id, "openA", title="Something else")
-    assert (answer.status_code, answer.json()["detail"]) == (400, "Klippet har redan ett inlägg på TikTok.")
+    assert (answer.status_code, answer.json()["detail"]) == (400, "The clip already has a post on TikTok.")
 
 
 def test_without_several_accounts_a_second_scheduled_post_on_the_platform_is_409(sched, settings) -> None:
     clip_id = _clip(settings)
     assert _schedule(sched, clip_id, "UC1", "youtube").status_code == 201
     second = _schedule(sched, clip_id, "UC2", "youtube", title="Other")
-    assert second.status_code == 409 and "redan schemalagt" in second.json()["detail"]
+    assert second.status_code == 409 and "already scheduled" in second.json()["detail"]
 
 
 def test_the_sixth_account_is_refused_but_the_fifth_is_fine(sched, settings) -> None:
@@ -264,7 +264,7 @@ def test_the_sixth_account_is_refused_but_the_fifth_is_fine(sched, settings) -> 
     assert _schedule(sched, clip_id, "UC5", "youtube", title="Fifth").status_code == 201
     sixth = _schedule(sched, clip_id, "UC6", "youtube", title="Sixth")
     assert (sixth.status_code, sixth.json()["detail"]) == (
-        400, "Klippet ligger redan på 5 konton på YouTube. Content Rewards tillåter högst 5.")
+        400, "The clip is already on 5 accounts on YouTube. Content Rewards allows at most 5.")
 
 
 def test_the_same_text_is_refused_but_a_new_text_is_fine(sched, settings) -> None:
@@ -282,14 +282,14 @@ def test_the_same_clip_on_another_account_close_in_time_gets_a_warning(sched, se
     first = _schedule(sched, clip_id, "openA").json()
     assert first["warning"] is None
     near = _schedule(sched, clip_id, "openB", title="Second take", at=_stockholm(1, 13)).json()
-    assert near["warning"].startswith("Samma klipp ligger på openA kl. 12:00. "), near["warning"]
+    assert near["warning"].startswith("The same clip is on openA at 12:00. "), near["warning"]
     assert _schedule(sched, clip_id, "openB", title="x", at=_stockholm(1, 15)).status_code == 409  # samma konto
     listed = {post["id"]: post["warning"] for post in sched.get("/campaign/schedule").json()}
-    assert listed[first["id"]].startswith("Samma klipp ligger på openB kl. 13:00. ")
+    assert listed[first["id"]].startswith("The same clip is on openB at 13:00. ")
     # Finns båda varningarna visas den om samma konto.
     _schedule(sched, other, "openA", title="Other clip", at=_stockholm(1, 12, 30))
     listed = {post["id"]: post["warning"] for post in sched.get("/campaign/schedule").json()}
-    assert listed[first["id"]].startswith("Kontot har ett annat inlägg kl. 12:30.")
+    assert listed[first["id"]].startswith("The account has another post at 12:30.")
 
 
 def test_the_youtube_button_follows_the_rules_per_channel(sched, settings) -> None:
@@ -331,7 +331,7 @@ def test_at_the_time_the_rules_are_checked_again(sched, settings, notes) -> None
     assert FakeYouTube.calls == []
     assert schedule.Schedule(settings).get(post["id"])["status"] == "failed"
     assert schedule.Schedule(settings).get(post["id"])["error"] == SAME
-    assert notes and "laddades inte upp" in notes[-1][0]
+    assert notes and "was not uploaded" in notes[-1][0]
 
 
 def test_a_direct_tiktok_upload_counts_as_a_post_on_its_account(sched, settings) -> None:
@@ -475,7 +475,7 @@ def test_a_variant_that_is_still_taken_is_400_after_two_tries(sched, settings, m
     _schedule(sched, clip_id, "openA", title="Huge clutch")
     fake = _claude(monkeypatch, "huge clutch")
     answer = _variant(sched, clip_id)
-    assert answer.status_code == 400 and "Försök igen" in answer.json()["detail"]
+    assert answer.status_code == 400 and "Try again" in answer.json()["detail"]
     assert len(fake.messages.calls) == 2
 
 
@@ -483,7 +483,7 @@ def test_a_variant_without_a_key_or_budget_is_400_in_swedish(sched, settings, mo
     clip_id = _clip(settings)
     settings.anthropic_api_key = ""
     answer = _variant(sched, clip_id)
-    assert answer.status_code == 400 and "nyckel" in answer.json()["detail"].lower()
+    assert answer.status_code == 400 and "key" in answer.json()["detail"].lower()
     settings.anthropic_api_key = "nyckel"
     _claude(monkeypatch, "Anything")
     monkeypatch.setattr(Budget, "check", lambda self: (_ for _ in ()).throw(BudgetExceeded("Månadstaket är nått.")))

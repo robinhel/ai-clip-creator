@@ -145,7 +145,7 @@ def finish_vod(
         before = existing.get(str(out)) or existing.get(str(src))
         redo = before if before and before["status"] == "underkand" else None
         if before and not redo:
-            reason = "du har nekat klippet" if before["status"] == "nekad" else "finns redan i klipploggen"
+            reason = "you rejected the clip" if before["status"] == "nekad" else "already in the clip log"
             results.append({"file": src.name, "skipped": reason})
             continue
         if redo and edit_meta(src):
@@ -155,7 +155,7 @@ def finish_vod(
             # Filnamnsreserven blir ingen text i bilden, men en headline blir det.
             hook = headline_text({"headline": headline, "title": "" if title == title_from_name(src) else title})
         if not redo and start is not None and end is not None and log.overlaps(vod_id, start, end):
-            results.append({"file": src.name, "skipped": "samma del av VOD:en är redan klippt"})
+            results.append({"file": src.name, "skipped": "the same part of the VOD is already clipped"})
             continue
 
         common = dict(
@@ -169,7 +169,7 @@ def finish_vod(
             clip_id = _save(log, redo, common, file=str(src), caption="", status="underkand",
                            problems=source_problems, warnings=[], review=None)
             if clip_id is None:
-                results.append({"file": src.name, "skipped": "klippet ändrades under tiden"})
+                results.append({"file": src.name, "skipped": "the clip changed in the meantime"})
                 continue
             results.append({"id": clip_id, "file": src.name, "problems": source_problems})
             continue
@@ -215,7 +215,7 @@ def finish_vod(
             problems=problems, warnings=warnings, review=review_result,
         )
         if clip_id is None:
-            results.append({"file": src.name, "skipped": "klippet ändrades under tiden"})
+            results.append({"file": src.name, "skipped": "the clip changed in the meantime"})
             continue
         results.append(
             {"id": clip_id, "file": out.name, "title": title, "caption": caption,

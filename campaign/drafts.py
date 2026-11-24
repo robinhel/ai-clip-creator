@@ -47,7 +47,7 @@ CHOICES = "val"
 MAX_AGE_S = 24 * 3600
 DRAFT_ID = re.compile(r"[a-f0-9]{32}")
 EXTRA_S = 0.1  # klippet blir så här mycket längre än källan (ljudet)
-MUSIC_GONE = "Musiken {music} finns inte längre. Lägg tillbaka den i {folder}/, eller gör om klippet på Egna videor."
+MUSIC_GONE = "The music {music} no longer exists. Put it back in {folder}/, or redo the clip on Own videos."
 STICKER_END_S = 0.5  # Redigera: klistermärket börjar senast så här långt före klippets slut
 # Fyll hela 9:16-bilden och skär bort det som sticker ut.
 FILL = f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,crop={WIDTH}:{HEIGHT},setsar=1"
@@ -145,8 +145,8 @@ class Plan:
 
 
 def comma(value: float, fmt: str) -> str:
-    """Tal med komma, som 4,6."""
-    return format(value, fmt).replace(".", ",")
+    """Tal i ett meddelande, som 4.6. (Hette komma när appen var på svenska.)"""
+    return format(value, fmt)
 
 
 def with_advice(problems: list[str]) -> list[str]:
@@ -156,27 +156,27 @@ def with_advice(problems: list[str]) -> list[str]:
 
 def _span(choices: Choices, duration: float) -> tuple[float, float]:
     if not 0 <= choices.start_cut_s <= versions.MAX_CUT_S:
-        raise VersionError(f"Klipp i början får vara 0–{versions.MAX_CUT_S:g} sekunder.")
+        raise VersionError(f"The cut at the start can be 0–{versions.MAX_CUT_S:g} seconds.")
     start = choices.start_s or choices.start_cut_s
     end = choices.end_s or duration
     if duration < end <= duration + EXTRA_S:  # webben avrundar till tiondelar
         end = duration
     if not 0 <= start < end <= duration:
-        raise VersionError(f"Start och slut måste ligga inom videon, 0–{comma(duration, '.1f')} s, "
-                           "och starten före slutet.")
+        raise VersionError(f"Start and end must be within the video, 0–{comma(duration, '.1f')} s, "
+                           "and the start before the end.")
     return start, end
 
 
 def _check_choices(choices: Choices) -> dict[str, str]:
     """Valen som inte beror på videon. Returnerar fonterna som finns."""
     if choices.speed not in versions.SPEEDS:
-        raise VersionError(f"Hastigheten {comma(choices.speed, 'g')} går inte. "
-                           f"Välj {', '.join(comma(s, 'g') for s in versions.SPEEDS)}.")
+        raise VersionError(f"The speed {comma(choices.speed, 'g')} is not possible. "
+                           f"Choose {', '.join(comma(s, 'g') for s in versions.SPEEDS)}.")
     if choices.framing not in FRAMINGS:
-        raise VersionError(f"Bildläget {choices.framing!r} finns inte. Välj {', '.join(FRAMINGS)}.")
+        raise VersionError(f"The framing {choices.framing!r} does not exist. Choose {', '.join(FRAMINGS)}.")
     found = versions.fonts()
     if choices.font and choices.font not in found:
-        raise VersionError(f"Fonten {choices.font} finns inte. Välj en ur listan.")
+        raise VersionError(f"The font {choices.font} does not exist. Choose one from the list.")
     return found
 
 
@@ -204,13 +204,13 @@ def _wanted(choices: Choices) -> dict | None:
 def check_length(plan: Plan) -> None:
     """Kampanjens min och max, före rendering."""
     campaign, length = plan.campaign, plan.length_s
-    said = f"Klippet blir {comma(max(length, 0), '.1f')} s."
+    said = f"The clip will be {comma(max(length, 0), '.1f')} s."
     if length < campaign.min_seconds:
-        raise VersionError(f"{said} Kampanjen kräver minst {comma(campaign.min_seconds, 'g')} s. "
-                           "Flytta start eller slut på tidslinjen.")
+        raise VersionError(f"{said} The campaign requires at least {comma(campaign.min_seconds, 'g')} s. "
+                           "Move the start or end on the timeline.")
     if length > campaign.max_seconds:
-        raise VersionError(f"{said} Kampanjen tillåter högst {comma(campaign.max_seconds, 'g')} s. "
-                           "Flytta slutet på tidslinjen.")
+        raise VersionError(f"{said} The campaign allows at most {comma(campaign.max_seconds, 'g')} s. "
+                           "Move the end on the timeline.")
 
 
 def make_raw(source: Path, out: Path, plan: Plan) -> None:
@@ -413,7 +413,7 @@ def create(settings: Settings, file: BinaryIO, name: str) -> dict:
         try:
             info = probe(path / f"source{suffix}")
         except RuntimeError as error:
-            raise VersionError("Filen går inte att läsa som video.") from error
+            raise VersionError("The file cannot be read as a video.") from error
     except BaseException:
         shutil.rmtree(path, ignore_errors=True)
         raise

@@ -317,7 +317,7 @@ def test_run_detail_shows_steps_from_clipsmiths_events(client, settings) -> None
     assert [s["status"] for s in run["steps"]] == ["done", "done", "running", "waiting", "waiting", "waiting"]
     assert steps["download"]["finished_at"] == steps["transcribe"]["started_at"]
     assert steps["select"]["started_at"] is None
-    assert steps["select"]["label"] == "Claude väljer och betygsätter"
+    assert steps["select"]["label"] == "Claude chooses and rates"
     assert all(isinstance(s["estimate_s"], int) for s in run["steps"])
     assert run["eta_s"] > 0
     assert run["cost_estimate_usd"] > 0

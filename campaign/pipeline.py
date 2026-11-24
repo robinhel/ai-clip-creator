@@ -98,10 +98,10 @@ def _stop_if_cancelled(run_id: int | None) -> None:
 def clipsmith_config(profile: Profile, settings: Settings):
     """clipsmiths inställningar för kampanjen. Saknas filen stoppar körningen."""
     if not profile.clipsmith_config:
-        raise ValueError(f"Kampanjen {profile.name} saknar clipsmith_config i sin profil.")
+        raise ValueError(f"The campaign {profile.name} has no clipsmith_config in its profile.")
     path = settings.root / profile.clipsmith_config
     if not path.exists():
-        raise ValueError(f"Kampanjen {profile.name} pekar på {profile.clipsmith_config}, som saknas.")
+        raise ValueError(f"The campaign {profile.name} points to {profile.clipsmith_config}, which is missing.")
     return load_config(path)
 
 
@@ -218,13 +218,13 @@ def make_clips(
         percent = round(100 * done / max(total, 1))
         if percent not in shown:  # en händelse per procent, inte en per del (1 400 delar på 4 timmar)
             shown.add(percent)
-            report("download", 5.0 + percent / 10, f"Hämtar: {percent} %")
+            report("download", 5.0 + percent / 10, f"Downloading: {percent} %")
 
     if local:
-        report("download", 5.0, "Egen fil, inget att hämta")  # steget blir klart, inte fel
+        report("download", 5.0, "Own file, nothing to download")  # steget blir klart, inte fel
         mp4 = cfg.work_dir.expanduser() / vod_id / f"{vod_id}.mp4"
     else:
-        report("download", 5.0, "Hämtar VOD:en")
+        report("download", 5.0, "Downloading the VOD")
         try:
             mp4 = download_vod(vod_id, cfg.work_dir.expanduser(), on_progress=downloading)
         except RunCancelled:  # twitch-dl är stoppad; delarna tas bort, så att ingen halv VOD blir kvar
@@ -234,14 +234,14 @@ def make_clips(
     transcript = mp4.parent / "transcript.json"
     if not transcript.exists():
         # Steget först, så att ett fel här syns på Transkriberar och inte på hämtningen.
-        report("transcribe", 15.0, f"Transkriberar via Berget ({settings.transcribe_model})")
+        report("transcribe", 15.0, f"Transcribing with Berget ({settings.transcribe_model})")
         if not settings.berget_api_key:
-            raise ValueError("Berget-nyckeln (BERGET_API_KEY) saknas. Lägg in den under Inställningar. "
-                             "Den behövs för transkriberingen.")
+            raise ValueError("Berget key (BERGET_API_KEY) is missing. Add it under Settings. "
+                             "It is needed for transcription.")
         transcribe_vod(mp4, vod_id, transcript, post=berget_post(settings.berget_api_key),
                        model=settings.transcribe_model, language=profile.language,
                        on_part=lambda n, total: report("transcribe", 15.0 + 25.0 * (n - 1) / total,
-                                                       f"Del {n} av {total}"),
+                                                       f"Part {n} of {total}"),
                        budget=budget_from_settings(settings))
 
     secrets = load_secrets()
@@ -307,14 +307,14 @@ def make_clips(
     for path in (run_dir / "picks.json", mp4.parent / "picks.json"):  # work/<vod>/: senaste körningen, för facit
         save_picks(picks, path)
     if not picks:
-        return cfg, f"Claude valde inga av {asked} kandidater." if asked else "Inga kandidater hittades."
-    chooser = "Signalerna" if cfg.clip.select == "signals" else "Claude"
+        return cfg, f"Claude chose none of {asked} candidates." if asked else "No candidates were found."
+    chooser = "The signals" if cfg.clip.select == "signals" else "Claude"
 
-    report("finish", 90.0, "Lägger på overlay, text och caption och kontrollerar reglerna")
+    report("finish", 90.0, "Adding overlay, text and caption and checking the rules")
     results = finish(vod_id, profile, settings, game, run_id, stop)
     if not any("id" in result for result in results):
         reasons = ", ".join(dict.fromkeys(result["skipped"] for result in results if "skipped" in result))
-        return cfg, f"Inga nya klipp. {chooser} valde {len(picks)}, men {reasons}."
+        return cfg, f"No new clips. {chooser} chose {len(picks)}, but {reasons}."
     return cfg, None
 
 
@@ -380,11 +380,11 @@ def run_campaign_vod(
 
 # Varför finish_vod lät ett klipp vara, i ental och flertal, som Robin läser det på projektsidan.
 SKIPPED_TEXT = {
-    "finns redan i klipploggen": ("är redan granskat eller postat", "är redan granskade eller postade"),
-    "du har nekat klippet": ("är nekat", "är nekade"),
-    "samma del av VOD:en är redan klippt": ("har en del av VOD:en som redan är klippt",
-                                            "har delar av VOD:en som redan är klippta"),
-    "klippet ändrades under tiden": ("ändrades medan det gjordes om", "ändrades medan de gjordes om"),
+    "already in the clip log": ("is already reviewed or posted", "are already reviewed or posted"),
+    "you rejected the clip": ("is rejected", "are rejected"),
+    "the same part of the VOD is already clipped": ("has a part of the VOD that is already clipped",
+                                                    "have parts of the VOD that are already clipped"),
+    "the clip changed in the meantime": ("changed while it was redone", "changed while they were redone"),
 }
 
 
@@ -392,11 +392,13 @@ def finish_summary(results: list[dict]) -> str:
     """Vad Gör klippen kampanjklara igen gjorde. Blir körningens meddelande."""
     done = sum(1 for result in results if "id" in result)
     skipped = Counter(result["skipped"] for result in results if "skipped" in result)
-    text = f"{done} klipp gjordes om." if done else "Inga klipp gjordes om."
+    text = (f"{done} clip was redone." if done == 1 else f"{done} clips were redone.") if done else \
+        "No clips were redone."
     if skipped:
         reasons = ", ".join(f"{count} {SKIPPED_TEXT.get(reason, (reason, reason))[count > 1]}"
                             for reason, count in skipped.most_common())
-        text += f" {sum(skipped.values())} klipp rördes inte: {reasons}."
+        untouched = sum(skipped.values())
+        text += f" {untouched} clip{'' if untouched == 1 else 's'} {'was' if untouched == 1 else 'were'} not touched: {reasons}."
     return text
 
 
@@ -406,12 +408,12 @@ def finish_run(run_id: int, vod_id: str, profile_name: str, game: str | None, se
     db = get_session()
     _track(run_id)
     try:
-        _emit(db, run_id, "finish", 90.0, "Gör klippen kampanjklara igen")
+        _emit(db, run_id, "finish", 90.0, "Making the clips campaign-ready again")
         results = finish(vod_id, load_profile(profile_name, settings.profiles_dir), settings, game, run_id,
                          lambda: _stop_if_cancelled(run_id))
         _emit(db, run_id, "done", 100.0, finish_summary(results), status=RunStatus.done)
     except RunCancelled:  # klippen som hann göras om är hela och sparade; projektet är fortfarande klart
-        _emit(db, run_id, "done", 100.0, "Du avbröt. Klippen som hann göras om är sparade.", status=RunStatus.done)
+        _emit(db, run_id, "done", 100.0, "You cancelled. The clips that were redone in time are saved.", status=RunStatus.done)
     except BaseException as error:
         _fail(db, run_id, error)
         if not isinstance(error, Exception | SystemExit):

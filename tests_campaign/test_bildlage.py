@@ -98,6 +98,6 @@ def test_reframe_clip_refuses_without_the_source_video(settings, blizzard) -> No
     clip_id = log.add(vod_id="gone", profile="blizzard_nordics", file=str(raw.parent / "klara" / raw.name),
                       title="T", caption="c", start_s=0.0, end_s=12.0)
     before = raw.read_bytes()
-    with pytest.raises(ValueError, match="Källvideon saknas"):
+    with pytest.raises(ValueError, match="The source video is missing"):
         editor.reframe_clip(log.get(clip_id), blizzard, settings, log)
     assert raw.read_bytes() == before

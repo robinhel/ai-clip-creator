@@ -18,7 +18,7 @@ FIELDS = ("run_id", "vod_id", "profile", "game", "focus", "min_s", "max_s",
           "title", "channel_name", "thumbnail_url", "duration_s", "project_id", "origin")
 FILE_FIELDS = ("run_id", "vod_id", "title", "status", "stage", "pct", "error", "duration_s", "vod_bytes", "created")
 MISSING = "Projektet saknas i clipsmiths databas."
-SIGNALS_STEP = "Signalerna väljer, utan Claude"
+SIGNALS_STEP = "The signals choose, without Claude"
 
 
 def run_clips(meta: dict, clips: list[dict]) -> list[dict]:

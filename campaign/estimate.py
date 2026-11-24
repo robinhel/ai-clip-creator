@@ -25,12 +25,12 @@ CLAUDE_USD = 0.30
 FIXED_S = {"moments": 120, "select": 150, "clip": 120, "finish": 180}
 
 STEPS = [
-    ("download", "Hämtar VOD:en"),
-    ("transcribe", "Transkriberar"),
-    ("moments", "Hittar ögonblick"),
-    ("select", "Claude väljer och betygsätter"),
-    ("clip", "Klipper"),
-    ("finish", "Gör klippen kampanjklara"),
+    ("download", "Downloading the VOD"),
+    ("transcribe", "Transcribing"),
+    ("moments", "Finding moments"),
+    ("select", "Claude chooses and rates"),
+    ("clip", "Cutting"),
+    ("finish", "Making the clips campaign-ready"),
 ]
 STEP_IDS = [step for step, _ in STEPS]
 # clipsmiths stage-namn till stegen som webben visar.

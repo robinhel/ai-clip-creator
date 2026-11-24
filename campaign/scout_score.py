@@ -41,7 +41,8 @@ LANGUAGES = ("spanish", "german", "french", "portuguese", "italian", "arabic", "
              "swedish", "norwegian", "danish", "finnish", "romanian", "czech", "hungarian", "greek", "hebrew",
              "tagalog", "filipino", "urdu", "bengali", "malay")
 PLATFORM_NAMES = {"tiktok": "TikTok", "youtube": "YouTube", "instagram": "Instagram"}
-NOT_PAID = "Betalar inte för visningar från"  # början på orsaken, landet följer
+NOT_PAID = "Does not pay for views from"  # början på orsaken, landet följer
+OLD_NOT_PAID = "Betalar inte för visningar från"  # lagrat före översättningen, tills nästa omräkning
 OTHER_LANGUAGE = re.compile(rf"\b(?:in|language:?)\s+(?:{'|'.join(LANGUAGES)})\b", re.IGNORECASE)
 
 
@@ -132,16 +133,16 @@ def _part(key: str, label: str, points: float, most: int, fact: str) -> dict:
 
 
 def _unknown(key: str, label: str, most: int, why: str = "") -> dict:
-    return _part(key, label, most / 2, most, f"Okänt: {why}" if why else "Okänt")
+    return _part(key, label, most / 2, most, f"Unknown: {why}" if why else "Unknown")
 
 
 def _number(value: float) -> str:
-    return f"{value:,.0f}".replace(",", " ")
+    return f"{value:,.0f}"
 
 
 def _money(value: float) -> str:
-    """Två decimaler med decimalkomma: 1,80."""
-    return f"{value:.2f}".replace(".", ",")
+    """Två decimaler: 1.80."""
+    return f"{value:.2f}"
 
 
 def _cents(value: object) -> float:
@@ -201,7 +202,7 @@ def _unpaid(rates: dict[str, float] | None) -> str | None:
     unpaid = [PLATFORM_NAMES.get(p, p.capitalize()) for p, rate in rates.items() if rate <= 0]
     if not 0 < len(unpaid) < len(rates):
         return None
-    return " och ".join([", ".join(unpaid[:-1]), unpaid[-1]] if len(unpaid) > 1 else unpaid)
+    return " and ".join([", ".join(unpaid[:-1]), unpaid[-1]] if len(unpaid) > 1 else unpaid)
 
 
 def _pays_nothing(rates: dict[str, float] | None) -> bool:
@@ -210,13 +211,13 @@ def _pays_nothing(rates: dict[str, float] | None) -> bool:
 
 def excluded_for_country(excluded: str | None) -> bool:
     """Orsaken är att kampanjen inte betalar för landet. Priserna kan ändras, så sidan läses om ändå."""
-    return (excluded or "").startswith(NOT_PAID)
+    return (excluded or "").startswith((NOT_PAID, OLD_NOT_PAID))
 
 
 def country_note(data: dict, country: str) -> str | None:
     """För webben: vilka plattformar som inte betalar för landet, när några andra gör det. Annars None."""
     unpaid = _unpaid(country_rates(data.get("geo"), country))
-    return unpaid and f"{unpaid} betalar inte för visningar från {_country_name(country)}."
+    return unpaid and f"{unpaid} does not pay for views from {_country_name(country)}."
 
 
 def _pay_part(f: dict, data: dict, cpm_median: float, country: str) -> dict:
@@ -225,15 +226,15 @@ def _pay_part(f: dict, data: dict, cpm_median: float, country: str) -> dict:
     net = _first(f["net"], f["rate"] * (1 - f["fee"]) if f["rate"] is not None else None)
     where = ""
     if rates:
-        net, where = max(rates.values()) * (1 - f["fee"]), f" i {_country_name(country)}"
+        net, where = max(rates.values()) * (1 - f["fee"]), f" in {_country_name(country)}"
     if net is None:
-        return _unknown("pay", "Betalning", 10)
-    fact = f"{_money(net)} dollar per 1 000 efter avgift{where}, marknaden {_money(cpm_median)}"
+        return _unknown("pay", "Pay", 10)
+    fact = f"{_money(net)} dollars per 1,000 after fees{where}, market {_money(cpm_median)}"
     if _country_unknown(data.get("geo")):
-        fact += ", Land okänt"
+        fact += ", country unknown"
     elif unpaid := _unpaid(rates):
-        fact += f". {unpaid} betalar inte för {_country_name(country)}."
-    return _part("pay", "Betalning", min(10.0, 5 * min(net / cpm_median, 3)), 10, fact)
+        fact += f". {unpaid} does not pay for {_country_name(country)}."
+    return _part("pay", "Pay", min(10.0, 5 * min(net / cpm_median, 3)), 10, fact)
 
 
 def _top_median(views: list[int]) -> tuple[float, int]:
@@ -254,31 +255,31 @@ def _views_part(data: dict) -> dict:
     twitch, clips = data.get("twitch_views") or [], data.get("clip_views") or []
     if len(twitch) >= MIN_CLIPS:
         median, _ = _top_median(twitch)
-        return _part("views", "Visningar", _log_points(median, *TWITCH_VIEWS), VIEWS_MAX,
-                     f"Twitch: median {_number(median)} visningar för kanalens bästa klipp, 30 dagar")
+        return _part("views", "Views", _log_points(median, *TWITCH_VIEWS), VIEWS_MAX,
+                     f"Twitch: median {_number(median)} views for the channel's best clips, 30 days")
     if len(clips) >= MIN_CLIPS:
         median, count = _top_median(clips)
-        return _part("views", "Visningar", _log_points(median, *CAMPAIGN_VIEWS), VIEWS_MAX,
-                     f"Median {_number(median)} visningar för kampanjens {count} bästa klipp")
-    have = f"{len(twitch)} Twitch-klipp och {len(clips)} kampanjklipp, minst {MIN_CLIPS} behövs"
-    why = have if twitch or clips else "inga klipp att räkna på ännu"
-    return _part("views", "Visningar", VIEWS_UNKNOWN, VIEWS_MAX, f"Okänt: {why}")
+        return _part("views", "Views", _log_points(median, *CAMPAIGN_VIEWS), VIEWS_MAX,
+                     f"Median {_number(median)} views for the campaign's {count} best clips")
+    have = f"{len(twitch)} Twitch clips and {len(clips)} campaign clips, at least {MIN_CLIPS} needed"
+    why = have if twitch or clips else "no clips to count on yet"
+    return _part("views", "Views", VIEWS_UNKNOWN, VIEWS_MAX, f"Unknown: {why}")
 
 
 def _max_payout_part(pay: dict | None) -> dict:
     """Hur mycket ett klipp högst kan ge (maxPayoutUsd), på log-skala. Utan tak: full poäng."""
     if pay is None:  # analytics är inte hämtad
-        return _unknown("max_payout", "Max payout per klipp", PAYOUT_MAX)
+        return _unknown("max_payout", "Max payout per clip", PAYOUT_MAX)
     cap = pay_number(pay, "maxPayoutUsd")
     points = PAYOUT_MAX if cap is None else _log_points(cap, *MAX_PAYOUT, PAYOUT_MAX)
-    fact = "Inget tak per klipp" if cap is None else f"Högst {_number(cap)} dollar per klipp"
-    return _part("max_payout", "Max payout per klipp", points, PAYOUT_MAX, fact)
+    fact = "No cap per clip" if cap is None else f"At most {_number(cap)} dollars per clip"
+    return _part("max_payout", "Max payout per clip", points, PAYOUT_MAX, fact)
 
 
 def _fresh_part(f: dict, drain_days: float | None, now: datetime) -> dict:
     """Färskhet och konkurrens. Antal klippare finns inte i ClippingAlpha."""
     if f["launched"] is None:
-        return _unknown("fresh", "Färskhet och konkurrens", 25)
+        return _unknown("fresh", "Freshness and competition", 25)
     age = (now - f["launched"]).total_seconds() / 3600
     if age < 48:
         points = 25.0
@@ -291,10 +292,10 @@ def _fresh_part(f: dict, drain_days: float | None, now: datetime) -> dict:
     minus = {"Fast": 10, "Fair": 5}.get(f["fill"], 0)
     if drain_days is not None:
         minus = max(minus, 10 if drain_days < 3 else 5 if drain_days < 7 else 0)
-    fact = f"{age / 24:.0f} dagar sedan start" if age >= 48 else f"{age:.0f} timmar sedan start"
+    fact = f"{age / 24:.0f} days since start" if age >= 48 else f"{age:.0f} hours since start"
     if minus:
-        fact += ", budgeten går åt snabbt"
-    return _part("fresh", "Färskhet och konkurrens", max(0.0, points - minus), 25, fact)
+        fact += ", the budget is running out fast"
+    return _part("fresh", "Freshness and competition", max(0.0, points - minus), 25, fact)
 
 
 def _minimum_unknown(f: dict, views: int | None) -> bool:
@@ -306,26 +307,26 @@ def _minimum_unknown(f: dict, views: int | None) -> bool:
 
 def _minimum_part(f: dict, views: int | None, median: float) -> dict:
     """Chans att nå minimum: Robins median mot visningarna som krävs för betalning."""
-    label = "Chans att nå minimum"
+    label = "Chance to reach the minimum"
     if _minimum_unknown(f, views):
         return _unknown("minimum", label, 20)
     if views is None:
-        return _part("minimum", label, 20, 20, "Ingen minsta utbetalning")
+        return _part("minimum", label, 20, 20, "No minimum payout")
     ratio = views / max(median, 1)
     points = 20 if ratio <= 1 else 0 if ratio >= 5 else 20 * (1 - math.log(ratio) / math.log(5))
     return _part("minimum", label, points, 20,
-                 f"{_number(views)} visningar för betalning, din median är {_number(median)}")
+                 f"{_number(views)} views for payment, your median is {_number(median)}")
 
 
 def _budget_part(f: dict, drain_days: float | None) -> dict:
     """Budgeten räcker: prognosen, annars hur mycket som är kvar."""
-    label = "Budgeten räcker"
+    label = "Budget lasts"
     if drain_days is not None:
         return _part("budget", label, 15 * min(max(drain_days, 0), 7) / 7, 15,
-                     f"Räcker cirka {max(drain_days, 0):.0f} dagar till")
+                     f"Lasts about {max(drain_days, 0):.0f} more days")
     if f["left"] is not None:
         return _part("budget", label, 10 * min(f["left"], 1000) / 1000, 15,
-                     f"Ingen prognos, {_number(f['left'])} dollar kvar")
+                     f"No forecast, {_number(f['left'])} dollars left")
     return _unknown("budget", label, 15)
 
 
@@ -347,8 +348,8 @@ def evaluate(data: dict, median: float, cpm_median: float, now: datetime,
     points = 8 * twitch + 4 * stream + 3 * (not other)
     if f["niche"] in ("streams", "gaming"):
         points = max(points, 4)
-    said = [word for word, yes in (("Twitch", twitch), ("stream", stream), ("engelska", not other)) if yes]
-    parts.append(_part("source", "Källan", points, 15, ", ".join(said) or "Varken Twitch eller stream"))
+    said = [word for word, yes in (("Twitch", twitch), ("stream", stream), ("English", not other)) if yes]
+    parts.append(_part("source", "Source", points, 15, ", ".join(said) or "Neither Twitch nor stream"))
 
     parts.append(_budget_part(f, drain_days))  # 5. Budgeten räcker
 
@@ -360,44 +361,44 @@ def evaluate(data: dict, median: float, cpm_median: float, now: datetime,
 
     # 8. Bevis på utbetalning.
     if f["verified"] is None and f["adjustments"] is None:
-        parts.append(_unknown("proof", "Bevis på utbetalning", 10))
+        parts.append(_unknown("proof", "Proof of payout", 10))
     else:
         paid = any(x.get("key") == "payout" and re.search(r"24 hours|7 days", str(x.get("label")))
                    for x in f["adjustments"] or [])
         points = 4 * bool(f["verified"]) + 4 * paid + 2 * (not f["stalled"])
-        said = [text for text, yes in (("verifierad organisatör", f["verified"]), ("betalat ut nyligen", paid))
+        said = [text for text, yes in (("verified organizer", f["verified"]), ("paid out recently", paid))
                 if yes]
-        parts.append(_part("proof", "Bevis på utbetalning", points, 10, ", ".join(said) or "Ingen utbetalning syns"))
+        parts.append(_part("proof", "Proof of payout", points, 10, ", ".join(said) or "No payout visible"))
 
     # 9. Krångel.
     if f["open_join"] is None:
-        parts.append(_unknown("hassle", "Krångel", 5))
+        parts.append(_unknown("hassle", "Hassle", 5))
     else:
         captions = sum(kind in ("caption", "disclosure") for kind, _ in f["rules"])
         is_open = bool(f["open_join"]) and f["gate"] in (None, "none")
         points = max(0, (5 if is_open else 0) - max(0, captions - 3))
-        parts.append(_part("hassle", "Krångel", points, 5,
-                           f"{'Fri anslutning' if is_open else 'Ansökan krävs'}, {captions} krav på caption"))
+        parts.append(_part("hassle", "Hassle", points, 5,
+                           f"{'Open to join' if is_open else 'Application required'}, {captions} caption requirements"))
 
     total = round(sum(part["points"] for part in parts))
     where = " ".join([f["audience"], *(text for _, text in f["rules"])])  # inte about: "US Open" är inget krav
     used = 1 - f["left"] / f["total"] if f["left"] is not None and f["total"] else None
     platforms = {str(p).lower() for p in f["platforms"]}
     reasons = [
-        (f["state"] not in (None, "live"), f"Kampanjen är inte igång ({f['state']})."),
-        (f["pay_model"] == "pot_split", "Pott som delas mellan klippare, inte betalning per visning"),
+        (f["state"] not in (None, "live"), f"The campaign is not running ({f['state']})."),
+        (f["pay_model"] == "pot_split", "A pot shared between clippers, not pay per view"),
         (_pays_nothing(country_rates(data.get("geo"), country)), f"{NOT_PAID} {_country_name(country)}"),
-        (f["stalled"], "Kampanjen står still på plattformen."),
-        (used is not None and used >= 0.95, "Minst 95 % av budgeten är använd."),
-        (f["type"] not in (None, "clipping"), f"Inte en clipping-kampanj ({f['type']})."),
-        (bool(platforms) and not platforms & {"tiktok", "youtube"}, "Varken TikTok eller YouTube."),
-        (bool(FACE.search(texts)), "Kräver ansikte, röst eller egen filmning."),
-        (f["members_only"] is True, "Bara för medlemmar."),
+        (f["stalled"], "The campaign is stalled on the platform."),
+        (used is not None and used >= 0.95, "At least 95 % of the budget is used."),
+        (f["type"] not in (None, "clipping"), f"Not a clipping campaign ({f['type']})."),
+        (bool(platforms) and not platforms & {"tiktok", "youtube"}, "Neither TikTok nor YouTube."),
+        (bool(FACE.search(texts)), "Requires your face, voice or own filming."),
+        (f["members_only"] is True, "Members only."),
         (f["election"] is True, "Valkampanj."),
         (bool(US.search(where) or RICH.search(where)),
-         "Kräver publik från USA eller andra länder."),
-        (other, "Kräver ett annat språk än engelska."),
+         "Requires an audience from the US or other countries."),
+        (other, "Requires a language other than English."),
         (views is not None and views > MAX_MIN_VIEWS,
-         f"Kräver {_number(views or 0)} visningar för betalning (gränsen är {_number(MAX_MIN_VIEWS)})."),
+         f"Requires {_number(views or 0)} views for payment (the limit is {_number(MAX_MIN_VIEWS)})."),
     ]
     return total, parts, next((reason for hit, reason in reasons if hit), None)

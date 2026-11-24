@@ -24,10 +24,10 @@ from .profile_edit import write_atomic
 log = logging.getLogger(__name__)
 
 
-COUNTRIES = {"SE": "Sverige", "NO": "Norge", "DK": "Danmark", "FI": "Finland", "IS": "Island", "DE": "Tyskland",
-             "FR": "Frankrike", "ES": "Spanien", "IT": "Italien", "NL": "Nederländerna", "PL": "Polen",
-             "GB": "Storbritannien", "IE": "Irland", "US": "USA", "CA": "Kanada", "AU": "Australien",
-             "BR": "Brasilien", "MX": "Mexiko", "IN": "Indien"}
+COUNTRIES = {"SE": "Sweden", "NO": "Norway", "DK": "Denmark", "FI": "Finland", "IS": "Iceland", "DE": "Germany",
+             "FR": "France", "ES": "Spain", "IT": "Italy", "NL": "Netherlands", "PL": "Poland",
+             "GB": "United Kingdom", "IE": "Ireland", "US": "USA", "CA": "Canada", "AU": "Australia",
+             "BR": "Brazil", "MX": "Mexico", "IN": "India"}
 DEFAULT_COUNTRY = "SE"
 _lock = threading.Lock()
 

@@ -247,12 +247,12 @@ def test_yaml_is_shown_with_comments_and_saved_exactly(client, settings) -> None
 
 
 @pytest.mark.parametrize(("change", "words"), [
-    (lambda t: t.replace("name: skiimasktimmy", "name: [skiimasktimmy"), "rad"),
+    (lambda t: t.replace("name: skiimasktimmy", "name: [skiimasktimmy"), "line"),
     (lambda t: t.replace("streamer: SkiiMaskTimmy\n", ""), "streamer"),
     (lambda t: t.replace("clipsmith_config: config.timmy.yaml", "clipsmith_config: config.finnsinte.yaml"),
      "config.finnsinte.yaml"),
     (lambda t: t.replace('template: "{title}', 'template: "{titel}'), "template"),
-    (lambda t: "- bara en lista\n", "fält"),
+    (lambda t: "- bara en lista\n", "fields"),
     (lambda t: t.replace("file: overlays/skiimasktimmy.png", "file: ../evil.png"), "overlays/"),
     (lambda t: t.replace("file: overlays/skiimasktimmy.png", "file: overlays/skiimasktimmy.jpg"), ".png"),
     (lambda t: t.replace("font_file: null", "font_file: /etc/passwd"), "font_file"),
@@ -280,7 +280,7 @@ def test_broken_yaml_is_refused_and_nothing_changes(client, settings, change, wo
 def test_yaml_error_says_which_line(client, settings) -> None:
     text = _profile_text(settings).replace("language: en", "language: [en")
     detail = client.put("/campaign/profiles/skiimasktimmy/yaml", json={"yaml": text}).json()["detail"]
-    assert "rad" in detail
+    assert "line" in detail
 
 
 # ---------- 3. ny kampanj ----------
@@ -388,13 +388,13 @@ def test_reframe_writes_only_its_lines(client, settings) -> None:
 
 
 @pytest.mark.parametrize(("body", "words"), [
-    ({"webcam_rect": [0, 0, 400, 224]}, "form"),
-    ({"gameplay_rect": [0, 0, 1080, 1080]}, "form"),
-    ({"webcam_rect": [1700, 0, 316, 224]}, "utanför"),
-    ({"webcam_rect": [-1, 0, 316, 224]}, "utanför"),
-    ({"webcam_rect": [0, 0, 42, 30]}, "minst"),
-    ({"webcam_rect": [0, 0, 316.5, 224]}, "heltal"),
-    ({"webcam_rect": [0, 0, 316]}, "heltal"),
+    ({"webcam_rect": [0, 0, 400, 224]}, "shape"),
+    ({"gameplay_rect": [0, 0, 1080, 1080]}, "shape"),
+    ({"webcam_rect": [1700, 0, 316, 224]}, "outside"),
+    ({"webcam_rect": [-1, 0, 316, 224]}, "outside"),
+    ({"webcam_rect": [0, 0, 42, 30]}, "at least"),
+    ({"webcam_rect": [0, 0, 316.5, 224]}, "whole numbers"),
+    ({"webcam_rect": [0, 0, 316]}, "whole numbers"),
     ({"split_ratio": 0.95}, "split_ratio"),
 ])
 def test_bad_rects_are_refused(client, settings, body, words) -> None:
@@ -466,13 +466,13 @@ def test_a_config_with_only_webcam_rect_shows_it_as_the_only_rect(client, settin
 
 
 @pytest.mark.parametrize(("rects", "words"), [
-    ([RIGHT] * 5, "1 till 4"),
-    ([], "1 till 4"),
-    ("nej", "1 till 4"),
-    ([RIGHT, [0, 0, 400, 224]], "form"),
-    ([RIGHT, [1700, 770, 316, 224]], "utanför"),
-    ([RIGHT, [0, 0, 316]], "heltal"),
-    ([RIGHT, LEFT, RIGHT], "Facecam-ruta 3 är samma som Facecam-ruta 1"),
+    ([RIGHT] * 5, "1 to 4"),
+    ([], "1 to 4"),
+    ("nej", "1 to 4"),
+    ([RIGHT, [0, 0, 400, 224]], "shape"),
+    ([RIGHT, [1700, 770, 316, 224]], "outside"),
+    ([RIGHT, [0, 0, 316]], "whole numbers"),
+    ([RIGHT, LEFT, RIGHT], "Facecam box 3 is the same as Facecam box 1"),
 ])
 def test_bad_rect_lists_are_refused(client, settings, rects, words) -> None:
     before = (settings.root / "config.timmy.yaml").read_bytes()
@@ -845,17 +845,17 @@ def test_the_overlay_picture_can_be_removed(client, settings) -> None:
     assert client.delete("/campaign/profiles/skiimasktimmy/overlay").status_code == 404
 
 
-def test_yaml_errors_are_in_plain_swedish(client, settings) -> None:
+def test_yaml_errors_are_in_plain_words(client, settings) -> None:
     text = _profile_text(settings).replace("platforms: [tiktok, instagram_reels, youtube_shorts]",
                                            "platforms: [tiktok, instagram_reels: x: youtube_shorts]")
     detail = client.put("/campaign/profiles/skiimasktimmy/yaml", json={"yaml": text}).json()["detail"]
-    assert detail.startswith("Fel på rad ")
+    assert detail.startswith("Error on line ")
     assert "expected" not in detail and "but got" not in detail
 
 
 def test_errors_say_campaign_not_profile(client, settings) -> None:
     detail = client.put("/campaign/profiles/skiimasktimmy/yaml", json={"yaml": "- a\n- b\n"}).json()["detail"]
-    assert detail.startswith("Kampanjens fil") and "rofil" not in detail
+    assert detail.startswith("The campaign file") and "rofile" not in detail
     (settings.profiles_dir / "trasig.yaml").write_text("name: trasig\n", encoding="utf-8")
     broken = next(p for p in client.get("/campaign/profiles").json() if p["name"] == "trasig")
     assert broken["problems"][0].startswith("The campaign file cannot be read") and "rofil" not in broken["problems"][0]

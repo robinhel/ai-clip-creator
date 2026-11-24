@@ -157,7 +157,7 @@ def test_cancel_when_clips_are_made_again_keeps_the_project_done(client, setting
     pipeline.finish_run(run_id, VOD, "skiimasktimmy", "Bodycam", settings)
     run = client.get(f"/campaign/runs/{run_id}").json()
     assert (run["status"], run["cancelled"]) == ("done", False)
-    assert run["message"] == "Du avbröt. Klippen som hann göras om är sparade."
+    assert run["message"] == "You cancelled. The clips that were redone in time are saved."
 
 
 # ---------- Projektsidans steg ----------
@@ -177,15 +177,15 @@ def test_a_local_file_without_transcript_fails_on_the_transcribe_step(client, se
     run = client.get(f"/campaign/runs/{run_id}").json()
     assert [s["status"] for s in run["steps"][:3]] == ["done", "failed", "waiting"]
     # Samma ord som Kampanjer: nyckeln läggs in under Inställningar, inte i .env.
-    assert run["error"] == ("Berget-nyckeln (BERGET_API_KEY) saknas. Lägg in den under Inställningar. "
-                            "Den behövs för transkriberingen.")
+    assert run["error"] == ("Berget key (BERGET_API_KEY) is missing. Add it under Settings. "
+                            "It is needed for transcription.")
 
 
 def test_signals_mode_shows_no_claude_step_and_no_claude_cost(client, settings) -> None:  # noqa: F811
     _signals(settings)
     run = client.get(f"/campaign/runs/{_run_with_events(settings, ['download'])}").json()
     steps = {s["id"]: s for s in run["steps"]}
-    assert steps["select"]["label"] == "Signalerna väljer, utan Claude"
+    assert steps["select"]["label"] == "The signals choose, without Claude"
     assert run["cost_estimate"]["claude_usd"] == 0
     assert run["cost_estimate_usd"] == run["cost_estimate"]["berget_usd"]
     assert run["fast"] is True
@@ -213,13 +213,13 @@ def test_a_project_without_a_twitch_image_gets_its_first_clips_image(client, set
 
 
 def test_finish_summary_says_in_plain_words_why_clips_were_left() -> None:
-    results = [{"id": 1}, {"id": 2}, {"file": "a", "skipped": "du har nekat klippet"},
-               {"file": "b", "skipped": "finns redan i klipploggen"},
-               {"file": "c", "skipped": "finns redan i klipploggen"}]
+    results = [{"id": 1}, {"id": 2}, {"file": "a", "skipped": "you rejected the clip"},
+               {"file": "b", "skipped": "already in the clip log"},
+               {"file": "c", "skipped": "already in the clip log"}]
     assert pipeline.finish_summary(results) == (
-        "2 klipp gjordes om. 3 klipp rördes inte: 2 är redan granskade eller postade, 1 är nekat.")
+        "2 clips were redone. 3 clips were not touched: 2 are already reviewed or posted, 1 is rejected.")
     assert pipeline.finish_summary(results[3:4]) == (
-        "Inga klipp gjordes om. 1 klipp rördes inte: 1 är redan granskat eller postat.")
+        "No clips were redone. 1 clip was not touched: 1 is already reviewed or posted.")
 
 
 def test_a_cancelled_project_is_cancelled_on_the_stream_card_too(client, settings, monkeypatch) -> None:  # noqa: F811

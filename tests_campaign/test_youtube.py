@@ -741,7 +741,7 @@ def test_a_campaign_without_youtube_refuses_the_upload(client, settings, fake) -
     set_profile(settings, platforms=["tiktok"])
     _connect(settings)
     response = _send(client, _clip(settings))
-    assert (response.status_code, response.json()["detail"]) == (400, "Kampanjen postar inte på YouTube.")
+    assert (response.status_code, response.json()["detail"]) == (400, "The campaign does not post on YouTube.")
     assert fake.calls("upload") == []
 
 
@@ -753,7 +753,7 @@ def test_a_clip_posted_on_tiktok_can_go_to_youtube_but_not_twice(client, setting
     assert log.get(clip_id)["status"] == "postad"
     assert _send(client, clip_id).status_code == 202
     again = _send(client, clip_id)
-    assert (again.status_code, again.json()["detail"]) == (400, "Klippet har redan ett inlägg på YouTube.")
+    assert (again.status_code, again.json()["detail"]) == (400, "The clip already has a post on YouTube.")
     assert len(fake.calls("upload")) == 1
 
 

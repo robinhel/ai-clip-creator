@@ -244,8 +244,8 @@ def test_make_clips_emits_one_event_per_part_between_15_and_40(settings, monkeyp
     events: list[tuple] = []
     pipeline.make_clips("123", load_profile("skiimasktimmy", settings.profiles_dir), settings, game=None,
                         emit=lambda *e: events.append(e))
-    parts = [e for e in events if e[2].startswith("Del ")]
-    assert [e[2] for e in parts] == ["Del 1 av 4", "Del 2 av 4", "Del 3 av 4", "Del 4 av 4"]
+    parts = [e for e in events if e[2].startswith("Part ")]
+    assert [e[2] for e in parts] == ["Part 1 of 4", "Part 2 of 4", "Part 3 of 4", "Part 4 of 4"]
     assert {e[0] for e in parts} == {"transcribe"}
     assert all(15.0 <= e[1] <= 40.0 for e in parts)
     assert [e[1] for e in parts] == sorted(e[1] for e in parts)
@@ -254,16 +254,16 @@ def test_make_clips_emits_one_event_per_part_between_15_and_40(settings, monkeyp
 def test_progress_has_the_latest_message_per_step_and_for_the_run() -> None:
     start = datetime(2026, 11, 12, 10, 0, tzinfo=UTC)
     events = [(stage, pct, start + timedelta(minutes=i), message) for i, (stage, pct, message) in enumerate([
-        ("download", 5.0, "Hämtar VOD:en"), ("transcribe", 15.0, "Transkriberar via Berget"),
-        ("transcribe", 15.0, "Del 1 av 3"), ("transcribe", 23.3, "Del 2 av 3")])]
+        ("download", 5.0, "Downloading the VOD"), ("transcribe", 15.0, "Transcribing with Berget"),
+        ("transcribe", 15.0, "Part 1 of 3"), ("transcribe", 23.3, "Part 2 of 3")])]
     progress = estimate.progress("running", events, 13950, now=start)
     steps = {s["id"]: s["message"] for s in progress["steps"]}
-    assert steps == {"download": "Hämtar VOD:en", "transcribe": "Del 2 av 3", "moments": None, "select": None,
+    assert steps == {"download": "Downloading the VOD", "transcribe": "Part 2 of 3", "moments": None, "select": None,
                      "clip": None, "finish": None}
-    assert progress["message"] == "Del 2 av 3"
+    assert progress["message"] == "Part 2 of 3"
     # clipsmiths egna händelser har ingen text: stegets senaste text ligger kvar
     progress = estimate.progress("running", [*events, ("transcribe", 30.0, start, "")], 13950, now=start)
-    assert {s["id"]: s["message"] for s in progress["steps"]}["transcribe"] == "Del 2 av 3"
+    assert {s["id"]: s["message"] for s in progress["steps"]}["transcribe"] == "Part 2 of 3"
     assert progress["message"] is None
 
 

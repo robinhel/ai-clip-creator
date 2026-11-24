@@ -20,8 +20,8 @@ export function chatIdeas(formats: { name: string }[]): string[] {
 
 /** Var chattens hinder rättas. Texten kommer från servern (campaign/chat.py, blocker). */
 function blockerFix(problem: string, profile: CampaignProfileDetail): { href: string; label: string } | null {
-  if (problem.startsWith("Claude-nyckeln") || problem.startsWith("Claude key")) return { href: "/settings#anthropic", label: "Open Settings" };
-  if (problem.startsWith("Inget material") || problem.startsWith("No material")) {
+  if (problem.startsWith("Claude key")) return { href: "/settings#anthropic", label: "Open Settings" };
+  if (problem.startsWith("No material")) {
     return profile.channel
       ? { href: `/campaigns/${profile.name}?tab=material`, label: "Show the channel's streams" }
       : { href: `/uploads?kampanj=${profile.name}`, label: "Add your own video" };

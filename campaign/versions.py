@@ -36,14 +36,14 @@ FONTS = {"Arial": "Arial Bold.ttf", "Arial Black": "Arial Black.ttf", "Impact": 
 MAX_CUT_S = 5.0  # uploads_api.py använder den; make() har ingen spärr på 5 s längre
 NEW_START_S = 3.0  # så långt flyttad startpunkt, tidigare eller senare, är ett eget bidrag
 STICKER_S = (0.5, 10.0)
-NO_WORDS = "Ny version kräver ett klipp som appen har skurit med ordfil."
+NO_WORDS = "A new version needs a clip that the app cut with a word file."
 HARD_SPACES = str.maketrans({"\xa0": " ", "\u202f": " "})
-HOOK_CONTROL = "Hooken får inte ha radbrytningar eller andra styrtecken."
-HOOK_TOO_LONG = "Hooken ryms inte i bilden. Gör den kortare."
-NO_OWN = ("Versionen har ingen ny hook och ingen ny startpunkt. Bara spegling, hastighet, filter eller font kan ge "
-          "strike på YouTube och stoppa klippet från För dig på TikTok.")
-NO_ACCOUNT = ("Klippet har ett inlägg utan konto på {}. Det kan redan ligga på det här kontot. Kontrollera innan "
-              "du postar.")
+HOOK_CONTROL = "The hook cannot have line breaks or other control characters."
+HOOK_TOO_LONG = "The hook does not fit in the frame. Make it shorter."
+NO_OWN = ("The version has no new hook and no new start point. Only mirroring, speed, filter or font can give a "
+          "strike on YouTube and keep the clip off For You on TikTok.")
+NO_ACCOUNT = ("The clip has a post without an account on {}. It may already be on this account. Check before "
+              "you post.")
 
 FILTERS: dict[str, str | None] = {
     "none": None,
@@ -76,7 +76,7 @@ def sticker_path(root: Path, file: object) -> Path:
     target = (folder / str(file)).resolve()
     if not (isinstance(file, str) and target.is_relative_to(folder) and target.suffix.lower() == ".png"
             and target.is_file()):
-        raise VersionError(f"Klistermärket {file} finns inte. Välj en .png i stickers/.")
+        raise VersionError(f"The sticker {file} does not exist. Choose a .png in stickers/.")
     return target
 
 
@@ -84,28 +84,28 @@ def sticker_box(position: str, width: int, height: int, profile: Profile, text_e
     """Var klistermärket hamnar: precis utanför kampanjens säkra zoner, MARGIN från sidan. Uppe hamnar det under
     texten uppe (text_end, från finish.top_text_end), så att rubriken syns. Ryms det inte blir det 400."""
     if position not in POSITIONS:
-        raise VersionError(f"Platsen {position!r} finns inte. Välj {', '.join(POSITIONS)}.")
+        raise VersionError(f"The position {position!r} does not exist. Choose {', '.join(POSITIONS)}.")
     top, bottom = math.ceil(HEIGHT * profile.safe_top), math.floor(HEIGHT * (1 - profile.safe_bottom))
     first = max(top, text_end + TEXT_GAP) if text_end else top
     x = {"left": MARGIN, "right": WIDTH - width - MARGIN}.get(position.split("_")[-1], (WIDTH - width) // 2)
     y = {"top": first, "bottom": bottom - height}.get(position.split("_")[0], (HEIGHT - height) // 2)
     if y < top or y + height > bottom:
-        raise VersionError("Klistermärket går in i kampanjens säkra zon, där plattformens knappar och text ligger. "
-                           "Välj ett mindre klistermärke eller en annan plats.")
+        raise VersionError("The sticker goes into the campaign's safe zone, where the platform's buttons and text are. "
+                           "Choose a smaller sticker or another position.")
     if y < text_end:
-        raise VersionError("Klistermärket täcker rubriken eller kampanjens text uppe. "
-                           "Välj ett mindre klistermärke eller en annan plats.")
+        raise VersionError("The sticker covers the headline or the campaign text at the top. "
+                           "Choose a smaller sticker or another position.")
     return x, y
 
 
 def look(mirror: bool = False, filter: str = "none", brightness: float = 0.0, saturation: float = 0.0) -> str:
     """Filtren före undertexten, med komma först (eller tomt). Kastar VersionError för ett okänt val."""
     if filter not in FILTERS:
-        raise VersionError(f"Filtret {filter!r} finns inte. Välj {', '.join(FILTERS)}.")
+        raise VersionError(f"The filter {filter!r} does not exist. Choose {', '.join(FILTERS)}.")
     if not BRIGHTNESS[0] <= brightness <= BRIGHTNESS[1]:
-        raise VersionError("Ljusstyrkan får vara -0,3–0,3.")
+        raise VersionError("Brightness can be -0.3–0.3.")
     if not SATURATION[0] <= saturation <= SATURATION[1]:
-        raise VersionError("Mättnaden får vara -0,5–0,5.")
+        raise VersionError("Saturation can be -0.5–0.5.")
     parts = ["hflip"] if mirror else []
     if preset := FILTERS[filter]:
         parts.append(preset)
@@ -156,7 +156,7 @@ def _ready(settings: Settings, log: ClipLog, clip: dict, platform: str, account:
     """Klippet (originalet, om det är en version) och allt som behövs, efter kontraktets regler."""
     root = log.get(clip["version_of"]) if clip.get("version_of") else clip
     if root["status"] not in ("godkand", *POST_STATUSES) or root["problems"]:
-        raise VersionError("Bara godkända klipp utan problem kan få en ny version.")
+        raise VersionError("Only approved clips without problems can get a new version.")
     raw = editor.raw_path(root, settings)
     data = load_words(raw, editor.source_path(raw)) if raw is not None and raw.is_file() else None
     if raw is None or data is None:
@@ -164,10 +164,10 @@ def _ready(settings: Settings, log: ClipLog, clip: dict, platform: str, account:
     try:
         profile = load_profile(root["profile"], settings.profiles_dir)
     except SystemExit as error:
-        raise VersionError("Kampanjen går inte att läsa.") from error
+        raise VersionError("The campaign cannot be read.") from error
     key, name = NAMES[platform]
     if not profile.multi(key):
-        raise VersionError(f"Kampanjen har bara ett konto på {name}. Ny version behövs inte.")
+        raise VersionError(f"The campaign has only one account on {name}. A new version is not needed.")
     schedule = Schedule(settings)
     try:
         schedule.check_account(root, platform, account, datetime.now(UTC), counts=False)
@@ -235,7 +235,7 @@ def _overlay(settings: Settings, profile: Profile, overlay: str | None) -> Path 
     if overlay is None:
         return None
     if profile.overlay_required and overlay != profile.overlay_file:
-        raise VersionError("Kampanjen kräver sin egen overlay. Välj ingen annan.")
+        raise VersionError("The campaign requires its own overlay. Do not choose another.")
     try:
         path = overlay_target(settings.root, overlay)
     except ValueError as error:
@@ -255,16 +255,16 @@ def _sticker(settings: Settings, profile: Profile, sticker: dict | None, length:
     try:
         start, duration = float(sticker.get("start_s") or 0), float(sticker.get("duration_s") or 0)
     except (TypeError, ValueError) as error:
-        raise VersionError("Klistermärkets tider måste vara tal.") from error
+        raise VersionError("The sticker times must be numbers.") from error
     if not 0 <= start < length:
-        shown = format(length, ".1f").replace(".", ",")
-        raise VersionError(f"Klistermärket måste börja inom klippet, mellan 0 och {shown} s.")
+        shown = format(length, ".1f")
+        raise VersionError(f"The sticker must start within the clip, between 0 and {shown} s.")
     if not STICKER_S[0] <= duration <= STICKER_S[1]:
-        raise VersionError("Klistermärket får synas 0,5–10 sekunder.")
+        raise VersionError("The sticker can show for 0.5–10 seconds.")
     try:
         info = probe(path)
     except RuntimeError as error:
-        raise VersionError(f"Klistermärket {path.name} går inte att läsa.") from error
+        raise VersionError(f"The sticker {path.name} cannot be read.") from error
     height = round(STICKER_W * info["height"] / info["width"])
     text_end = top_text_end(profile, settings.root, title, overlay, frame, font_file)
     x, y = sticker_box(str(sticker.get("position")), STICKER_W, height, profile, text_end)
@@ -278,15 +278,15 @@ def _start(ready: dict, start_cut_s: float, speed: float) -> tuple[float, float]
     bedömer regelkontrollen längden, som förut. Längden avrundas, så att gränserna i options alltid går."""
     profile = ready["profile"]
     if start_cut_s < -ready["in_s"] - editor.ROUNDING_S:
-        raise VersionError(f"Startpunkten ligger före början av originalfilen. Den kan flyttas högst "
-                           f"{ready['in_s']:.1f} s tidigare.")
+        raise VersionError(f"The start point is before the beginning of the original file. It can move at most "
+                           f"{ready['in_s']:.1f} s earlier.")
     start = max(0.0, ready["in_s"] + start_cut_s)
     seconds = round((ready["out_s"] - start) / speed, 3)
     if seconds < profile.min_seconds:
-        raise VersionError(f"Versionen blir {max(0.0, seconds):.1f} s. Kampanjen kräver minst "
+        raise VersionError(f"The version will be {max(0.0, seconds):.1f} s. The campaign requires at least "
                            f"{profile.min_seconds:g} s.")
     if start < ready["in_s"] and seconds > profile.max_seconds:
-        raise VersionError(f"Versionen blir {seconds:.1f} s. Kampanjen tillåter högst {profile.max_seconds:g} s.")
+        raise VersionError(f"The version will be {seconds:.1f} s. The campaign allows at most {profile.max_seconds:g} s.")
     return start, ready["out_s"] - start
 
 
@@ -300,7 +300,7 @@ def _hook(hook: str | None, fits: Callable[[str], bool]) -> str | None:
     if problem := hook_problem(hook, fits):
         raise VersionError(problem)
     if not hook_clean(hook):  # bara emoji eller tecken utan glyf: inget kvar i bilden
-        raise VersionError("Hooken måste ha bokstäver eller siffror. Emoji syns inte i bilden.")
+        raise VersionError("The hook must have letters or digits. Emoji do not show in the frame.")
     return hook
 
 
@@ -340,9 +340,9 @@ def make(settings: Settings, log: ClipLog, clip: dict, platform: str, account: s
     root, profile, raw, data = ready["root"], ready["profile"], ready["raw"], ready["data"]
     found = fonts()
     if font is not None and font not in found:
-        raise VersionError(f"Fonten {font} finns inte. Välj en ur listan.")
+        raise VersionError(f"The font {font} does not exist. Choose one from the list.")
     if speed not in SPEEDS:
-        raise VersionError(f"Hastigheten {speed:g} går inte. Välj {', '.join(f'{s:g}' for s in SPEEDS)}.")
+        raise VersionError(f"The speed {speed:g} is not possible. Choose {', '.join(f'{s:g}' for s in SPEEDS)}.")
     filters = look(mirror, filter, brightness, saturation)
     start, length = _start(ready, start_cut_s, speed)
     own = _overlay(settings, profile, overlay)

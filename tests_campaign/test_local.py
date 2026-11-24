@@ -109,5 +109,5 @@ def test_make_clips_for_a_local_file_does_not_download_or_ask_twitch(blizzard, m
     monkeypatch.setattr(pipeline, "process_vod", process_vod)
     profile = load_profile("blizzard_nordics", blizzard.profiles_dir)
     _, why = pipeline.make_clips(STEM, profile, blizzard, game=None, emit=lambda *e: None, local=True)
-    assert why == "Inga kandidater hittades."
+    assert why == "No candidates were found."
     assert seen["video"].url == "" and seen["video"].user_id == ""

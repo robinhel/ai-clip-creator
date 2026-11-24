@@ -273,7 +273,7 @@ def test_an_expensive_search_asks_first(client, chatapp, monkeypatch) -> None:  
     assert len(data["hits"]) == 1 and len(chatapp.script.calls) == 2
     assert data["messages"][-1]["confirm"] is None
     again = client.post("/campaign/chats/1/messages", json={"confirm": True})
-    assert again.status_code == 400 and "bekräfta" in again.json()["detail"]
+    assert again.status_code == 400 and "confirm" in again.json()["detail"]
 
 
 def test_budget_stop_gives_402_and_saves_nothing(client, chatapp, monkeypatch) -> None:  # noqa: F811
@@ -495,7 +495,7 @@ def test_without_the_claude_key_the_chat_says_so_and_asks_nothing(client, settin
     monkeypatch.setattr(Brain, "ask", lambda self, **kw: calls.append(kw))
     response = client.post("/campaign/profiles/skiimasktimmy/chats", json={"message": "roliga dödsfall"})
     assert response.status_code == 400
-    assert "Claude-nyckeln saknas" in response.json()["detail"] and "Inställningar" in response.json()["detail"]
+    assert "Claude key is missing" in response.json()["detail"] and "Settings" in response.json()["detail"]
     assert calls == []
     assert client.get("/campaign/profiles/skiimasktimmy/chats").json() == []
 
@@ -505,5 +505,5 @@ def test_without_material_with_a_transcript_the_chat_says_so_and_asks_nothing(cl
         (settings.work_dir / vod / "transcript.json").unlink()
     response = _new_chat(client, chatapp, _search())
     assert response.status_code == 400
-    assert "transkript" in response.json()["detail"]
+    assert "transcript" in response.json()["detail"]
     assert chatapp.script.calls == []

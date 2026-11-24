@@ -1138,7 +1138,7 @@ def test_a_campaign_without_tiktok_refuses_the_upload(client, settings, fake, bo
     set_profile(settings, platforms=["youtube_shorts"])
     _connect(settings, publish=True)
     response = client.post(f"/campaign/clips/{_clip(settings)}/tiktok", json=body)
-    assert (response.status_code, response.json()["detail"]) == (400, "Kampanjen postar inte på TikTok.")
+    assert (response.status_code, response.json()["detail"]) == (400, "The campaign does not post on TikTok.")
     with tiktok.TikTok(settings)._db() as db:
         assert db.execute("SELECT COUNT(*) FROM tiktok_uploads").fetchone()[0] == 0
 

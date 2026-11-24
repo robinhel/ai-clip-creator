@@ -707,7 +707,7 @@ def _clip_path(clip_id: int, settings: Settings) -> Path:
     clip = _get(_log(settings), clip_id)
     path = Path(clip["file"] or "").resolve()
     if not path.is_relative_to(settings.out_dir.resolve()) or path.suffix != ".mp4" or not path.exists():
-        raise HTTPException(404, "Filen finns inte.")
+        raise HTTPException(404, "The file does not exist.")
     return path
 
 

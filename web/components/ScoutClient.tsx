@@ -110,7 +110,7 @@ export function ScoutClient({ campaigns = null }: { campaigns?: CampaignProfile[
                 <dd className="tabular-nums" title="The score assumes a clip gets that many views.">
                   {views.format(status.median_views)}{" "}
                   <span className="text-muted-foreground">
-                    ({status.median_source === "dina inlägg" ? "from your posts" : "estimated, no posts yet"})
+                    ({status.median_source === "your posts" ? "from your posts" : "estimated, no posts yet"})
                   </span>
                 </dd>
               </div>

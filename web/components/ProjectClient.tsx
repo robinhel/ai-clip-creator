@@ -388,7 +388,7 @@ function ProjectHeader({ project }: { project: CampaignProject }) {
           {projectSize(project)}
           {todo && <span className="font-medium text-brand">, {todo}</span>}
         </p>
-        <p className="text-sm text-muted-foreground">Kampanj: {campaignLabel(project.profile)}</p>
+        <p className="text-sm text-muted-foreground">Campaign: {campaignLabel(project.profile)}</p>
       </div>
       <Link href={`/uploads?kampanj=${encodeURIComponent(project.profile)}`} className={buttonVariants({ variant: "outline" })}>
         <Upload aria-hidden />

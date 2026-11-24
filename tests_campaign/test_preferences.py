@@ -46,7 +46,7 @@ def test_a_saved_country_outside_the_list_counts_as_sweden(settings) -> None:
 def test_the_list_has_swedish_names() -> None:
     assert list(preferences.COUNTRIES)[:3] == ["SE", "NO", "DK"]
     assert (preferences.COUNTRIES["SE"], preferences.COUNTRIES["FR"], len(preferences.COUNTRIES)) == (
-        "Sverige", "Frankrike", 19)
+        "Sweden", "France", 19)
 
 
 def test_two_saves_at_the_same_time_keep_both_values(settings, monkeypatch) -> None:

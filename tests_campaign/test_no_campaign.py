@@ -140,7 +140,7 @@ def test_a_free_live_part_is_run_without_twitch_and_with_the_channel_name(
     _, why = pipeline.make_clips(
         part, profile, hidden, game=None, emit=lambda *e: None, run_id=7, local=True
     )
-    assert why == "Inga kandidater hittades."
+    assert why == "No candidates were found."
     video = seen["video"]
     assert (video.url, video.user_id, video.user_login) == ("", "", "ishowspeed")
     assert seen["skip_chat"] is True  # chatten från live-klipparen, inte Twitchs chattreplay
