@@ -643,7 +643,7 @@ def test_a_clip_that_is_uploading_now_cannot_be_removed(client, settings, clip_i
         db.execute("UPDATE scheduled_posts SET status = 'running' WHERE id = ?", (running,))
     answer = client.patch(f"/campaign/clips/{clip_id}", json={"status": "nekad"})
     assert answer.status_code == 409
-    assert "laddas upp" in answer.json()["detail"]
+    assert "being uploaded" in answer.json()["detail"]
     assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["status"] == "godkand"
     assert _row(settings, waiting)["status"] == "waiting"  # inget ändras när svaret är nej
 
@@ -691,7 +691,7 @@ def test_a_new_caption_is_refused_while_the_clip_uploads(client, settings, clip_
     with sqlite3.connect(settings.data_dir / "klipp.db") as db:
         db.execute("UPDATE scheduled_posts SET status = 'running' WHERE id = ?", (post_id,))
     answer = client.patch(f"/campaign/clips/{clip_id}", json={"caption": "Ny text"})
-    assert answer.status_code == 409 and "laddas upp" in answer.json()["detail"]
+    assert answer.status_code == 409 and "being uploaded" in answer.json()["detail"]
     clip = ClipLog(settings.data_dir / "klipp.db").get(clip_id)
     assert (clip["status"], clip["caption"]) == ("godkand", "c")
 
@@ -712,5 +712,5 @@ def test_undoing_the_approval_is_refused_while_the_clip_uploads(client, settings
     with sqlite3.connect(settings.data_dir / "klipp.db") as db:
         db.execute("UPDATE scheduled_posts SET status = 'running' WHERE id = ?", (post_id,))
     answer = client.patch(f"/campaign/clips/{clip_id}", json={"status": "renderad"})
-    assert answer.status_code == 409 and "laddas upp" in answer.json()["detail"]
+    assert answer.status_code == 409 and "being uploaded" in answer.json()["detail"]
     assert ClipLog(settings.data_dir / "klipp.db").get(clip_id)["status"] == "godkand"

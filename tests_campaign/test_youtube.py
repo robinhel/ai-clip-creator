@@ -280,7 +280,7 @@ def test_callback_for_an_account_without_a_channel_is_refused(client, settings, 
     fake.channel = None
     response = client.get("/campaign/youtube/callback/", params={"code": "c", "state": state})
     query = parse_qs(urlparse(response.headers["location"]).query)
-    assert query["youtube"] == ["fel"] and "kanal" in query["orsak"][0]
+    assert query["youtube"] == ["fel"] and "channel" in query["orsak"][0]
     assert not (settings.data_dir / ACCOUNTS).exists()
 
 

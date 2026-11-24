@@ -186,7 +186,7 @@ def test_upload_needs_a_connection(client, settings, fake) -> None:
     clip_id = _clip(settings)
     response = client.post(f"/campaign/clips/{clip_id}/tiktok")
     assert response.status_code == 400
-    assert "Koppla" in response.json()["detail"]
+    assert "Connect" in response.json()["detail"]
     assert fake.requests == []
 
 
@@ -237,7 +237,7 @@ def test_upload_sends_the_file_in_parts_with_content_range(client, settings, fak
     body = response.json()
     assert body["status"] == "uploaded"
     assert body["publish_id"].startswith("v_inbox_file")
-    assert "inkorgen" in body["message"]
+    assert "inbox" in body["message"]
 
     (init,) = fake.calls(tiktok.INIT_URL)
     assert init.headers["authorization"] == "Bearer act.old"
@@ -274,7 +274,7 @@ def test_refresh_that_fails_asks_to_connect_again(client, settings, fake) -> Non
     fake.refresh_error = True
     response = client.post(f"/campaign/clips/{_clip(settings)}/tiktok")
     assert response.status_code == 400
-    assert "Koppla" in response.json()["detail"]
+    assert "Connect" in response.json()["detail"]
     assert fake.calls(tiktok.INIT_URL) == []
 
 

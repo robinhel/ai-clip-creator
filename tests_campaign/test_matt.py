@@ -415,7 +415,7 @@ def test_todo_at_analytics_asks_for_the_extra_metrics(settings) -> None:
     post_id = log.add_post(clip_id, "tiktok", TIKTOK)
     log.update_post(post_id, status="inskickad", views=2500)
     [item] = log.todo(2000)
-    assert "analytics" in item and "Fler mått" in item and "Statistik" in item
+    assert "analytics" in item and "More metrics" in item and "Stats" in item
 
 
 # ---------- terminalen och MCP ----------

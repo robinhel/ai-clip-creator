@@ -69,5 +69,5 @@ def _check(settings, answer):
 
 def test_real_rule_breaks_are_problems(settings) -> None:
     assert any("facecam" in p for p in _check(settings, {**GOOD, "facecam_visible": False})[0])
-    assert any("texten" in p for p in _check(settings, {**GOOD, "text_visible": False})[0])
-    assert any("ansiktet" in p for p in _check(settings, {**GOOD, "face_covered": True})[0])
+    assert any("on-screen text" in p for p in _check(settings, {**GOOD, "text_visible": False})[0])
+    assert any("over the face" in p for p in _check(settings, {**GOOD, "face_covered": True})[0])
