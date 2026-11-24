@@ -1,3 +1,5 @@
+import { DEMO, demoFetch } from "./demo";
+
 // Live-bevakningen per kampanj och för fria kanaler (/campaign/live). Egen liten fetch mot proxyn, som apiFetch i api.ts.
 
 export type PeakStatus = "vantar" | "hamtar" | "ko" | "kor" | "klar" | "fel" | "hoppad";
@@ -28,6 +30,7 @@ export type LiveWatch = {
 };
 
 async function liveFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (DEMO) return demoFetch<T>(path, init);
   const res = await fetch(`/api${path}`, { ...init, headers: { "Content-Type": "application/json", ...init.headers } });
   if (res.ok) return res.json() as Promise<T>;
   let detail: unknown;

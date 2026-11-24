@@ -1,4 +1,5 @@
 import type { CampaignClip, CampaignSummary } from "./types";
+import { DEMO, demoFetch } from "./demo";
 
 // Bara för serverkomponenter: samma bas och nyckel som proxyn i app/api/[...path]/route.ts.
 const API_BASE =
@@ -6,6 +7,7 @@ const API_BASE =
 
 /** GET mot FastAPI från servern. null om servern inte svarar, så att sidan kan hämta i webbläsaren i stället. */
 async function serverGet<T>(path: string): Promise<T | null> {
+  if (DEMO) return demoFetch<T>(path).catch(() => null);
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       cache: "no-store",

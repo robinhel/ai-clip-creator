@@ -48,6 +48,8 @@ import type { CampaignSettingsBody, ConnectedAccounts } from "./types";
 // Ta bort VOD-filen på ett projekt (projekt-ta-bort).
 import type { FreedSpace } from "./types";
 import type { Timeline } from "./timeline";
+// Demoläget (NEXT_PUBLIC_DEMO=1): påhittad data ur lib/demo i stället för API:t. Växlas bara här och i de andra fetch-hjälparna.
+import { DEMO, DEMO_OFF, demoFetch, picture } from "./demo";
 
 // JSON API calls go through the Next.js rewrite proxy (/api/* → FastAPI).
 // This avoids CORS and removes the need for NEXT_PUBLIC_API_BASE in the browser.
@@ -71,6 +73,7 @@ const FIELD_LABEL: Record<string, string> = {
 let preferences: Promise<Preferences> | null = null;
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (DEMO) return demoFetch<T>(path, init); // proxyn och servern används aldrig i demoläget
   const res = await fetch(`${PROXY}${path}`, {
     ...init,
     headers: {
@@ -139,7 +142,7 @@ export const api = {
       saveReframe: (id: string, body: { webcam_rects: Rect[]; gameplay_rect: Rect; split_ratio: number }) =>
         apiFetch<ReframeInfo>(`/campaign/profiles/${id}/reframe`, { method: "PUT", body: JSON.stringify(body) }),
       frameUrl: (id: string, vodId?: string) =>
-        `${PROXY}/campaign/profiles/${id}/frame${vodId ? `?vod_id=${vodId}` : ""}`,
+        DEMO ? picture(0, "Sample frame") : `${PROXY}/campaign/profiles/${id}/frame${vodId ? `?vod_id=${vodId}` : ""}`,
     },
     vod: (vodId: string) => apiFetch<VodInfo>(`/campaign/vod/${vodId}`),
     streams: () => apiFetch<StreamInfo[]>("/campaign/streams"),
@@ -227,7 +230,7 @@ export const api = {
       disconnect: (channelId: string) =>
         apiFetch<unknown>(`/campaign/youtube/accounts/${encodeURIComponent(channelId)}/disconnect`, { method: "POST" }),
       // Direkt mot servern som TikTok: Google leder tillbaka till :8000.
-      connectUrl: `${DIRECT}/campaign/youtube/connect`,
+      connectUrl: DEMO ? "#" : `${DIRECT}/campaign/youtube/connect`,
     },
     tiktok: {
       status: () => apiFetch<TikTokStatus>("/campaign/tiktok/status"),
@@ -236,7 +239,7 @@ export const api = {
         apiFetch<TikTokCreatorInfo>(`/campaign/tiktok/accounts/${encodeURIComponent(openId)}/creator_info`),
       disconnectAccount: (openId: string) =>
         apiFetch<unknown>(`/campaign/tiktok/accounts/${encodeURIComponent(openId)}/disconnect`, { method: "POST" }),
-      connectUrl: `${DIRECT}/campaign/tiktok/connect`,
+      connectUrl: DEMO ? "#" : `${DIRECT}/campaign/tiktok/connect`,
     },
     schedule: {
       list: () => apiFetch<ScheduledPost[]>("/campaign/schedule"),
@@ -274,16 +277,16 @@ export const api = {
       testTwitch: () => apiFetch<KeyTest>("/campaign/keys/test/twitch", { method: "POST" }),
     },
     /** En sökväg från servern (till exempel overlay.url) via proxyn. */
-    proxied: (path: string) => `${PROXY}${path}`,
-    videoUrl: (clip: CampaignClip) => `${PROXY}${clip.video_url}`,
-    posterUrl: (clip: CampaignClip) => (clip.poster_url ? `${PROXY}${clip.poster_url}` : undefined),
+    proxied: (path: string) => (DEMO ? path : `${PROXY}${path}`),
+    videoUrl: (clip: CampaignClip) => (DEMO ? clip.video_url : `${PROXY}${clip.video_url}`),
+    posterUrl: (clip: CampaignClip) => (clip.poster_url ? (DEMO ? clip.poster_url : `${PROXY}${clip.poster_url}`) : undefined),
     // video_url kan redan ha en fråga (?v=… efter en redigering).
     downloadUrl: (clip: CampaignClip) =>
-      `${PROXY}${clip.video_url}${clip.video_url.includes("?") ? "&" : "?"}download=1`,
+      DEMO ? clip.video_url : `${PROXY}${clip.video_url}${clip.video_url.includes("?") ? "&" : "?"}download=1`,
     // --- Kampanjen som nav (kontrakt-chatt.md): material, kampanjens klipp och chatten. ---
     material: (id: string) => apiFetch<MaterialItem[]>(`/campaign/profiles/${id}/material`),
     /** Källans video med Range-stöd, för att spela en träff. */
-    materialVideoUrl: (vodId: string) => `${PROXY}/campaign/material/${encodeURIComponent(vodId)}/video`,
+    materialVideoUrl: (vodId: string) => DEMO ? "/demo/clip.mp4" : `${PROXY}/campaign/material/${encodeURIComponent(vodId)}/video`,
     profileClips: (id: string) => apiFetch<CampaignClip[]>(`/campaign/clips?profile=${encodeURIComponent(id)}`),
     chats: {
       list: (id: string) => apiFetch<ChatSummary[]>(`/campaign/profiles/${id}/chats`),
@@ -319,6 +322,7 @@ export const cancelRun = (runId: number) =>
 
 /** Samma som api.campaign.upload, men med förloppet för uppladdningen i procent (fetch kan inte visa det). */
 export function uploadWithProgress(form: FormData, onProgress: (percent: number) => void): Promise<CampaignClip> {
+  if (DEMO) return Promise.reject(new Error(DEMO_OFF));
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${PROXY}/campaign/uploads`);

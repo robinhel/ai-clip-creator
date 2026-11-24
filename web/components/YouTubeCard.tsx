@@ -5,12 +5,22 @@ import { CheckCircle2, Loader2, Plus, XCircle } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { CopyButton } from "@/components/CopyButton";
 import { api } from "@/lib/api";
+import { DEMO, DEMO_OFF } from "@/lib/demo";
 import { YOUTUBE_REDIRECT_URI } from "@/lib/appLinks";
 import type { YouTubeChannel, YouTubeStatus } from "@/lib/types";
 
 export const channelName = (c: Pick<YouTubeChannel, "title">) => c.title ?? "YouTube channel";
 
 function AddChannel() {
+  // Demoläget har ingen server att logga in mot.
+  if (DEMO) {
+    return (
+      <Button className="h-9" disabled title={DEMO_OFF}>
+        <Plus aria-hidden />
+        Add YouTube channel
+      </Button>
+    );
+  }
   // Samma flik: Google leder tillbaka till Inställningar efter inloggningen.
   return (
     <a href={api.campaign.youtube.connectUrl} className={buttonVariants({ className: "h-9" })}>

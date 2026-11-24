@@ -8,6 +8,7 @@ import { ScoutCountryCard } from "@/components/ScoutCountryCard";
 import { TikTokCard } from "@/components/TikTokCard";
 import { YouTubeCard } from "@/components/YouTubeCard";
 import { api } from "@/lib/api";
+import { DEMO, DEMO_OFF } from "@/lib/demo";
 import { cn } from "@/lib/utils";
 import type { ConnectedAccount, ConnectedAccounts, KeyGroup, KeyTest, SetupCheck } from "@/lib/types";
 
@@ -158,17 +159,17 @@ function GroupCard({ group, onSaved, children }: { group: KeyGroup; onSaved: (gr
             set={key.set}
             value={values[key.name] ?? ""}
             onChange={(v) => setValues((prev) => ({ ...prev, [key.name]: v }))}
-            disabled={busy}
+            disabled={DEMO || busy}
           />
         ))}
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button className="h-9" disabled={busy || Object.keys(filled).length === 0} onClick={save}>
+        <Button className="h-9" disabled={DEMO || busy || Object.keys(filled).length === 0} onClick={save} title={DEMO ? DEMO_OFF : undefined}>
           {busy && <Loader2 className="animate-spin" aria-hidden />}
           {busy ? "Saving…" : "Save"}
         </Button>
         {twitch && allSet && (
-          <Button variant="outline" className="h-9" disabled={busy || testing} onClick={runTest}>
+          <Button variant="outline" className="h-9" disabled={DEMO || busy || testing} onClick={runTest} title={DEMO ? DEMO_OFF : undefined}>
             {testing && <Loader2 className="animate-spin" aria-hidden />}
             Test the keys
           </Button>
@@ -440,6 +441,11 @@ export function SettingsClient({ tiktokResult, tiktokReason }: { tiktokResult?: 
         Paste the keys here. The server saves them in .env and uses them right away. They are never shown again, only whether they are
         saved.
       </p>
+      {DEMO && (
+        <p role="note" className="mt-4 max-w-[640px] rounded-lg border border-[#4a3b10] bg-[#1d170a] px-3 py-2 text-sm text-warn">
+          Demo mode: saving keys and connecting TikTok or YouTube need the app server, so those buttons are turned off.
+        </p>
+      )}
       <AccountsCard refresh={groups?.map((g) => g.keys.map((k) => k.set).join()).join() ?? ""} />
       <SetupCard checks={checks} error={setupError} loading={setupLoading} onRun={runSetup} />
       <SubmitHelperCard />

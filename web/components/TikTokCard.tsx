@@ -5,6 +5,7 @@ import { CheckCircle2, ExternalLink, Loader2, Plus, XCircle } from "lucide-react
 import { Button, buttonVariants } from "@/components/ui/button";
 import { CopyButton } from "@/components/CopyButton";
 import { api } from "@/lib/api";
+import { DEMO, DEMO_OFF } from "@/lib/demo";
 import { TIKTOK_APP, TIKTOK_REDIRECT_URI, TIKTOK_VERIFIED_PREFIX } from "@/lib/appLinks";
 import { cn } from "@/lib/utils";
 import type { TikTokAccount, TikTokStatus } from "@/lib/types";
@@ -20,6 +21,15 @@ export function tiktokAccounts(status: TikTokStatus): TikTokAccount[] {
 export const accountName = (a: Pick<TikTokAccount, "display_name">) => a.display_name ?? "TikTok account";
 
 function AddAccount() {
+  // Demoläget har ingen server att logga in mot.
+  if (DEMO) {
+    return (
+      <Button className="h-9" disabled title={DEMO_OFF}>
+        <Plus aria-hidden />
+        Add TikTok account
+      </Button>
+    );
+  }
   // Samma flik: TikTok leder tillbaka till Inställningar efter inloggningen.
   return (
     <a href={api.campaign.tiktok.connectUrl} className={buttonVariants({ className: "h-9" })}>

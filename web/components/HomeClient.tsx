@@ -9,6 +9,7 @@ import { LiveChannelCard } from "@/components/LiveChannelCard";
 import { EntryCard, isActive } from "@/components/ProjectCard";
 import { ScoutMiniCard } from "@/components/ScoutCard";
 import { api } from "@/lib/api";
+import { DEMO, DEMO_OFF } from "@/lib/demo";
 import { handOverFiles } from "@/lib/handoff";
 import { projectEntries } from "@/lib/projects";
 import { stepCount } from "@/lib/steps";
@@ -551,6 +552,12 @@ export function HomeClient() {
                 <X className="size-3.5" aria-hidden />
                 Remove
               </button>
+            ) : DEMO ? (
+              // Demoläget: ingen server att ladda upp till.
+              <span title={DEMO_OFF} className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-sm text-muted-foreground opacity-50">
+                <Upload className="size-3.5" aria-hidden />
+                Own video
+              </span>
             ) : (
               <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-sm text-muted-foreground hover:text-foreground focus-within:outline-2 focus-within:outline-brand">
                 <Upload className="size-3.5" aria-hidden />

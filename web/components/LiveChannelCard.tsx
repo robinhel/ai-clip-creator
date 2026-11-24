@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { channelLogin, channelStateText, errorMessage, withChannel } from "@/lib/live";
 import { liveApi, type LiveWatch as Watch } from "@/lib/liveApi";
 import { useLiveWatches } from "@/lib/useLiveWatches";
+import { DEMO } from "@/lib/demo";
 import { cn } from "@/lib/utils";
 
 /**
@@ -56,7 +57,7 @@ export function LiveChannelCard() {
           aria-label="Twitch channel"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="ishowspeed or link to the channel"
+          placeholder={DEMO ? "nova_plays or link to the channel" : "ishowspeed or link to the channel"}
           autoComplete="off"
           spellCheck={false}
           className="h-9 min-w-0 flex-1 basis-56 rounded-lg border border-line bg-transparent px-3 text-base outline-none placeholder:text-muted-foreground focus-visible:border-brand md:text-sm"

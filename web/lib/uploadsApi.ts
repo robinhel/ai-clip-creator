@@ -1,5 +1,6 @@
 // Anropen för utkast på Egna videor. Allt går via proxyn /api, som lägger på API-nyckeln på servern.
 import type { CampaignClip, MusicFile, UploadOptions } from "./types";
+import { DEMO, DEMO_OFF, demoFetch } from "./demo";
 
 const PROXY = "/api";
 const BASE = "/campaign/uploads";
@@ -47,6 +48,7 @@ function errorFor(status: number, body: string): Error {
 }
 
 async function send<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (DEMO) return demoFetch<T>(path, init);
   let res: Response;
   try {
     res = await fetch(`${PROXY}${path}`, init);
@@ -68,6 +70,7 @@ export class UploadAborted extends Error {
 
 /** Laddar upp ett formulär till drafts eller music, med förloppet i procent. abort avbryter och ger UploadAborted. */
 function uploadForm<T>(to: "drafts" | "music", form: FormData, onProgress: (percent: number) => void): { done: Promise<T>; abort: () => void } {
+  if (DEMO) return { done: Promise.reject(new Error(DEMO_OFF)), abort: () => {} };
   const xhr = new XMLHttpRequest();
   const done = new Promise<T>((resolve, reject) => {
     xhr.open("POST", `${PROXY}${BASE}/${to}`);
@@ -102,6 +105,7 @@ export const uploadsApi = {
   frameUrl: (id: string, query: string) => `${PROXY}${draftPath(id)}/frame?${query}`,
   /** Samma bild som en Blob, så att serverns fel går att visa. */
   frame: async (url: string, signal: AbortSignal): Promise<Blob> => {
+    if (DEMO) throw new Error(DEMO_OFF);
     const res = await fetch(url, { signal });
     if (!res.ok) throw errorFor(res.status, await res.text().catch(() => ""));
     return res.blob();

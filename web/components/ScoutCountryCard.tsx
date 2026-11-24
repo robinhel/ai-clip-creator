@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { DEMO, demoFetch } from "@/lib/demo";
 
 type CountryChoice = { code: string; name: string };
 type ScoutCountry = { country: string; choices: CountryChoice[] };
@@ -16,6 +17,7 @@ function errorText(status: number, detail: unknown): string {
 
 // Anropen går via proxyn som apiFetch i lib/api.ts. Flytta dem till api.campaign.scout i api.ts senare.
 async function countryFetch(init?: RequestInit): Promise<ScoutCountry> {
+  if (DEMO) return demoFetch<ScoutCountry>("/campaign/scout/country", init);
   const res = await fetch("/api/campaign/scout/country", { ...init, headers: { "Content-Type": "application/json" } });
   if (!res.ok) {
     const detail: unknown = await res.json().then((body) => body?.detail, () => undefined);
