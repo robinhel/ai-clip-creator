@@ -8,10 +8,10 @@ type ScoutCountry = { country: string; choices: CountryChoice[] };
 
 /** Samma feltexter som apiFetch i lib/api.ts, i kort form. */
 function errorText(status: number, detail: unknown): string {
-  if (status === 503 && detail === "Backend unavailable") return "Appens server är inte igång. Starta den och tryck Försök igen.";
+  if (status === 503 && detail === "Backend unavailable") return "The app server is not running. Start it and press Try again.";
   if (typeof detail === "string") return detail;
-  if (status === 422) return "Servern godtog inte landet. Välj ett land i listan.";
-  return `Servern svarade med fel ${status}. Försök igen.`;
+  if (status === 422) return "The server did not accept the country. Choose a country in the list.";
+  return `The server answered with error ${status}. Try again.`;
 }
 
 // Anropen går via proxyn som apiFetch i lib/api.ts. Flytta dem till api.campaign.scout i api.ts senare.
@@ -29,7 +29,7 @@ const message = (err: unknown, fallback: string) => (err instanceof Error ? err.
 function CountrySelect({ data, busy, onChoose }: { data: ScoutCountry | null; busy: boolean; onChoose: (code: string) => void }) {
   return (
     <div className="flex items-center gap-2">
-      {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label="Sparar" />}
+      {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label="Saving" />}
       <select
         aria-labelledby="scout-country"
         value={data?.country ?? ""}
@@ -44,7 +44,7 @@ function CountrySelect({ data, busy, onChoose }: { data: ScoutCountry | null; bu
             </option>
           ))
         ) : (
-          <option value="">Läser…</option>
+          <option value="">Loading…</option>
         )}
       </select>
     </div>
@@ -60,7 +60,7 @@ export function ScoutCountryCard() {
   useEffect(() => {
     countryFetch()
       .then(setData)
-      .catch((err) => setError(message(err, "Kunde inte läsa landet")));
+      .catch((err) => setError(message(err, "Could not load the country")));
   }, []);
 
   async function choose(country: string) {
@@ -69,22 +69,22 @@ export function ScoutCountryCard() {
     try {
       setData(await countryFetch({ method: "PUT", body: JSON.stringify({ country }) }));
     } catch (err) {
-      setError(message(err, "Kunde inte spara landet"));
+      setError(message(err, "Could not save the country"));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <section aria-label="Ditt land för kampanjer" className="mt-4 rounded-2xl border border-line bg-panel p-5">
+    <section aria-label="Your country for campaigns" className="mt-4 rounded-2xl border border-line bg-panel p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 id="scout-country" className="text-lg font-semibold">
-            Ditt land för kampanjer
+            Your country for campaigns
           </h2>
           <p className="mt-0.5 max-w-[640px] text-sm text-muted-foreground">
-            Betyget räknar med vad kampanjen betalar för visningar från ditt land. Kampanjer som inte betalar för landet
-            sorteras bort.
+            The score uses what the campaign pays for views from your country. Campaigns that do not pay for the country
+            are filtered out.
           </p>
         </div>
         <CountrySelect data={data} busy={busy} onChoose={choose} />

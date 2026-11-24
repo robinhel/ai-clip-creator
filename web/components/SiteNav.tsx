@@ -11,18 +11,18 @@ import type { CampaignSummary } from "@/lib/types";
 
 // Fem punkter. Projekt och Egna videor nås från Hem, Bevakning från Kampanjer; sidorna finns kvar.
 const LINKS = [
-  { href: "/", label: "Hem", icon: Home, also: ["/projects", "/runs", "/uploads"] },
-  { href: "/queue", label: "Klippen", icon: Film, also: [] },
-  { href: "/log", label: "Statistik", icon: BarChart3, also: [] },
-  { href: "/campaigns", label: "Kampanjer", icon: Megaphone, also: ["/scout"] },
-  { href: "/settings", label: "Inställningar", icon: Settings, also: [] },
+  { href: "/", label: "Home", icon: Home, also: ["/projects", "/runs", "/uploads"] },
+  { href: "/queue", label: "Clips", icon: Film, also: [] },
+  { href: "/log", label: "Stats", icon: BarChart3, also: [] },
+  { href: "/campaigns", label: "Campaigns", icon: Megaphone, also: ["/scout"] },
+  { href: "/settings", label: "Settings", icon: Settings, also: [] },
 ];
 
 // Stegen i Klippen, med samma färger som statusen i klippraden.
 const STEPS: { step: ClipStep; label: string; tone: string }[] = [
-  { step: "granska", label: "Att granska", tone: "bg-amber-500/20 text-amber-200" },
-  { step: "posta", label: "Att posta", tone: "bg-sky-500/20 text-sky-200" },
-  { step: "skicka-in", label: "Skicka in", tone: "bg-violet-500/25 text-violet-200" },
+  { step: "granska", label: "To review", tone: "bg-amber-500/20 text-amber-200" },
+  { step: "posta", label: "Ready to post", tone: "bg-sky-500/20 text-sky-200" },
+  { step: "skicka-in", label: "Submit", tone: "bg-violet-500/25 text-violet-200" },
 ];
 
 const gb = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
@@ -95,7 +95,7 @@ function budgetMeter(budget: CampaignSummary["budget"]) {
   const bergetUsd = budget.by_purpose?.transkribering?.usd ?? 0;
   const pct = budget.month_cap_usd > 0 ? (budget.month_usd / budget.month_cap_usd) * 100 : 0;
   return {
-    spent: `${usd.format(budget.month_usd)} av ${usd.format(budget.month_cap_usd)}`,
+    spent: `${usd.format(budget.month_usd)} of ${usd.format(budget.month_cap_usd)}`,
     split: `Berget ${usd.format(bergetUsd)}, Claude ${usd.format(budget.month_usd - bergetUsd)}`,
     pct,
     tone: toneFor(pct, (p) => p >= 90, (p) => p >= 70),
@@ -107,8 +107,8 @@ function diskMeter(disk: CampaignSummary["disk"]) {
   if (!disk) return null;
   return {
     off: disk.connected === false,
-    problem: disk.problem || "SSD:n är inte ansluten.",
-    label: `Disk ledigt: ${gb.format(disk.free_gb)} GB`,
+    problem: disk.problem || "The SSD is not connected.",
+    label: `Disk free: ${gb.format(disk.free_gb)} GB`,
     pct: disk.total_gb > 0 ? (disk.free_gb / disk.total_gb) * 100 : 0,
     tone: toneFor(disk.free_gb, (g) => g < 20, (g) => g < 50),
   };
@@ -116,8 +116,8 @@ function diskMeter(disk: CampaignSummary["disk"]) {
 
 // Bred skärm: längst ner i kolumnen, med hela texten. Smal skärm: en rad under menyn.
 const METER_LAYOUT = {
-  wide: { prefix: "Kostnad denna månad: ", split: true, budget: undefined, disk: undefined, alert: "rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-2.5 py-2" },
-  compact: { prefix: "Kostnad: ", split: false, budget: "flex-1", disk: "shrink-0", alert: "flex-1" },
+  wide: { prefix: "Cost this month: ", split: true, budget: undefined, disk: undefined, alert: "rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-2.5 py-2" },
+  compact: { prefix: "Cost: ", split: false, budget: "flex-1", disk: "shrink-0", alert: "flex-1" },
 };
 
 /** Budget och disk. Smal skärm: raden under menyn står inte fast. */
@@ -156,7 +156,7 @@ function SubmitClock({ minutesLeft }: { minutesLeft: number }) {
   return (
     <span
       data-submit-clock
-      title="Minuter kvar innan Content Rewards slutar ta emot den första väntande länken"
+      title="Minutes left before Content Rewards stops accepting the first waiting link"
       className="inline-flex items-center gap-0.5 text-[11px] text-violet-200 tabular-nums"
     >
       <Clock className="size-3" aria-hidden />
@@ -178,7 +178,7 @@ function StepCounts({ count, minutesLeft, list }: { count: (step: ClipStep) => n
     );
   }
   return (
-    <ul aria-label="Klippen per steg" className="mt-0.5 mb-1 hidden space-y-0.5 pl-8 md:block">
+    <ul aria-label="Clips per step" className="mt-0.5 mb-1 hidden space-y-0.5 pl-8 md:block">
       {STEPS.map(({ step, label, tone }) => (
         <li key={step}>
           <Link
@@ -208,13 +208,13 @@ export function SiteNav() {
         <div className="flex items-center gap-1 overflow-x-auto px-2 py-1.5 [scrollbar-width:none] md:block md:overflow-visible md:p-0">
           <Link
             href="/"
-            aria-label="Klipp, till Hem"
+            aria-label="Clips, to Home"
             className="flex shrink-0 items-center gap-2 px-1.5 text-lg font-bold tracking-tight md:px-2 md:pb-4"
           >
             <Clapperboard className="size-5 text-brand" aria-hidden />
-            <span className="hidden md:inline">Klipp</span>
+            <span className="hidden md:inline">Clips</span>
           </Link>
-          <nav aria-label="Huvudmeny" className="flex gap-0.5 md:flex-col md:gap-1">
+          <nav aria-label="Main menu" className="flex gap-0.5 md:flex-col md:gap-1">
             {LINKS.map(({ href, label, icon: Icon, also }) => (
               <div key={href} className="shrink-0">
                 <Link

@@ -17,12 +17,12 @@ const timeText = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Stockholm"
 
 // "Schemalagd", inte "Väntar": Väntar betydde också ett klipp att granska.
 const STATUS: Record<ScheduleStatus, [string, string]> = {
-  waiting: ["Schemalagd", "border-line text-muted-foreground"],
-  running: ["Laddas upp", "border-brand/50 text-brand"],
-  done: ["Klar", "border-[#174a2a] text-good"],
-  reminded: ["Påmind", "border-[#4a3a17] text-warn"],
-  failed: ["Misslyckades", "border-[#4d1d1d] text-bad"],
-  cancelled: ["Avbruten", "border-line text-muted-foreground"],
+  waiting: ["Scheduled", "border-line text-muted-foreground"],
+  running: ["Uploading", "border-brand/50 text-brand"],
+  done: ["Done", "border-[#174a2a] text-good"],
+  reminded: ["Reminded", "border-[#4a3a17] text-warn"],
+  failed: ["Failed", "border-[#4d1d1d] text-bad"],
+  cancelled: ["Cancelled", "border-line text-muted-foreground"],
 };
 
 interface Props {
@@ -38,7 +38,7 @@ interface Props {
 /** Texten och färgen på statusen. En påminnelse laddar inte upp något: Robin postar själv när notisen kommer. */
 function statusBadge(post: ScheduledPost): [string, string] {
   const reminder = post.reminder && (post.status === "waiting" || post.status === "reminded");
-  if (reminder) return [post.status === "waiting" ? "Påminnelse" : "Påmind", "border-[#4a3a17] text-warn"];
+  if (reminder) return [post.status === "waiting" ? "Reminder" : "Reminded", "border-[#4a3a17] text-warn"];
   return STATUS[post.status] ?? [post.status, "border-line text-muted-foreground"];
 }
 
@@ -47,16 +47,16 @@ function PostNotes({ post }: { post: ScheduledPost }) {
   return (
     <>
       {post.reminder && post.status === "waiting" && (
-        <p className="mt-0.5 text-xs text-muted-foreground">Appen postar inte själv. Du får en notis på Macen vid tiden.</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">The app does not post by itself. You get a notification on the Mac at that time.</p>
       )}
       {post.error && (
         <p className="mt-0.5 text-xs text-[#fca5a5]">
           {post.error}
-          {/Inställningar|koppla/i.test(post.error) && (
+          {/Inställningar|koppla|Settings|connect/i.test(post.error) && (
             <>
               {" "}
               <Link href="/settings" className="text-foreground underline underline-offset-4">
-                Öppna Inställningar
+                Open Settings
               </Link>
             </>
           )}
@@ -90,7 +90,7 @@ function Row({ post, account, onChange, onReschedule }: {
       await api.campaign.schedule.cancel(post.id);
       onChange();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunde inte avbryta posten");
+      setError(err instanceof Error ? err.message : "Could not cancel the post");
     } finally {
       setBusy(false);
     }
@@ -105,12 +105,12 @@ function Row({ post, account, onChange, onReschedule }: {
       </p>
       <div className="min-w-0">
         <Link href={`/queue?tab=posta#klipp-${post.clip_id}`} className="block truncate font-medium hover:underline">
-          {post.clip_title ?? `Klipp ${post.clip_id}`}
+          {post.clip_title ?? `Clip ${post.clip_id}`}
         </Link>
         <p className="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
           <span>{PLATFORM_NAME[post.platform] ?? post.platform}</span>
           {account && <span>{account}</span>}
-          {post.late && <span className="text-warn">försenad</span>}
+          {post.late && <span className="text-warn">late</span>}
         </p>
         <PostNotes post={post} />
         {error && (
@@ -122,7 +122,7 @@ function Row({ post, account, onChange, onReschedule }: {
       <div className="col-start-2 flex flex-wrap items-center gap-2 sm:col-start-auto sm:justify-end">
         {url && (
           <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-brand underline-offset-4 hover:underline">
-            Öppna
+            Open
             <ExternalLink className="size-3" aria-hidden />
           </a>
         )}
@@ -130,12 +130,12 @@ function Row({ post, account, onChange, onReschedule }: {
         {post.status === "waiting" && (
           <Button size="sm" variant="outline" disabled={busy} onClick={cancel}>
             {busy && <Loader2 className="animate-spin" aria-hidden />}
-            Avbryt
+            Cancel
           </Button>
         )}
         {post.status === "failed" && onReschedule && (
           <Button size="sm" variant="outline" onClick={() => onReschedule(post)}>
-            Schemalägg igen
+            Schedule again
           </Button>
         )}
       </div>
@@ -159,15 +159,15 @@ export function ScheduledList({ posts, youtube, tiktok, onChange, onReschedule }
   const finished = posts.filter((p) => !upcoming.includes(p));
 
   return (
-    <section aria-label="Schemalagt" className="mt-6 rounded-2xl border border-line bg-panel p-4 sm:p-5">
+    <section aria-label="Scheduled" className="mt-6 rounded-2xl border border-line bg-panel p-4 sm:p-5">
       <h2 className="text-lg font-semibold">
-        Schemalagt <span className="font-normal text-muted-foreground">({upcoming.length})</span>
+        Scheduled <span className="font-normal text-muted-foreground">({upcoming.length})</span>
       </h2>
       <p className="text-sm text-muted-foreground">
-        Appen laddar upp vid tiden om Macen är igång. Efter uppladdningen får du en notis om att skicka in länken i Content Rewards.
+        The app uploads at that time if the Mac is on. After the upload you get a notification to submit the link in Content Rewards.
       </p>
       {upcoming.length === 0 ? (
-        <p className="mt-3 text-sm text-muted-foreground">Inget schemalagt. Tryck Publicera på ett klipp nedan och välj Senare.</p>
+        <p className="mt-3 text-sm text-muted-foreground">Nothing scheduled. Press Publish on a clip below and choose Later.</p>
       ) : (
         <ul className="mt-2">
           {upcoming.map((p) => (
@@ -178,7 +178,7 @@ export function ScheduledList({ posts, youtube, tiktok, onChange, onReschedule }
       {finished.length > 0 && (
         // Stängd från början: de avslutade är bara historik. Servern skickar de senaste 24 timmarna.
         <details className="mt-3 border-t border-line pt-3">
-          <summary className="cursor-pointer text-sm text-muted-foreground hover:text-foreground">Senast avslutade ({finished.length})</summary>
+          <summary className="cursor-pointer text-sm text-muted-foreground hover:text-foreground">Recently finished ({finished.length})</summary>
           <ul className="mt-1">
             {finished.map((p) => (
               <Row key={p.id} post={p} account={accountFor(p)} onChange={onChange} onReschedule={onReschedule} />

@@ -23,10 +23,10 @@ export function scoutTone(score: number): string {
 const isNew = (c: ScoutCampaign) => (c.age_hours != null ? c.age_hours < 48 : c.is_new);
 
 function daysLeft(days: number | null): string {
-  if (days == null) return "Okänt";
-  if (days < 1) return "Under 1 dag";
+  if (days == null) return "Unknown";
+  if (days < 1) return "Under 1 day";
   const d = Math.floor(days);
-  return d === 1 ? "1 dag" : `${d} dagar`;
+  return d === 1 ? "1 day" : `${d} days`;
 }
 
 function Tag({ children, tone }: { children: React.ReactNode; tone: string }) {
@@ -97,43 +97,43 @@ export function ScoutCard({ campaign: c, onDismiss, busy, existing }: {
 }) {
   return (
     <article data-ref={c.ref} className="grid gap-4 rounded-2xl border border-line bg-panel p-5 md:grid-cols-[72px_minmax(0,1fr)_190px]">
-      <p className="text-center md:pt-0.5" aria-label={`Betyg ${c.score} av 100`}>
+      <p className="text-center md:pt-0.5" aria-label={`Score ${c.score} of 100`}>
         <span data-score className={cn("block text-4xl leading-none font-extrabold tabular-nums", scoutTone(c.score))}>
           {c.score}
         </span>
-        <span className="text-[11px] text-muted-foreground">av 100</span>
+        <span className="text-[11px] text-muted-foreground">of 100</span>
       </p>
 
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <h2 className="text-lg leading-snug font-semibold break-words">{c.title}</h2>
-          {isNew(c) && <Tag tone="bg-brand text-white">Ny</Tag>}
+          {isNew(c) && <Tag tone="bg-brand text-white">New</Tag>}
           {c.mentions_twitch && <Tag tone="bg-[#2a1f4d] text-[#c4b5fd]">Twitch</Tag>}
-          {existing && <Tag tone="bg-good/15 text-good">Finns redan</Tag>}
+          {existing && <Tag tone="bg-good/15 text-good">Already added</Tag>}
         </div>
         {c.brand && <p className="text-[13px] text-muted-foreground">{c.brand}</p>}
         <CountryNote note={c.country_note} />
 
         <dl className="mt-3.5 grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3 xl:grid-cols-5">
-          <Fact label="Betalning">
-            {c.rate_usd != null ? <span className="whitespace-nowrap">{usd.format(c.rate_usd)} per 1 000</span> : "Okänt"}
+          <Fact label="Payment">
+            {c.rate_usd != null ? <span className="whitespace-nowrap">{usd.format(c.rate_usd)} per 1,000</span> : "Unknown"}
             {c.net_rate_usd != null && <span className="block text-xs text-muted-foreground">netto {usd.format(c.net_rate_usd)}</span>}
           </Fact>
-          <Fact label="Budget kvar">
-            {c.budget_left_usd != null ? dollars.format(c.budget_left_usd) : "Okänt"}
+          <Fact label="Budget left">
+            {c.budget_left_usd != null ? dollars.format(c.budget_left_usd) : "Unknown"}
             {c.budget_total_usd != null && (
-              <span className="text-muted-foreground"> kvar av {dollars.format(c.budget_total_usd)}</span>
+              <span className="text-muted-foreground"> left of {dollars.format(c.budget_total_usd)}</span>
             )}
           </Fact>
-          <Fact label="Minst för betalning">
-            {c.min_views != null ? `${views.format(c.min_views)} visningar` : "Ingen gräns"}
+          <Fact label="Minimum for payment">
+            {c.min_views != null ? `${views.format(c.min_views)} views` : "No limit"}
           </Fact>
-          <Fact label="Budgeten räcker">{daysLeft(c.drain_days)}</Fact>
-          <Fact label="Plattformar">{c.platforms.map((p) => PLATFORM[p] ?? p).join(", ") || "Okänt"}</Fact>
+          <Fact label="Budget lasts">{daysLeft(c.drain_days)}</Fact>
+          <Fact label="Platforms">{c.platforms.map((p) => PLATFORM[p] ?? p).join(", ") || "Unknown"}</Fact>
         </dl>
 
         <details className="group mt-4">
-          <summary className="cursor-pointer text-sm text-muted-foreground select-none hover:text-foreground">Varför</summary>
+          <summary className="cursor-pointer text-sm text-muted-foreground select-none hover:text-foreground">Why</summary>
           <ul className="mt-3 space-y-2.5">
             {c.parts.map((p) => (
               <li key={p.key} data-part={p.key} className="grid gap-x-4 gap-y-1 sm:grid-cols-[250px_minmax(0,1fr)]">
@@ -141,7 +141,7 @@ export function ScoutCard({ campaign: c, onDismiss, busy, existing }: {
                   <p className="flex justify-between gap-2 text-sm">
                     {p.label}
                     <span className="text-muted-foreground tabular-nums">
-                      {points.format(p.points)} av {points.format(p.max)}
+                      {points.format(p.points)} of {points.format(p.max)}
                     </span>
                   </p>
                   <div className="mt-1 h-1 overflow-hidden rounded-full bg-line">
@@ -159,26 +159,26 @@ export function ScoutCard({ campaign: c, onDismiss, busy, existing }: {
         {c.join_url && (
           <a href={c.join_url} target="_blank" rel="noreferrer" className={buttonVariants({ className: "h-9 justify-start" })}>
             <ExternalLink aria-hidden />
-            Gå med
+            Join
           </a>
         )}
         {c.page_url && (
           <a href={c.page_url} target="_blank" rel="noreferrer" className={buttonVariants({ variant: "outline", className: "h-9 justify-start" })}>
             <ExternalLink aria-hidden />
-            Öppna kampanjen
+            Open the campaign
           </a>
         )}
         <Button variant="ghost" className="h-9 justify-start" disabled={busy} onClick={onDismiss}>
           <EyeOff aria-hidden />
-          Dölj
+          Hide
         </Button>
         {existing ? (
           <Link href={`/campaigns/${existing.name}`} className="px-2.5 pt-1 text-[13px] text-brand underline-offset-4 hover:underline">
-            Öppna {existing.streamer || existing.name}
+            Open {existing.streamer || existing.name}
           </Link>
         ) : (
           <Link href={newCampaignHref(c)} className="px-2.5 pt-1 text-[13px] text-brand underline-offset-4 hover:underline">
-            Lägg in kampanjen
+            Add the campaign
           </Link>
         )}
       </div>
@@ -194,16 +194,16 @@ export function ScoutMiniCard({ campaign: c }: { campaign: ScoutCampaign }) {
       data-ref={c.ref}
       className="flex gap-3.5 rounded-2xl border border-line bg-panel p-4 transition-colors hover:border-[#3a3a44] focus-visible:outline-2 focus-visible:outline-brand"
     >
-      <span className={cn("text-3xl leading-none font-extrabold tabular-nums", scoutTone(c.score))} aria-label={`Betyg ${c.score} av 100`}>
+      <span className={cn("text-3xl leading-none font-extrabold tabular-nums", scoutTone(c.score))} aria-label={`Score ${c.score} of 100`}>
         {c.score}
       </span>
       <span className="min-w-0 space-y-0.5">
         <span className="flex items-center gap-1.5">
           <span className="line-clamp-2 text-sm leading-snug font-medium break-words">{c.title}</span>
-          {isNew(c) && <Tag tone="shrink-0 bg-brand text-white">Ny</Tag>}
+          {isNew(c) && <Tag tone="shrink-0 bg-brand text-white">New</Tag>}
         </span>
         <span className="block truncate text-xs text-muted-foreground">
-          {[c.brand, c.rate_usd != null && `${usd.format(c.rate_usd)} per 1 000`].filter(Boolean).join(", ")}
+          {[c.brand, c.rate_usd != null && `${usd.format(c.rate_usd)} per 1,000`].filter(Boolean).join(", ")}
         </span>
       </span>
     </Link>

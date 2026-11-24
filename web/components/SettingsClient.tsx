@@ -34,7 +34,7 @@ function KeyField({ name, label, set, value, onChange, disabled }: {
           )}
         >
           {set ? <CheckCircle2 className="size-3" aria-hidden /> : <XCircle className="size-3" aria-hidden />}
-          {set ? "Sparad" : "Saknas"}
+          {set ? "Saved" : "Missing"}
         </span>
       </div>
       <div className="flex items-center rounded-lg border border-line bg-background focus-within:border-brand">
@@ -46,12 +46,12 @@ function KeyField({ name, label, set, value, onChange, disabled }: {
           disabled={disabled}
           autoComplete="off"
           spellCheck={false}
-          placeholder={set ? "Klistra in för att byta" : "Klistra in här"}
+          placeholder={set ? "Paste to replace" : "Paste here"}
           className="h-9 min-w-0 flex-1 bg-transparent px-2.5 font-mono text-sm outline-none placeholder:font-sans placeholder:text-muted-foreground"
         />
         <button
           type="button"
-          aria-label={`${show ? "Dölj" : "Visa"} ${label}`}
+          aria-label={`${show ? "Hide" : "Show"} ${label}`}
           aria-pressed={show}
           onClick={() => setShow(!show)}
           className="grid h-9 w-9 place-items-center text-muted-foreground hover:text-foreground"
@@ -67,7 +67,7 @@ function TestResult({ test }: { test: KeyTest }) {
   return test.ok ? (
     <p role="status" className="flex items-center gap-2 text-sm text-good">
       <CheckCircle2 className="size-4 shrink-0" aria-hidden />
-      Nycklarna fungerar.
+      The keys work.
     </p>
   ) : (
     <p role="alert" className="flex items-start gap-2 text-sm text-[#fca5a5]">
@@ -78,9 +78,9 @@ function TestResult({ test }: { test: KeyTest }) {
 }
 
 const TWITCH_STEPS = [
-  "Skapa en app med redirect-adressen http://localhost och typen Confidential.",
-  "Kopiera Client ID.",
-  "Tryck på New Secret och kopiera den.",
+  "Create an app with the redirect address http://localhost and the type Confidential.",
+  "Copy the Client ID.",
+  "Press New Secret and copy it.",
 ];
 
 /** Ett kort per grupp. Värdena finns bara i fälten tills de skickas, och fälten töms efter sparandet. */
@@ -105,7 +105,7 @@ function GroupCard({ group, onSaved, children }: { group: KeyGroup; onSaved: (gr
       if (result.test) setTest(result.test);
       onSaved(result.groups);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Det gick inte att spara nycklarna");
+      setError(err instanceof Error ? err.message : "Could not save the keys");
     } finally {
       setBusy(false);
     }
@@ -117,7 +117,7 @@ function GroupCard({ group, onSaved, children }: { group: KeyGroup; onSaved: (gr
     try {
       setTest(await api.campaign.keys.testTwitch());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Det gick inte att prova nycklarna");
+      setError(err instanceof Error ? err.message : "Could not test the keys");
     } finally {
       setTesting(false);
     }
@@ -130,7 +130,7 @@ function GroupCard({ group, onSaved, children }: { group: KeyGroup; onSaved: (gr
       {twitch && (
         <div className="mt-2 text-sm text-muted-foreground">
           <p>
-            Skapa nycklarna på{" "}
+            Create the keys at{" "}
             <a
               href="https://dev.twitch.tv/console/apps"
               target="_blank"
@@ -165,12 +165,12 @@ function GroupCard({ group, onSaved, children }: { group: KeyGroup; onSaved: (gr
       <div className="mt-4 flex flex-wrap gap-2">
         <Button className="h-9" disabled={busy || Object.keys(filled).length === 0} onClick={save}>
           {busy && <Loader2 className="animate-spin" aria-hidden />}
-          {busy ? "Sparar…" : "Spara"}
+          {busy ? "Saving…" : "Save"}
         </Button>
         {twitch && allSet && (
           <Button variant="outline" className="h-9" disabled={busy || testing} onClick={runTest}>
             {testing && <Loader2 className="animate-spin" aria-hidden />}
-            Prova nycklarna
+            Test the keys
           </Button>
         )}
       </div>
@@ -196,23 +196,23 @@ function SetupCard({ checks, error, loading, onRun }: {
 }) {
   const failing = checks?.filter((c) => !c.ok).length ?? 0;
   return (
-    <section aria-label="Kontroll" className="mt-4 rounded-2xl border border-line bg-panel p-5">
+    <section aria-label="Check" className="mt-4 rounded-2xl border border-line bg-panel p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Kontroll</h2>
+          <h2 className="text-lg font-semibold">Check</h2>
           <p className={cn("text-sm", !checks ? "text-muted-foreground" : failing ? "text-bad" : "text-good")}>
             {!checks
               ? loading
-                ? "Kontrollerar…"
-                : "Kontrollen kunde inte köras."
+                ? "Checking…"
+                : "The check could not run."
               : failing === 0
-                ? "Allt är klart. Du kan hämta klipp."
-                : `${failing} ${failing === 1 ? "sak behöver" : "saker behöver"} rättas.`}
+                ? "Everything is ready. You can get clips."
+                : `${failing} ${failing === 1 ? "thing needs" : "things need"} fixing.`}
           </p>
         </div>
         <Button variant="outline" className="h-9" disabled={loading} onClick={onRun}>
           {loading ? <Loader2 className="animate-spin" aria-hidden /> : <RefreshCw aria-hidden />}
-          Kör kontrollen igen
+          Run the check again
         </Button>
       </div>
       {error && (
@@ -225,9 +225,9 @@ function SetupCard({ checks, error, loading, onRun }: {
           {checks.map((c) => (
             <li key={c.id} data-check={c.id} data-ok={c.ok} className="flex gap-2.5">
               {c.ok ? (
-                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-good" aria-label="Fungerar" />
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-good" aria-label="Works" />
               ) : (
-                <XCircle className="mt-0.5 size-4 shrink-0 text-bad" aria-label="Behöver rättas" />
+                <XCircle className="mt-0.5 size-4 shrink-0 text-bad" aria-label="Needs fixing" />
               )}
               <div className="min-w-0">
                 <p className="text-sm font-medium">
@@ -254,8 +254,8 @@ function CheckLabel({ check }: { check: SetupCheck }) {
 }
 
 const ACCOUNT_GROUPS = [
-  { id: "tiktok", label: "TikTok", empty: "Inga TikTok-konton är kopplade." },
-  { id: "youtube_shorts", label: "YouTube", empty: "Inga YouTube-kanaler är kopplade.", anchor: "youtube" },
+  { id: "tiktok", label: "TikTok", empty: "No TikTok accounts are connected." },
+  { id: "youtube_shorts", label: "YouTube", empty: "No YouTube channels are connected.", anchor: "youtube" },
 ] as const;
 
 /** Alla kopplade konton på ett ställe: vilka som måste logga in igen och vilka kampanjer som har valt dem. */
@@ -266,21 +266,21 @@ function AccountsCard({ refresh }: { refresh: string }) {
     api.campaign
       .accounts()
       .then(setAccounts)
-      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte läsa kontona"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load the accounts"));
   }, [refresh]);
 
   const expired = accounts ? [...accounts.tiktok, ...accounts.youtube_shorts].filter((a) => !a.connected).length : 0;
   return (
-    <section id="konton" aria-label="Konton" className="mt-7 scroll-mt-24 rounded-2xl border border-line bg-panel p-5">
+    <section id="konton" aria-label="Accounts" className="mt-7 scroll-mt-24 rounded-2xl border border-line bg-panel p-5">
       <h2 className="text-lg font-semibold">Konton</h2>
       <p className="mt-0.5 max-w-[640px] text-sm text-muted-foreground">
-        Kontona som appen postar från. Vilka konton en kampanj får använda väljer du under kampanjens Ställ in.
+        The accounts the app posts from. You choose which accounts a campaign may use under the campaign's Set up.
       </p>
       {error && <p role="alert" className="mt-3 text-sm text-bad">{error}</p>}
-      {!accounts && !error && <p className="mt-3 text-sm text-muted-foreground">Läser kontona…</p>}
+      {!accounts && !error && <p className="mt-3 text-sm text-muted-foreground">Loading the accounts…</p>}
       {expired > 0 && (
         <p className="mt-3 text-sm text-warn">
-          {expired === 1 ? "Ett konto" : `${expired} konton`} måste logga in igen.
+          {expired === 1 ? "One account" : `${expired} accounts`} must log in again.
         </p>
       )}
       {accounts && (
@@ -303,7 +303,7 @@ function AccountGroup({ group, list }: { group: (typeof ACCOUNT_GROUPS)[number];
         <p className="mt-1 text-sm text-muted-foreground">
           {group.empty}{" "}
           <a href={`#${anchor}`} className="font-medium text-foreground underline underline-offset-4">
-            Koppla ett längre ner
+            Connect one further down
           </a>
         </p>
       ) : (
@@ -323,17 +323,17 @@ function AccountRow({ account: a, anchor }: { account: ConnectedAccount; anchor:
       <p className="flex flex-wrap items-baseline justify-between gap-x-3">
         <span className="font-medium">{a.name}</span>
         {a.connected ? (
-          <span className="text-xs text-good">Inloggad</span>
+          <span className="text-xs text-good">Logged in</span>
         ) : (
           <a href={`#${anchor}`} className="text-xs font-medium text-bad underline underline-offset-4">
-            Logga in igen
+            Log in again
           </a>
         )}
       </p>
       <p className="text-xs text-muted-foreground">
-        Används av:{" "}
+        Used by:{" "}
         {a.used_by.length === 0
-          ? "alla kampanjer som inte har valt egna konton"
+          ? "all campaigns that have not chosen their own accounts"
           : a.used_by.map((c, i) => (
               <span key={c.name}>
                 {i > 0 && ", "}
@@ -357,7 +357,7 @@ function SubmitHelperCard() {
     api.campaign.preferences
       .get()
       .then((p) => setOn(p.submit_helper))
-      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte läsa inställningen"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load the setting"));
   }, []);
 
   async function toggle() {
@@ -367,7 +367,7 @@ function SubmitHelperCard() {
     try {
       setOn((await api.campaign.preferences.save({ submit_helper: !on })).submit_helper);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunde inte spara inställningen");
+      setError(err instanceof Error ? err.message : "Could not save the setting");
     } finally {
       setBusy(false);
     }
@@ -378,10 +378,10 @@ function SubmitHelperCard() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h2 id="submit-helper" className="text-lg font-semibold">
-            Hjälp att skicka in i Content Rewards
+            Submit help in Content Rewards
           </h2>
           <p className="mt-0.5 max-w-[640px] text-sm text-muted-foreground">
-            Appen lägger in länken när ett klipp har laddats upp, kopierar den och öppnar kampanjen. Du trycker Skicka själv.
+            The app adds the link when a clip has been uploaded, copies it and opens the campaign. You press Submit yourself.
           </p>
         </div>
         <button
@@ -421,7 +421,7 @@ export function SettingsClient({ tiktokResult, tiktokReason }: { tiktokResult?: 
     api.campaign
       .setup()
       .then(({ checks }) => setChecks(checks))
-      .catch((err) => setSetupError(err instanceof Error ? err.message : "Kunde inte köra kontrollen"))
+      .catch((err) => setSetupError(err instanceof Error ? err.message : "Could not run the check"))
       .finally(() => setSetupLoading(false));
   }
 
@@ -429,16 +429,16 @@ export function SettingsClient({ tiktokResult, tiktokReason }: { tiktokResult?: 
     api.campaign.keys
       .list()
       .then(({ groups }) => setGroups(groups))
-      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte läsa nycklarna"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load the keys"));
     runSetup();
   }, []);
 
   return (
     <main className="w-full max-w-[1180px] px-6 py-9 md:px-11">
-      <h1 className="text-3xl font-bold tracking-tight">Inställningar</h1>
+      <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
       <p className="mt-1.5 max-w-[640px] text-muted-foreground">
-        Klistra in nycklarna här. Servern sparar dem i .env och använder dem direkt. De visas aldrig igen, bara om de är
-        sparade.
+        Paste the keys here. The server saves them in .env and uses them right away. They are never shown again, only whether they are
+        saved.
       </p>
       <AccountsCard refresh={groups?.map((g) => g.keys.map((k) => k.set).join()).join() ?? ""} />
       <SetupCard checks={checks} error={setupError} loading={setupLoading} onRun={runSetup} />
@@ -449,7 +449,7 @@ export function SettingsClient({ tiktokResult, tiktokReason }: { tiktokResult?: 
           {error}
         </p>
       )}
-      {!groups && !error && <p className="mt-6 text-sm text-muted-foreground">Läser nycklarna…</p>}
+      {!groups && !error && <p className="mt-6 text-sm text-muted-foreground">Loading the keys…</p>}
       {groups && (
         <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
           {groups.map((group) => (

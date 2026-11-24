@@ -61,9 +61,9 @@ export function StackedPreview({ src, webcam, gameplay, split, className, childr
       ) : (
         <div className="flex h-full flex-col">
           <div className="grid place-items-center border-b border-dashed border-line text-xs text-muted-foreground" style={{ height: `${split * 100}%` }}>
-            Kamera
+            Camera
           </div>
-          <div className="grid flex-1 place-items-center text-xs text-muted-foreground">Spel</div>
+          <div className="grid flex-1 place-items-center text-xs text-muted-foreground">Game</div>
         </div>
       )}
       {children}

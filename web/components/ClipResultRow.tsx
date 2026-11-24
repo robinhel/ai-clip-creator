@@ -35,9 +35,9 @@ const POSTED: CampaignClip["status"][] = ["postad", "inskickad", "analytics_insk
 // Hook först: de första sekunderna avgör om någon tittar vidare.
 const SUBSCORES: [keyof ClipSubscores, string][] = [
   ["hook", "Hook"],
-  ["engagement", "Engagemang"],
-  ["value", "Värde"],
-  ["shareability", "Delbarhet"],
+  ["engagement", "Engagement"],
+  ["value", "Value"],
+  ["shareability", "Shareability"],
 ];
 
 /** Färg efter betyg, som i skissen: grönt från 80, gult från 60. */
@@ -64,7 +64,7 @@ function ReviewNotes({ review }: { review: CampaignClip["review"] }) {
   if (notes.length === 0) return null;
   return (
     <details className="rounded-lg border border-line px-3 py-2 text-[13px] text-muted-foreground">
-      <summary className="cursor-pointer select-none hover:text-foreground">Bildgranskning ({notes.length})</summary>
+      <summary className="cursor-pointer select-none hover:text-foreground">Image review ({notes.length})</summary>
       <ul className="mt-1 list-disc space-y-0.5 pl-6">
         {notes.map((note) => (
           <li key={note}>{note}</li>
@@ -92,7 +92,7 @@ function NoticeList({ tone, title, items }: { tone: "error" | "warning"; title: 
           <details>
             <summary className="flex cursor-pointer items-center gap-1.5 select-none hover:text-warn [&::-webkit-details-marker]:hidden">
               <Icon className="size-3.5" aria-hidden />
-              {items.length} varningar, visa
+              {items.length} warnings, show
             </summary>
             {list}
           </details>
@@ -100,7 +100,7 @@ function NoticeList({ tone, title, items }: { tone: "error" | "warning"; title: 
           <>
             <p className="flex items-center gap-1.5">
               <Icon className="size-3.5" aria-hidden />
-              {items.length === 1 ? "Varning" : "Varningar"}
+              {items.length === 1 ? "Warning" : "Warnings"}
             </p>
             {list}
           </>
@@ -137,23 +137,23 @@ function Transcript({ clipId }: { clipId: number }) {
     api.campaign.clips
       .transcript(clipId)
       .then(setTranscript)
-      .catch((err) => setError(err instanceof Error ? err.message : "Kunde inte hämta transkriptet"));
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load the transcript"));
   }
 
   return (
     <details onToggle={(e) => load(e.currentTarget.open)} className="group">
       <summary className="cursor-pointer text-[13px] text-muted-foreground select-none hover:text-foreground">
-        Det han säger
+        What is said
       </summary>
       <div className="mt-1.5 max-h-48 overflow-y-auto text-sm leading-relaxed text-muted-foreground">
         {error ? (
           <p className="text-bad">{error}</p>
         ) : !transcript ? (
-          <p>Hämtar transkriptet…</p>
+          <p>Loading the transcript…</p>
         ) : transcript.text ? (
           <p className="whitespace-pre-line">{transcript.text}</p>
         ) : (
-          <p>Transkriptet saknas för det här klippet.</p>
+          <p>The transcript is missing for this clip.</p>
         )}
       </div>
     </details>
@@ -167,7 +167,7 @@ interface Props {
   formats: CampaignFormat[];
   /** Länk till projektet, för klipp som visas utanför projektsidan. */
   runId?: number;
-  /** Var klippet kommer ifrån, med länk. Visas i stället för länken Öppna projektet. */
+  /** Var klippet kommer ifrån, med länk. Visas i stället för länken Open the project. */
   source?: { label: string; href: string };
   /** Raden som tangenterna Y, N, E och C gäller. */
   active?: boolean;
@@ -185,8 +185,8 @@ interface Props {
 function Subscores({ subscores }: { subscores: ClipSubscores }) {
   return (
     <dl
-      aria-label="Claudes delpoäng"
-      title="Betyget är summan av delpoängen, justerat mot de andra klippen i samma video."
+      aria-label="Claude's subscores"
+      title="The score is the sum of the subscores, adjusted against the other clips in the same video."
       className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4"
     >
       {SUBSCORES.map(([key, label]) => {
@@ -216,19 +216,19 @@ function SourceLink({ source, runId }: { source?: { label: string; href: string 
   if (source) {
     return (
       <Link href={source.href} className={SOURCE_LINK}>
-        Från: {source.label}
+        From: {source.label}
       </Link>
     );
   }
   if (!runId) return null;
   return (
     <Link href={`/runs/${runId}`} className={SOURCE_LINK}>
-      Öppna projektet
+      Open the project
     </Link>
   );
 }
 
-/** Äldre servrar har en länk per klipp i stället för en lista med inlägg. canEdit: Ändra länk, bara i Klippen. */
+/** Äldre servrar har en länk per klipp i stället för en lista med inlägg. canEdit: Change link, bara i Klippen. */
 function LegacyLink({ clip, busy, canEdit, onSave }: {
   clip: CampaignClip;
   busy: boolean;
@@ -242,9 +242,9 @@ function LegacyLink({ clip, busy, canEdit, onSave }: {
   if (editing) {
     return (
       <div className="space-y-2 rounded-[10px] border border-line bg-panel p-3">
-        <NativeSelect aria-label="Plattform" value={platform} onChange={(e) => setPlatform(e.target.value as Platform | "")} disabled={busy}>
+        <NativeSelect aria-label="Platform" value={platform} onChange={(e) => setPlatform(e.target.value as Platform | "")} disabled={busy}>
           <option value="" disabled>
-            Plattform…
+            Platform…
           </option>
           {Object.entries(PLATFORM_LABEL).map(([id, label]) => (
             <option key={id} value={id}>
@@ -252,7 +252,7 @@ function LegacyLink({ clip, busy, canEdit, onSave }: {
             </option>
           ))}
         </NativeSelect>
-        <Input aria-label="Ny länk till det postade klippet" type="url" value={url} onChange={(e) => setUrl(e.target.value)} disabled={busy} />
+        <Input aria-label="New link to the posted clip" type="url" value={url} onChange={(e) => setUrl(e.target.value)} disabled={busy} />
         <div className="flex gap-2">
           <Button
             size="sm"
@@ -261,10 +261,10 @@ function LegacyLink({ clip, busy, canEdit, onSave }: {
               if (await onSave({ platform: platform as Platform, url: url.trim() })) setEditing(false);
             }}
           >
-            Spara länken
+            Save the link
           </Button>
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditing(false)}>
-            Avbryt
+            Cancel
           </Button>
         </div>
       </div>
@@ -273,7 +273,7 @@ function LegacyLink({ clip, busy, canEdit, onSave }: {
   if (!POSTED.includes(clip.status) || !clip.url) return null;
   return (
     <p className="flex flex-wrap items-center gap-1.5 text-sm">
-      <span className="text-muted-foreground">{clip.platform ? PLATFORM_LABEL[clip.platform] : "Postad"}:</span>
+      <span className="text-muted-foreground">{clip.platform ? PLATFORM_LABEL[clip.platform] : "Posted"}:</span>
       <a href={clip.url} target="_blank" rel="noreferrer" className="inline-flex min-w-0 items-center gap-1 break-all underline underline-offset-4">
         {clip.url}
         <ExternalLink className="size-3.5 shrink-0" aria-hidden />
@@ -288,7 +288,7 @@ function LegacyLink({ clip, busy, canEdit, onSave }: {
             setEditing(true);
           }}
         >
-          Ändra länk
+          Change link
         </button>
       )}
     </p>
@@ -312,15 +312,15 @@ function ReviewButtons({ clip, busy, block, onApprove, onReject }: {
           className="h-9 flex-1"
           variant="outline"
           disabled={busy || !waiting || !!block}
-          title={waiting ? block : "Rätta problemen först"}
+          title={waiting ? block : "Fix the problems first"}
           onClick={onApprove}
         >
           <ThumbsUp aria-hidden />
-          Ja
+          Yes
         </Button>
         <Button className="h-9 flex-1 text-muted-foreground" variant="outline" disabled={busy} onClick={onReject}>
           <ThumbsDown aria-hidden />
-          Nej
+          No
         </Button>
       </div>
       {waiting && block && <p className="text-xs text-muted-foreground">{block}.</p>}
@@ -333,7 +333,7 @@ function ElsewhereActions({ clip, busy, onUndo }: { clip: CampaignClip; busy: bo
   if (clip.status === "postad") {
     return (
       <Link href={`/queue?tab=skicka-in#klipp-${clip.id}`} className={buttonVariants({ variant: "outline", className: "h-9" })}>
-        Skicka in i Klippen
+        Submit in Clips
         <ArrowRight aria-hidden />
       </Link>
     );
@@ -343,14 +343,14 @@ function ElsewhereActions({ clip, busy, onUndo }: { clip: CampaignClip; busy: bo
     <div role="status" className="space-y-2 rounded-[10px] border border-[#174a2a] bg-[#0d1a12] p-3 text-sm">
       <p className="flex items-start gap-2 text-good">
         <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden />
-        Godkänt. Klippet ligger i Klippen, under Att posta.
+        Approved. The clip is in Clips, under Ready to post.
       </p>
       <Link href={`/queue?tab=posta#klipp-${clip.id}`} className={buttonVariants({ className: "h-9 w-full" })}>
-        Posta i Klippen
+        Post in Clips
         <ArrowRight aria-hidden />
       </Link>
       <Button className="w-full" size="sm" variant="ghost" disabled={busy} onClick={onUndo}>
-        Ångra godkännande
+        Undo approval
       </Button>
     </div>
   );
@@ -367,12 +367,12 @@ function MoreMenu({ clip, busy, onUndo, onReload }: {
     <details className="group rounded-lg border border-line">
       <summary className="flex h-9 cursor-pointer list-none items-center gap-2 px-3 text-sm text-muted-foreground select-none hover:text-foreground [&::-webkit-details-marker]:hidden">
         <MoreHorizontal className="size-4" aria-hidden />
-        Mer
+        More
       </summary>
       <div className="space-y-2 border-t border-line p-2">
         <VersionButton clip={clip} onCreated={onReload} />
         <Button className="w-full" size="sm" variant="ghost" disabled={busy} onClick={onUndo}>
-          Ångra godkännande
+          Undo approval
         </Button>
       </div>
     </details>
@@ -387,12 +387,12 @@ function RejectedFix({ clip, runId }: { clip: CampaignClip; runId?: number }) {
   if (hint) return <p className="text-sm text-muted-foreground">{hint}</p>;
   return (
     <p className="text-sm text-muted-foreground">
-      Rätta problemen och gör klippen kampanjklara igen
+      Fix the problems and make the clips campaign-ready again
       {runId ? (
         <>
-          {" "}på{" "}
+          {" "}on the{" "}
           <Link href={`/runs/${runId}`} className="underline underline-offset-4 hover:text-foreground">
-            projektsidan
+            project page
           </Link>
         </>
       ) : null}
@@ -460,7 +460,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
     try {
       setEditInfo(await api.campaign.clips.edit(clip.id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunde inte öppna redigeraren");
+      setError(err instanceof Error ? err.message : "Could not open the editor");
     } finally {
       setOpening(false);
     }
@@ -468,14 +468,14 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
 
   function handleEdited(updated: CampaignClip, trimmed: boolean, wordsChanged = false) {
     const parts = [
-      trimmed && "Klippet är trimmat.",
-      updated.title !== clip.title && "Titeln är ändrad.",
-      (updated.headline ?? "") !== (clip.headline ?? "") && "Texten i bilden är ändrad.",
-      wordsChanged && "Undertexten är rättad.",
+      trimmed && "The clip is trimmed.",
+      updated.title !== clip.title && "The title is changed.",
+      (updated.headline ?? "") !== (clip.headline ?? "") && "The on-screen text is changed.",
+      wordsChanged && "The subtitles are fixed.",
     ];
     const what = parts.filter(Boolean).join(" ");
-    const again = clip.status === "godkand" ? " Det var godkänt, så det behöver ett nytt ja." : "";
-    const result = updated.status === "underkand" ? " Regelkontrollen hittade problem, se nedan." : "";
+    const again = clip.status === "godkand" ? " It was approved, so it needs a new yes." : "";
+    const result = updated.status === "underkand" ? " The rule check found problems, see below." : "";
     editNotice.set(updated.id, { updated: updated.updated, text: `${what}${again}${result}` });
     setEditInfo(null);
     onUpdate(updated);
@@ -491,7 +491,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
       window.dispatchEvent(new Event(SUMMARY_CHANGED));
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Det gick inte att spara");
+      setError(err instanceof Error ? err.message : "Could not save");
       return false;
     } finally {
       setBusy(false);
@@ -510,21 +510,21 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
       window.dispatchEvent(new Event(SUMMARY_CHANGED));
       handleEdited(updated, false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Det gick inte att spara");
+      setError(err instanceof Error ? err.message : "Could not save");
       setBusy(false);
     }
   }
 
   const approve = () => patch(captionDirty ? { status: "godkand", caption } : { status: "godkand" });
   const approveBlock = hasProblems
-    ? "Klippet har problem som måste rättas först"
+    ? "The clip has problems that must be fixed first"
     : needsFormat
-      ? "Välj format först"
+      ? "Choose a format first"
       : undefined;
   const postBlock = hasProblems
-    ? "Klippet har problem som måste rättas först."
+    ? "The clip has problems that must be fixed first."
     : captionDirty || textDirty
-      ? "Spara eller ångra texten först."
+      ? "Save or undo the text first."
       : null;
 
   // Snabbgranskning med tangenterna. Samma skydd som knapparna: är knappen avstängd händer inget, och raden säger varför.
@@ -532,24 +532,24 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
   keyAction.current = (key) => {
     if (busy || opening) return;
     if (key === "y") {
-      if (clip.status !== "renderad") return setKeyHint(clip.status === "underkand" ? "Ja: rätta problemen först." : "Ja går bara för klipp som väntar på granskning.");
-      if (approveBlock) return setKeyHint(`Ja: ${approveBlock.toLowerCase()}.`);
+      if (clip.status !== "renderad") return setKeyHint(clip.status === "underkand" ? "Yes: fix the problems first." : "Yes only works for clips waiting for review.");
+      if (approveBlock) return setKeyHint(`Yes: ${approveBlock.toLowerCase()}.`);
       setKeyHint(null);
       approve();
     } else if (key === "n") {
-      if (clip.status !== "renderad" && clip.status !== "underkand") return setKeyHint("Nej går bara för klipp som väntar eller är underkända.");
+      if (clip.status !== "renderad" && clip.status !== "underkand") return setKeyHint("No only works for clips that are waiting or failed the check.");
       setKeyHint(null);
       patch({ status: "nekad" });
     } else if (key === "e") {
-      if (!EDITABLE.includes(clip.status)) return setKeyHint("Klippet går inte att redigera i den här statusen.");
+      if (!EDITABLE.includes(clip.status)) return setKeyHint("The clip cannot be edited in this status.");
       setKeyHint(null);
       openEditor();
     } else if (key === "c") {
-      if (!approved) return setKeyHint("Captionen går att kopiera först när klippet är godkänt.");
-      if (captionDirty) return setKeyHint("Spara eller ångra captionen först.");
+      if (!approved) return setKeyHint("The caption can be copied only when the clip is approved.");
+      if (captionDirty) return setKeyHint("Save or undo the caption first.");
       navigator.clipboard.writeText(clip.caption ?? "").then(
-        () => setKeyHint("Captionen är kopierad."),
-        () => setKeyHint("Webbläsaren lät inte appen kopiera.")
+        () => setKeyHint("The caption is copied."),
+        () => setKeyHint("The browser did not let the app copy.")
       );
     }
   };
@@ -572,17 +572,17 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
       data-active={active || undefined}
       className="relative scroll-mt-16 before:absolute before:inset-y-6 before:-left-4 before:w-[3px] before:rounded-full before:bg-brand before:opacity-0 data-active:before:opacity-100 grid grid-cols-[56px_minmax(0,1fr)] gap-x-4 gap-y-4 border-b border-line py-6 md:scroll-mt-4 lg:grid-cols-[56px_230px_minmax(0,1fr)_200px] lg:gap-x-5"
     >
-      <div className="row-span-2 pt-0.5 text-center" aria-label={clip.score == null ? "Inget betyg" : `Betyg ${clip.score} av 100`}>
+      <div className="row-span-2 pt-0.5 text-center" aria-label={clip.score == null ? "No score" : `Score ${clip.score} of 100`}>
         <p className={cn("text-[32px] leading-none font-extrabold tabular-nums", scoreTone(clip.score))}>
           {clip.score ?? "–"}
         </p>
-        <p className="mt-1 text-[11px] text-muted-foreground">{clip.score == null ? "inget betyg" : "betyg"}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">{clip.score == null ? "no score" : "score"}</p>
       </div>
 
       <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5 lg:col-span-3">
         <h3 className="text-[19px] leading-snug font-semibold break-words">
           {number != null && <span className="mr-2 font-normal text-muted-foreground tabular-nums">#{number}</span>}
-          {clip.title || <em className="text-muted-foreground">utan titel</em>}
+          {clip.title || <em className="text-muted-foreground">untitled</em>}
         </h3>
         {/* Klippets id, som trådarna säger "klipp 44" om. #1 ovan är ordningen i projektet. Två klipp kan ha samma titel. */}
         <span className="text-xs text-muted-foreground tabular-nums">Klipp {clip.id}</span>
@@ -601,7 +601,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
           playsInline
           preload="metadata"
           className="h-full w-full object-contain"
-          aria-label={`Klipp: ${clip.title}`}
+          aria-label={`Clip: ${clip.title}`}
         />
         {length != null && (
           <span className="pointer-events-none absolute top-2 right-2 rounded-md bg-black/70 px-1.5 text-xs tabular-nums">
@@ -638,7 +638,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
               onChange={(e) => patch({ format: e.target.value })}
             >
               <option value="" disabled>
-                Välj format…
+                Choose format…
               </option>
               {formats.map((f) => (
                 <option key={f.id} value={f.id}>
@@ -654,22 +654,22 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
           <>
             <TextField
               id={`bildtext-${clip.id}`}
-              label="Text i bilden"
+              label="On-screen text"
               value={headline}
               max={HEADLINE_MAX}
               onChange={setHeadline}
               disabled={busy}
-              placeholder="Samma som titeln"
-              hint="Kräver kampanjen ingen egen text, står den här texten överst i bilden under hela klippet. Tomt fält: titeln står där."
+              placeholder="Same as the title"
+              hint="If the campaign does not require its own text, this text shows at the top of the frame for the whole clip. Empty field: the title shows there."
             />
             <TextField
               id={`rubrik-${clip.id}`}
-              label="Titel"
+              label="Title"
               value={title}
               max={TITLE_MAX}
               onChange={setTitle}
               disabled={busy}
-              hint="Första raden i captionen. Ny titel bygger om captionen från kampanjens mall, om du inte har skrivit den själv."
+              hint="The first line of the caption. A new title rebuilds the caption from the campaign's template, unless you wrote it yourself."
             />
           </>
         )}
@@ -699,11 +699,11 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
             />
           ) : (
             <p id={`caption-${clip.id}`} className="rounded-[10px] border border-line bg-panel px-3 py-2.5 text-sm break-words whitespace-pre-line">
-              {clip.caption || <span className="text-muted-foreground">Ingen caption än.</span>}
+              {clip.caption || <span className="text-muted-foreground">No caption yet.</span>}
             </p>
           )}
           {editing && clip.status === "godkand" && (
-            <p className="text-xs text-muted-foreground">Ändrar du texten måste klippet godkännas igen. Schemalagda uppladdningar avbryts.</p>
+            <p className="text-xs text-muted-foreground">If you change the text, the clip must be approved again. Scheduled uploads are cancelled.</p>
           )}
           {editing && (
             <div className="flex flex-wrap gap-2">
@@ -713,7 +713,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
                 onClick={saveText}
               >
                 {busy && <Loader2 className="animate-spin" aria-hidden />}
-                Spara
+                Save
               </Button>
               <Button
                 size="sm"
@@ -726,7 +726,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
                   setEditing(false);
                 }}
               >
-                Ångra
+                Undo
               </Button>
             </div>
           )}
@@ -741,12 +741,12 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
           {!hasProblems && (
             <span className="inline-flex items-center gap-1 rounded-full border border-[#174a2a] px-2 py-0.5 text-good">
               <CheckCircle2 className="size-3" aria-hidden />
-              Regelkontrollen är grön
+              The rule check is green
             </span>
           )}
         </div>
-        <NoticeList tone="error" title="Regelkontrollen hittade problem" items={clip.problems} />
-        <NoticeList tone="warning" title="Varningar" items={clip.warnings} />
+        <NoticeList tone="error" title="The rule check found problems" items={clip.problems} />
+        <NoticeList tone="warning" title="Warnings" items={clip.warnings} />
         <ReviewNotes review={clip.review} />
         {posting?.campaign && approved && <CampaignRules detail={posting.campaign} />}
 
@@ -770,7 +770,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
           <>
             <Button className="h-9 justify-start" variant="outline" disabled={busy || opening} onClick={openEditor}>
               {opening ? <Loader2 className="animate-spin" aria-hidden /> : <Scissors aria-hidden />}
-              Redigera
+              Edit
             </Button>
             {editInfo && (
               <ClipEditor clip={clip} info={editInfo} open onOpenChange={(o) => !o && setEditInfo(null)} onSaved={handleEdited} />
@@ -780,7 +780,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
         {canEditCaption && !editing && !elsewhere && (
           <Button className="h-9 justify-start" variant="outline" disabled={busy} onClick={() => setEditing(true)}>
             <Pencil aria-hidden />
-            Ändra rubrik och caption
+            Edit headline and caption
           </Button>
         )}
         {approved && posting && (
@@ -788,7 +788,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
             {/* Kopiera alltid den sparade captionen, den som regelkontrollen har godkänt. */}
             <CopyButton
               text={clip.caption ?? ""}
-              label={captionDirty ? "Spara först" : "Kopiera caption"}
+              label={captionDirty ? "Save first" : "Copy caption"}
               disabled={captionDirty}
               className="h-9 justify-start"
             />
@@ -798,7 +798,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
               className={buttonVariants({ variant: "outline", className: "h-9 justify-start" })}
             >
               <Download aria-hidden />
-              Ladda ner
+              Download
             </a>
           </>
         )}
@@ -814,16 +814,16 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
           <>
             <Button className="h-auto min-h-9 py-2 whitespace-normal" disabled={busy} onClick={() => patch({ status: "inskickad" })}>
               <Send aria-hidden />
-              Inskickad i Content Rewards
+              Submitted in Content Rewards
             </Button>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => patch({ status: "godkand" })}>
-              Ångra postning
+              Undo posting
             </Button>
           </>
         )}
         {clip.status === "nekad" && (
           <Button className="h-9 justify-start" variant="outline" disabled={busy} onClick={() => patch({ status: "renderad" })}>
-            Ångra nej
+            Undo no
           </Button>
         )}
 

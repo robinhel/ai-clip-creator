@@ -39,7 +39,7 @@ export function WhenField({ value, onChange }: { value: string; onChange: (value
   const at = stockholmIso(value);
   return (
     <label className="block">
-      <span className="text-[13px] text-muted-foreground">Datum och tid, svensk tid</span>
+      <span className="text-[13px] text-muted-foreground">Date and time, Swedish time</span>
       <input
         type="datetime-local"
         value={value}
@@ -49,7 +49,7 @@ export function WhenField({ value, onChange }: { value: string; onChange: (value
       {at && (
         <span className="mt-1.5 flex items-center gap-1.5 text-sm text-foreground">
           <CalendarClock className="size-4 text-brand" aria-hidden />
-          {long.format(new Date(at))} svensk tid
+          {long.format(new Date(at))} Swedish time
         </span>
       )}
     </label>
@@ -58,12 +58,12 @@ export function WhenField({ value, onChange }: { value: string; onChange: (value
 
 /** "Schemalagt 3 feb. 18:30 på YouTube", "Påminnelse …" eller "Laddas upp nu …". */
 export function scheduleText(post: ScheduledPost): string {
-  if (post.status === "running") return `Laddas upp nu på ${PLATFORM_NAME[post.platform]}`;
-  if (post.reminder) return `Påminnelse ${atText(post.at)} att posta på ${PLATFORM_NAME[post.platform]}`;
-  return `Schemalagt ${atText(post.at)} på ${PLATFORM_NAME[post.platform]}`;
+  if (post.status === "running") return `Uploading now to ${PLATFORM_NAME[post.platform]}`;
+  if (post.reminder) return `Reminder ${atText(post.at)} to post on ${PLATFORM_NAME[post.platform]}`;
+  return `Scheduled ${atText(post.at)} on ${PLATFORM_NAME[post.platform]}`;
 }
 
-/** Klippets väntande poster i klippraden, var och en med Avbryt. */
+/** Klippets väntande poster i klippraden, var och en med Cancel. */
 export function ScheduleLines({ pending, onChange }: { pending: ScheduledPost[]; onChange: () => void }) {
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -76,14 +76,14 @@ export function ScheduleLines({ pending, onChange }: { pending: ScheduledPost[];
       await api.campaign.schedule.cancel(id);
       onChange();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunde inte avbryta posten");
+      setError(err instanceof Error ? err.message : "Could not cancel the post");
     } finally {
       setBusy(null);
     }
   }
 
   return (
-    <ul aria-label="Schemalagt" className="space-y-1.5">
+    <ul aria-label="Scheduled" className="space-y-1.5">
       {pending.map((p) => (
         <li key={p.id} data-schedule-for={p.clip_id} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-xs">
           {p.reminder ? <BellRing className="size-3.5 shrink-0 text-warn" aria-hidden /> : <CalendarClock className="size-3.5 shrink-0 text-brand" aria-hidden />}
@@ -96,10 +96,10 @@ export function ScheduleLines({ pending, onChange }: { pending: ScheduledPost[];
               className="inline-flex items-center gap-1 text-muted-foreground underline underline-offset-4 hover:text-foreground disabled:opacity-50"
             >
               {busy === p.id && <Loader2 className="size-3 animate-spin" aria-hidden />}
-              Avbryt
+              Cancel
             </button>
           )}
-          {p.reminder && <span className="w-full text-muted-foreground">Appen postar inte själv. Du får en notis på Macen vid tiden.</span>}
+          {p.reminder && <span className="w-full text-muted-foreground">The app does not post by itself. You get a notification on the Mac at that time.</span>}
         </li>
       ))}
       {error && (

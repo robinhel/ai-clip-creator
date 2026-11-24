@@ -51,9 +51,9 @@ export function ScoutClient({ campaigns = null }: { campaigns?: CampaignProfile[
         setStatus(next);
         if (next.updated_at !== status?.updated_at || next.error !== status?.error) return;
       }
-      setRefreshError("Kontrollen tar längre tid än vanligt. Listan läses om nästa gång du öppnar sidan.");
+      setRefreshError("The check takes longer than usual. The list reloads the next time you open the page.");
     } catch (err) {
-      setRefreshError(err instanceof Error ? err.message : "Kunde inte starta kontrollen");
+      setRefreshError(err instanceof Error ? err.message : "Could not start the check");
     } finally {
       setRefreshing(false);
     }
@@ -67,50 +67,50 @@ export function ScoutClient({ campaigns = null }: { campaigns?: CampaignProfile[
       setHidden(dismissed ? c : null);
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Kunde inte ändra kampanjen");
+      setError(err instanceof Error ? err.message : "Could not change the campaign");
     } finally {
       setBusy(null);
     }
   }
 
   return (
-    <section aria-label="Nya kampanjer">
+    <section aria-label="New campaigns">
       <p className="max-w-[640px] text-muted-foreground">
-        Nya clipping-kampanjer från ClippingAlpha med betyg. Mest väger hur många visningar klipp av kampanjens innehåll
-        brukar få. Sedan kommer färska kampanjer med få klippare, låg gräns för betalning och budget som räcker. Lägg in
-        kampanjen fyller i Ny kampanj åt dig.
+        New clipping campaigns from ClippingAlpha with scores. What weighs most is how many views clips of the campaign's content
+        usually get. Then come fresh campaigns with few clippers, a low payment limit and budget that lasts. Add the
+        campaign fills in New campaign for you.
       </p>
 
       {off && !status && (
         <p role="alert" className="mt-7 rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted-foreground">
-          Appens server svarar inte, så listan går inte att läsa. Starta servern och läs om sidan.
+          The app server is not responding, so the list cannot be read. Start the server and reload the page.
         </p>
       )}
-      {!status && !off && <p className="mt-7 text-sm text-muted-foreground">Läser listan…</p>}
+      {!status && !off && <p className="mt-7 text-sm text-muted-foreground">Loading the list…</p>}
 
       {status && (
         <>
           <section
-            aria-label="Läget för bevakningen"
+            aria-label="Scout status"
             className="mt-7 flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-line bg-panel px-5 py-4"
           >
             <dl className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
               <div>
-                <dt className="text-xs text-muted-foreground">Senast kontrollerad</dt>
-                <dd className="tabular-nums">{status.updated_at ? when.format(serverTime(status.updated_at)) : "Inte än"}</dd>
+                <dt className="text-xs text-muted-foreground">Last checked</dt>
+                <dd className="tabular-nums">{status.updated_at ? when.format(serverTime(status.updated_at)) : "Not yet"}</dd>
               </div>
               <div>
-                <dt className="text-xs text-muted-foreground">Hämtningar i dag</dt>
-                <dd className="tabular-nums" title="ClippingAlpha tillåter ett visst antal hämtningar per dag.">
-                  {status.calls_today} av högst {status.call_limit}
+                <dt className="text-xs text-muted-foreground">Fetches today</dt>
+                <dd className="tabular-nums" title="ClippingAlpha allows a certain number of fetches per day.">
+                  {status.calls_today} of at most {status.call_limit}
                 </dd>
               </div>
               <div>
-                <dt className="text-xs text-muted-foreground">Dina vanliga visningar per klipp</dt>
-                <dd className="tabular-nums" title="Betyget räknar med att ett klipp får så många visningar.">
+                <dt className="text-xs text-muted-foreground">Your typical views per clip</dt>
+                <dd className="tabular-nums" title="The score assumes a clip gets that many views.">
                   {views.format(status.median_views)}{" "}
                   <span className="text-muted-foreground">
-                    ({status.median_source === "dina inlägg" ? "från dina inlägg" : "uppskattat, inga inlägg än"})
+                    ({status.median_source === "dina inlägg" ? "from your posts" : "estimated, no posts yet"})
                   </span>
                 </dd>
               </div>
@@ -118,7 +118,7 @@ export function ScoutClient({ campaigns = null }: { campaigns?: CampaignProfile[
             <div className="space-y-1.5 text-right">
               <Button variant="outline" className="h-9" disabled={refreshing} onClick={refresh}>
                 {refreshing ? <Loader2 className="animate-spin" aria-hidden /> : <RefreshCw aria-hidden />}
-                {refreshing ? "Kontrollerar…" : "Kontrollera nu"}
+                {refreshing ? "Checking…" : "Check now"}
               </Button>
               {refreshError && <p className="text-xs text-muted-foreground">{refreshError}</p>}
             </div>
@@ -129,16 +129,16 @@ export function ScoutClient({ campaigns = null }: { campaigns?: CampaignProfile[
             )}
             {!status.enabled && (
               <p className="w-full text-xs text-muted-foreground">
-                Listan kontrolleras inte av sig själv, eftersom KLIPP_SCOUT=0 står i .env. Tryck Kontrollera nu.
+                The list is not checked automatically, because KLIPP_SCOUT=0 is set in .env. Press Check now.
               </p>
             )}
           </section>
 
           {hidden && (
             <p role="status" className="mt-4 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              {hidden.title} är dold.
+              {hidden.title} is hidden.
               <Button variant="ghost" className="h-8" disabled={busy === hidden.ref} onClick={() => setDismissed(hidden, false)}>
-                Ångra
+                Undo
               </Button>
             </p>
           )}
@@ -151,7 +151,7 @@ export function ScoutClient({ campaigns = null }: { campaigns?: CampaignProfile[
           {/* Vid fel visas bara felet, inte också att listan är tom. */}
           {status.campaigns.length === 0 && !status.error ? (
             <p className="mt-6 rounded-2xl border border-dashed border-line px-4 py-10 text-center text-sm text-muted-foreground">
-              Inga nya kampanjer än. Listan kontrolleras var 10:e minut.
+              No new campaigns yet. The list is checked every 10 minutes.
             </p>
           ) : (
             <div className="mt-6 space-y-3">
@@ -170,7 +170,7 @@ export function ScoutClient({ campaigns = null }: { campaigns?: CampaignProfile[
           {status.excluded.length > 0 && (
             <details className="mt-8">
               <summary className="cursor-pointer text-sm text-muted-foreground select-none hover:text-foreground">
-                Bortsorterade ({status.excluded.length})
+                Filtered out ({status.excluded.length})
               </summary>
               <ul className="mt-3 divide-y divide-line rounded-2xl border border-line bg-panel px-5">
                 {status.excluded.map((c) => (
