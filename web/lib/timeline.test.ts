@@ -44,10 +44,11 @@ describe("timelineLayout", () => {
   const layout = timelineLayout(data, { width: 1000, height: 100 });
 
   it("maps time to x over the whole width", () => {
-    expect(layout.x(0)).toBe(0);
-    expect(layout.x(13_950)).toBe(1000);
-    expect(layout.x(6975)).toBe(500);
-    expect(layout.x(20_000)).toBe(1000); // after the end stays at the edge
+    expect(layout.ticks[0].x).toBe(0);
+    expect(layout.ticks[1].x).toBeCloseTo((1800 / 13_950) * 1000);
+    expect(layout.picks[0].x).toBeCloseTo((600 / 13_950) * 1000);
+    const late = layout.picks[1];
+    expect(late.x + late.width).toBe(1000); // a pick that ends after the VOD stops at the edge
   });
 
   it("puts the highest chat density at the top and closes the area at the bottom", () => {

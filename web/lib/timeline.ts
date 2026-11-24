@@ -40,7 +40,6 @@ export interface PickBox {
 }
 
 export interface TimelineLayout {
-  x: (t: number) => number;
   chatLine: string;
   chatArea: string;
   audioLine: string;
@@ -80,7 +79,7 @@ function line(points: [number, number][], x: (t: number) => number, height: numb
 export function timelineLayout(data: Timeline, { width, height }: { width: number; height: number }): TimelineLayout {
   const d = data.duration_s;
   const x = (t: number) => (d > 0 ? (Math.min(Math.max(t, 0), d) / d) * width : 0);
-  if (d <= 0) return { x, chatLine: "", chatArea: "", audioLine: "", hype: [], viewerClips: [], picks: [], ticks: [] };
+  if (d <= 0) return { chatLine: "", chatArea: "", audioLine: "", hype: [], viewerClips: [], picks: [], ticks: [] };
 
   const chatLine = line(data.chat_density, x, height);
   const chat = data.chat_density;
@@ -114,7 +113,6 @@ export function timelineLayout(data: Timeline, { width, height }: { width: numbe
   }
 
   return {
-    x,
     chatLine,
     chatArea,
     audioLine: line(data.audio_energy, x, height),

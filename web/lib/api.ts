@@ -53,7 +53,8 @@ import { DEMO, DEMO_OFF, demoFetch, picture } from "./demo";
 
 // JSON API calls go through the Next.js rewrite proxy (/api/* → FastAPI).
 // This avoids CORS and removes the need for NEXT_PUBLIC_API_BASE in the browser.
-const PROXY = "/api";
+// In the demo mode the server's paths (video_url, overlay.url and so on) point at files in public/, served from the root.
+const PROXY = DEMO ? "" : "/api";
 
 // Inloggningen på TikTok öppnas direkt mot servern, inte via proxyn: TikTok leder tillbaka till :8000.
 const DIRECT = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
@@ -277,12 +278,11 @@ export const api = {
       testTwitch: () => apiFetch<KeyTest>("/campaign/keys/test/twitch", { method: "POST" }),
     },
     /** En sökväg från servern (till exempel overlay.url) via proxyn. */
-    proxied: (path: string) => (DEMO ? path : `${PROXY}${path}`),
-    videoUrl: (clip: CampaignClip) => (DEMO ? clip.video_url : `${PROXY}${clip.video_url}`),
-    posterUrl: (clip: CampaignClip) => (clip.poster_url ? (DEMO ? clip.poster_url : `${PROXY}${clip.poster_url}`) : undefined),
+    proxied: (path: string) => `${PROXY}${path}`,
+    videoUrl: (clip: CampaignClip) => `${PROXY}${clip.video_url}`,
+    posterUrl: (clip: CampaignClip) => (clip.poster_url ? `${PROXY}${clip.poster_url}` : undefined),
     // video_url kan redan ha en fråga (?v=… efter en redigering).
-    downloadUrl: (clip: CampaignClip) =>
-      DEMO ? clip.video_url : `${PROXY}${clip.video_url}${clip.video_url.includes("?") ? "&" : "?"}download=1`,
+    downloadUrl: (clip: CampaignClip) => `${PROXY}${clip.video_url}${clip.video_url.includes("?") ? "&" : "?"}download=1`,
     // --- Kampanjen som nav (kontrakt-chatt.md): material, kampanjens klipp och chatten. ---
     material: (id: string) => apiFetch<MaterialItem[]>(`/campaign/profiles/${id}/material`),
     /** Källans video med Range-stöd, för att spela en träff. */
