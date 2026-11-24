@@ -35,6 +35,8 @@ export interface PickBox {
   time: string;
   /** Picks in the right part of the VOD have their label to the left, so that it stays inside. */
   anchor: "start" | "end";
+  /** False when the label would run into another one; the title then shows on hover. */
+  showLabel: boolean;
 }
 
 export interface TimelineLayout {
@@ -51,6 +53,10 @@ export interface TimelineLayout {
 const TICK_STEPS = [60, 300, 600, 900, 1800, 3600, 7200, 14_400];
 const MAX_TICKS = 8;
 const MIN_PICK_WIDTH = 4;
+// A label is about 6.5 px per letter in a plot about 900 px wide, at most 22 % of it (max-w-[22%]).
+const LABEL_UNITS_PER_CHAR = 7.2;
+const LABEL_MAX = 0.22;
+const LABEL_GAP = 12;
 
 /** "h:mm", as on the time axis. */
 export function hm(seconds: number): string {
@@ -94,8 +100,18 @@ export function timelineLayout(data: Timeline, { width, height }: { width: numbe
       title: p.title,
       time: `${hms(p.start_s)}–${hms(p.end_s)}`,
       anchor: left + w / 2 > width * 0.7 ? "end" : "start",
+      showLabel: true,
     };
   });
+  // Left to right: a label that overlaps one already shown is hidden.
+  const shown: [number, number][] = [];
+  for (const p of [...picks].sort((a, b) => a.x - b.x)) {
+    const w = Math.min(p.title.length * LABEL_UNITS_PER_CHAR, width * LABEL_MAX);
+    const from = p.anchor === "start" ? p.x : p.x + p.width - w;
+    const span: [number, number] = [from - LABEL_GAP, from + w + LABEL_GAP];
+    p.showLabel = !shown.some(([a, b]) => span[0] < b && a < span[1]);
+    if (p.showLabel) shown.push(span);
+  }
 
   return {
     x,

@@ -77,6 +77,18 @@ describe("timelineLayout", () => {
     expect(late.title).toBe("Right at the end");
   });
 
+  it("shows a label only when it does not run into the label before it", () => {
+    const close = timelineLayout(
+      { ...data, picks: [
+        { start_s: 12_400, end_s: 12_430, title: "Jump scare in the vault" },
+        { start_s: 13_880, end_s: 13_925, title: "Last-second extract" },
+        { start_s: 600, end_s: 640, title: "Early" },
+      ] },
+      { width: 1000, height: 100 }
+    );
+    expect(close.picks.map((p) => p.showLabel)).toEqual([true, false, true]);
+  });
+
   it("draws nothing for a VOD without a length", () => {
     const none = timelineLayout(empty, { width: 1000, height: 100 });
     expect(none.chatArea).toBe("");

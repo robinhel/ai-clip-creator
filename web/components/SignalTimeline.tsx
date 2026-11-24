@@ -81,7 +81,7 @@ export function TimelineChart({ data }: { data: Timeline }) {
           {layout.chatArea && <path d={layout.chatArea} fill="url(#chat-fill)" />}
           {layout.chatLine && <path d={layout.chatLine} fill="none" stroke="#7c5cff" strokeWidth={2} vectorEffect="non-scaling-stroke" />}
           {layout.audioLine && (
-            <path d={layout.audioLine} fill="none" stroke="#38bdf8" strokeWidth={1.25} opacity={0.8} vectorEffect="non-scaling-stroke" />
+            <path d={layout.audioLine} fill="none" stroke="#38bdf8" strokeWidth={1.25} opacity={0.7} vectorEffect="non-scaling-stroke" />
           )}
           {layout.picks.map((p, i) => (
             <rect
@@ -117,7 +117,8 @@ export function TimelineChart({ data }: { data: Timeline }) {
           <span
             key={i}
             className={cn(
-              "absolute top-0.5 hidden max-w-[22%] truncate text-[11px] text-[#c9b6ff] sm:block",
+              "absolute top-0.5 hidden max-w-[22%] truncate text-[11px] text-[#c9b6ff]",
+              p.showLabel && "sm:block",
               hover != null && hover !== i && "opacity-40"
             )}
             style={p.anchor === "start" ? { left: `${(p.x / W) * 100}%` } : { right: `${100 - ((p.x + p.width) / W) * 100}%` }}
