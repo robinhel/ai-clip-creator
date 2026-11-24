@@ -401,7 +401,7 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
       {clips === null && !error && <p className="mt-6 text-sm text-muted-foreground">Loading clips…</p>}
 
       {clips && tab === "granska" && (
-        <div role="group" aria-label="Visa" className="mt-4 inline-flex overflow-hidden rounded-lg border border-line text-sm">
+        <div role="group" aria-label="Show" className="mt-4 inline-flex overflow-hidden rounded-lg border border-line text-sm">
           {[false, true].map((rej) => (
             <button
               key={String(rej)}

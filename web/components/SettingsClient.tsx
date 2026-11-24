@@ -272,7 +272,7 @@ function AccountsCard({ refresh }: { refresh: string }) {
   const expired = accounts ? [...accounts.tiktok, ...accounts.youtube_shorts].filter((a) => !a.connected).length : 0;
   return (
     <section id="konton" aria-label="Accounts" className="mt-7 scroll-mt-24 rounded-2xl border border-line bg-panel p-5">
-      <h2 className="text-lg font-semibold">Konton</h2>
+      <h2 className="text-lg font-semibold">Accounts</h2>
       <p className="mt-0.5 max-w-[640px] text-sm text-muted-foreground">
         The accounts the app posts from. You choose which accounts a campaign may use under the campaign's Set up.
       </p>
