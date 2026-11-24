@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from campaign import api
 from campaign.cliplog import ClipLog
+from campaign.rules import NO_FORMAT
 
 from .conftest import PAKET, make_clip, make_overlay, needs_ffmpeg
 
@@ -74,9 +75,10 @@ def test_approving_needs_a_format_from_the_campaign(client, settings) -> None:
     assert response.json()["format"] == "funny"
 
 
-def test_the_format_warning_goes_away_when_the_format_is_chosen(client, settings) -> None:
+# Den nya texten, och den svenska som klipp från före översättningen har i klipp.db.
+@pytest.mark.parametrize("no_format", [NO_FORMAT, "Klippet har inget format ännu. Välj ett när du godkänner."])
+def test_the_format_warning_goes_away_when_the_format_is_chosen(client, settings, no_format) -> None:
     log = ClipLog(settings.data_dir / "klipp.db")
-    no_format = "Klippet har inget format ännu. Välj ett när du godkänner."
     clip_id = log.add(vod_id="123", profile="skiimasktimmy", file=str(settings.out_dir / "123" / "a.mp4"),
                       title="No way", caption=CAPTION, status="renderad", warnings=[no_format, "Annat"])
     assert client.get("/campaign/clips").json()[0]["warnings"] == [no_format, "Annat"]

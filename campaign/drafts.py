@@ -37,7 +37,7 @@ from .config import Settings
 from .finish import ENCODER_ARGS, HEIGHT, WIDTH, _overlay_used, build_filter, finish_clip
 from .media import find_font, need, probe, run
 from .profile import Profile
-from .rules import check_clip
+from .rules import TOO_SHORT, check_clip
 from .versions import VersionError
 
 VIDEO_TYPES = (".mp4", ".mov", ".m4v", ".webm", ".mkv")
@@ -151,7 +151,7 @@ def comma(value: float, fmt: str) -> str:
 
 def with_advice(problems: list[str]) -> list[str]:
     """En egen video går inte att göra kampanjklar igen: säg vad Robin kan göra i stället."""
-    return [f"{p} Ladda upp en längre video eller tryck Nej." if "Kampanjen kräver minst" in p else p for p in problems]
+    return [f"{p} Upload a longer video or press No." if TOO_SHORT in p else p for p in problems]
 
 
 def _span(choices: Choices, duration: float) -> tuple[float, float]:

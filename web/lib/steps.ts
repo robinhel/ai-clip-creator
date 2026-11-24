@@ -1,3 +1,4 @@
+import { englishProblem, isOldCaptionProblem } from "./oldProblems";
 import type { CampaignClip, CampaignStatus } from "./types";
 
 /** Flikarna i Klippen, som de står i adressen (?tab=). */
@@ -56,10 +57,11 @@ export function bySubmitTime(now = Date.now()) {
   return (a: CampaignClip, b: CampaignClip) => key(a) - key(b) || 0;
 }
 
-// Texterna från serverns regelkontroll (rules.py och caption.py). Talen jämförs inte: gamla klipp har punkt, nya komma.
-const isCaption = (p: string) => p.startsWith("Captionen ");
-const isShort = (p: string) => p.includes("Kampanjen kräver minst");
-const LONG = /Profilens tak är ([\d.,]+) s/;
+// Texterna från serverns regelkontroll (rules.py och caption.py). Gamla klipp har svensk text: englishProblem
+// gör om den först, så de gamla mönstren finns bara i oldProblems.ts. Talen kan ha punkt eller komma.
+const isCaption = (p: string) => p.startsWith("Caption ") || isOldCaptionProblem(p);
+const isShort = (p: string) => englishProblem(p).includes("The campaign requires at least");
+const LONG = /The campaign allows at most ([\d.,]+) s/;
 
 /** Hur Robin rättar ett underkänt klipp. caption: felet är bara i captionen. kort: klippet kan inte bli längre, för
  * Redigera kortar bara. lang: korta klippet med Redigera till högst max sekunder, och rätta captionen om caption.
@@ -69,7 +71,7 @@ export type ClipFix = { kind: "caption" | "kort" | "projekt" } | { kind: "lang";
 /** Längden, när den är det enda felet utöver captionen. */
 function lengthFix(others: string[], caption: boolean): ClipFix | undefined {
   if (others.length !== 1) return undefined;
-  const long = LONG.exec(others[0]);
+  const long = LONG.exec(englishProblem(others[0]));
   if (long) return { kind: "lang", max: long[1].replace(",", "."), caption };
   if (isShort(others[0])) return { kind: "kort" };
 }
@@ -81,7 +83,7 @@ export function rejectedFix(clip: Pick<CampaignClip, "status" | "vod_id" | "prob
   if (clip.problems.length > 0 && others.length === 0) return { kind: "caption" };
   const fix = lengthFix(others, others.length < clip.problems.length) ?? { kind: "projekt" };
   // En egen video har ingen projektsida. Är den för kort, säger felet från servern redan
-  // "Ladda upp en längre video eller tryck Nej." Redigera finns för den också.
+  // "Upload a longer video or press No." Redigera finns för den också.
   return clip.vod_id === "upload" && fix.kind !== "lang" ? null : fix;
 }
 

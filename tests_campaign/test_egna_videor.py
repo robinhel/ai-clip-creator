@@ -290,9 +290,9 @@ def test_a_sticker_at_the_top_goes_below_the_burned_in_title(client, extras, tmp
 
 
 @needs_ffmpeg
-def test_a_too_short_video_says_what_to_do_with_a_decimal_comma(client, tmp_path) -> None:
+def test_a_too_short_video_says_what_to_do(client, tmp_path) -> None:
     clip = _upload(client, make_clip(tmp_path / "kort.mp4", seconds=2), speed="1.2").json()
     assert clip["status"] == "underkand"
     [problem] = clip["problems"]
-    assert problem.startswith("Klippet är 1,7 s.")  # svenskt talformat, inte 1.7
-    assert problem.endswith("Ladda upp en längre video eller tryck Nej.")
+    assert problem.startswith("The clip is 1.7 s.")
+    assert problem.endswith("Upload a longer video or press No.")

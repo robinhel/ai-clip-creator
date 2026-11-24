@@ -55,12 +55,12 @@ describe("submitDeadline", () => {
 
   describe("rejectedFix: hur Robin rättar ett underkänt klipp", () => {
     const failed = (vod_id: string, problems: string[]) => ({ status: "underkand", vod_id, problems }) as CampaignClip;
-    const caption = "Captionen saknar hashtaggen #ad.";
-    const sound = "Klippet saknar ljud. Streamens ljud måste höras.";
-    // Texterna från rules.py. Gamla klipp har punkt i talet, nya har komma.
-    const short = "Klippet är 7,9 s. Kampanjen kräver minst 11 s.";
+    const caption = "Caption is missing the hashtag #ad.";
+    const sound = "The clip has no sound. The stream's sound must be heard.";
+    // Texterna från rules.py. De gamla är svenska, från klipp i klipp.db, med punkt eller komma i talet.
+    const short = "The clip is 7.9 s. The campaign requires at least 11 s.";
     const shortOld = "Klippet är 4.0 s. Kampanjen kräver minst 7 s.";
-    const long = "Klippet är 72,4 s. Profilens tak är 60 s.";
+    const long = "The clip is 72.4 s. The campaign allows at most 60 s.";
     const longOld = "Klippet är 61.2 s. Profilens tak är 59.5 s.";
 
     it("fel bara i captionen rättas med captionen, också för en egen video", () => {
@@ -97,8 +97,8 @@ describe("submitDeadline", () => {
     });
 
     it("ingen rad för ett klipp som inte är underkänt, eller en egen video som är för kort", () => {
-      // Servern lägger själv till "Ladda upp en längre video eller tryck Nej." på en egen video.
-      expect(rejectedFix(failed("upload", [`${short} Ladda upp en längre video eller tryck Nej.`]))).toBeNull();
+      // Servern lägger själv till "Upload a longer video or press No." på en egen video.
+      expect(rejectedFix(failed("upload", [`${short} Upload a longer video or press No.`]))).toBeNull();
       expect(rejectedFix(failed("upload", [sound]))).toBeNull();
       expect(rejectedFix({ status: "renderad", vod_id: "v123", problems: [] } as unknown as CampaignClip)).toBeNull();
     });

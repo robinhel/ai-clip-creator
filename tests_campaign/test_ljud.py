@@ -25,7 +25,7 @@ from .conftest import PAKET, make_clip, needs_ffmpeg, set_profile
 
 BASE = {"profile": "skiimasktimmy", "title": "Ljudprov", "speed": "1.0"}
 MUSIC = "ton.wav"
-NO_SOUND = "Klippet saknar ljud."
+NO_SOUND = "The clip has no sound."
 
 
 @pytest.fixture
@@ -188,7 +188,7 @@ def test_the_music_fades_in(client, tmp_path) -> None:
 
 
 SOUND_RULE = "Bakgrundsmusik får finnas om originalljudet hörs tydligt."
-SOUND_WARNING = f"Originalljudet hörs inte. Kampanjen har en regel om ljud: {SOUND_RULE}"
+SOUND_WARNING = f"The original sound cannot be heard. The campaign has a rule about sound: {SOUND_RULE}"
 
 
 @needs_ffmpeg
@@ -200,7 +200,7 @@ def test_music_without_the_original_warns_when_the_campaign_has_a_sound_rule(cli
     silent, _ = _render(client, draft_id, tmp_path, **music, original_volume="0")
     assert silent["problems"] == [] and SOUND_WARNING in silent["warnings"], silent
     heard, _ = _render(client, draft_id, tmp_path, "hors.mp4", **music, original_volume="0.3")
-    assert not any("Originalljudet" in w for w in heard["warnings"]), heard["warnings"]
+    assert not any("original sound" in w for w in heard["warnings"]), heard["warnings"]
 
 
 def test_the_sound_warning_needs_music_at_0_percent_and_a_sound_rule(settings) -> None:

@@ -23,14 +23,14 @@ from clipsmith.db.models import Run, RunStatus
 
 from . import editor, estimate, pipeline, preferences, runinfo, streams, vodfiles
 from .budget import BudgetExceeded, budget_from_settings
-from .caption import check_caption
+from .caption import PROBLEM_STARTS, check_caption
 from .cliplog import POST_STATUSES, STAT_KEYS, STATUSES, ClipLog, UploadRunning, card_runs
 from .config import Settings, load_settings
 from .media import need, probe, run
 from .metrics import clip_length, reached_min_7d
 from .pipeline import finish_run, run_campaign_vod
 from .profile import PLATFORMS, Profile, load_profile
-from .rules import NO_FORMAT
+from .rules import NO_FORMAT, OLD_NO_FORMAT
 from .schedule import ScheduleError, _require_campaign
 from .vodinfo import VodNotFound, vod_facts
 
@@ -587,7 +587,7 @@ def _split_warnings(clip: dict) -> tuple[list[str], list[str]]:
     # Äldre klipp har bildgranskningens beskrivningar som varningar. De visas med bildgranskningen i stället.
     old_notes = [w.removeprefix(REVIEW_PREFIX) for w in warnings if w.startswith(REVIEW_PREFIX)]
     # Varningen om format sparades när klippet gjordes. Den gäller inte längre när formatet är valt.
-    hidden = {NO_FORMAT} if clip["format"] else set()
+    hidden = {NO_FORMAT, OLD_NO_FORMAT} if clip["format"] else set()
     shown = [w for w in warnings if not w.startswith(REVIEW_PREFIX) and w not in hidden]
     return shown, old_notes
 
@@ -752,7 +752,7 @@ class ClipPatch(BaseModel):
 
 def _caption_problems(problems: list[str], caption: str, profile: Profile) -> list[str]:
     """Byt ut captionens problem mot en ny kontroll. Övriga problem ligger kvar."""
-    others = [p for p in problems if not p.startswith("Captionen ")]  # alla problem från check_caption
+    others = [p for p in problems if not p.startswith(PROBLEM_STARTS)]  # alla problem från check_caption
     return others + check_caption(caption, profile)
 
 

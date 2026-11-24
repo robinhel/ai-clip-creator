@@ -209,14 +209,14 @@ def test_problems_after_the_check_fail_the_clip_and_the_old_review_is_kept(setup
     log.update(clip_id, review={"facecam_visible": False, "text_visible": True, "problems": []})
     response = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0}).json()
     assert response["status"] == "underkand"
-    assert "Bildgranskningen hittade ingen facecam i klippet." in response["problems"]
+    assert "The image review found no facecam in the clip." in response["problems"]
     assert log.get(clip_id)["review"] == {"facecam_visible": False, "text_visible": True, "problems": []}
 
     (settings.root / "overlays" / "skiimasktimmy.png").unlink()
     log.update(clip_id, review=None)
     response = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 0.0, "out_s": 6.0}).json()
     assert response["status"] == "underkand"
-    assert any("Overlayen saknas" in p for p in response["problems"])
+    assert any("The overlay is missing" in p for p in response["problems"])
 
 
 def test_a_twitch_clip_without_sound_is_still_refused_after_edit(setup, settings) -> None:
@@ -226,7 +226,7 @@ def test_a_twitch_clip_without_sound_is_still_refused_after_edit(setup, settings
                     "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(raw)], check=True)
     response = client.post(f"/campaign/clips/{clip_id}/edit", json={"in_s": 1.0, "out_s": 7.0}).json()
     assert response["status"] == "underkand"
-    assert any("Klippet saknar ljud." in p for p in response["problems"]), response["problems"]
+    assert any("The clip has no sound." in p for p in response["problems"]), response["problems"]
 
 
 # ---------- 5. rubrik och caption ----------

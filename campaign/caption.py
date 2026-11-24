@@ -9,6 +9,9 @@ from .profile import Profile
 
 # Snabblägets rubrik (clipsmith selector._signal_picks). Robin skriver en egen innan klippet postas.
 PLACEHOLDER = re.compile(r"\bMoment \d+:\d{2}:\d{2}\b")
+# Alla problem från check_caption börjar så. "Captionen " är den svenska texten i klipp från före översättningen,
+# som finns kvar i klipp.db.
+PROBLEM_STARTS = ("Caption ", "Captionen ")
 
 
 def headline_text(pick: dict) -> str:
@@ -59,28 +62,28 @@ def check_caption(text: str, profile: Profile) -> list[str]:
     problems = []
     placeholder = PLACEHOLDER.search(text)
     if placeholder:
-        problems.append(f"Captionen har kvar platshållaren {placeholder.group()}. Skriv en egen text.")
+        problems.append(f"Caption still has the placeholder {placeholder.group()}. Write your own text.")
     tag_line = profile.caption_tag_line
     must_text, where = text, ""
     if tag_line:
         first, *rest = text.strip().splitlines() or [""]
         if _starts_with(first, tag_line) or not any(_starts_with(line, tag_line) for line in rest):
-            problems.append(f"Captionen saknar {tag_line!r} på en egen rad efter texten.")
+            problems.append(f"Caption is missing {tag_line!r} on its own line after the text.")
         if re.search(r"#\w", first):
-            problems.append(f"Captionen har hashtags på första raden. De ska stå efter {tag_line!r}.")
-        must_text, where = first, " på första raden"  # taggar som @warcraft hör till texten
+            problems.append(f"Caption has hashtags on the first line. They belong after {tag_line!r}.")
+        must_text, where = first, " on the first line"  # taggar som @warcraft hör till texten
     if profile.caption_max_extra_hashtags is not None:
         own = {tag.lower() for tag in tag_line.split()}
         extra = [tag for tag in re.findall(r"#\w+", text) if tag.lower() not in own]
         if len(extra) > profile.caption_max_extra_hashtags:
-            problems.append(f"Captionen har {len(extra)} hashtags utöver {tag_line or 'de obligatoriska'}. "
-                            f"Kampanjen tillåter högst {profile.caption_max_extra_hashtags}.")
+            problems.append(f"Caption has {len(extra)} hashtags besides {tag_line or 'the required ones'}. "
+                            f"The campaign allows at most {profile.caption_max_extra_hashtags}.")
     problems += [
-        f"Captionen saknar {must!r}{where}."
+        f"Caption is missing {must!r}{where}."
         for must in profile.caption_must_include
         if not _has(must_text, must)
     ]
     problems += [
-        f"Captionen saknar hashtaggen {tag}." for tag in profile.hashtags if tag.lower() not in low
+        f"Caption is missing the hashtag {tag}." for tag in profile.hashtags if tag.lower() not in low
     ]
     return problems

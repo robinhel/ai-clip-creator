@@ -18,7 +18,7 @@ from campaign.rules import NO_CAMPAIGN, check_clip
 from .conftest import PAKET
 
 KEY = {"X-Api-Key": "nyckel"}
-NO_CAMPAIGN_TEXT = "Klippet har ingen kampanj. Välj kampanj först."
+NO_CAMPAIGN_TEXT = "The clip has no campaign. Choose a campaign first."
 
 
 @pytest.fixture
@@ -101,7 +101,7 @@ def test_a_clip_without_a_campaign_cannot_be_uploaded(hidden) -> None:
         status="godkand",
     )
     for platform in ("youtube", "tiktok"):
-        with pytest.raises(schedule.ScheduleError, match="ingen kampanj"):
+        with pytest.raises(schedule.ScheduleError, match="no campaign"):
             schedule.clip_file(hidden, log.get(clip_id), platform)
 
 

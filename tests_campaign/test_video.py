@@ -111,7 +111,7 @@ def test_finish_vod_fails_clip_without_overlay(settings):
 
     results = finish_vod("v1", profile, settings, log, review=False)
 
-    assert any("Overlayen saknas" in p for p in results[0]["problems"])
+    assert any("The overlay is missing" in p for p in results[0]["problems"])
     assert log.get(results[0]["id"])["status"] == "underkand"
 
 

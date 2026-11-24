@@ -16,6 +16,7 @@ import { CampaignRules, type Posting, PublishButton } from "@/components/Publish
 import { api } from "@/lib/api";
 import { HEADLINE_MAX, textEdit } from "@/lib/headline";
 import { VersionButton } from "@/components/VersionDialog";
+import { englishProblem } from "@/lib/oldProblems";
 import { fixHint, rejectedFix } from "@/lib/steps";
 import { clock, cn, SUMMARY_CHANGED } from "@/lib/utils";
 import type { CampaignClip, CampaignClipPatch, CampaignFormat, ClipEditInfo, ClipSubscores, ClipTranscript, Platform } from "@/lib/types";
@@ -745,8 +746,8 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
             </span>
           )}
         </div>
-        <NoticeList tone="error" title="The rule check found problems" items={clip.problems} />
-        <NoticeList tone="warning" title="Warnings" items={clip.warnings} />
+        <NoticeList tone="error" title="The rule check found problems" items={clip.problems.map(englishProblem)} />
+        <NoticeList tone="warning" title="Warnings" items={clip.warnings.map(englishProblem)} />
         <ReviewNotes review={clip.review} />
         {posting?.campaign && approved && <CampaignRules detail={posting.campaign} />}
 

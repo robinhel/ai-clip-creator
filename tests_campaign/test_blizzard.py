@@ -51,8 +51,8 @@ def test_caption_with_wrong_order_missing_warcraft_or_too_many_hashtags_is_stopp
     problems = check_caption("The Lich King rises\n#ad #blizzardpartner", profile)
     assert any("@warcraft" in p for p in problems)
     four_more = "The Lich King rises @warcraft\n#ad #blizzardpartner #worldofwarcraft #warcraft #wow #mmo"
-    assert any("högst 3" in p for p in check_caption(four_more, profile))
-    assert any("första raden" in p for p in check_caption("Text #wow @warcraft\n#ad #blizzardpartner", profile))
+    assert any("at most 3" in p for p in check_caption(four_more, profile))
+    assert any("first line" in p for p in check_caption("Text #wow @warcraft\n#ad #blizzardpartner", profile))
     assert any("@warcraft" in p for p in check_caption("Text\n#ad #blizzardpartner @warcraft", profile))
     assert any("@warcraft" in p for p in check_caption("Text @warcraftfan\n#ad #blizzardpartner", profile))
 
@@ -63,6 +63,9 @@ def test_editing_the_caption_in_the_app_replaces_the_old_caption_problems() -> N
     old = check_caption("Stormwind at dawn #ad #blizzardpartner #a #b #c #d", profile)
     assert len(old) == 4  # @warcraft saknas, taggarna på samma rad, hashtags på första raden, fyra för mycket
     assert _caption_problems([*old, "Klippet är 4.0 s."], good, profile) == ["Klippet är 4.0 s."]
+    # Klipp från före översättningen har svenska captionproblem i klipp.db. De byts också ut.
+    swedish = ["Captionen saknar '@warcraft' på första raden.", "Captionen saknar hashtaggen #ad."]
+    assert _caption_problems([*swedish, "Klippet är 4.0 s."], good, profile) == ["Klippet är 4.0 s."]
 
 
 def test_clip_without_overlay_text_or_facecam_passes_the_rules() -> None:

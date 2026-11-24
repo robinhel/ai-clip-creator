@@ -143,12 +143,12 @@ def test_good_clip_passes_rules(settings):
 @pytest.mark.parametrize(
     "info, manifest, clip_format, expected",
     [
-        ({**GOOD_INFO, "duration": 4.0}, GOOD_MANIFEST, "clutch", "minst 7"),
+        ({**GOOD_INFO, "duration": 4.0}, GOOD_MANIFEST, "clutch", "at least 7"),
         ({**GOOD_INFO, "width": 1920, "height": 1080}, GOOD_MANIFEST, "clutch", "1080×1920"),
-        ({**GOOD_INFO, "has_audio": False}, GOOD_MANIFEST, "clutch", "saknar ljud"),
-        (GOOD_INFO, {"text_applied": False, "overlay_applied": True}, "clutch", "Texten"),
-        (GOOD_INFO, {"text_applied": True, "overlay_applied": False}, "clutch", "Overlayen"),
-        (GOOD_INFO, GOOD_MANIFEST, "podcast", "kampanjens lista"),
+        ({**GOOD_INFO, "has_audio": False}, GOOD_MANIFEST, "clutch", "no sound"),
+        (GOOD_INFO, {"text_applied": False, "overlay_applied": True}, "clutch", "on-screen text"),
+        (GOOD_INFO, {"text_applied": True, "overlay_applied": False}, "clutch", "overlay is missing"),
+        (GOOD_INFO, GOOD_MANIFEST, "podcast", "campaign's list"),
     ],
 )
 def test_rule_breaks_are_caught(settings, info, manifest, clip_format, expected):
@@ -237,7 +237,7 @@ def test_the_white_text_is_drawn_only_when_there_is_no_overlay(settings):
 def test_the_signals_mode_placeholder_title_must_be_replaced(settings):
     profile = load_profile("skiimasktimmy", settings.profiles_dir)
     placeholder = build_caption("Moment 0:36:35", profile, game="Bodycam")
-    assert any(p.startswith("Captionen har kvar platshållaren Moment 0:36:35") for p in check_caption(placeholder, profile))
+    assert any(p.startswith("Caption still has the placeholder Moment 0:36:35") for p in check_caption(placeholder, profile))
     assert check_caption(build_caption("Moment of truth at 0:36", profile, game="Bodycam"), profile) == []
 
 
