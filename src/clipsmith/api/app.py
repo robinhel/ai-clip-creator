@@ -146,6 +146,7 @@ from campaign.profiles_api import router as profiles_router
 from campaign.schedule_api import router as schedule_router
 from campaign.scout_api import router as scout_router
 from campaign.tiktok_api import router as tiktok_router
+from campaign.timeline_api import router as timeline_router
 from campaign.youtube_api import router as youtube_router
 
 app.include_router(campaign_router)
@@ -157,6 +158,7 @@ app.include_router(editor_router)
 app.include_router(keys_router)
 app.include_router(schedule_router)
 app.include_router(live_router)
+app.include_router(timeline_router)
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
