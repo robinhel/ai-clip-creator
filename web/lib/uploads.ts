@@ -120,14 +120,18 @@ export function lengthCheck(length: number, min: number, max: number | null | un
   return { ok: true, text: `The clip will be ${oneDecimal.format(length)} s. ${limits}` };
 }
 
+/** parseNumber läser inte minustecken, så "-1" blir NaN. Det här skiljer ett negativt tal från ett felskrivet. */
+const negative = (text: string) => /^\s*-/.test(text);
+
 /** Kontrollerar klistermärkets tider. null när de går att använda. */
 export function stickerProblemText(c: Choices): string | null {
   if (!c.sticker) return null;
   const startS = seconds(c.stickerStart);
   const lengthS = seconds(c.stickerLength);
-  if (!Number.isFinite(startS) || startS < 0) return "The sticker start cannot be negative.";
-  const tooShortOrLong = lengthS < 0.5 || lengthS > 10;
-  return Number.isFinite(lengthS) && !tooShortOrLong ? null : "The sticker must show for 0.5–10 s.";
+  if (negative(c.stickerStart)) return "The sticker start cannot be negative.";
+  if (!Number.isFinite(startS)) return "The sticker start is not a number. Write seconds like 1.5.";
+  if (!Number.isFinite(lengthS)) return "The sticker length is not a number. Write seconds like 1.5.";
+  return lengthS >= 0.5 && lengthS <= 10 ? null : "The sticker must show for 0.5–10 s.";
 }
 
 /** Kontrollerar musikens val. null när de går att använda. */
@@ -135,7 +139,8 @@ export function audioProblemText(c: Choices): string | null {
   if (c.audio !== "music") return null;
   if (!c.music) return "Choose a song under Audio, or add music.";
   const startS = seconds(c.musicStart);
-  return Number.isFinite(startS) && startS >= 0 ? null : "The start in the music must be 0 s or more.";
+  if (negative(c.musicStart)) return "The start in the music must be 0 s or more.";
+  return Number.isFinite(startS) ? null : "The start in the music is not a number. Write seconds like 1.5.";
 }
 
 /** Texterna vid reglaget när originalljudet är 0 %. Tom lista när det hörs. */

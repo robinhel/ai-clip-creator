@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 
-import { isLocalHost } from "../localHost";
+import { isLocalHost, isSameOrigin } from "../localHost";
 
 // API_BASE overrides NEXT_PUBLIC_API_BASE for server-side proxy calls in Docker Compose
 // (web container reaches api container at http://api:8000, not localhost:8000)
@@ -12,6 +12,11 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
   if (!isLocalHost(req.headers.get("host"))) {
     return NextResponse.json({ detail: "Forbidden: open the dashboard on localhost." }, { status: 403 });
   }
+  // Another web page open in the browser may not use the proxy. Origin is checked here and not sent on,
+  // so the dashboard works on any port; the API's own Origin check is for calls straight to :8000.
+  if (!isSameOrigin(req.headers.get("origin"), req.headers.get("host"))) {
+    return NextResponse.json({ detail: "Forbidden: this origin may not use the dashboard." }, { status: 403 });
+  }
   const url = new URL(`${API_BASE}/${path.join("/")}`);
   url.search = req.nextUrl.search;
 
@@ -19,8 +24,8 @@ async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
   req.headers.forEach((value, key) => {
     // fetch sätter längden själv utifrån bodyn; en vidarebefordrad längd kan krocka med den.
     // Adress-headers skickas inte vidare: uvicorn litar på dem, och då kunde vem som helst se ut att anropa från datorn.
-    // Expect (curl vid stora uppladdningar) vägras av Nodes fetch.
-    if (!["host", "content-length", "expect", "x-forwarded-for", "x-real-ip", "forwarded", "x-forwarded-host"].includes(key.toLowerCase()))
+    // Expect (curl vid stora uppladdningar) vägras av Nodes fetch. Origin är redan kontrollerad ovan.
+    if (!["host", "content-length", "expect", "x-forwarded-for", "x-real-ip", "forwarded", "x-forwarded-host", "origin"].includes(key.toLowerCase()))
       headers[key] = value;
   });
   const apiKey = process.env.API_KEY;

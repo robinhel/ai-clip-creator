@@ -9,3 +9,14 @@ export function isLocalHost(host: string | null): boolean {
   const name = value.endsWith("]") ? value : value.replace(/:\d*$/, "");
   return LOCAL_HOSTS.includes(name);
 }
+
+/**
+ * True when there is no Origin, or when it is this same dashboard: http:// or https:// plus the Host header.
+ * Another web page (or another port, or "null" from a sandboxed frame) is refused.
+ */
+export function isSameOrigin(origin: string | null, host: string | null): boolean {
+  if (origin === null) return true;
+  const value = origin.trim().toLowerCase();
+  const self = (host ?? "").trim().toLowerCase();
+  return self !== "" && (value === `http://${self}` || value === `https://${self}`);
+}
