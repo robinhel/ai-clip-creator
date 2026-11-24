@@ -1,11 +1,17 @@
 import { type NextRequest, NextResponse } from "next/server";
 
+import { isLocalHost } from "../localHost";
+
 // API_BASE overrides NEXT_PUBLIC_API_BASE for server-side proxy calls in Docker Compose
 // (web container reaches api container at http://api:8000, not localhost:8000)
 const API_BASE =
   process.env.API_BASE ?? process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
 async function proxy(req: NextRequest, path: string[]): Promise<NextResponse> {
+  // The proxy talks to the API from 127.0.0.1, so the API cannot see who asked. Check the name here.
+  if (!isLocalHost(req.headers.get("host"))) {
+    return NextResponse.json({ detail: "Forbidden: open the dashboard on localhost." }, { status: 403 });
+  }
   const url = new URL(`${API_BASE}/${path.join("/")}`);
   url.search = req.nextUrl.search;
 

@@ -15,7 +15,7 @@ export default defineConfig({
   test: {
     projects: [
       // Rena funktioner i lib/, utan webbläsare: vitest run --project unit
-      { test: { name: 'unit', include: ['lib/**/*.test.ts'], environment: 'node' } },
+      { test: { name: 'unit', include: ['lib/**/*.test.ts', 'app/api/**/*.test.ts'], environment: 'node' } },
       {
         extends: true,
         plugins: [
