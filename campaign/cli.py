@@ -138,7 +138,7 @@ def cmd_finish(args, settings: Settings) -> int:
         for warning in result.get("warnings", []):
             print(f"    note: {warning}")
     ready = sum(1 for r in results if "id" in r and not r["problems"])
-    print(f"\n{ready} clips are waiting for your yes or no. Run: python -m campaign approve")
+    print(f"\n{ready} {'clip is' if ready == 1 else 'clips are'} waiting for your yes or no. Run: python -m campaign approve")
     return 0
 
 
