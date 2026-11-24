@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEMO_OFF, demoFetch, resetDemo } from "./index";
-import type { CampaignClip, CampaignProfile, CampaignRunInfo, CampaignSummary } from "../types";
+import type { CampaignClip, CampaignProfile, CampaignProject, CampaignRunInfo, CampaignSummary } from "../types";
 import type { Timeline } from "../timeline";
 
 afterEach(() => {
@@ -55,6 +55,23 @@ describe("demoFetch", () => {
   it("refuses what needs the server with a clear text", async () => {
     await expect(demoFetch("/campaign/keys", { method: "PUT", body: "{}" })).rejects.toThrow(DEMO_OFF);
     await expect(demoFetch("/campaign/runs", { method: "POST", body: "{}" })).rejects.toThrow(DEMO_OFF);
+  });
+
+  it("has a project for own files that opens, with its clips and a timeline without chat", async () => {
+    const [listed] = await demoFetch<CampaignProject[]>("/campaign/projects");
+    expect(listed).toBeDefined();
+    const project = await demoFetch<CampaignProject>(`/campaign/projects/${listed.id}`);
+    expect(project.files.length).toBeGreaterThan(0);
+    const vods = new Set(project.files.map((f) => f.vod_id));
+    const clips = await demoFetch<CampaignClip[]>(`/campaign/clips?project_id=${project.id}`);
+    expect(clips.length).toBeGreaterThan(0);
+    expect(clips.every((c) => vods.has(c.vod_id))).toBe(true);
+    const runs = await demoFetch<CampaignRunInfo[]>("/campaign/runs");
+    expect(runs.find((r) => r.run_id === project.files[0].run_id)?.project_id).toBe(project.id);
+    const timeline = await demoFetch<Timeline>(`/campaign/runs/${project.files[0].run_id}/timeline`);
+    expect(timeline.picks.length).toBe(clips.length);
+    expect(timeline.chat_density).toEqual([]);
+    await expect(demoFetch("/campaign/projects/9999")).rejects.toThrow("The project does not exist.");
   });
 
   it("answers 404 for an unknown run", async () => {

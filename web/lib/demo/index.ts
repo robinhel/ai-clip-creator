@@ -1,13 +1,15 @@
 // The demo mode: with NEXT_PUBLIC_DEMO=1 the web reads sample data from here instead of the API.
 // demoFetch answers like the server, from memory only. It never calls fetch, so a demo can never reach an API.
-import type { CampaignClip, CampaignProfile, CampaignRunInfo, CampaignStatus, CampaignSummary, ClipPost } from "../types";
+import type { CampaignClip, CampaignProfile, CampaignProject, CampaignRunInfo, CampaignStatus, CampaignSummary, ClipPost } from "../types";
 import {
+  DEMO_NOW,
   KEY_GROUPS,
   PROFILES,
   SCOUT,
   SETUP,
   STREAMS,
   makeClips,
+  makeProjects,
   makeRuns,
   makeTimeline,
   picture,
@@ -21,7 +23,7 @@ export const DEMO = process.env.NEXT_PUBLIC_DEMO === "1";
 /** The text for everything that needs the app server: keys, accounts, uploads and new projects. */
 export const DEMO_OFF = "Demo mode: this needs the app server, so it is turned off in the demo.";
 
-export { picture };
+export { DEMO_NOW, picture };
 
 class DemoError extends Error {
   constructor(
@@ -88,13 +90,24 @@ function summary(): CampaignSummary {
   };
 }
 
+const projects = () => makeProjects(runs(), state().clips);
+
+function findProject(id: number): CampaignProject {
+  const project = projects().find((p) => p.id === id);
+  if (!project) throw new DemoError("The project does not exist.", 404);
+  return project;
+}
+
 function clipList(query: URLSearchParams): CampaignClip[] {
   const runId = query.get("run_id");
   const vod = runId ? `demo-${runId}` : query.get("vod_id");
+  const projectId = query.get("project_id");
+  const projectVods = projectId ? new Set(findProject(Number(projectId)).files.map((f) => f.vod_id)) : null;
   return state().clips.filter(
     (c) =>
       (!query.get("status") || c.status === query.get("status")) &&
       (!vod || c.vod_id === vod) &&
+      (!projectVods || projectVods.has(c.vod_id)) &&
       (!query.get("profile") || c.profile === query.get("profile"))
   );
 }
@@ -148,7 +161,7 @@ const GET: [RegExp, Handler][] = [
   [/^\/campaign\/profiles\/([^/]+)\/material$/, ([name]) =>
     runs()
       .filter((r) => r.profile === name)
-      .map((r) => ({ vod_id: r.vod_id, title: r.title, kind: "twitch", created: r.created, duration_s: r.duration_s, has_video: false, has_transcript: r.status === "done", clips: Object.values(r.clip_counts).reduce((a, b) => a + (b ?? 0), 0), run_id: r.run_id }))],
+      .map((r) => ({ vod_id: r.vod_id, title: r.title, kind: r.project_id != null ? "local" : "twitch", created: r.created, duration_s: r.duration_s, has_video: false, has_transcript: r.status === "done", clips: Object.values(r.clip_counts).reduce((a, b) => a + (b ?? 0), 0), run_id: r.run_id }))],
   [/^\/campaign\/profiles\/([^/]+)\/chats$/, () => []],
   [/^\/campaign\/profiles\/([^/]+)\/reframe$/, () => ({ mode: "split", split_ratio: 0.36, webcam_rect: [1440, 0, 480, 270], webcam_rects: [[1440, 0, 480, 270]], gameplay_rect: [240, 0, 1440, 1080], source_width: 1920, source_height: 1080, webcam_aspect: 16 / 9, gameplay_aspect: 4 / 3 })],
   [/^\/campaign\/runs$/, () => runs()],
@@ -158,7 +171,8 @@ const GET: [RegExp, Handler][] = [
     const r = findRun(Number(id));
     return { id: r.run_id, vod_id: r.vod_id, channel: r.profile, status: r.status, stage: r.stage, error: r.error, prompt_version: "v2", created_at: r.created, updated_at: r.created, clip_count: 0 };
   }],
-  [/^\/campaign\/projects$/, () => []],
+  [/^\/campaign\/projects$/, () => projects()],
+  [/^\/campaign\/projects\/(\d+)$/, ([id]) => findProject(Number(id))],
   [/^\/campaign\/streams$/, () => STREAMS(runs())],
   [/^\/campaign\/vod\/([^/]+)$/, () => {
     throw new DemoError("Demo mode: looking up a Twitch VOD needs the app server. Open a sample project below instead.", 403);

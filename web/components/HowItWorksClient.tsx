@@ -16,9 +16,10 @@ import {
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { DEMO, DEMO_NOW } from "@/lib/demo";
 import { pipelineStats, type PipelineStats } from "@/lib/howItWorks";
 import { cn, usd } from "@/lib/utils";
-import type { CampaignRunInfo } from "@/lib/types";
+import type { CampaignClip, CampaignRunInfo } from "@/lib/types";
 
 type Layer = "core" | "campaign";
 
@@ -43,7 +44,7 @@ const STEPS: Step[] = [
     sub: "speech to text",
     icon: Mic,
     layer: "core",
-    text: "The audio is cut into parts and transcribed in parallel, with a time stamp on every word. Finished parts are kept, so a stopped run continues where it was.",
+    text: "The audio is transcribed with Berget in the campaign layer, in 30-minute parts, with a time stamp on every word. Finished parts are kept, so a stopped run continues where it was. The words are saved in clipsmith's transcript format for the next steps.",
   },
   {
     title: "Find signals",
@@ -64,14 +65,14 @@ const STEPS: Step[] = [
     sub: "FFmpeg + facecam",
     icon: Scissors,
     layer: "core",
-    text: "FFmpeg cuts each pick and reframes it to vertical 9:16, with the facecam on top and the gameplay below, and burns in word-by-word captions.",
+    text: "FFmpeg cuts each pick and reframes it to vertical 9:16, with the facecam on top and the gameplay below. The spoken words of each clip are saved next to it, so they can be fixed in the editor before they are burned in.",
   },
   {
     title: "Overlay + caption",
     sub: "campaign layer",
     icon: Layers,
     layer: "campaign",
-    text: "The campaign's overlay and on-screen headline are added, and a caption with the required tags is written for each platform.",
+    text: "The campaign's overlay and on-screen headline are added, the word-by-word subtitles are burned in, and a caption with the required tags is written for each platform.",
   },
   {
     title: "Rule check",
@@ -242,9 +243,14 @@ function useStats() {
   const [latestRun, setLatestRun] = useState<number | null>(null);
   useEffect(() => {
     // Each call may fail on its own; a missing server gives the empty view, not an error.
-    Promise.all([api.campaign.runs.list().catch(() => [] as CampaignRunInfo[]), api.campaign.summary().catch(() => null)]).then(
-      ([runs, summary]) => {
-        setStats(pipelineStats(runs, summary));
+    Promise.all([
+      api.campaign.runs.list().catch(() => [] as CampaignRunInfo[]),
+      api.campaign.summary().catch(() => null),
+      api.campaign.clips.list({ posted_off: true }).catch(() => [] as CampaignClip[]),
+    ]).then(
+      ([runs, summary, clips]) => {
+        // The demo's sample data is from one fixed month, so "this month" is that month there.
+        setStats(pipelineStats(runs, summary, clips, DEMO ? new Date(DEMO_NOW) : new Date()));
         const done = runs.filter((r) => r.status === "done" && !r.project_id).sort((a, b) => b.run_id - a.run_id);
         setLatestRun(done[0]?.run_id ?? null);
       }

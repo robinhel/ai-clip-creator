@@ -265,7 +265,7 @@ export function CampaignSettingsForm({ profile, accounts, accountsError, onSaved
           </Field>
           <Field label="Headline style">
             <select value={v.hookStyle} onChange={(e) => set("hookStyle", e.target.value as HookStyle)} className={field}>
-              <option value="sans">Tjock (sans-serif)</option>
+              <option value="sans">Bold (sans-serif)</option>
               <option value="serif">Serif in capitals</option>
             </select>
           </Field>

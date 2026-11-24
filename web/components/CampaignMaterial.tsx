@@ -56,7 +56,7 @@ function Item({ item, projectIds }: { item: MaterialItem; projectIds: Map<number
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium">{item.title || item.vod_id}</p>
         <p className="text-xs text-muted-foreground">
-          {item.kind === "twitch" ? "Twitch-stream" : "Egen video"}
+          {item.kind === "twitch" ? "Twitch stream" : "Own video"}
           {item.created && `, ${day.format(new Date(item.created))}`}
           {item.duration_s != null && `, ${duration(item.duration_s)}`}
           {target && `, ${target.label}`}

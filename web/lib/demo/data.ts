@@ -4,6 +4,7 @@ import type {
   CampaignClip,
   CampaignProfile,
   CampaignProfileDetail,
+  CampaignProject,
   CampaignRunDetail,
   CampaignRunInfo,
   CampaignStatus,
@@ -16,6 +17,8 @@ import type {
 import type { Timeline, TimelineCandidate } from "../timeline";
 
 const DAY = "2026-11-";
+/** "Today" in the sample data: the clips and the budget are from this month. */
+export const DEMO_NOW = `${DAY}24T12:00:00Z`;
 
 /** A gradient picture as an SVG data URL, so that no picture file and no server is needed. */
 export function picture(seed: number, label: string, ratio: "16:9" | "9:16" = "16:9"): string {
@@ -128,6 +131,8 @@ interface RunSeed {
   duration_s: number;
   day: number;
   status: CampaignRunInfo["status"];
+  /** An own file in the campaign's project for own files: no Twitch chat, and no card of its own. */
+  project?: number;
 }
 
 const RUN_SEEDS: RunSeed[] = [
@@ -136,6 +141,7 @@ const RUN_SEEDS: RunSeed[] = [
   { id: 102, profile: "nova_plays", title: "Extraction nights with chat", game: "Deadzone Run", duration_s: 15_420, day: 17, status: "done" },
   { id: 101, profile: "nova_plays", title: "Solo vs. squads all night", game: "Deadzone Run", duration_s: 13_950, day: 14, status: "done" },
   { id: 100, profile: "lumen_quest", title: "Speedrun practice", game: "Hollow Lanterns", duration_s: 5_400, day: 11, status: "failed" },
+  { id: 106, profile: "lumen_quest", title: "boss-attempts-recording.mp4", game: "Hollow Lanterns", duration_s: 2_700, day: 23, status: "done", project: 1 },
 ];
 
 const STEP_LABELS: [string, string][] = [
@@ -175,6 +181,8 @@ const CLIP_SEEDS: ClipSeed[] = [
   { run: 103, title: "First try on the boss", start_s: 6120, length: 40, status: "renderad", format: "clutch", score: 84, signals: ["chat_density", "audio_energy", "transcript_hype"] },
   { run: 103, title: "Lantern trick nobody knew", start_s: 2380, length: 33, status: "godkand", format: "funny", score: 77, signals: ["clip_command", "transcript_hype"] },
   { run: 104, title: "Diamond on the last game", start_s: 9920, length: 44, status: "renderad", format: "clutch", score: 92, signals: ["existing_clip", "chat_density", "audio_energy"] },
+  { run: 106, title: "Parry chain on the last phase", start_s: 1_520, length: 34, status: "renderad", format: "clutch", score: 83, signals: ["audio_energy", "transcript_hype"] },
+  { run: 106, title: "Lantern goes out mid-fight", start_s: 610, length: 26, status: "godkand", format: "funny", score: 74, signals: ["transcript_hype", "scene_change"] },
 ];
 
 const SEED_RUN = Object.fromEntries(RUN_SEEDS.map((r) => [r.id, r]));
@@ -239,7 +247,7 @@ export function makeClips(): CampaignClip[] {
       video_url: "/demo/clip.mp4",
       poster_url: picture(i, c.title.split(" ").slice(0, 2).join(" "), "9:16"),
       score: c.score,
-      reason: `Chat and audio peak together here, and the moment ends with a clear payoff. A strong ${c.format} clip.`,
+      reason: `${run.project != null ? "Loud audio and hype words" : "Chat and audio"} peak together here, and the moment ends with a clear payoff. A strong ${c.format} clip.`,
       subscores: { hook, engagement: Math.round(c.score / 4) - 1, value: 20, shareability: Math.round(c.score / 4) - 3 },
       posts,
       content_rewards_url: null,
@@ -276,7 +284,7 @@ export function makeRuns(clips: CampaignClip[]): CampaignRunInfo[] {
       pct: r.status === "done" ? 100 : null,
       error: r.status === "failed" ? "The transcription service did not answer. Run again continues where it stopped." : null,
       clip_counts: counts,
-      project_id: null,
+      project_id: r.project ?? null,
       origin: null,
       poster_url: null,
       cancelled: false,
@@ -332,7 +340,8 @@ export function makeTimeline(run: CampaignRunInfo, clips: CampaignClip[]): Timel
     return [Math.round(t), 0.1 + at(t, d / 90) + rand() * 0.07] as [number, number];
   });
   const top = Math.max(...rawChat.map(([, v]) => v));
-  const chat_density = rawChat.map(([t, v]) => [t, Math.round((v / top) * 1000) / 1000] as [number, number]);
+  // An own file has no Twitch chat.
+  const chat_density = run.project_id != null ? [] : rawChat.map(([t, v]) => [t, Math.round((v / top) * 1000) / 1000] as [number, number]);
 
   const A = 300;
   const rawAudio = Array.from({ length: A }, (_, i) => {
@@ -359,14 +368,15 @@ export function makeTimeline(run: CampaignRunInfo, clips: CampaignClip[]): Timel
       breakdown: Object.fromEntries(c.signals.map((s, i) => [s, s === "chat_density" ? 3 : i + 1])),
     };
   });
+  const filler = run.project_id != null ? "audio_energy" : "chat_density";
   for (let i = 0; i < 4; i++) {
     const center = Math.round(rand() * d);
     candidates.push({
       start_s: Math.max(0, center - 15),
       end_s: Math.min(d, center + 15),
       score: Math.round(10 + rand() * 40),
-      sources: ["chat_density"],
-      breakdown: { chat_density: 1 },
+      sources: [filler],
+      breakdown: { [filler]: 1 },
     });
   }
 
@@ -379,6 +389,43 @@ export function makeTimeline(run: CampaignRunInfo, clips: CampaignClip[]): Timel
     candidates,
     picks: own.map((c) => ({ start_s: c.start_s ?? 0, end_s: c.end_s ?? 0, title: c.title })),
   };
+}
+
+/** The campaign's project for own files: one card with its files and clips, as GET /campaign/projects gives it. */
+export function makeProjects(runs: CampaignRunInfo[], clips: CampaignClip[]): CampaignProject[] {
+  const ids = [...new Set(runs.flatMap((r) => (r.project_id != null ? [r.project_id] : [])))];
+  return ids.map((id) => {
+    const files = runs.filter((r) => r.project_id === id);
+    const vods = new Set(files.map((r) => r.vod_id));
+    const own = clips.filter((c) => vods.has(c.vod_id));
+    const counts: Partial<Record<CampaignStatus, number>> = {};
+    for (const c of own) counts[c.status] = (counts[c.status] ?? 0) + 1;
+    const profile = PROFILES.find((p) => p.name === files[0].profile) ?? PROFILES[0];
+    return {
+      id,
+      profile: profile.name,
+      streamer: profile.streamer,
+      title: "",
+      created: files.at(-1)?.created ?? null,
+      updated: own.at(-1)?.updated ?? files[0].created,
+      active: false,
+      pct: null,
+      poster_url: own[0]?.poster_url ?? null,
+      clip_counts: counts,
+      files: files.map((r) => ({
+        run_id: r.run_id,
+        vod_id: r.vod_id,
+        title: r.title,
+        status: r.status,
+        stage: r.stage,
+        pct: r.pct,
+        error: r.error,
+        duration_s: r.duration_s,
+        vod_bytes: r.vod_bytes ?? null,
+        created: r.created,
+      })),
+    };
+  });
 }
 
 export const STREAMS = (runs: CampaignRunInfo[]): StreamInfo[] => [
@@ -404,7 +451,7 @@ export const STREAMS = (runs: CampaignRunInfo[]): StreamInfo[] => [
     recommended: true,
   },
   ...runs
-    .filter((r) => r.status === "done")
+    .filter((r) => r.status === "done" && r.project_id == null)
     .slice(0, 3)
     .map(
       (r): StreamInfo => ({
