@@ -12,6 +12,7 @@ import { api, cancelRun } from "@/lib/api";
 import { campaignLabel } from "@/lib/campaignName";
 import { countClips, latestAttempt } from "@/lib/projects";
 import { rejectedFix } from "@/lib/steps";
+import { costParts, FREE_TRANSCRIPTION } from "@/lib/transcription";
 import { clock, cn, duration, serverTime, usd } from "@/lib/utils";
 import type { CampaignClip, CampaignProfile, CampaignRunDetail, Run, RunStep } from "@/lib/types";
 
@@ -126,12 +127,16 @@ function runPart(run: CampaignRunDetail): string | null {
   return `${hms(start)}–${last ? hms(last) : "the end"}`;
 }
 
-/** "Kostar cirka 0,05 US$ (Berget 0,01 US$, Claude 0,04 US$). " I snabbläget bara Berget. */
+/** "Kostar cirka 0,05 US$ (Berget 0,01 US$, Claude 0,04 US$). " I snabbläget bara Berget. Lokal transkribering
+ * kostar inget, så Berget-delen visas inte då. */
 function costText(run: CampaignRunDetail): string {
   const cost = run.cost_estimate;
-  if (run.fast && cost) return `Costs about ${usd.format(cost.berget_usd)} at Berget. The signals choose, without Claude. `;
+  if (run.fast && cost) {
+    const transcription = cost.berget_usd === 0 ? FREE_TRANSCRIPTION : `Costs about ${usd.format(cost.berget_usd)} at Berget.`;
+    return `${transcription} The signals choose, without Claude. `;
+  }
   if (run.cost_estimate_usd == null) return "";
-  const parts = cost ? ` (Berget ${usd.format(cost.berget_usd)}, Claude ${usd.format(cost.claude_usd)})` : "";
+  const parts = cost ? ` (${costParts(cost)})` : "";
   return `Costs about ${usd.format(run.cost_estimate_usd)}${parts}. `;
 }
 

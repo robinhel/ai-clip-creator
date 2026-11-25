@@ -13,8 +13,9 @@ import { DEMO, DEMO_OFF } from "@/lib/demo";
 import { handOverFiles } from "@/lib/handoff";
 import { projectEntries } from "@/lib/projects";
 import { stepCount } from "@/lib/steps";
+import { finishCost } from "@/lib/transcription";
 import { parseTwitchLink } from "@/lib/twitchLink";
-import { clock, cn, duration, parseClock, serverTime, usd } from "@/lib/utils";
+import { clock, cn, duration, parseClock, serverTime } from "@/lib/utils";
 import type { CampaignProfile, CampaignProject, CampaignRunInfo, CampaignSummary, ScoutCampaign, StreamInfo, VodInfo } from "@/lib/types";
 
 const FOCUS_MAX = 300;
@@ -612,13 +613,7 @@ export function HomeClient() {
                 </p>
                 <p className="text-[13px] text-muted-foreground">
                   About {vod.estimate.minutes} min
-                  {fast && vod.estimate.cost
-                    ? ` and ${usd.format(vod.estimate.cost.berget_usd)} to finish (Berget only: the signals choose, without Claude)`
-                    : `${vod.estimate.cost_usd != null ? ` and ${usd.format(vod.estimate.cost_usd)}` : ", unknown cost,"} to finish${
-                        vod.estimate.cost
-                          ? ` (Berget ${usd.format(vod.estimate.cost.berget_usd)}, Claude ${usd.format(vod.estimate.cost.claude_usd)})`
-                          : ""
-                      }`}
+                  {finishCost(vod.estimate.cost_usd, vod.estimate.cost, fast)}
                   .{" "}
                   {vod.downloaded
                     ? "The VOD is already on disk."

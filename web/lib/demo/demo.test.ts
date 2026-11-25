@@ -87,9 +87,13 @@ describe("demoFetch", () => {
       method: "PUT",
       body: JSON.stringify({ engine: "local", model: "medium" }),
     });
-    expect(local).toMatchObject({ engine: "local", model: "medium", size_gb: 1.5, downloaded: false });
+    expect(local).toMatchObject({ engine: "local", model: "medium" });
+    expect(local.models.find((m) => m.id === "medium")).toMatchObject({ size_gb: 1.5, downloaded: false });
     expect((await demoFetch<TranscriptionSetting>("/campaign/transcription")).engine).toBe("local");
-    await expect(demoFetch("/campaign/transcription", { method: "PUT", body: JSON.stringify({ engine: "cloud" }) })).rejects.toThrow();
+    for (const wrong of [{ engine: "cloud" }, { engine: "local", berget_key: false }, {}, []]) {
+      await expect(demoFetch("/campaign/transcription", { method: "PUT", body: JSON.stringify(wrong) })).rejects.toThrow();
+    }
+    expect((await demoFetch<TranscriptionSetting>("/campaign/transcription")).berget_key).toBe(true);
     resetDemo();
     expect((await demoFetch<TranscriptionSetting>("/campaign/transcription")).engine).toBe("berget");
     expect(spy).not.toHaveBeenCalled();

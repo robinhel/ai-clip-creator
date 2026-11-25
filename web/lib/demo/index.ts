@@ -1,7 +1,6 @@
 // The demo mode: with NEXT_PUBLIC_DEMO=1 the web reads sample data from here instead of the API.
 // demoFetch answers like the server, from memory only. It never calls fetch, so a demo can never reach an API.
 import type { CampaignClip, CampaignProfile, CampaignProject, CampaignRunInfo, CampaignStatus, CampaignSummary, ClipPost, TranscriptionSetting } from "../types";
-import { LOCAL_MODELS, choose } from "../transcription";
 import {
   DEMO_NOW,
   KEY_GROUPS,
@@ -45,12 +44,13 @@ interface Store {
 
 const TRANSCRIPTION: TranscriptionSetting = {
   engine: "berget",
-  chosen: false,
   model: "small",
-  downloaded: false,
-  size_gb: 0.5,
   berget_key: true,
-  models: LOCAL_MODELS.map((m) => ({ ...m, downloaded: false })),
+  models: [
+    { id: "small", size_gb: 0.5, downloaded: false },
+    { id: "medium", size_gb: 1.5, downloaded: false },
+    { id: "large-v3", size_gb: 3, downloaded: false },
+  ],
 };
 
 let store: Store | null = null;
@@ -247,12 +247,15 @@ const WRITE: [string, RegExp, Handler][] = [
     return { submit_helper: state().submitHelper };
   }],
   ["PUT", /^\/campaign\/transcription$/, (_, __, body) => {
-    const { engine, model } = (body ?? {}) as { engine?: unknown; model?: unknown };
+    // Samma kontroll som servern: ett objekt med engine och/eller model, inget annat.
+    const change = (body && typeof body === "object" && !Array.isArray(body) ? body : {}) as { engine?: unknown; model?: unknown };
+    const { engine, model } = change;
     if ((engine !== undefined && engine !== "berget" && engine !== "local") ||
-        (model !== undefined && !LOCAL_MODELS.some((m) => m.id === model)) || (engine === undefined && model === undefined)) {
+        (model !== undefined && !TRANSCRIPTION.models.some((m) => m.id === model)) || (engine === undefined && model === undefined) ||
+        Object.keys(change).some((key) => key !== "engine" && key !== "model")) {
       throw new DemoError("Choose berget or local, and small, medium or large-v3.", 400);
     }
-    state().transcription = choose(state().transcription, body as Parameters<typeof choose>[1]);
+    state().transcription = { ...state().transcription, ...(change as Partial<TranscriptionSetting>) };
     return state().transcription;
   }],
   ["PUT", /^\/campaign\/profiles\/([^/]+)\/active$/, ([name], _, body) => {

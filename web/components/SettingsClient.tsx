@@ -9,7 +9,7 @@ import { TikTokCard } from "@/components/TikTokCard";
 import { YouTubeCard } from "@/components/YouTubeCard";
 import { api } from "@/lib/api";
 import { DEMO, DEMO_OFF } from "@/lib/demo";
-import { ENGINES, LOCAL_MODELS, transcriptionNote } from "@/lib/transcription";
+import { ENGINES, modelDownloaded, transcriptionNote } from "@/lib/transcription";
 import { cn } from "@/lib/utils";
 import type {
   ConnectedAccount,
@@ -358,9 +358,15 @@ function AccountRow({ account: a, anchor }: { account: ConnectedAccount; anchor:
   );
 }
 
+/** Vilka av gruppens nycklar som är sparade, som "true,false". Ändras när nycklarna sparas. */
+function savedKeys(groups: KeyGroup[] | null, id: string): string {
+  return groups?.find((g) => g.id === id)?.keys.map((k) => k.set).join() ?? "";
+}
+
 /** Vem som transkriberar: Berget eller en lokal Whisper-modell. Sparas direkt; vid fel står valet kvar som innan.
- * I demoläget sparas valet bara i minnet och inget laddas ner. */
-function TranscriptionCard({ onSaved }: { onSaved: () => void }) {
+ * I demoläget sparas valet bara i minnet och inget laddas ner. refresh ändras när nycklarna sparas, så att
+ * läget läses om (Berget-nyckeln). */
+function TranscriptionCard({ onSaved, refresh }: { onSaved: () => void; refresh: string }) {
   const [setting, setSetting] = useState<TranscriptionSetting | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -370,7 +376,7 @@ function TranscriptionCard({ onSaved }: { onSaved: () => void }) {
       .get()
       .then(setSetting)
       .catch((err) => setError(err instanceof Error ? err.message : "Could not load the setting"));
-  }, []);
+  }, [refresh]);
 
   async function save(change: { engine?: TranscribeEngine; model?: LocalWhisperModel }) {
     setBusy(true);
@@ -428,7 +434,7 @@ function TranscriptionCard({ onSaved }: { onSaved: () => void }) {
                 onChange={(e) => save({ model: e.target.value as LocalWhisperModel })}
                 className="block h-9 rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand"
               >
-                {LOCAL_MODELS.map((m) => (
+                {setting.models.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.id} (about {m.size_gb} GB)
                   </option>
@@ -446,7 +452,7 @@ function TranscriptionCard({ onSaved }: { onSaved: () => void }) {
               "mt-3 max-w-[640px] text-sm",
               setting.engine === "berget" && !setting.berget_key
                 ? "text-[#fca5a5]"
-                : setting.engine === "local" && !setting.downloaded
+                : setting.engine === "local" && !modelDownloaded(setting)
                   ? "text-warn"
                   : "text-muted-foreground"
             )}
@@ -565,7 +571,10 @@ export function SettingsClient({ tiktokResult, tiktokReason }: { tiktokResult?: 
       )}
       <AccountsCard refresh={groups?.map((g) => g.keys.map((k) => k.set).join()).join() ?? ""} />
       <SetupCard checks={checks} error={setupError} loading={setupLoading} onRun={runSetup} />
-      <TranscriptionCard onSaved={runSetup} />
+      <TranscriptionCard
+        onSaved={runSetup}
+        refresh={savedKeys(groups, "berget")} // läs om när Berget-nyckeln sparas
+      />
       <SubmitHelperCard />
       <ScoutCountryCard />
       {error && (
