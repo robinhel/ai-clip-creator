@@ -9,12 +9,16 @@ import re
 import shutil
 from pathlib import Path
 
+from clipsmith.models.transcript import Transcript
+
 from .brain import Brain
 from .budget import Budget, budget_from_settings
 from .cliplog import METRIC_KEYS, POST_STATUSES, STATUSES, ClipLog, UploadRunning
-from .config import Settings, load_settings
+from .config import BERGET_MISSING, Settings, load_settings
 from .facit import load_facit, score
+from .local_whisper import loading_message, transcribe_local
 from .media import probe
+from .pipeline import clipsmith_config
 from .profile import Profile, load_profile
 from .transcribe import EUR_PER_MINUTE, berget_post, transcribe_vod
 from .workflow import finish_vod, load_picks
@@ -81,8 +85,7 @@ def cmd_check_setup(args, settings: Settings) -> int:
         print(f"OK  transcription: local Whisper {settings.local_whisper_model}")
     else:
         has_berget = bool(settings.berget_api_key)
-        print(f"{'OK ' if has_berget else 'FAIL'} BERGET_API_KEY in .env (transcription with Berget, "
-              "or set TRANSCRIBE_ENGINE=local)")
+        print("OK  BERGET_API_KEY in .env (transcription with Berget)" if has_berget else f"FAIL {BERGET_MISSING}")
         ok = ok and has_berget
     profile = _profile(settings, args.profile)
     problems = profile.problems(settings.root)
@@ -106,18 +109,40 @@ def cmd_transcribe(args, settings: Settings) -> int:
         print(f"{out} already exists. Add --overwrite to redo it.")
         print(next_step)
         return 0
-    if not settings.berget_api_key:
-        raise SystemExit("Fill in BERGET_API_KEY in .env first.")
-    model = args.model or settings.transcribe_model
-    language = _profile(settings, args.profile).language
-    minutes = probe(mp4)["duration"] / 60
-    print(f"Transcribing {minutes:.0f} minutes with {model} ({language}), "
-          f"about {minutes * EUR_PER_MINUTE:.2f} euros.")
-    transcript = transcribe_vod(mp4, args.vod_id, out, post=berget_post(settings.berget_api_key),
-                                model=model, language=language)
+    profile = _profile(settings, args.profile)
+    if settings.engine == "local":
+        transcript = _transcribe_locally(mp4, profile, settings)
+    else:
+        transcript = _transcribe_with_berget(mp4, args.model, profile.language, settings)
     print(f"Done: {len(transcript.segments)} sentences in {out}")
     print(next_step)
     return 0
+
+
+def _transcribe_locally(mp4: Path, profile: Profile, settings: Settings) -> Transcript:
+    """work/<id>/<id>.mp4 till transcript.json bredvid, med kampanjens clipsmith-config och den valda modellen.
+    Gratis på den här datorn, så ingen kostnadsrad."""
+    model = settings.local_whisper_model
+    try:
+        config = clipsmith_config(profile, settings).transcribe
+    except ValueError as error:
+        raise SystemExit(str(error))
+    print(f"{loading_message(model)}, then transcribing locally ({profile.language}).")
+    return transcribe_local(mp4, mp4.stem, mp4.with_name("transcript.json"), config, model=model,
+                            language=profile.language,
+                            on_part=lambda n, total: print(f"Part {n} of {total}"))
+
+
+def _transcribe_with_berget(mp4: Path, model: str | None, language: str, settings: Settings) -> Transcript:
+    """work/<id>/<id>.mp4 till transcript.json bredvid, via Berget (kostar, se raden)."""
+    if not settings.berget_api_key:
+        raise SystemExit(BERGET_MISSING)
+    model = model or settings.transcribe_model
+    minutes = probe(mp4)["duration"] / 60
+    print(f"Transcribing {minutes:.0f} minutes with {model} ({language}), "
+          f"about {minutes * EUR_PER_MINUTE:.2f} euros.")
+    return transcribe_vod(mp4, mp4.stem, mp4.with_name("transcript.json"), post=berget_post(settings.berget_api_key),
+                          model=model, language=language)
 
 
 def cmd_finish(args, settings: Settings) -> int:
@@ -406,9 +431,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--profile")
     p.set_defaults(func=cmd_check_setup)
 
-    p = sub.add_parser("transcribe", help="Transcribe a downloaded VOD via Berget")
+    p = sub.add_parser("transcribe", help="Transcribe a downloaded VOD (Berget or local Whisper, as in Settings)")
     p.add_argument("vod_id", help="VOD ID, same as the folder name in work/")
-    p.add_argument("--model", help="Berget's model, e.g. Systran/faster-whisper-large-v3")
+    p.add_argument("--model", help="Berget's model, e.g. Systran/faster-whisper-large-v3 (Berget only)")
     p.add_argument("--profile")
     p.add_argument("--overwrite", action="store_true", help="Redo an existing transcription")
     p.set_defaults(func=cmd_transcribe)

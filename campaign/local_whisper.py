@@ -7,6 +7,7 @@ skillnad. Lokal transkribering kostar inget och loggas inte i budgeten.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from clipsmith.transcription.transcriber import transcribe
 from .config import LOCAL_MODELS
 
 REPO = "Systran/faster-whisper-{}"  # samma namn som faster_whisper.utils._MODELS använder
+log = logging.getLogger(__name__)
 
 
 def is_downloaded(model: str, cache_dir: str | Path | None = None) -> bool:
@@ -35,6 +37,23 @@ def loading_message(model: str) -> str:
     return f"Loading Whisper {model} (downloading about {LOCAL_MODELS[model]:g} GB the first time)"
 
 
+def _download(model: str) -> str:
+    """Hämta modellen till Hugging Face-cachen (eller använd den som redan finns där). Ger mappen."""
+    from faster_whisper.utils import download_model
+
+    return download_model(model)
+
+
+def _model_path(model: str) -> str:
+    """Modellens mapp. Ett fel från Hugging Face (nät, disk) blir en kort text; originalet hamnar i loggen."""
+    try:
+        return _download(model)
+    except Exception as exc:
+        log.exception("could not load the local Whisper model %s", model)
+        raise RuntimeError(f"Could not load the local Whisper model {model}. Check the internet connection "
+                           f"and free disk space (about {LOCAL_MODELS[model]:g} GB).") from exc
+
+
 def transcribe_local(
     mp4: Path,
     video_id: str,
@@ -46,8 +65,10 @@ def transcribe_local(
     on_part: Callable[[int, int], None] | None = None,
 ) -> Transcript:
     """Transkribera med kampanjens transcribe-inställningar (compute_type, bitar, trådar), den valda modellen
-    och kampanjens språk. on_part(n, total) anropas när del n börjar, som för Berget."""
-    settings = config.model_copy(update={"model": model, "language": language})
+    och kampanjens språk. on_part(n, total) anropas när del n börjar, som för Berget.
+
+    Delarna överlappar inte: clipsmith tar inte bort det dubbla talet i ett överlapp."""
+    settings = config.model_copy(update={"model": _model_path(model), "language": language, "chunk_overlap_s": 0})
 
     def chunk(done: int, total: int) -> None:
         if on_part and done < total:

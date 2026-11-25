@@ -26,7 +26,7 @@ from .budget import BudgetExceeded, budget_from_settings
 from .caption import PROBLEM_STARTS, check_caption
 from .cliplog import (OLD_OWN_FILES_TITLE, OWN_FILES_TITLE, POST_STATUSES, STAT_KEYS, STATUSES, ClipLog,
                       UploadRunning, card_runs)
-from .config import Settings, load_settings
+from .config import BERGET_MISSING, Settings, load_settings
 from .media import need, probe, run
 from .metrics import clip_length, reached_min_7d
 from .pipeline import finish_run, run_campaign_vod
@@ -110,8 +110,7 @@ def _turned_off(settings: Settings) -> set[str]:
 # Nycklarna gäller hela appen. De står i problems, så att en körning stoppas, och i key_problems, så att
 # webben kan visa dem en gång i stället för på varje kampanj.
 # Berget-nyckeln behövs bara när Berget är valt för transkriberingen (Settings > Transcription).
-KEY_PROBLEMS = (("berget_api_key", "Berget key (BERGET_API_KEY) is missing. Add it under Settings, "
-                                   "or choose Local transcription there."),
+KEY_PROBLEMS = (("berget_api_key", BERGET_MISSING),
                 ("anthropic_api_key", "Claude key (ANTHROPIC_API_KEY) is missing. Add it under Settings."))
 # Profilens problem som gör varje klipp underkänt i regelkontrollen (campaign/rules.py).
 FAILS_CLIPS = ("The overlay image is missing", "on_screen_text.text is empty")
@@ -257,16 +256,13 @@ def _berget_price(settings: Settings) -> float | None:
     return None if price is None else float(price)
 
 
-def transcribe_rate(settings: Settings) -> float:
-    return estimate.transcribe_rate(settings.engine, settings.local_whisper_model)
-
-
 def _estimate(facts: dict, settings: Settings, disk: dict) -> dict:
     downloaded = _downloaded(facts, settings)
     transcribed = (settings.work_dir / facts["vod_id"] / "transcript.json").exists()
     return {"downloaded": downloaded,
             "estimate": estimate.estimate(facts["duration_s"], disk["free_gb"], downloaded,
-                                          _berget_price(settings), transcribed, transcribe_rate(settings))}
+                                          _berget_price(settings), transcribed,
+                                          estimate.transcribe_rate(settings.engine, settings.local_whisper_model))}
 
 
 @router.get("/vod/{vod_id}", summary="Facts about a Twitch VOD before the project starts")

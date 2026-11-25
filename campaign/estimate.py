@@ -56,7 +56,7 @@ def download_gb(duration_s: float) -> float:
 
 def transcribe_rate(engine: str, model: str) -> float:
     """Sekunder transkribering per sekund VOD: Berget eller den lokala modellen."""
-    return LOCAL_S_PER_VOD_S.get(model, LOCAL_S_PER_VOD_S["small"]) if engine == "local" else TRANSCRIBE_S_PER_VOD_S
+    return LOCAL_S_PER_VOD_S[model] if engine == "local" else TRANSCRIBE_S_PER_VOD_S
 
 
 def step_seconds(duration_s: float | None, downloaded: bool = False,

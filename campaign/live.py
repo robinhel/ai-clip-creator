@@ -477,10 +477,16 @@ class Watcher:
         self.part: Any = live_part
         self.stream: Callable[[str], dict | None] = stream_info
         self.record: Any = live_record
+        # Inställningarna som gäller nu: ett byte i Settings (till exempel transkriberingen) gäller vid nästa
+        # kontroll och körning, utan omstart.
+        self.load: Callable[[], Settings] = self._current
         self.reading: dict[str, Stream] = {}  # nyckel -> streamen vars chatt läses
         self.recorders: dict[str, Any] = {}  # kanal:<login> -> inspelningen som pågår
         # Utan tak. Topparna körs i tur och ordning.
         self.jobs: queue.Queue[Job] = queue.Queue()
+
+    def _current(self) -> Settings:
+        return load_settings(self.settings.root)
 
     # ----- Twitch och chatten -----
 
@@ -506,7 +512,7 @@ class Watcher:
         if key.startswith(FREE):
             self._check_free(state, key)
             return
-        described = _describe_profile(key, self.settings)
+        described = _describe_profile(key, self.load())
         channel = described["channel"]
         if not _can_watch(described):
             self.reading.pop(key, None)
@@ -776,7 +782,7 @@ class Watcher:
             job.part_id,
             job.profile,
             job.game,
-            self.settings,
+            self.load(),
             focus=CHAT_LAG_FOCUS,
             local=True,
             app=self.app,

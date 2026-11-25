@@ -9,6 +9,10 @@ from pathlib import Path
 ENGINES = ("berget", "local")
 # faster-whisper-modellerna som går att välja, med ungefärlig storlek i GB (Hugging Face, Systran/faster-whisper-*).
 LOCAL_MODELS = {"small": 0.5, "medium": 1.5, "large-v3": 3.0}
+# Samma text överallt där Berget är valt men nyckeln saknas. Webben känner igen början "Berget key".
+BERGET_MISSING = ("Berget key (BERGET_API_KEY) is missing, and Berget is chosen for transcription. Add the key "
+                  "under Settings, or choose Local under Settings > Transcription to transcribe on this computer "
+                  "for free.")
 
 try:
     from dotenv import load_dotenv

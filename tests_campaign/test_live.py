@@ -309,6 +309,7 @@ def world(settings, tmp_path, monkeypatch) -> World:
         lambda target, *args: target(*args),
     )
     watcher.part = SimpleNamespace(fetch_part=found.fetch_part)
+    watcher.load = lambda: settings  # testerna ändrar settings direkt
     live.LiveState(settings).set_watching(PROFILE, True)
     return found
 
@@ -663,3 +664,25 @@ def test_a_peak_waits_while_the_editor_or_the_chat_search_runs(world, settings, 
             lock.release()
     assert seen == ["ko"]
     assert len(world.runs) == 1
+
+
+def test_a_new_transcription_choice_counts_without_a_restart(world, settings, monkeypatch) -> None:
+    """Settings sparar valet i miljön. Bevakningen läser det vid varje kontroll och körning."""
+    world.watcher.load = world.watcher._current
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    monkeypatch.setenv("BERGET_API_KEY", "")
+    monkeypatch.setenv("TRANSCRIBE_ENGINE", "berget")  # Berget utan nyckel: går inte att bevaka
+    world.watcher.check()
+    assert live.LiveState(settings).channel(PROFILE)["error"] == live.NOT_WATCHABLE
+
+    monkeypatch.setenv("TRANSCRIBE_ENGINE", "local")
+    monkeypatch.setenv("LOCAL_WHISPER_MODEL", "medium")
+    world.chats = [exploding_chat()]
+    world.watcher.check()
+    assert live.LiveState(settings).channel(PROFILE)["error"] is None
+    seen = []
+    run = world.watcher.run
+    world.watcher.run = lambda *args, **kwargs: seen.append((args[4].engine, args[4].local_whisper_model)) or run(
+        *args, **kwargs)
+    world.watcher.handle(world.watcher.jobs.get_nowait())
+    assert seen == [("local", "medium")]

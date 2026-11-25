@@ -22,6 +22,12 @@ from .conftest import PAKET, make_clip, needs_ffmpeg
 ENGINE_NAMES = ("TRANSCRIBE_ENGINE", "LOCAL_WHISPER_MODEL", "BERGET_API_KEY")
 
 
+@pytest.fixture(autouse=True)
+def no_download(monkeypatch):
+    """Ingen modell hämtas från Hugging Face: modellens namn används som dess mapp."""
+    monkeypatch.setattr(local_whisper, "_download", lambda model: model)
+
+
 @pytest.fixture
 def env(settings, monkeypatch):
     for name in ENGINE_NAMES:
@@ -68,10 +74,10 @@ def test_settings_read_the_choice_from_env(tmp_path, monkeypatch) -> None:
 
 def test_status_shows_choice_model_download_and_size(env, settings) -> None:
     body = _client(settings).get("/campaign/transcription").json()
-    assert body["engine"] == "local" and body["chosen"] is False  # ingen nyckel och inget val
-    assert body["model"] == "small" and body["downloaded"] is True and body["size_gb"] == 0.5
-    assert body["berget_key"] is False
-    assert [(m["id"], m["size_gb"]) for m in body["models"]] == [("small", 0.5), ("medium", 1.5), ("large-v3", 3.0)]
+    assert body == {"engine": "local", "model": "small", "berget_key": False,  # ingen nyckel och inget val
+                    "models": [{"id": "small", "size_gb": 0.5, "downloaded": True},
+                               {"id": "medium", "size_gb": 1.5, "downloaded": False},
+                               {"id": "large-v3", "size_gb": 3.0, "downloaded": False}]}
 
 
 def test_saving_the_choice_writes_env_and_works_at_once(env, settings) -> None:
@@ -79,13 +85,12 @@ def test_saving_the_choice_writes_env_and_works_at_once(env, settings) -> None:
     response = client.put("/campaign/transcription", json={"engine": "local", "model": "medium"})
     assert response.status_code == 200
     body = response.json()
-    assert (body["engine"], body["chosen"], body["model"], body["downloaded"], body["size_gb"]) == (
-        "local", True, "medium", False, 1.5)
+    assert (body["engine"], body["model"]) == ("local", "medium")
     assert env.read_text() == "# nycklar\nOTHER=1\nTRANSCRIBE_ENGINE=local\nLOCAL_WHISPER_MODEL=medium\n"
     assert os.environ["TRANSCRIBE_ENGINE"] == "local"
     assert load_settings(settings.root).local_whisper_model == "medium"
 
-    assert client.put("/campaign/transcription", json={"engine": "berget"}).status_code == 200
+    assert client.put("/campaign/transcription", json={"engine": "berget"}).json()["engine"] == "berget"
     assert "TRANSCRIBE_ENGINE=berget\nLOCAL_WHISPER_MODEL=medium\n" in env.read_text()
     assert client.get("/campaign/transcription").json()["engine"] == "berget"
 
@@ -225,20 +230,21 @@ def test_a_missing_berget_key_only_blocks_when_berget_is_chosen(settings) -> Non
     assert local["key_problems"] == [] and local["ready"] is True
     settings.transcribe_engine = "berget"
     berget = api._describe_profile("skiimasktimmy", settings)
-    assert berget["key_problems"][0].startswith("Berget key") and berget["ready"] is False
+    assert berget["key_problems"] == [keys.BERGET_MISSING] and berget["ready"] is False
 
 
 def test_the_estimate_has_no_berget_cost_and_a_slower_transcription_when_local(settings) -> None:
     settings.berget_api_key = "x"
-    cloud = estimate.estimate(4 * 3600, 100.0, True, api._berget_price(settings),
-                              transcribe_rate=api.transcribe_rate(settings))
+    def rate() -> float:
+        return estimate.transcribe_rate(settings.engine, settings.local_whisper_model)
+
+    cloud = estimate.estimate(4 * 3600, 100.0, True, api._berget_price(settings), transcribe_rate=rate())
     settings.transcribe_engine = "local"
-    local = estimate.estimate(4 * 3600, 100.0, True, api._berget_price(settings),
-                              transcribe_rate=api.transcribe_rate(settings))
+    local = estimate.estimate(4 * 3600, 100.0, True, api._berget_price(settings), transcribe_rate=rate())
     assert cloud["cost"]["berget_usd"] > 0 and local["cost"]["berget_usd"] == 0
     assert 30 <= local["minutes"] - cloud["minutes"] + 8 <= 90  # small: 30-90 min för 4 timmar
     settings.local_whisper_model = "large-v3"
-    large = estimate.estimate(4 * 3600, 100.0, True, 0.0, transcribe_rate=api.transcribe_rate(settings))
+    large = estimate.estimate(4 * 3600, 100.0, True, 0.0, transcribe_rate=rate())
     assert large["minutes"] > local["minutes"]
 
 
@@ -248,3 +254,127 @@ def test_setup_check_shows_the_transcription_choice(env, settings, monkeypatch) 
     monkeypatch.setenv("TRANSCRIBE_ENGINE", "berget")
     rows = {r["id"]: r for r in _client(settings).get("/campaign/setup").json()["checks"]}
     assert rows["berget"]["ok"] is False
+
+
+# ---------- delarna: inga dubbla meningar och avbryt direkt ----------
+
+class MinuteWhisper:
+    """Låtsas-faster-whisper: ett segment var 20:e sekund i varje del, efter delens längd."""
+
+    calls: list[str] = []
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def transcribe(self, path, **kwargs):
+        MinuteWhisper.calls.append(path)
+        seconds = PART_SECONDS[path]
+        segments = [SimpleNamespace(start=k * 20 + 5.0, end=k * 20 + 7.0, text=f" line {k}", words=[])
+                    for k in range(int(seconds // 20))]
+        return iter(segments), SimpleNamespace(language="en")
+
+
+PART_SECONDS: dict[str, float] = {}
+
+
+@pytest.fixture
+def parts(monkeypatch):
+    """Ingen riktig modell och ingen ffmpeg: längden styr hur många delar det blir."""
+    from clipsmith.transcription import transcriber
+
+    MinuteWhisper.calls = []
+    PART_SECONDS.clear()
+    monkeypatch.setattr("faster_whisper.WhisperModel", MinuteWhisper)
+    monkeypatch.setattr(transcriber, "_extract_audio_chunk",
+                        lambda mp4, start, dur, wav: PART_SECONDS.__setitem__(str(wav), dur))
+
+    def set_duration(seconds: float) -> None:
+        monkeypatch.setattr(transcriber, "video_duration", lambda mp4: seconds)
+
+    return set_duration
+
+
+def test_local_parts_do_not_repeat_the_speech_after_each_border(parts, tmp_path) -> None:
+    from clipsmith.config.models import TranscribeConfig
+
+    parts(3600.0)  # två delar à 30 minuter
+    config = TranscribeConfig(chunk_minutes=30, chunk_overlap_s=30, max_workers=1)  # som config.timmy.yaml
+    transcript = local_whisper.transcribe_local(tmp_path / "v.mp4", "v", tmp_path / "transcript.json", config,
+                                                model="small", language="en")
+    starts = [s.start for s in transcript.segments]
+    assert len(MinuteWhisper.calls) == 2
+    assert len(starts) == len(set(starts)) == 180
+
+
+def test_cancel_stops_the_local_parts_that_have_not_started(parts, tmp_path) -> None:
+    from campaign.workflow import RunCancelled
+    from clipsmith.config.models import TranscribeConfig
+
+    parts(4 * 60.0)  # fyra delar à en minut, en tråd
+
+    def on_part(n: int, total: int) -> None:
+        if n >= 2:
+            raise RunCancelled("You cancelled.")
+
+    with pytest.raises(RunCancelled):
+        local_whisper.transcribe_local(tmp_path / "v.mp4", "v", tmp_path / "transcript.json",
+                                       TranscribeConfig(chunk_minutes=1, max_workers=1),
+                                       model="small", language="en", on_part=on_part)
+    assert len(MinuteWhisper.calls) < 4
+
+
+def test_a_model_that_cannot_be_loaded_gives_a_short_message_and_logs_the_error(monkeypatch, tmp_path,
+                                                                                caplog) -> None:
+    from clipsmith.config.models import TranscribeConfig
+
+    def offline(model):
+        raise OSError("We couldn't connect to 'https://huggingface.co' to load the files")
+
+    monkeypatch.setattr(local_whisper, "_download", offline)
+    with pytest.raises(RuntimeError) as error:
+        local_whisper.transcribe_local(tmp_path / "v.mp4", "v", tmp_path / "transcript.json",
+                                       TranscribeConfig(chunk_minutes=30), model="medium", language="en")
+    assert str(error.value) == ("Could not load the local Whisper model medium. Check the internet connection "
+                                "and free disk space (about 1.5 GB).")
+    assert "huggingface.co" in caplog.text
+
+
+# ---------- python -m campaign transcribe ----------
+
+@pytest.fixture
+def cli_vod(settings, monkeypatch):
+    from campaign import cli
+
+    shutil.copy(PAKET / "config.timmy.yaml", settings.root / "config.timmy.yaml")
+    mp4 = settings.work_dir / "123" / "123.mp4"
+    mp4.parent.mkdir(parents=True)
+    mp4.touch()
+    calls: list = []
+
+    def fake_local(mp4, vod_id, out, config, *, model, language, on_part=None):
+        calls.append((vod_id, model, language, config.chunk_minutes))
+        on_part(1, 1)
+        return Transcript(video_id=vod_id, language=language, segments=[])
+
+    monkeypatch.setattr(cli, "transcribe_local", fake_local)
+    monkeypatch.setattr(cli, "transcribe_vod", lambda *a, **k: pytest.fail("Berget anropades"))
+    args = SimpleNamespace(vod_id="123", model=None, profile="skiimasktimmy", overwrite=False)
+    return lambda: cli.cmd_transcribe(args, settings), calls
+
+
+def test_the_transcribe_command_uses_the_local_model_without_a_cost_line(cli_vod, settings, capsys) -> None:
+    go, calls = cli_vod
+    settings.transcribe_engine, settings.local_whisper_model = "local", "medium"
+    assert go() == 0
+    assert calls == [("123", "medium", "en", 30)]  # kampanjens clipsmith-config
+    printed = capsys.readouterr().out
+    assert "Loading Whisper medium" in printed and "Part 1 of 1" in printed
+    assert "euro" not in printed
+
+
+def test_the_transcribe_command_with_berget_and_no_key_gives_the_common_text(cli_vod, settings) -> None:
+    go, calls = cli_vod
+    settings.transcribe_engine = "berget"
+    with pytest.raises(SystemExit) as error:
+        go()
+    assert str(error.value) == keys.BERGET_MISSING and calls == []

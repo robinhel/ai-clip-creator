@@ -172,12 +172,17 @@ def _chunked_transcribe(
                 pool.submit(_transcribe_chunk, model, wav_paths[i], chunk_starts[i], config): i
                 for i in range(n)
             }
-            for done, future in enumerate(as_completed(future_to_idx), start=1):
-                idx = future_to_idx[future]
-                chunk_results[idx] = future.result()
-                log.info("chunk %d/%d transcribed (%d segs)", idx + 1, n, len(chunk_results[idx]))
-                if on_chunk:
-                    on_chunk(done, n)
+            try:
+                for done, future in enumerate(as_completed(future_to_idx), start=1):
+                    idx = future_to_idx[future]
+                    chunk_results[idx] = future.result()
+                    log.info("chunk %d/%d transcribed (%d segs)", idx + 1, n, len(chunk_results[idx]))
+                    if on_chunk:
+                        on_chunk(done, n)
+            except BaseException:
+                # Stop at once (e.g. the caller cancelled in on_chunk): drop the chunks not yet started.
+                pool.shutdown(wait=False, cancel_futures=True)
+                raise
 
     segments = _merge_segments(chunk_results, chunk_starts)
     language = config.language
@@ -201,7 +206,7 @@ def transcribe(
     Saves transcript.json next to the mp4 (or to out_path).
     On second call, loads from disk unless overwrite=True.
     If config.chunk_minutes > 0, uses parallel chunked transcription.
-    on_chunk(done, total) reports progress; without chunks the whole file is one chunk.
+    on_chunk(done, total) reports progress of the chunks (only with chunk_minutes > 0).
     """
     if out_path is None:
         out_path = mp4_path.parent / "transcript.json"
@@ -230,8 +235,6 @@ def transcribe(
     model = WhisperModel(config.model, device=device, compute_type=config.compute_type)
 
     log.info("transcribing %s (language=%s) ...", mp4_path.name, config.language)
-    if on_chunk:
-        on_chunk(0, 1)
     raw_segments, info = model.transcribe(
         str(mp4_path),
         language=config.language,
@@ -254,8 +257,6 @@ def transcribe(
         segments.append(Segment(start=seg.start, end=seg.end, text=seg.text, words=words))
         log.debug("[%.1f -> %.1f] %s", seg.start, seg.end, seg.text.strip())
 
-    if on_chunk:
-        on_chunk(1, 1)
     transcript = Transcript(
         video_id=video_id,
         language=info.language,

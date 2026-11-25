@@ -12,7 +12,6 @@ import shutil
 import subprocess
 import tempfile
 import threading
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +25,7 @@ from clipsmith.twitch.client import TwitchClient
 from . import estimate, local_whisper, streams
 from .api import SSD_MISSING, _describe_profile, _profile_names, get_settings, storage
 from .budget import BudgetExceeded, budget_from_settings
-from .config import ENGINES, LOCAL_MODELS, Settings
+from .config import BERGET_MISSING, ENGINES, LOCAL_MODELS, Settings, load_settings
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
 
@@ -203,10 +202,9 @@ def post_test_twitch(settings: Settings = Depends(get_settings)) -> dict:
 # ---------- transkribering: Berget eller en lokal Whisper-modell ----------
 
 def _transcription(settings: Settings) -> dict:
-    """Valet i klartext (inget av det är hemligt), och om den lokala modellen redan ligger i cachen."""
-    model = settings.local_whisper_model
-    return {"engine": settings.engine, "chosen": settings.transcribe_engine in ENGINES, "model": model,
-            "downloaded": local_whisper.is_downloaded(model), "size_gb": LOCAL_MODELS[model],
+    """Valet i klartext (inget av det är hemligt), och för varje lokal modell storleken och om den redan ligger
+    i cachen."""
+    return {"engine": settings.engine, "model": settings.local_whisper_model,
             "berget_key": bool(settings.berget_api_key),
             "models": [{"id": name, "size_gb": size, "downloaded": local_whisper.is_downloaded(name)}
                        for name, size in LOCAL_MODELS.items()]}
@@ -234,8 +232,7 @@ def put_transcription(body: Any = Body(None), settings: Settings = Depends(get_s
     with _env_lock:
         _write_env(env_path(settings.root), values)
         os.environ.update(values)
-    return _transcription(replace(settings, transcribe_engine=body.get("engine", settings.transcribe_engine),
-                                  local_whisper_model=body.get("model", settings.local_whisper_model)))
+    return _transcription(load_settings(settings.root))
 
 
 # ---------- kontroll: samma som python -m campaign check-setup, plus SSD:n ----------
@@ -341,5 +338,4 @@ def _transcription_row(settings: Settings) -> dict:
                     "#transcription")
     if _value("BERGET_API_KEY", settings.root):
         return _row("berget", "Transcription", True, "Berget, the key is saved.", "#berget")
-    return _row("berget", "Transcription", False, "Berget is chosen, but the key is missing. Paste it in the "
-                "Berget box further down, or choose Local under Transcription.", "#berget")
+    return _row("berget", "Transcription", False, BERGET_MISSING, "#berget")
