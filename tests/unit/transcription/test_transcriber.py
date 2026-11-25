@@ -94,3 +94,25 @@ def test_merge_segments_empty_chunk() -> None:
     chunk0 = [_seg(0.0, 5.0)]
     merged = _merge_segments([chunk0, []], chunk_starts=[0.0, 30.0])
     assert len(merged) == 1
+
+
+def test_chunked_transcribe_reports_each_finished_chunk(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from clipsmith.config.models import TranscribeConfig
+    from clipsmith.transcription import transcriber
+
+    class FakeModel:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def transcribe(self, path, **kwargs):
+            return iter([]), SimpleNamespace(language="en")
+
+    monkeypatch.setattr(transcriber, "video_duration", lambda mp4: 150.0)
+    monkeypatch.setattr(transcriber, "_extract_audio_chunk", lambda *args: None)
+    monkeypatch.setattr("faster_whisper.WhisperModel", FakeModel)
+    seen: list[tuple[int, int]] = []
+    config = TranscribeConfig(model="tiny", chunk_minutes=1, max_workers=1)
+    transcriber.transcribe(tmp_path / "v.mp4", "v", config, on_chunk=lambda done, total: seen.append((done, total)))
+    assert seen == [(0, 3), (1, 3), (2, 3), (3, 3)]

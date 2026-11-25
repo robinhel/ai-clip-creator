@@ -167,6 +167,7 @@ def test_a_local_file_without_transcript_fails_on_the_transcribe_step(client, se
     shutil.copy(PAKET / "config.timmy.yaml", settings.root / "config.timmy.yaml")
     monkeypatch.chdir(settings.root)
     settings.berget_api_key = ""
+    settings.transcribe_engine = "berget"  # utan val blir det Local när nyckeln saknas
     (settings.work_dir / "egen_fil").mkdir(parents=True)
     (settings.work_dir / "egen_fil" / "egen_fil.mp4").touch()
     run_id = _run("pending", vod_id="egen_fil")
@@ -177,8 +178,7 @@ def test_a_local_file_without_transcript_fails_on_the_transcribe_step(client, se
     run = client.get(f"/campaign/runs/{run_id}").json()
     assert [s["status"] for s in run["steps"][:3]] == ["done", "failed", "waiting"]
     # Samma ord som Kampanjer: nyckeln läggs in under Inställningar, inte i .env.
-    assert run["error"] == ("Berget key (BERGET_API_KEY) is missing. Add it under Settings. "
-                            "It is needed for transcription.")
+    assert run["error"] == pipeline.BERGET_MISSING
 
 
 def test_signals_mode_shows_no_claude_step_and_no_claude_cost(client, settings) -> None:  # noqa: F811

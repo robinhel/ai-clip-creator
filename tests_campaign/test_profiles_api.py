@@ -800,6 +800,7 @@ def test_a_campaign_with_only_own_videos_has_no_twitch_channel(client, settings)
 
 def test_keys_are_their_own_problems_and_the_state_is_the_same_text_everywhere(client, settings) -> None:
     settings.anthropic_api_key = settings.berget_api_key = ""
+    settings.transcribe_engine = "berget"  # Berget-nyckeln behövs bara när Berget är valt
     timmy = client.get("/campaign/profiles").json()[0]
     assert timmy["ready"] is False  # körningen kräver nycklarna
     assert len(timmy["key_problems"]) == 2 and set(timmy["key_problems"]) <= set(timmy["problems"])

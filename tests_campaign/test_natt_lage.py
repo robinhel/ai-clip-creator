@@ -396,6 +396,7 @@ def _checks(settings) -> dict:
 def test_setup_checks_tools_keys_campaigns_budget_ssd_and_space(settings, env, tools, monkeypatch) -> None:  # noqa: F811
     monkeypatch.setattr(api.estimate, "disk_gb", lambda path: (100.0, 228.0))
     monkeypatch.setenv("ANTHROPIC_API_KEY", CLIENT_ID)
+    settings.transcribe_engine = "berget"  # Berget valt utan nyckel; utan val blir det Local
     inactive = (settings.profiles_dir / "skiimasktimmy.yaml").read_text() + "\nactive: false\n"
     (settings.profiles_dir / "avstangd.yaml").write_text(inactive)
     checks = _checks(settings)

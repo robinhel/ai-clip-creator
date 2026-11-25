@@ -636,6 +636,7 @@ def test_a_campaign_that_is_off_or_not_ready_is_not_watched(world, settings, why
         set_profile(settings, active=False)
     else:
         settings.berget_api_key = None
+        settings.transcribe_engine = "berget"  # utan val blir det Local, som inte behöver nyckeln
     world.watcher.latest = lambda channel: pytest.fail("Twitch frågades")
     world.watcher.check()
     state = live.LiveState(settings).channel(PROFILE)
