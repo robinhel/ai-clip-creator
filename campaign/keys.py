@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -22,10 +23,10 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from clipsmith.api.deps import verify_api_key
 from clipsmith.twitch.client import TwitchClient
 
-from . import estimate, streams
+from . import estimate, local_whisper, streams
 from .api import SSD_MISSING, _describe_profile, _profile_names, get_settings, storage
 from .budget import BudgetExceeded, budget_from_settings
-from .config import Settings
+from .config import ENGINES, LOCAL_MODELS, Settings
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
 
@@ -199,6 +200,44 @@ def post_test_twitch(settings: Settings = Depends(get_settings)) -> dict:
     return check_twitch(settings.root)
 
 
+# ---------- transkribering: Berget eller en lokal Whisper-modell ----------
+
+def _transcription(settings: Settings) -> dict:
+    """Valet i klartext (inget av det är hemligt), och om den lokala modellen redan ligger i cachen."""
+    model = settings.local_whisper_model
+    return {"engine": settings.engine, "chosen": settings.transcribe_engine in ENGINES, "model": model,
+            "downloaded": local_whisper.is_downloaded(model), "size_gb": LOCAL_MODELS[model],
+            "berget_key": bool(settings.berget_api_key),
+            "models": [{"id": name, "size_gb": size, "downloaded": local_whisper.is_downloaded(name)}
+                       for name, size in LOCAL_MODELS.items()]}
+
+
+@router.get("/transcription", summary="Who transcribes: Berget or a local Whisper model")
+def get_transcription(settings: Settings = Depends(get_settings)) -> dict:
+    return _transcription(settings)
+
+
+@router.put("/transcription", summary="Choose Berget or a local Whisper model",
+            dependencies=[Depends(verify_api_key), Depends(only_local)])
+def put_transcription(body: Any = Body(None), settings: Settings = Depends(get_settings)) -> dict:
+    if not isinstance(body, dict) or not ({"engine", "model"} & body.keys()) or body.keys() - {"engine", "model"}:
+        raise HTTPException(400, 'Send {"engine": "berget" | "local", "model": "small" | "medium" | "large-v3"}.')
+    values = {}
+    if "engine" in body:
+        if body["engine"] not in ENGINES:
+            raise HTTPException(400, "Choose berget or local.")
+        values["TRANSCRIBE_ENGINE"] = body["engine"]
+    if "model" in body:
+        if body["model"] not in LOCAL_MODELS:
+            raise HTTPException(400, f"Choose one of the models: {', '.join(LOCAL_MODELS)}.")
+        values["LOCAL_WHISPER_MODEL"] = body["model"]
+    with _env_lock:
+        _write_env(env_path(settings.root), values)
+        os.environ.update(values)
+    return _transcription(replace(settings, transcribe_engine=body.get("engine", settings.transcribe_engine),
+                                  local_whisper_model=body.get("model", settings.local_whisper_model)))
+
+
 # ---------- kontroll: samma som python -m campaign check-setup, plus SSD:n ----------
 
 FILTERS = ("drawtext", "subtitles")  # finish.py ritar texten med drawtext; clipsmith bränner in undertexter
@@ -285,10 +324,22 @@ def _space(disk: dict) -> list[dict]:
 
 @router.get("/setup", summary="Check: ffmpeg, keys, campaigns, budget, SSD and free space")
 def get_setup(settings: Settings = Depends(get_settings)) -> dict:
-    keys = [_row(check_id, label, bool(_value(name, settings.root)),
-                 "Saved." if _value(name, settings.root) else f"Missing. Paste it in the {box} box further down.",
-                 f"#{check_id}")
-            for check_id, name, label, box in (("anthropic", "ANTHROPIC_API_KEY", "The Claude key", "Claude"),
-                                               ("berget", "BERGET_API_KEY", "The Berget key (transcription)",
-                                                "Berget"))]
+    claude = bool(_value("ANTHROPIC_API_KEY", settings.root))
+    keys = [_row("anthropic", "The Claude key", claude,
+                 "Saved." if claude else "Missing. Paste it in the Claude box further down.", "#anthropic"),
+            _transcription_row(settings)]
     return {"checks": [*_tools(), *keys, *_campaigns(settings), _budget(settings), *_space(storage(settings))]}
+
+
+def _transcription_row(settings: Settings) -> dict:
+    """Berget behöver nyckeln. Den lokala modellen behöver ingen; den laddas ner vid första körningen."""
+    if settings.engine == "local":
+        model = settings.local_whisper_model
+        ready = "downloaded" if local_whisper.is_downloaded(model) else (
+            f"downloads about {LOCAL_MODELS[model]:g} GB the first time")
+        return _row("berget", "Transcription", True, f"Local Whisper {model} on this computer, {ready}.",
+                    "#transcription")
+    if _value("BERGET_API_KEY", settings.root):
+        return _row("berget", "Transcription", True, "Berget, the key is saved.", "#berget")
+    return _row("berget", "Transcription", False, "Berget is chosen, but the key is missing. Paste it in the "
+                "Berget box further down, or choose Local under Transcription.", "#berget")

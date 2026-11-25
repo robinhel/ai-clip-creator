@@ -1,4 +1,4 @@
-"""En körning från appen: hämta VOD, transkribera via Berget, låt clipsmith välja och klippa,
+"""En körning från appen: hämta VOD, transkribera via Berget eller lokalt, låt clipsmith välja och klippa,
 och gör sedan klippen kampanjklara. Allt med den valda kampanjens inställningar."""
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from .budget import budget_from_settings
 from .cliplog import ClipLog
 from .config import Settings
 from .download import download_vod
+from .local_whisper import loading_message, transcribe_local
 from .media import probe
 from .memory import selection_memory
 from .profile import Profile, load_profile
@@ -46,6 +47,9 @@ from .workflow import RunCancelled, finish_vod
 Emit = Callable[[str, float, str], None]
 log = logging.getLogger(__name__)
 
+BERGET_MISSING = ("Berget is chosen for transcription, but the Berget key (BERGET_API_KEY) is missing. "
+                  "Add it under Settings, or choose Local under Settings > Transcription to transcribe "
+                  "on this computer for free.")
 CANCELLED = "Du avbröt."  # projektsidan visar "Avbruten", inte ett fel
 # Körningar i den här processen som går att avbryta, med en flagga som Avbryt sätter. Körningen läser
 # flaggan mellan stegen, före varje anrop till Claude och före varje klipp, och stoppar där.
@@ -232,12 +236,18 @@ def make_clips(
             raise
 
     transcript = mp4.parent / "transcript.json"
-    if not transcript.exists():
+    if not transcript.exists() and settings.engine == "local":
+        model = settings.local_whisper_model
+        report("transcribe", 15.0, loading_message(model))  # första gången laddas modellen ner
+        transcribe_local(mp4, vod_id, transcript, cfg.transcribe, model=model, language=profile.language,
+                         on_part=lambda n, total: report("transcribe", 15.0 + 25.0 * (n - 1) / total,
+                                                         f"Transcribing locally with Whisper {model}, "
+                                                         f"part {n} of {total}"))
+    elif not transcript.exists():
         # Steget först, så att ett fel här syns på Transkriberar och inte på hämtningen.
         report("transcribe", 15.0, f"Transcribing with Berget ({settings.transcribe_model})")
         if not settings.berget_api_key:
-            raise ValueError("Berget key (BERGET_API_KEY) is missing. Add it under Settings. "
-                             "It is needed for transcription.")
+            raise ValueError(BERGET_MISSING)
         transcribe_vod(mp4, vod_id, transcript, post=berget_post(settings.berget_api_key),
                        model=settings.transcribe_model, language=profile.language,
                        on_part=lambda n, total: report("transcribe", 15.0 + 25.0 * (n - 1) / total,

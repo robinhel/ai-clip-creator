@@ -77,9 +77,13 @@ def cmd_check_setup(args, settings: Settings) -> int:
     has_key = bool(settings.anthropic_api_key)
     print(f"{'OK ' if has_key else 'FAIL'} ANTHROPIC_API_KEY in .env")
     ok = ok and has_key
-    has_berget = bool(settings.berget_api_key)
-    print(f"{'OK ' if has_berget else 'FAIL'} BERGET_API_KEY in .env (transcription)")
-    ok = ok and has_berget
+    if settings.engine == "local":  # den lokala modellen behöver ingen nyckel
+        print(f"OK  transcription: local Whisper {settings.local_whisper_model}")
+    else:
+        has_berget = bool(settings.berget_api_key)
+        print(f"{'OK ' if has_berget else 'FAIL'} BERGET_API_KEY in .env (transcription with Berget, "
+              "or set TRANSCRIBE_ENGINE=local)")
+        ok = ok and has_berget
     profile = _profile(settings, args.profile)
     problems = profile.problems(settings.root)
     print(f"{'OK ' if not problems else 'FAIL'} profile {profile.name}")

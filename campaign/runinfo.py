@@ -54,7 +54,8 @@ def _poster_url(own: list[dict]) -> str | None:
 def describe(meta: dict, db: Session, clips: list[dict], settings: Settings) -> tuple[dict, dict]:
     """Projektet som Hem och Projekt visar det, och förloppet med stegen för projektsidan."""
     status, error, created, events = _state(meta, db)
-    progress = estimate.progress(status, events, meta["duration_s"])
+    progress = estimate.progress(status, events, meta["duration_s"],
+                                 transcribe_rate=estimate.transcribe_rate(settings.engine, settings.local_whisper_model))
     own = run_clips(meta, clips)
     out = {key: meta[key] for key in FIELDS}
     out.update(start_s=meta.get("start_s") or 0, end_s=meta.get("end_s") or 0)  # 0 för gamla körningar

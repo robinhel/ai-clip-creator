@@ -4,6 +4,8 @@ Siffrorna bygger på en körning av VOD 2925991945 (2026-11-12) och några antag
 - Storlek: 1080p60 tog 13 GB för 13 950 s, alltså ungefär 0,93 MB per sekund VOD. Mätt.
 - Nedladdning: ungefär 20 MB/s. Antagande, inte mätt.
 - Transkribering via Berget: 4 timmar VOD tog cirka 8 minuter och 0,46 euro. Mätt.
+- Lokal transkribering (faster-whisper, int8, vanlig CPU): small cirka 60 minuter för 4 timmar VOD (30-90),
+  medium dubbelt så lång tid och large-v3 fyra gånger. Antagande, inte mätt på en hel VOD. Kostar inget.
 - Stegen efter transkriberingen: fasta tider (se FIXED_S). Antagande.
 - Claude: ungefär 0,30 USD per körning för att välja och betygsätta (cirka 20 kandidater)
   och granska klippens bilder. Antagande.
@@ -19,6 +21,7 @@ GB = 1024**3
 MB_PER_VOD_S = 0.93
 DOWNLOAD_MB_PER_S = 20.0
 TRANSCRIBE_S_PER_VOD_S = 8 * 60 / (4 * 3600)
+LOCAL_S_PER_VOD_S = {"small": 60 * 60 / (4 * 3600), "medium": 120 * 60 / (4 * 3600), "large-v3": 240 * 60 / (4 * 3600)}
 USD_PER_EUR = 1.08
 BERGET_USD_PER_VOD_S = 0.46 * USD_PER_EUR / (4 * 3600)
 CLAUDE_USD = 0.30
@@ -51,12 +54,18 @@ def download_gb(duration_s: float) -> float:
     return round(duration_s * MB_PER_VOD_S / 1000, 1)
 
 
-def step_seconds(duration_s: float | None, downloaded: bool = False) -> dict[str, int]:
+def transcribe_rate(engine: str, model: str) -> float:
+    """Sekunder transkribering per sekund VOD: Berget eller den lokala modellen."""
+    return LOCAL_S_PER_VOD_S.get(model, LOCAL_S_PER_VOD_S["small"]) if engine == "local" else TRANSCRIBE_S_PER_VOD_S
+
+
+def step_seconds(duration_s: float | None, downloaded: bool = False,
+                 transcribe_rate: float = TRANSCRIBE_S_PER_VOD_S) -> dict[str, int]:
     """Ungefär hur länge varje steg tar. Tomt om VOD:ens längd inte är känd."""
     if not duration_s:
         return {}
     download = 0 if downloaded else download_gb(duration_s) * 1000 / DOWNLOAD_MB_PER_S
-    return {"download": round(download), "transcribe": round(duration_s * TRANSCRIBE_S_PER_VOD_S),
+    return {"download": round(download), "transcribe": round(duration_s * transcribe_rate),
             **FIXED_S}
 
 
@@ -78,14 +87,14 @@ def cost_usd(duration_s: float | None, berget_usd_per_min: float | None = None,
 
 
 def estimate(duration_s: float, free_gb: float, downloaded: bool, berget_usd_per_min: float | None = None,
-             transcribed: bool = False) -> dict:
+             transcribed: bool = False, transcribe_rate: float = TRANSCRIBE_S_PER_VOD_S) -> dict:
     """Plats, tid och kostnad för en VOD. En nedladdad VOD behöver ingen ny plats."""
     size = 0.0 if downloaded else download_gb(duration_s)
     return {
         "download_gb": size,
         "disk_free_gb": free_gb,
         "fits": downloaded or free_gb >= size * 1.1 + 1,
-        "minutes": round(sum(step_seconds(duration_s, downloaded).values()) / 60),
+        "minutes": round(sum(step_seconds(duration_s, downloaded, transcribe_rate).values()) / 60),
         "cost_usd": cost_usd(duration_s, berget_usd_per_min, transcribed),
         "cost": cost(duration_s, berget_usd_per_min, transcribed),
     }
@@ -96,7 +105,7 @@ def _utc(moment: datetime) -> datetime:
 
 
 def progress(status: str, events: list[tuple[str, float, datetime, str]], duration_s: float | None,
-             now: datetime | None = None) -> dict:
+             now: datetime | None = None, transcribe_rate: float = TRANSCRIBE_S_PER_VOD_S) -> dict:
     """Stegen räknade ur clipsmiths händelser (stage, pct, tid, text), i den ordning de skrevs.
 
     Ett steg är klart när ett senare steg har börjat eller körningen är klar.
@@ -123,7 +132,7 @@ def progress(status: str, events: list[tuple[str, float, datetime, str]], durati
     if status == "failed" and current < 0:
         current = 0  # misslyckades innan första händelsen
 
-    estimates = step_seconds(duration_s)
+    estimates = step_seconds(duration_s, transcribe_rate=transcribe_rate)
     now = now or datetime.now(UTC)
     steps, eta = [], 0
     for i, (step, label) in enumerate(STEPS):

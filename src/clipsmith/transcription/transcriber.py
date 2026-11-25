@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import subprocess  # nosec B403
 import tempfile
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -111,8 +112,12 @@ def _chunked_transcribe(
     video_id: str,
     config: TranscribeConfig,
     out_path: Path,
+    on_chunk: Callable[[int, int], None] | None = None,
 ) -> Transcript:
-    """Split audio into chunks, transcribe in parallel, merge results."""
+    """Split audio into chunks, transcribe in parallel, merge results.
+
+    on_chunk(done, total) is called once before the first chunk and after each finished chunk.
+    """
     try:
         from faster_whisper import WhisperModel
     except ImportError as exc:
@@ -160,15 +165,19 @@ def _chunked_transcribe(
             wav_paths.append(wav)
 
         chunk_results: list[list[Segment]] = [[] for _ in range(n)]
+        if on_chunk:
+            on_chunk(0, n)
         with ThreadPoolExecutor(max_workers=config.max_workers) as pool:
             future_to_idx = {
                 pool.submit(_transcribe_chunk, model, wav_paths[i], chunk_starts[i], config): i
                 for i in range(n)
             }
-            for future in as_completed(future_to_idx):
+            for done, future in enumerate(as_completed(future_to_idx), start=1):
                 idx = future_to_idx[future]
                 chunk_results[idx] = future.result()
                 log.info("chunk %d/%d transcribed (%d segs)", idx + 1, n, len(chunk_results[idx]))
+                if on_chunk:
+                    on_chunk(done, n)
 
     segments = _merge_segments(chunk_results, chunk_starts)
     language = config.language
@@ -185,12 +194,14 @@ def transcribe(
     *,
     out_path: Path | None = None,
     overwrite: bool = False,
+    on_chunk: Callable[[int, int], None] | None = None,
 ) -> Transcript:
     """Transcribe audio from mp4_path using faster-whisper.
 
     Saves transcript.json next to the mp4 (or to out_path).
     On second call, loads from disk unless overwrite=True.
     If config.chunk_minutes > 0, uses parallel chunked transcription.
+    on_chunk(done, total) reports progress; without chunks the whole file is one chunk.
     """
     if out_path is None:
         out_path = mp4_path.parent / "transcript.json"
@@ -200,7 +211,7 @@ def transcribe(
         return Transcript.from_json(out_path.read_text(encoding="utf-8"))
 
     if config.chunk_minutes > 0:
-        return _chunked_transcribe(mp4_path, video_id, config, out_path)
+        return _chunked_transcribe(mp4_path, video_id, config, out_path, on_chunk)
 
     try:
         from faster_whisper import WhisperModel
@@ -219,6 +230,8 @@ def transcribe(
     model = WhisperModel(config.model, device=device, compute_type=config.compute_type)
 
     log.info("transcribing %s (language=%s) ...", mp4_path.name, config.language)
+    if on_chunk:
+        on_chunk(0, 1)
     raw_segments, info = model.transcribe(
         str(mp4_path),
         language=config.language,
@@ -241,6 +254,8 @@ def transcribe(
         segments.append(Segment(start=seg.start, end=seg.end, text=seg.text, words=words))
         log.debug("[%.1f -> %.1f] %s", seg.start, seg.end, seg.text.strip())
 
+    if on_chunk:
+        on_chunk(1, 1)
     transcript = Transcript(
         video_id=video_id,
         language=info.language,

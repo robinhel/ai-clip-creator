@@ -109,7 +109,9 @@ def _turned_off(settings: Settings) -> set[str]:
 
 # Nycklarna gäller hela appen. De står i problems, så att en körning stoppas, och i key_problems, så att
 # webben kan visa dem en gång i stället för på varje kampanj.
-KEY_PROBLEMS = (("berget_api_key", "Berget key (BERGET_API_KEY) is missing. Add it under Settings."),
+# Berget-nyckeln behövs bara när Berget är valt för transkriberingen (Settings > Transcription).
+KEY_PROBLEMS = (("berget_api_key", "Berget key (BERGET_API_KEY) is missing. Add it under Settings, "
+                                   "or choose Local transcription there."),
                 ("anthropic_api_key", "Claude key (ANTHROPIC_API_KEY) is missing. Add it under Settings."))
 # Profilens problem som gör varje klipp underkänt i regelkontrollen (campaign/rules.py).
 FAILS_CLIPS = ("The overlay image is missing", "on_screen_text.text is empty")
@@ -156,7 +158,8 @@ def _describe_profile(name: str, settings: Settings, path: Path | None = None) -
             rects_set = bool(cfg.reframe.webcam_rect and cfg.reframe.gameplay_rect)
             if mode == "stacked" and not rects_set:
                 blocking.append("Facecam and game boxes are not set up. Drag them under Facecam.")
-    keys = [text for field, text in KEY_PROBLEMS if not getattr(settings, field)]
+    keys = [text for field, text in KEY_PROBLEMS
+            if not getattr(settings, field) and (field != "berget_api_key" or settings.engine == "berget")]
     return {
         "name": name,
         "streamer": profile.streamer,
@@ -246,9 +249,16 @@ def _remove_half_download(vod_id: str, settings: Settings) -> None:
 
 
 def _berget_price(settings: Settings) -> float | None:
-    """Bergets pris per minut ljud för modellen i .env, från priser.yaml. None om det inte står där."""
+    """Bergets pris per minut ljud för modellen i .env, från priser.yaml. None om det inte står där.
+    0 när den lokala modellen transkriberar: den kostar inget."""
+    if settings.engine == "local":
+        return 0.0
     price = (budget_from_settings(settings).prices.get("transcription") or {}).get(settings.transcribe_model)
     return None if price is None else float(price)
+
+
+def transcribe_rate(settings: Settings) -> float:
+    return estimate.transcribe_rate(settings.engine, settings.local_whisper_model)
 
 
 def _estimate(facts: dict, settings: Settings, disk: dict) -> dict:
@@ -256,7 +266,7 @@ def _estimate(facts: dict, settings: Settings, disk: dict) -> dict:
     transcribed = (settings.work_dir / facts["vod_id"] / "transcript.json").exists()
     return {"downloaded": downloaded,
             "estimate": estimate.estimate(facts["duration_s"], disk["free_gb"], downloaded,
-                                          _berget_price(settings), transcribed)}
+                                          _berget_price(settings), transcribed, transcribe_rate(settings))}
 
 
 @router.get("/vod/{vod_id}", summary="Facts about a Twitch VOD before the project starts")
