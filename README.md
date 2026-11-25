@@ -60,17 +60,29 @@ Paste them on the **Settings** page. They are saved on your computer only, never
 |-----|------------|-----------------|
 | Twitch Client ID and secret | Finding and downloading VODs and chat | [dev.twitch.tv/console](https://dev.twitch.tv/console) → Register Your Application (redirect `http://localhost`) |
 | Claude API key | Picking moments, frame review, hook text | [console.anthropic.com](https://console.anthropic.com) |
-| Berget API key | Transcription | [berget.ai](https://berget.ai) |
+| Berget API key | Optional: fast transcription in the cloud (or choose Local, see below) | [berget.ai](https://berget.ai) |
 | TikTok Client key and secret | Optional: send clips to TikTok | [developers.tiktok.com](https://developers.tiktok.com) (Login Kit + Content Posting API) |
 | YouTube Client ID and secret | Optional: upload Shorts | [console.cloud.google.com](https://console.cloud.google.com) → OAuth client (YouTube Data API v3) |
 
 You can also put them in a `.env` file instead; `.env.example` lists the names. A monthly and a daily
 budget cap (`BUDGET_USD_PER_MONTH`, `BUDGET_USD_PER_DAY`) stop all Claude calls when they are reached.
 
+### Transcription: Berget or Local
+
+Under **Settings > Transcription** you choose who turns the speech into text:
+
+- **Berget** (cloud, fast, needs a key): a 4 h VOD takes about 8 minutes and costs about US$0.50.
+- **Local** (free, on this computer, slower): faster-whisper runs on your own CPU or GPU. Models: small
+  (about 0.5 GB), medium (1.5 GB) or large-v3 (3 GB). The model is downloaded the first time and reused.
+  With small, a 4 h VOD takes about 30–90 minutes on an ordinary CPU.
+
+Without a choice the app uses Berget if the key is saved, otherwise Local. In Docker the model is kept in
+`data/models`.
+
 ## How it works
 
 1. **Download** the VOD and its chat replay from Twitch.
-2. **Transcribe** the audio, word by word.
+2. **Transcribe** the audio, word by word, with Berget or a local Whisper model.
 3. **Score moments** with five signals: existing clips, `!clip` commands, chat spikes, hype words and audio energy.
 4. **Pick** the best moments with Claude, using the campaign's brief and earlier picks you liked.
 5. **Cut** each moment to a vertical 9:16 clip with ffmpeg.

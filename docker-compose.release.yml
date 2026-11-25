@@ -22,7 +22,7 @@ services:
       - ./work:/app/work
       - ./out:/app/out
       - ./klippdata:/app/klippdata
-      - ./data:/app/data
+      - ./data:/app/data  # keys and the local Whisper model (data/models)
       - ./profiles:/app/profiles
       - ./overlays:/app/overlays
     healthcheck:

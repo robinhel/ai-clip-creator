@@ -16,8 +16,9 @@ COPY campaign/ campaign/
 # API server, webcam detection and the campaign layer. No cloud or observability extras.
 RUN pip install --no-cache-dir -e ".[server,vision]" -r requirements-campaign.txt
 
-# No Whisper model is baked in: the app transcribes with Berget (campaign/transcribe.py) before clipsmith runs,
-# so clipsmith only loads that transcript.json. Only clipsmith's own CLI would download a model, at first use.
+# No Whisper model is baked in. With Transcription set to Local (Settings), faster-whisper downloads the chosen
+# model the first time into HF_HOME. That is inside /app/data, which Compose mounts from ./data, so the model is
+# kept between starts (small about 0.5 GB, medium 1.5 GB, large-v3 3 GB). With Berget nothing is downloaded.
 
 # config.*.yaml: the clipsmith settings each campaign in profiles/ points to (clipsmith_config).
 COPY alembic.ini config.yaml config.*.yaml priser.yaml ./
@@ -30,6 +31,7 @@ COPY scripts/start_server.sh scripts/docker-entrypoint.sh /app/
 
 # KLIPP_ROOT: the campaign layer reads profiles/, priser.yaml, work/, out/ and klippdata/ here.
 ENV KLIPP_ROOT=/app
+ENV HF_HOME=/app/data/models
 
 RUN mkdir -p /app/data /app/work /app/out /app/klippdata && \
     chmod +x /app/start_server.sh /app/docker-entrypoint.sh && \

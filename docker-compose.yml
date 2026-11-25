@@ -21,7 +21,7 @@ services:
       - ./work:/app/work
       - ./out:/app/out
       - ./klippdata:/app/klippdata
-      - ./data:/app/data
+      - ./data:/app/data  # saved keys, and the local Whisper model in data/models (HF_HOME)
       - ./profiles:/app/profiles  # campaigns you edit in the app
       - ./overlays:/app/overlays  # overlay images you upload in the app
     healthcheck:

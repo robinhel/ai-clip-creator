@@ -54,9 +54,17 @@ servers and opens the browser. Ctrl+C stops them. Keys you save on the **Setting
 |-----|-----------------|
 | Twitch Client ID and secret | <https://dev.twitch.tv/console> → Register Your Application, redirect `http://localhost` |
 | Claude API key | <https://console.anthropic.com> |
-| Berget API key (transcription) | <https://berget.ai> |
+| Berget API key (optional: transcription in the cloud) | <https://berget.ai> |
 | TikTok Client key and secret (optional) | <https://developers.tiktok.com> |
 | YouTube Client ID and secret (optional) | <https://console.cloud.google.com> |
+
+## Transcription: Berget or Local
+
+Choose under **Settings > Transcription**. **Berget** is fast (about 8 minutes for a 4 h VOD) but needs a
+key and costs a little. **Local** is free and needs no key: faster-whisper runs on your computer. Pick the
+model there: small (about 0.5 GB), medium (1.5 GB) or large-v3 (3 GB). It is downloaded the first time,
+to `~/.cache/huggingface` (in Docker: `data/models`). With small, a 4 h VOD takes about 30–90 minutes on
+an ordinary CPU. Without a choice the app uses Berget when the key is saved, otherwise Local.
 
 ## Command line
 
