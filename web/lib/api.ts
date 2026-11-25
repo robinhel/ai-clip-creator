@@ -25,6 +25,7 @@ import type {
   ClipTranscript,
   Platform,
   Preferences,
+  TranscriptionSetting,
   Rect,
   ReframeInfo,
   Run,
@@ -270,6 +271,11 @@ export const api = {
         }),
     },
     setup: () => apiFetch<{ checks: SetupCheck[] }>("/campaign/setup"),
+    transcription: {
+      get: () => apiFetch<TranscriptionSetting>("/campaign/transcription"),
+      save: (body: Partial<Pick<TranscriptionSetting, "engine" | "model">>) =>
+        apiFetch<TranscriptionSetting>("/campaign/transcription", { method: "PUT", body: JSON.stringify(body) }),
+    },
     keys: {
       list: () => apiFetch<{ groups: KeyGroup[] }>("/campaign/keys"),
       // Värdena skickas bara i den här kroppen och sparas inte i webbläsaren.

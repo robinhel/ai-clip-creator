@@ -329,6 +329,22 @@ export interface VersionCreate {
   saturation: number;
 }
 
+export type TranscribeEngine = "berget" | "local";
+export type LocalWhisperModel = "small" | "medium" | "large-v3";
+
+/** GET och PUT /campaign/transcription: vem som transkriberar. Inget av det är hemligt. */
+export interface TranscriptionSetting {
+  engine: TranscribeEngine;
+  /** false: inget val är sparat, så servern tar Berget om nyckeln finns och annars Local. */
+  chosen: boolean;
+  model: LocalWhisperModel;
+  /** Ligger den valda modellen redan i Hugging Face-cachen? */
+  downloaded: boolean;
+  size_gb: number;
+  berget_key: boolean;
+  models: { id: LocalWhisperModel; size_gb: number; downloaded: boolean }[];
+}
+
 /** GET och PUT /campaign/preferences. */
 export interface Preferences {
   /** Hjälpen att skicka in i Content Rewards. */

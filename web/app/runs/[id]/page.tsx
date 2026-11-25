@@ -41,9 +41,9 @@ function stepTime(step: RunStep, now: number): string {
   return step.estimate_s ? `${elapsed} of about ${duration(step.estimate_s)}` : elapsed;
 }
 
-/** Tunn stapel när steget säger "Del N av M", som transkriberingen gör per del till Berget. */
+/** Tunn stapel när steget säger "Part N of M" (Berget) eller "Transcribing locally with Whisper small, part N of M". */
 function PartBar({ message }: { message?: string | null }) {
-  const m = message?.match(/^(?:Part|Del) (\d+) (?:of|av) (\d+)$/);
+  const m = message?.match(/(?:^|, )(?:[Pp]art|Del) (\d+) (?:of|av) (\d+)$/);
   if (!m || Number(m[2]) === 0) return null;
   // Meddelandet kommer när del N börjar, så N - 1 delar är klara.
   const pct = Math.min(100, ((Number(m[1]) - 1) / Number(m[2])) * 100);

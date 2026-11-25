@@ -9,8 +9,18 @@ import { TikTokCard } from "@/components/TikTokCard";
 import { YouTubeCard } from "@/components/YouTubeCard";
 import { api } from "@/lib/api";
 import { DEMO, DEMO_OFF } from "@/lib/demo";
+import { ENGINES, LOCAL_MODELS, transcriptionNote } from "@/lib/transcription";
 import { cn } from "@/lib/utils";
-import type { ConnectedAccount, ConnectedAccounts, KeyGroup, KeyTest, SetupCheck } from "@/lib/types";
+import type {
+  ConnectedAccount,
+  ConnectedAccounts,
+  KeyGroup,
+  KeyTest,
+  LocalWhisperModel,
+  SetupCheck,
+  TranscribeEngine,
+  TranscriptionSetting,
+} from "@/lib/types";
 
 function KeyField({ name, label, set, value, onChange, disabled }: {
   name: string;
@@ -348,6 +358,113 @@ function AccountRow({ account: a, anchor }: { account: ConnectedAccount; anchor:
   );
 }
 
+/** Vem som transkriberar: Berget eller en lokal Whisper-modell. Sparas direkt; vid fel står valet kvar som innan.
+ * I demoläget sparas valet bara i minnet och inget laddas ner. */
+function TranscriptionCard({ onSaved }: { onSaved: () => void }) {
+  const [setting, setSetting] = useState<TranscriptionSetting | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.campaign.transcription
+      .get()
+      .then(setSetting)
+      .catch((err) => setError(err instanceof Error ? err.message : "Could not load the setting"));
+  }, []);
+
+  async function save(change: { engine?: TranscribeEngine; model?: LocalWhisperModel }) {
+    setBusy(true);
+    setError(null);
+    try {
+      setSetting(await api.campaign.transcription.save(change));
+      onSaved(); // Kontroll visar valet
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save the setting");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section id="transcription" aria-label="Transcription" className="mt-4 scroll-mt-24 rounded-2xl border border-line bg-panel p-5">
+      <h2 className="text-lg font-semibold">Transcription</h2>
+      <p className="mt-0.5 max-w-[640px] text-sm text-muted-foreground">
+        Who turns the speech into text. Berget runs in the cloud and needs a key. Local runs a Whisper model on this computer for free.
+      </p>
+      {!setting && !error && <p className="mt-3 text-sm text-muted-foreground">Loading the setting…</p>}
+      {setting && (
+        <>
+          <div role="radiogroup" aria-label="Transcription" className="mt-4 inline-flex rounded-lg border border-line bg-background p-1">
+            {ENGINES.map((e) => {
+              const on = setting.engine === e.id;
+              return (
+                <button
+                  key={e.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  data-engine={e.id}
+                  disabled={busy}
+                  onClick={() => !on && save({ engine: e.id })}
+                  className={cn(
+                    "rounded-md px-3 py-1.5 text-left text-sm transition-colors disabled:opacity-60",
+                    on ? "bg-brand text-white" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <span className="font-medium">{e.label}</span> <span className={on ? "text-white/80" : ""}>({e.hint})</span>
+                </button>
+              );
+            })}
+          </div>
+          {setting.engine === "local" && (
+            <div className="mt-4 max-w-[640px] space-y-2">
+              <label htmlFor="local-model" className="text-[13px] text-muted-foreground">
+                Local model
+              </label>
+              <select
+                id="local-model"
+                value={setting.model}
+                disabled={busy}
+                onChange={(e) => save({ model: e.target.value as LocalWhisperModel })}
+                className="block h-9 rounded-lg border border-line bg-background px-2.5 text-sm outline-none focus:border-brand"
+              >
+                {LOCAL_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.id} (about {m.size_gb} GB)
+                  </option>
+                ))}
+              </select>
+              <p className="text-sm text-muted-foreground">
+                The model is downloaded the first time it is used. With small, a 4 h VOD takes about 30–90 minutes on an ordinary CPU;
+                medium and large-v3 are more accurate but slower.
+              </p>
+            </div>
+          )}
+          <p
+            data-note
+            className={cn(
+              "mt-3 max-w-[640px] text-sm",
+              setting.engine === "berget" && !setting.berget_key
+                ? "text-[#fca5a5]"
+                : setting.engine === "local" && !setting.downloaded
+                  ? "text-warn"
+                  : "text-muted-foreground"
+            )}
+          >
+            {transcriptionNote(setting)}
+            {DEMO && " Demo mode: the choice is only kept in this tab, and nothing is downloaded."}
+          </p>
+        </>
+      )}
+      {error && (
+        <p role="alert" className="mt-3 rounded-lg border border-[#4d1d1d] bg-[#1c0f10] px-3 py-2 text-sm text-[#fca5a5]">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** Hjälpen att skicka in i Content Rewards. Sparas direkt; vid fel står switchen kvar som innan. */
 function SubmitHelperCard() {
   const [on, setOn] = useState<boolean | null>(null);
@@ -448,6 +565,7 @@ export function SettingsClient({ tiktokResult, tiktokReason }: { tiktokResult?: 
       )}
       <AccountsCard refresh={groups?.map((g) => g.keys.map((k) => k.set).join()).join() ?? ""} />
       <SetupCard checks={checks} error={setupError} loading={setupLoading} onRun={runSetup} />
+      <TranscriptionCard onSaved={runSetup} />
       <SubmitHelperCard />
       <ScoutCountryCard />
       {error && (

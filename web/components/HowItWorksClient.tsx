@@ -44,7 +44,7 @@ const STEPS: Step[] = [
     sub: "speech to text",
     icon: Mic,
     layer: "core",
-    text: "The audio is transcribed with Berget in the campaign layer, in 30-minute parts, with a time stamp on every word. Finished parts are kept, so a stopped run continues where it was. The words are saved in clipsmith's transcript format for the next steps.",
+    text: "You choose who transcribes under Settings. Berget (cloud, fast, needs a key) takes the audio in 30-minute parts and keeps finished parts, so a stopped run continues where it was. Local runs clipsmith's faster-whisper on your own computer: free, but slower, and the model is downloaded the first time. Both give a time stamp on every word and save it in clipsmith's transcript format for the next steps.",
   },
   {
     title: "Find signals",

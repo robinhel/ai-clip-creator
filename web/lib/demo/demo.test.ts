@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEMO_OFF, demoFetch, resetDemo } from "./index";
-import type { CampaignClip, CampaignProfile, CampaignProject, CampaignRunInfo, CampaignSummary } from "../types";
+import type { CampaignClip, CampaignProfile, CampaignProject, CampaignRunInfo, CampaignSummary, TranscriptionSetting } from "../types";
 import type { Timeline } from "../timeline";
 
 afterEach(() => {
@@ -76,5 +76,22 @@ describe("demoFetch", () => {
 
   it("answers 404 for an unknown run", async () => {
     await expect(demoFetch<CampaignRunInfo>("/campaign/runs/9999")).rejects.toThrow("The project does not exist.");
+  });
+
+  it("switches the transcription in memory only, without downloading", async () => {
+    const spy = vi.fn();
+    vi.stubGlobal("fetch", spy);
+    const start = await demoFetch<TranscriptionSetting>("/campaign/transcription");
+    expect(start.engine).toBe("berget");
+    const local = await demoFetch<TranscriptionSetting>("/campaign/transcription", {
+      method: "PUT",
+      body: JSON.stringify({ engine: "local", model: "medium" }),
+    });
+    expect(local).toMatchObject({ engine: "local", model: "medium", size_gb: 1.5, downloaded: false });
+    expect((await demoFetch<TranscriptionSetting>("/campaign/transcription")).engine).toBe("local");
+    await expect(demoFetch("/campaign/transcription", { method: "PUT", body: JSON.stringify({ engine: "cloud" }) })).rejects.toThrow();
+    resetDemo();
+    expect((await demoFetch<TranscriptionSetting>("/campaign/transcription")).engine).toBe("berget");
+    expect(spy).not.toHaveBeenCalled();
   });
 });

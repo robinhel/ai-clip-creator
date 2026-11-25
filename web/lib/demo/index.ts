@@ -1,6 +1,7 @@
 // The demo mode: with NEXT_PUBLIC_DEMO=1 the web reads sample data from here instead of the API.
 // demoFetch answers like the server, from memory only. It never calls fetch, so a demo can never reach an API.
-import type { CampaignClip, CampaignProfile, CampaignProject, CampaignRunInfo, CampaignStatus, CampaignSummary, ClipPost } from "../types";
+import type { CampaignClip, CampaignProfile, CampaignProject, CampaignRunInfo, CampaignStatus, CampaignSummary, ClipPost, TranscriptionSetting } from "../types";
+import { LOCAL_MODELS, choose } from "../transcription";
 import {
   DEMO_NOW,
   KEY_GROUPS,
@@ -38,12 +39,24 @@ interface Store {
   clips: CampaignClip[];
   profiles: CampaignProfile[];
   submitHelper: boolean;
+  /** Settings > Transcription. Only in memory: nothing is downloaded in the demo. */
+  transcription: TranscriptionSetting;
 }
+
+const TRANSCRIPTION: TranscriptionSetting = {
+  engine: "berget",
+  chosen: false,
+  model: "small",
+  downloaded: false,
+  size_gb: 0.5,
+  berget_key: true,
+  models: LOCAL_MODELS.map((m) => ({ ...m, downloaded: false })),
+};
 
 let store: Store | null = null;
 
 function state(): Store {
-  store ??= { clips: makeClips(), profiles: PROFILES.map((p) => ({ ...p })), submitHelper: true };
+  store ??= { clips: makeClips(), profiles: PROFILES.map((p) => ({ ...p })), submitHelper: true, transcription: TRANSCRIPTION };
   return store;
 }
 
@@ -188,6 +201,7 @@ const GET: [RegExp, Handler][] = [
   [/^\/campaign\/scout\/country$/, () => ({ country: "SE", choices: [{ code: "SE", name: "Sweden" }, { code: "US", name: "United States" }, { code: "GB", name: "United Kingdom" }] })],
   [/^\/campaign\/setup$/, () => ({ checks: SETUP })],
   [/^\/campaign\/keys$/, () => ({ groups: KEY_GROUPS })],
+  [/^\/campaign\/transcription$/, () => state().transcription],
   [/^\/campaign\/accounts$/, () => ({
     tiktok: [{ id: "demo-tiktok", name: "Sample TikTok account", connected: true, used_by: [{ name: "nova_plays", streamer: "Nova" }] }],
     youtube_shorts: [],
@@ -231,6 +245,15 @@ const WRITE: [string, RegExp, Handler][] = [
   ["PUT", /^\/campaign\/preferences$/, (_, __, body) => {
     state().submitHelper = !!(body as { submit_helper?: boolean })?.submit_helper;
     return { submit_helper: state().submitHelper };
+  }],
+  ["PUT", /^\/campaign\/transcription$/, (_, __, body) => {
+    const { engine, model } = (body ?? {}) as { engine?: unknown; model?: unknown };
+    if ((engine !== undefined && engine !== "berget" && engine !== "local") ||
+        (model !== undefined && !LOCAL_MODELS.some((m) => m.id === model)) || (engine === undefined && model === undefined)) {
+      throw new DemoError("Choose berget or local, and small, medium or large-v3.", 400);
+    }
+    state().transcription = choose(state().transcription, body as Parameters<typeof choose>[1]);
+    return state().transcription;
   }],
   ["PUT", /^\/campaign\/profiles\/([^/]+)\/active$/, ([name], _, body) => {
     const active = !!(body as { active?: boolean })?.active;
