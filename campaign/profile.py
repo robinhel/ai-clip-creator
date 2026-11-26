@@ -125,6 +125,8 @@ class Profile:
             found.append("clip.min_seconds måste vara mindre än clip.max_seconds.")
         if self.max_posts_per_day < 1 or self.min_gap_minutes < 0:
             found.append("posting.max_per_day måste vara minst 1, och posting.min_gap_minutes får inte vara negativ.")
+        if self.style and not (Path(root) / "smak" / f"{self.style}.md").is_file():
+            found.append(f"Smakfilen saknas: smak/{self.style}.md. Skapa filen eller ändra style i kampanjen.")
         return found
 
 
@@ -183,7 +185,7 @@ def _search_scope(data: dict) -> str:
 
 def _style(data: dict) -> str:
     try:
-        return check_style(str(data.get("style") or "").strip())
+        return check_style(str(data.get("style") or "").strip().lower())
     except ValueError as error:
         raise SystemExit(str(error)) from None
 

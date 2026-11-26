@@ -173,7 +173,8 @@ def _with_memory(focus: str, profile: Profile, settings: Settings) -> str:
     taste = load_taste(profile.style, settings.root)
     if not taste:
         return text
-    return f"{text}\n\nWhat makes clips in this style spread:\n{taste}" if text else taste
+    head = f"{text}\n\n" if text else ""
+    return f"{head}What makes clips in this style spread:\n{taste}"
 
 
 def make_clips(

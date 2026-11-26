@@ -75,5 +75,21 @@ def test_gta_taste_file_keeps_the_patterns() -> None:
     assert len(text) <= 1200
     lower = text.lower()
     assert "quote" in lower and "headline" in lower and "shareable" in lower
+    assert "40 characters" in lower and "8-15" not in lower and "audio" not in lower
     taste = load_taste("gta", PAKET)
     assert "#" not in taste.splitlines()[0]
+
+
+def test_missing_taste_file_shows_in_problems(settings) -> None:
+    profile = _profile(settings, "GTA")
+    assert profile.style == "gta"  # gemener, så att style: GTA fungerar
+    assert any("smak/gta.md" in problem for problem in profile.problems(settings.root))
+    shutil.copytree(PAKET / "smak", settings.root / "smak")
+    assert not any("smak/" in problem for problem in profile.problems(settings.root))
+
+
+def test_heading_comes_first_also_without_focus_and_memory(settings) -> None:
+    shutil.copytree(PAKET / "smak", settings.root / "smak")
+    focus = _with_memory("", _profile(settings, "gta"), settings)
+    assert focus.startswith("What makes clips in this style spread:\n")
+    assert load_taste("gta", settings.root) in focus
