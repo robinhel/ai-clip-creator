@@ -165,9 +165,9 @@ def _content_rewards(profile: Profile) -> list[dict]:
     ]
 
 
-def _set_outliers(clips: list[dict]) -> None:
-    """Avvikartalet för klippen från en källa: visningar per dag delat med medianen. None utan datum."""
-    rates = [c["views_per_day"] for c in clips if c.get("views_per_day") is not None]
+def _set_outliers(clips: list[dict], compared: list[dict]) -> None:
+    """Avvikartalet: visningar per dag delat med medianen i compared. None utan datum."""
+    rates = [c["views_per_day"] for c in compared if c.get("views_per_day") is not None]
     median = statistics.median(rates) if rates else 0
     for c in clips:
         rate = c.get("views_per_day")
@@ -175,9 +175,12 @@ def _set_outliers(clips: list[dict]) -> None:
 
 
 def _with_outliers(clips: list[dict]) -> list[dict]:
-    """Räkna avvikare per källa och sortera med de största först, klipp utan avvikartal sist."""
+    """Räkna avvikare och sortera med de största först, klipp utan avvikartal sist.
+
+    Twitch och Content Rewards jämförs inom sin källa, egna länkar med alla klipp i listan."""
     for source in {c["source"] for c in clips}:
-        _set_outliers([c for c in clips if c["source"] == source])
+        group = [c for c in clips if c["source"] == source]
+        _set_outliers(group, clips if source == "link" else group)
     return sorted(
         clips, key=lambda c: c["outlier"] if c["outlier"] is not None else -1, reverse=True
     )
