@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -13,7 +15,7 @@ from clipsmith.models.transcript import Segment, Transcript, Word
 
 from campaign import locate, taste, viral
 from campaign.brain import Brain
-from tests_campaign.conftest import FakeClient
+from tests_campaign.conftest import FakeClient, make_clip, needs_ffmpeg
 
 MEASURES = {
     "format": {"duration": 21.5, "width": 1080, "height": 1920},
@@ -96,6 +98,32 @@ def test_measure_for_lang_tid_ger_runtimeerror(tmp_path, monkeypatch):
     monkeypatch.setattr(taste.subprocess, "run", slow)
     with pytest.raises(RuntimeError):
         taste.measure(_video(tmp_path))
+
+
+# Händelsen ur captions.json för ett TikTok-klipp från Content Rewards (blizzard_nordics): en fast text i
+# caption-bandet hela klippet. Den är längre än 6 s, så captions_precise ger inga caption-mått, och händelsen
+# saknar "frame".
+BAND_TEXT = {
+    "start": 0.0, "end": 11.567, "text": "World of Warcraft: Forever looks beautiful.", "kind": "caption",
+    "words": 6, "spoken_at": None, "builds_on_previous": False,
+    "box": {"x0": 0.2778, "x1": 0.7167, "y0": 0.2025, "y1": 0.2479, "h": 0.0235, "lines": 2},
+}
+
+
+@needs_ffmpeg
+def test_measure_text_colours_klarar_bandtext_utan_frame(tmp_path, monkeypatch):
+    cv2 = pytest.importorskip("cv2")
+    np = pytest.importorskip("numpy")
+    make_clip(tmp_path / "wd" / "video.mp4", size="36x64", seconds=1)  # measure.py läser videon när den laddas
+    monkeypatch.setattr(sys, "argv", ["measure.py", str(tmp_path / "wd")])
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    spec = importlib.util.spec_from_file_location("reverse_video_measure", taste.MEASURE)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    frame = tmp_path / "frame.jpg"
+    cv2.imwrite(str(frame), np.zeros((64, 36, 3), np.uint8))
+
+    assert module.text_colours([dict(BAND_TEXT)], [frame]) is None
 
 
 def _save_clips(root: Path) -> None:
@@ -338,6 +366,34 @@ def test_analyse_bara_twitch_ger_smakfil_och_skills(settings, budget, tmp_path):
     paths = taste.write_skills("testkamp", tmp_path / "skills")
     editor = next(p for p in paths if p.parent.name == "testkamp-clip-editor").read_text()
     assert "No editing data yet" in editor and "Cut within the first second." in editor
+
+
+@pytest.mark.usefixtures("root")
+def test_analyse_ger_haiku_kallan_for_varje_klipp_och_ogonblick(settings, budget):
+    tiktok = "https://www.tiktok.com/@a/video/1"
+    youtube = "https://www.youtube.com/watch?v=x"
+    insta = "https://www.instagram.com/reel/y"
+    clips = [
+        {"id": tiktok, "url": tiktok, "source": "content_rewards", "outlier": 9.0, "measured": True},
+        {"id": youtube, "url": youtube, "source": "content_rewards", "outlier": 8.0, "measured": True},
+        {"id": insta, "url": insta, "source": "link", "outlier": 7.0, "measured": True},
+        {"id": "t1", "url": "https://clips.twitch.tv/t1", "source": "twitch", "title": "Granaten",
+         "outlier": 6.0, "views_per_day": 900.0, "location": None},
+    ]
+    viral.save("testkamp", [{**c, "taste": PICKED} if c.get("measured") else c for c in clips])
+    brain = Brain(settings, budget, client=FakeClient(ANSWER))
+
+    taste.analyse("testkamp", brain=brain)
+
+    call = brain._client.messages.calls[0]
+    sent = json.loads(call["messages"][0]["content"])
+    assert [(c["source"], c["platform"]) for c in sent["clips"]] == [
+        ("content_rewards", "tiktok"),
+        ("content_rewards", "youtube"),
+        ("link", "instagram"),
+    ]
+    assert [(m["source"], m["platform"]) for m in sent["moments"]] == [("twitch", "twitch")]
+    assert "content_rewards" in call["system"] and "source" in call["system"]
 
 
 @pytest.mark.usefixtures("root")
