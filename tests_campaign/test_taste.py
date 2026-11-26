@@ -532,7 +532,7 @@ def test_analyse_valjer_inte_daterade_cr_klipp_under_min_views(settings, budget)
         [
             {**base, "id": "under", "views": viral.MIN_VIEWS - 1,
              "posted_at": "2026-11-01T00:00:00+00:00", "views_per_day": 40.0},
-            {**base, "id": "utan_datum", "views": 50, "posted_at": None, "views_per_day": None},
+            {**base, "id": "utan_datum", "views": 1500, "posted_at": None, "views_per_day": None},
         ],
     )
     brain = Brain(settings, budget, client=FakeClient(ANSWER))
@@ -540,6 +540,24 @@ def test_analyse_valjer_inte_daterade_cr_klipp_under_min_views(settings, budget)
     result = taste.analyse("testkamp", top_n=5, brain=brain)
 
     assert result["clip_ids"] == ["utan_datum"]
+
+
+@pytest.mark.usefixtures("root")
+def test_analyse_valjer_cr_klipp_utan_datum_bara_over_min_views(settings, budget):
+    base = {"source": "content_rewards", "outlier": None, "measured": True, "taste": PICKED,
+            "posted_at": None, "views_per_day": None}
+    viral.save(
+        "testkamp",
+        [
+            {**base, "id": "femhundra", "views": 500},
+            {**base, "id": "femtonhundra", "views": 1500},
+        ],
+    )
+    brain = Brain(settings, budget, client=FakeClient(ANSWER))
+
+    result = taste.analyse("testkamp", top_n=5, brain=brain)
+
+    assert result["clip_ids"] == ["femtonhundra"]
 
 
 def test_write_skills_standard_ar_repots_rot(root, tmp_path, monkeypatch):
