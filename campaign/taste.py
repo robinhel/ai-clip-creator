@@ -227,14 +227,19 @@ def _dated(clips: list[dict]) -> list[dict]:
 
 
 def _undated(clips: list[dict]) -> list[dict]:
-    """Content Rewards-klipp utan datum, flest visningar först. Daterade klipp utan avvikartal ligger
-    under viral.MIN_VIEWS och väljs inte."""
-    undated = [c for c in clips if c.get("source") == "content_rewards" and _no_date(c)]
+    """Content Rewards-klipp utan datum med minst viral.MIN_VIEWS visningar, flest visningar först.
+    Daterade klipp utan avvikartal ligger under viral.MIN_VIEWS och väljs inte."""
+    from . import viral
+
+    undated = [
+        c for c in clips
+        if c.get("source") == "content_rewards" and _no_date(c) and (c.get("views") or 0) >= viral.MIN_VIEWS
+    ]
     return sorted(undated, key=lambda c: -(c.get("views") or 0))
 
 
 def _no_date(clip: dict) -> bool:
-    return clip.get("outlier") is None and not clip.get("posted_at") and clip.get("views_per_day") is None
+    return not clip.get("posted_at")
 
 
 def _measured_links(clips: list[dict]) -> list[dict]:

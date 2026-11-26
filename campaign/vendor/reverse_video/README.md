@@ -25,8 +25,9 @@ inget "frame". När all text i caption-bandet ligger kvar längre än 6 sekunder
 och då skickade main ändå de händelserna till text_colours. Det gav KeyError: 'frame', och klippet
 mättes inte. Det hände på TikTok-klipp med en fast rubrik i bandet hela klippet (Content Rewards,
 blizzard_nordics, november 2026). Nu blir färgerna None för sådana klipp, och resten mäts som vanligt.
-Inget annat är ändrat.
 
 ## Ändringar i common.py
 
 Inga.
+
+Inget annat är ändrat.
