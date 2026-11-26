@@ -505,8 +505,8 @@ export const KEY_GROUPS: KeyGroup[] = [
     id: "tiktok",
     label: "TikTok",
     keys: [
-      { name: "TIKTOK_CLIENT_KEY", label: "Client key", set: false },
-      { name: "TIKTOK_CLIENT_SECRET", label: "Client secret", set: false },
+      { name: "TIKTOK_CLIENT_KEY", label: "Client key", set: true },
+      { name: "TIKTOK_CLIENT_SECRET", label: "Client secret", set: true },
     ],
   },
   {

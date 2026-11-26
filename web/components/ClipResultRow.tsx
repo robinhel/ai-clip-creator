@@ -15,6 +15,7 @@ import { CopyButton } from "@/components/CopyButton";
 import { CampaignRules, type Posting, PublishButton } from "@/components/PublishDialog";
 import { api } from "@/lib/api";
 import { HEADLINE_MAX, textEdit } from "@/lib/headline";
+import { formatForKey } from "@/lib/review";
 import { VersionButton } from "@/components/VersionDialog";
 import { englishProblem } from "@/lib/oldProblems";
 import { fixHint, rejectedFix } from "@/lib/steps";
@@ -25,8 +26,8 @@ import type { CampaignClip, CampaignClipPatch, CampaignFormat, ClipEditInfo, Cli
 const CAPTION_MAX = 2200;
 const TITLE_MAX = 120;
 
-// Raden byggs om när servern har sparat (ny key). Meddelandet efter en redigering
-// sparas här, per klipp och version, så att den nya raden kan visa det.
+// Meddelandet efter en redigering sparas här, per klipp och version, så att raden visar det
+// bara för den versionen.
 const editNotice = new Map<number, { updated: string; text: string }>();
 const EDITABLE: CampaignClip["status"][] = ["renderad", "underkand", "godkand"];
 
@@ -175,8 +176,12 @@ interface Props {
   onUpdate: (clip: CampaignClip) => void;
   /** Läs om listan, till exempel när en ny version har blivit ett eget klipp. */
   onReload?: () => void;
-  /** Extra val i menyn Mer för ett godkänt klipp, till exempel Ta bort i Klippen. */
+  /** Extra val för ett godkänt klipp, till exempel Ta bort i Klippen. */
   approvedAction?: ReactNode;
+  /** Extra val i menyn Mer för ett godkänt klipp, till exempel Postad utan länk i Klippen. */
+  moreAction?: ReactNode;
+  /** Shift+Y: godkänn och öppna Publicera för klippet. */
+  onPublish?: (clip: CampaignClip) => void;
   /** Bara i Klippen: där postas klippet. Andra sidor visar en länk dit. */
   posting?: Posting;
 }
@@ -358,11 +363,12 @@ function ElsewhereActions({ clip, busy, onUndo }: { clip: CampaignClip; busy: bo
 }
 
 /** Det som sällan behövs ligger i en meny, så att raden inte har en vägg av knappar. */
-function MoreMenu({ clip, busy, onUndo, onReload }: {
+function MoreMenu({ clip, busy, onUndo, onReload, children }: {
   clip: CampaignClip;
   busy: boolean;
   onUndo: () => void;
   onReload?: () => void;
+  children?: ReactNode;
 }) {
   return (
     <details className="group rounded-lg border border-line">
@@ -375,6 +381,7 @@ function MoreMenu({ clip, busy, onUndo, onReload }: {
         <Button className="w-full" size="sm" variant="ghost" disabled={busy} onClick={onUndo}>
           Undo approval
         </Button>
+        {children}
       </div>
     </details>
   );
@@ -429,11 +436,21 @@ function TextField({ id, label, value, max, onChange, disabled, placeholder, hin
   );
 }
 
-export function ClipResultRow({ clip, number, formats, runId, source, active = false, onUpdate, onReload, approvedAction, posting }: Props) {
+export function ClipResultRow({ clip, number, formats, runId, source, active = false, onUpdate, onReload, approvedAction, moreAction, onPublish, posting }: Props) {
   const [caption, setCaption] = useState(clip.caption ?? "");
   const [title, setTitle] = useState(clip.title ?? "");
   const [headline, setHeadline] = useState(clip.headline ?? "");
   const [editing, setEditing] = useState(false);
+  const video = useRef<HTMLVideoElement>(null);
+
+  // Raden står kvar när servern har sparat, så att videon och öppna fönster inte nollställs.
+  // Fälten följer det sparade, men inte medan Robin skriver i dem.
+  useEffect(() => {
+    if (editing) return;
+    setCaption(clip.caption ?? "");
+    setTitle(clip.title ?? "");
+    setHeadline(clip.headline ?? "");
+  }, [clip.updated, clip.caption, clip.title, clip.headline, editing]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -479,6 +496,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
     const result = updated.status === "underkand" ? " The rule check found problems, see below." : "";
     editNotice.set(updated.id, { updated: updated.updated, text: `${what}${again}${result}` });
     setEditInfo(null);
+    setEditing(false);
     onUpdate(updated);
   }
   const length = clip.start_s != null && clip.end_s != null ? clip.end_s - clip.start_s : null;
@@ -502,7 +520,10 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
   /** Titel och text i bilden sparas som i Redigera: captionen byggs om från mallen, och en inbränd rubrik ritas om.
    * En egen ändring i captionen sparas efteråt. */
   async function saveText() {
-    if (!textDirty) return patch({ caption });
+    if (!textDirty) {
+      if (await patch({ caption })) setEditing(false);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -512,6 +533,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
       handleEdited(updated, false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save");
+    } finally {
       setBusy(false);
     }
   }
@@ -529,14 +551,25 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
       : null;
 
   // Snabbgranskning med tangenterna. Samma skydd som knapparna: är knappen avstängd händer inget, och raden säger varför.
-  const keyAction = useRef<(key: string) => void>(() => {});
-  keyAction.current = (key) => {
+  const canChooseFormat = canEditCaption && formats.length > 0 && !elsewhere;
+  const keyAction = useRef<(key: string, shift: boolean) => void>(() => {});
+  keyAction.current = (key, shift) => {
+    if (key === " ") {
+      const v = video.current;
+      if (v) void (v.paused ? v.play().catch(() => {}) : v.pause());
+      return;
+    }
     if (busy || opening) return;
-    if (key === "y") {
+    const format = formatForKey(key, formats);
+    if (format) {
+      if (!canChooseFormat) return setKeyHint("The format cannot be changed in this status.");
+      setKeyHint(null);
+      if (format !== clip.format) patch({ format });
+    } else if (key === "y") {
       if (clip.status !== "renderad") return setKeyHint(clip.status === "underkand" ? "Yes: fix the problems first." : "Yes only works for clips waiting for review.");
       if (approveBlock) return setKeyHint(`Yes: ${approveBlock.toLowerCase()}.`);
       setKeyHint(null);
-      approve();
+      approve().then((ok) => ok && shift && onPublish?.(clip));
     } else if (key === "n") {
       if (clip.status !== "renderad" && clip.status !== "underkand") return setKeyHint("No only works for clips that are waiting or failed the check.");
       setKeyHint(null);
@@ -558,9 +591,11 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
     if (!active) return setKeyHint(null);
     function onKey(e: KeyboardEvent) {
       const key = e.key.toLowerCase();
-      if (!["y", "n", "e", "c"].includes(key) || ignoreKey(e)) return;
+      if (!/^([ynec1-9 ])$/.test(key) || ignoreKey(e)) return;
+      // Mellanslag på en knapp, länk eller video gör det som webbläsaren brukar göra.
+      if (key === " " && (e.target as HTMLElement | null)?.closest("button, a, summary, video")) return;
       e.preventDefault();
-      keyAction.current(key);
+      keyAction.current(key, e.shiftKey);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -595,6 +630,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
 
       <div className="relative col-start-2 aspect-[9/16] w-full max-w-[230px] overflow-hidden rounded-xl bg-black lg:col-start-auto">
         <video
+          ref={video}
           // #t=0.1 visar en bildruta i stället för svart innan uppspelning.
           src={`${api.campaign.videoUrl(clip)}#t=0.1`}
           poster={api.campaign.posterUrl(clip)}
@@ -627,7 +663,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
         )}
         {clip.subscores && <Subscores subscores={clip.subscores} />}
 
-        {canEditCaption && formats.length > 0 && !elsewhere && (
+        {canChooseFormat && (
           <div className="space-y-1.5">
             <label htmlFor={`format-${clip.id}`} className="text-[13px] text-muted-foreground">
               Format
@@ -808,7 +844,9 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
         {posting && clip.status === "godkand" && (
           <>
             {approvedAction}
-            <MoreMenu clip={clip} busy={busy} onUndo={() => patch({ status: "renderad" })} onReload={onReload} />
+            <MoreMenu clip={clip} busy={busy} onUndo={() => patch({ status: "renderad" })} onReload={onReload}>
+              {moreAction}
+            </MoreMenu>
           </>
         )}
         {clip.status === "postad" && !hasPosts && posting && (

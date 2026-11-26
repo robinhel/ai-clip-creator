@@ -6,12 +6,13 @@ import { usePathname, useRouter } from "next/navigation";
 import { CheckCircle2, Clock, RefreshCw, Upload, X } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ClipResultRow, ignoreKey } from "@/components/ClipResultRow";
-import { freePlatforms, type Posting, type PublishRequest } from "@/components/PublishDialog";
+import { freePlatforms, type Posting, PublishFor, type PublishRequest } from "@/components/PublishDialog";
 import { RemoveFromQueue } from "@/components/RemoveFromQueue";
 import { ScheduledList } from "@/components/ScheduledList";
 import { api } from "@/lib/api";
 import { hasCampaign } from "@/lib/campaignName";
 import { pollWhileVisible } from "@/lib/poll";
+import { nextActive } from "@/lib/review";
 import { bySubmitTime, countByStatus, defaultStep, isStep, STEP_STATUSES, stepCount, stepOrder, submitDeadline, type ClipStep } from "@/lib/steps";
 import { cn, SUMMARY_CHANGED } from "@/lib/utils";
 import type {
@@ -40,6 +41,18 @@ const TABS: Record<ClipStep, { label: string; description: string }> = {
   },
 };
 
+// Tangenterna i Att granska, på en rad under flikarna.
+const SHORTCUTS: [string, string][] = [
+  ["J/K", "next/previous"],
+  ["Y", "yes"],
+  ["Shift+Y", "yes and publish"],
+  ["N", "no"],
+  ["Space", "play/pause"],
+  ["1–n", "format"],
+  ["E", "edit"],
+  ["C", "copy caption"],
+];
+
 const POLL_MS = 15_000;
 const UPLOAD = "upload";
 const PENDING = ["waiting", "running"];
@@ -51,6 +64,8 @@ interface Notice {
   href?: string;
   linkText?: string;
   undo?: () => Promise<CampaignClip>;
+  /** Publish now: öppna Publicera för klippet direkt efter Ja. */
+  publish?: number;
 }
 
 const back = (clip: CampaignClip, status: CampaignClip["status"]) => () => api.campaign.clips.patch(clip.id, { status });
@@ -62,6 +77,7 @@ const NOTICES: Record<string, (clip: CampaignClip, name: string) => Notice> = {
     href: `/queue?tab=posta#klipp-${clip.id}`,
     linkText: "Open Ready to post",
     undo: back(clip, "renderad"),
+    publish: clip.id,
   }),
   "granska>nekad": (clip, name) => ({ text: `Rejected. ${name} is under Rejected.`, undo: back(clip, "renderad") }),
   "godkand>postad": (clip) => ({
@@ -111,6 +127,13 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
   const [scheduleDone, setScheduleDone] = useState(false);
   const [youtube, setYoutube] = useState<YouTubeStatus | null>(null);
   const [tiktok, setTiktok] = useState<TikTokStatus | null>(null);
+  // Statusanropet misslyckades. Då är läget okänt, inte att inget konto är kopplat.
+  const [tiktokFailed, setTiktokFailed] = useState(false);
+  // När listan senast lästes, och om senaste läsningen misslyckades.
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [offline, setOffline] = useState(false);
+  // Klippet som har Publicera öppet utan knappen i raden: Publish now och Shift+Y.
+  const [publishId, setPublishId] = useState<number | null>(null);
   const [showRejected, setShowRejected] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [undoing, setUndoing] = useState(false);
@@ -127,6 +150,19 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
       .finally(() => setScheduleDone(true));
   }, []);
 
+  const loadTiktok = useCallback(() => {
+    api.campaign.tiktok
+      .status()
+      .then((status) => {
+        setTiktok(status);
+        setTiktokFailed(false);
+      })
+      .catch(() => {
+        setTiktok(null);
+        setTiktokFailed(true);
+      });
+  }, []);
+
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -140,17 +176,20 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
       setProfiles(profileData);
       setRuns(runData);
       setError(null);
+      setLastUpdated(Date.now());
+      setOffline(false);
       profileDetails(clipData).then(setDetails).catch(() => {});
       loadSchedule();
       // Kontonas namn i schemat och valen i Publicera.
       api.campaign.youtube.status().then(setYoutube).catch(() => setYoutube(null));
-      api.campaign.tiktok.status().then(setTiktok).catch(() => setTiktok(null));
+      loadTiktok();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load the clips");
+      setOffline(true);
     } finally {
       setRefreshing(false);
     }
-  }, [loadSchedule]);
+  }, [loadSchedule, loadTiktok]);
 
   useEffect(() => {
     load();
@@ -162,7 +201,14 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
     const same = <T,>(next: T) => (prev: T) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next);
     return pollWhileVisible(() => {
       api.campaign.schedule.list().then((next) => setSchedule(same<ScheduledPost[] | null>(next))).catch(() => {});
-      api.campaign.clips.list().then((next) => setClips(same<CampaignClip[] | null>(next))).catch(() => {});
+      api.campaign.clips
+        .list()
+        .then((next) => {
+          setClips(same<CampaignClip[] | null>(next));
+          setLastUpdated(Date.now());
+          setOffline(false);
+        })
+        .catch(() => setOffline(true));
     }, POLL_MS);
   }, []);
 
@@ -197,6 +243,12 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
     const prev = clips?.find((c) => c.id === updated.id);
     setClips((list) => list?.map((c) => (c.id === updated.id ? updated : c)) ?? null);
     if (prev && prev.status !== updated.status) {
+      // Ja eller Nej i Att granska: nästa klipp blir aktivt, så att nästa tangent gäller det.
+      if (ids.current.includes(updated.id) && !STEP_STATUSES.granska.includes(updated.status)) {
+        const next = nextActive(ids.current, updated.id);
+        setActiveId(next);
+        if (next != null) setTimeout(() => document.getElementById(`klipp-${next}`)?.scrollIntoView({ block: "start", behavior: "smooth" }), 50);
+      }
       setUndoError(null);
       setNotice(noticeFor(prev, updated));
       window.dispatchEvent(new Event(SUMMARY_CHANGED)); // siffrorna i menyn
@@ -253,6 +305,8 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
     pending: (schedule ?? []).filter((p) => p.clip_id === clip.id && PENDING.includes(p.status)),
     youtube,
     tiktok,
+    tiktokFailed,
+    onRetryTikTok: loadTiktok,
     campaign: details.find((d) => d.name === clip.profile) ?? null,
     request,
     onRequestDone,
@@ -303,11 +357,20 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Att granska: första klippet är aktivt när listan har kommit, så att Y fungerar direkt.
+  const firstId = ids.current[0];
+  const activeShown = activeId != null && ids.current.includes(activeId);
+  useEffect(() => {
+    if (!activeShown && firstId != null) setActiveId(firstId);
+  }, [activeShown, firstId]);
+
+  const publishClip = publishId != null ? clips?.find((c) => c.id === publishId && c.status === "godkand") : undefined;
+
   const minutesLeft = deadline != null ? Math.ceil((deadline - now) / 60_000) : null;
   const row = (clip: CampaignClip) => (
     <ClipResultRow
-      // Ny nyckel när servern har sparat, så att fälten visar det sparade.
-      key={`${clip.id}-${clip.updated}`}
+      // Samma rad när servern har sparat, så att videon och öppna fönster står kvar. Raden följer det sparade själv.
+      key={clip.id}
       clip={clip}
       formats={profiles.find((p) => p.name === clip.profile)?.formats ?? []}
       runId={runFor(clip)?.run_id}
@@ -315,11 +378,23 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
       active={tab === "granska" && clip.id === activeId}
       onUpdate={handleUpdate}
       onReload={load}
+      onPublish={(c) => setPublishId(c.id)}
       posting={postingFor(clip)}
       approvedAction={
         clip.status === "godkand" ? (
           <RemoveFromQueue
             clip={clip}
+            action="remove"
+            pending={(schedule ?? []).filter((p) => p.clip_id === clip.id && PENDING.includes(p.status))}
+            onRemoved={handleRemoved}
+          />
+        ) : undefined
+      }
+      moreAction={
+        clip.status === "godkand" ? (
+          <RemoveFromQueue
+            clip={clip}
+            action="posted"
             pending={(schedule ?? []).filter((p) => p.clip_id === clip.id && PENDING.includes(p.status))}
             onRemoved={handleRemoved}
           />
@@ -340,7 +415,12 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
           <h1 className="text-3xl font-bold tracking-tight">Clips</h1>
           <p className="mt-1.5 text-muted-foreground">Review, post and submit the clips from all projects and uploads.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {offline && lastUpdated != null && (
+            <span role="status" className="text-xs text-warn tabular-nums">
+              Last updated {timeText.format(lastUpdated)} · offline
+            </span>
+          )}
           {/* Egna videor finns inte i menyn. Härifrån når Robin sidan där han lägger in ett eget klipp. */}
           <Link href="/uploads" className={buttonVariants({ variant: "outline" })}>
             <Upload aria-hidden />
@@ -385,6 +465,15 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
         })}
       </div>
       <p className="mt-3 text-sm text-muted-foreground">{TABS[tab].description}</p>
+      {tab === "granska" && !showRejected && (
+        <p aria-label="Keyboard shortcuts" className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {SHORTCUTS.map(([keys, what]) => (
+            <span key={keys}>
+              <kbd className="rounded border border-line bg-panel px-1 font-sans text-foreground">{keys}</kbd> {what}
+            </span>
+          ))}
+        </p>
+      )}
 
       {error && (
         <div
@@ -487,10 +576,15 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
         </details>
       )}
 
+      {publishClip && (
+        <PublishFor clip={publishClip} posting={postingFor(publishClip)} onUpdate={handleUpdate} onClose={() => setPublishId(null)} />
+      )}
+
       {notice && (
         <div
           role="status"
-          className="fixed inset-x-3 bottom-3 z-40 mx-auto flex max-w-xl flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[#174a2a] bg-[#0d1a12] px-4 py-3 text-sm shadow-lg md:left-[calc(220px+1.5rem)]"
+          // Nere till höger och smal, så att den inte täcker videons kontroller i raden.
+          className="fixed inset-x-3 bottom-3 z-40 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[#174a2a] bg-[#0d1a12] px-4 py-3 text-sm shadow-lg sm:left-auto sm:w-[26rem]"
         >
           <CheckCircle2 className="size-4 shrink-0 text-good" aria-hidden />
           {/* basis-48: på smal skärm hamnar knapparna på en egen rad, i stället för att texten blir en smal spalt. */}
@@ -500,6 +594,17 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
               <Link href={notice.href} onClick={() => setNotice(null)} className="font-medium text-foreground underline underline-offset-4">
                 {notice.linkText}
               </Link>
+            )}
+            {notice.publish != null && clips?.some((c) => c.id === notice.publish && c.status === "godkand") && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  setPublishId(notice.publish!);
+                  setNotice(null);
+                }}
+              >
+                Publish now
+              </Button>
             )}
             {notice.undo && (
               <Button size="sm" variant="outline" disabled={undoing} onClick={undo}>

@@ -2,7 +2,7 @@
 
 import { type ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, BellRing, CalendarClock, CheckCircle2, ExternalLink, Loader2, Monitor, Send, SquarePlay, Upload, XCircle } from "lucide-react";
+import { AlertTriangle, BellRing, RefreshCw, CalendarClock, CheckCircle2, ExternalLink, Loader2, Monitor, Send, SquarePlay, Upload, XCircle } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import { NEED_DISCLOSURE, PRIVATE_UNTIL_AUDITED, TIKTOK_AUDITED, TikTokFields, u
 import { draftWaiting, PICKED_TIKTOK, TIKTOK_STUDIO, tiktokUploadText, useTikTokUpload } from "@/components/TikTokSend";
 import { useYouTubeForm, useYouTubeUpload, YouTubeFields, youtubeUploadText } from "@/components/YouTubeSend";
 import { api } from "@/lib/api";
+import { accountCheck, type AccountCheck, chooseOption, PUBLISH_PREFS, readPrefs, type Way, type When } from "@/lib/publishPrefs";
 import { allows, cn } from "@/lib/utils";
 import type {
   CampaignClip,
@@ -31,9 +32,6 @@ import type {
   YouTubeStatus,
 } from "@/lib/types";
 
-type Way = "utkast" | "direkt" | "sjalv";
-type When = "nu" | "senare";
-
 /** Öppna Publicera för ett klipp från ett annat ställe, till exempel Schemalägg igen i listan Schemalagt. */
 export interface PublishRequest {
   clipId: number;
@@ -47,6 +45,10 @@ export interface Posting {
   pending: ScheduledPost[];
   youtube: YouTubeStatus | null;
   tiktok: TikTokStatus | null;
+  /** Statusanropet för TikTok misslyckades: läget är okänt, inte att inget konto är kopplat. */
+  tiktokFailed?: boolean;
+  /** Fråga servern om TikTok-kontot igen. */
+  onRetryTikTok?: () => void;
   campaign: CampaignProfileDetail | null;
   request: PublishRequest | null;
   onRequestDone: () => void;
@@ -217,8 +219,28 @@ const TIKTOK_DIRECT = TIKTOK_AUDITED
   ? { label: "Publish directly", text: "The app publishes the clip on the account, now or at a time you choose." }
   : { label: "Publish directly, becomes private", text: PRIVATE_UNTIL_AUDITED };
 
-function tiktokOptions(account: TikTokAccount | undefined, limit: number, allPosted: boolean): Option[] {
-  const missing = <ConnectLink name="TikTok" allPosted={allPosted} />;
+/** Statusen för TikTok gick inte att läsa. Det är inte samma sak som att inget konto är kopplat. */
+function TikTokUnknown({ onRetry }: { onRetry?: () => void }) {
+  return (
+    <div role="alert" className={cn(errorBox, "flex flex-wrap items-center justify-between gap-2")}>
+      <span>Couldn&apos;t check the TikTok account. Try again.</span>
+      {onRetry && (
+        <Button size="sm" variant="outline" onClick={onRetry}>
+          <RefreshCw aria-hidden />
+          Try again
+        </Button>
+      )}
+    </div>
+  );
+}
+
+const NOT_CHECKED: Partial<Record<AccountCheck, string>> = {
+  checking: "Checking the TikTok account…",
+  unknown: "Couldn't check the TikTok account.",
+};
+
+function tiktokOptions(account: TikTokAccount | undefined, limit: number, allPosted: boolean, check: AccountCheck): Option[] {
+  const missing = NOT_CHECKED[check] ?? <ConnectLink name="TikTok" allPosted={allPosted} />;
   const full =
     account && account.pending_24h >= limit
       ? `${limit} drafts are already waiting in the inbox for ${accountName(account)}. Post or delete one in the TikTok app first.`
@@ -251,8 +273,8 @@ function youtubeOptions(channels: number): Option[] {
   ];
 }
 
-function optionsFor(platform: Platform | undefined, tiktok: { account?: TikTokAccount; limit: number; allPosted: boolean }, channels: number): Option[] {
-  if (platform === "tiktok") return tiktokOptions(tiktok.account, tiktok.limit, tiktok.allPosted);
+function optionsFor(platform: Platform | undefined, tiktok: { account?: TikTokAccount; limit: number; allPosted: boolean; check: AccountCheck }, channels: number): Option[] {
+  if (platform === "tiktok") return tiktokOptions(tiktok.account, tiktok.limit, tiktok.allPosted, tiktok.check);
   if (platform === "youtube_shorts") return youtubeOptions(channels);
   return platform ? [selfOption(platform)] : [];
 }
@@ -695,9 +717,13 @@ async function postYourself(clip: CampaignClip, p: Platform): Promise<Done> {
   return { kind: "self", copied: await copying, blocked: !tab };
 }
 
-/** Ett fönster för all postning: plattform, konto, hur och när. */
+/** Tiden i fältet, som "2026-11-28T18:00" i Stockholmstid, ligger framåt. */
+const isFuture = (local: string) => Date.parse(stockholmIso(local) ?? "") > Date.now();
+
+/** Ett fönster för all postning: plattform, konto, hur och när. Senaste valen sparas och väljs nästa gång, om de går. */
 function PublishDialog({ clip, preset, posting, tt, yt, onUpdate, onClose }: DialogProps) {
   const { pending, youtube, tiktok, campaign } = posting;
+  const [prefs] = useState(() => readPrefs(localStorage.getItem(PUBLISH_PREFS), isFuture));
   const helper = useSubmitHelper();
 
   const { info: ttInfo } = useClipAccounts(clip.id, "tiktok", allows(clip, "tiktok"));
@@ -707,24 +733,26 @@ function PublishDialog({ clip, preset, posting, tt, yt, onUpdate, onClose }: Dia
   const posted = (p: Platform) => (clip.posts ?? []).some((post) => post.platform === p);
   const platforms = PLATFORMS.filter((p) => allows(clip, p));
   const open = platforms.filter((p) => !posted(p) || multi(p));
-  const [chosen, setChosen] = useState<Platform | null>(preset.platform ?? null);
+  const [chosen, setChosen] = useState<Platform | null>(preset.platform ?? prefs.platform ?? null);
   const platform = chosen && open.includes(chosen) ? chosen : open[0];
 
   const ttAcc = useTikTokAccount(tiktok, ttInfo);
   const channels = youtube?.accounts.filter((c) => c.connected && !c.needs_login) ?? [];
   const ytForm = useYouTubeForm(clip, channels, ytInfo);
 
-  const ttState = { account: ttAcc.account, limit: tiktok?.pending_limit ?? 5, allPosted: ttAcc.accounts.length > 0 && !!ttInfo?.multi };
+  const check = accountCheck(tiktok, !!posting.tiktokFailed);
+  const ttState = { account: ttAcc.account, limit: tiktok?.pending_limit ?? 5, allPosted: ttAcc.accounts.length > 0 && !!ttInfo?.multi, check };
   const options = optionsFor(platform, ttState, channels.length);
-  const [wayChosen, setWay] = useState<Way | null>(preset.later && platform !== "instagram_reels" ? "direkt" : null);
-  const option = options.find((o) => o.way === wayChosen && !o.off) ?? options.find((o) => !o.off);
+  const [wayChosen, setWay] = useState<Way | null>(preset.later && platform !== "instagram_reels" ? "direkt" : (prefs.way ?? null));
+  // Ett sparat sätt som inte går nu, till exempel utkast utan kopplat konto, ger standardvalet.
+  const option = chooseOption(options, wayChosen);
   const way = option?.way;
   // Senare: en uppladdning vid tiden, eller en påminnelse om att posta själv på TikTok.
   const schedulePlatform = platform ? SCHEDULE[platform] : undefined;
   const canLater = (way === "direkt" && !!schedulePlatform) || (way === "sjalv" && platform === "tiktok");
-  const [whenChosen, setWhen] = useState<When>(preset.later ? "senare" : "nu");
+  const [whenChosen, setWhen] = useState<When>(preset.later ? "senare" : (prefs.when ?? "nu"));
   const when: When = canLater ? whenChosen : "nu";
-  const [local, setLocal] = useState("");
+  const [local, setLocal] = useState(prefs.local ?? "");
 
   const directTt = platform === "tiktok" && way === "direkt";
   const { creator, creatorError } = useCreatorInfo(directTt ? ttAcc.account?.open_id : undefined);
@@ -785,6 +813,7 @@ function PublishDialog({ clip, preset, posting, tt, yt, onUpdate, onClose }: Dia
   function go() {
     if (reason) return;
     if (!platform || !way) return;
+    localStorage.setItem(PUBLISH_PREFS, JSON.stringify({ platform, way, when, ...(when === "senare" ? { local } : {}) }));
     if (when === "senare") {
       const body = scheduleBody(at!, platform, ytForm.body, directTt ? ttForm.fields : null, ttAcc.openId);
       return send(async () => ({ kind: "scheduled", post: await api.campaign.clips.schedule(clip.id, body) }));
@@ -825,6 +854,7 @@ function PublishDialog({ clip, preset, posting, tt, yt, onUpdate, onClose }: Dia
             <fieldset disabled={!!done} className="space-y-4">
               <PlatformPicker clipId={clip.id} platforms={platforms} open={open} value={platform} onChoose={setChosen} />
               {platform && <ScheduleLines pending={pendingHere} onChange={posting.onChanged} />}
+              {platform === "tiktok" && check === "unknown" && <TikTokUnknown onRetry={posting.onRetryTikTok} />}
 
               <div role="radiogroup" aria-label="How" className="space-y-2">
                 {options.map((o) => (
@@ -979,6 +1009,31 @@ function useRequestedOpen(clipId: number, { request, onRequestDone }: Posting) {
     onRequestDone();
   }, [request, clipId, onRequestDone]);
   return [open, setOpen] as const;
+}
+
+/** Publicera för ett klipp utan knappen i raden, till exempel Publish now efter Ja i Att granska. */
+export function PublishFor({ clip, posting, onUpdate, onClose }: {
+  clip: CampaignClip;
+  posting: Posting;
+  onUpdate: (clip: CampaignClip) => void;
+  onClose: () => void;
+}) {
+  const tt = useTikTokUpload(clip.id, allows(clip, "tiktok"));
+  const yt = useYouTubeUpload(clip.id, allows(clip, "youtube_shorts"));
+  return (
+    <PublishDialog
+      clip={clip}
+      preset={{}}
+      posting={posting}
+      tt={tt}
+      yt={yt}
+      onUpdate={onUpdate}
+      onClose={(changed) => {
+        onClose();
+        if (changed) posting.onChanged();
+      }}
+    />
+  );
 }
 
 /** Knappen Publicera i klippraden, med klippets schema och senaste uppladdningar under. */

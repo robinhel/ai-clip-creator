@@ -65,6 +65,8 @@ export function resetDemo() {
   store = null;
 }
 
+const TIKTOK_SCOPES = ["user.info.basic", "video.upload", "video.publish"];
+
 const runs = () => makeRuns(state().clips);
 
 function summary(): CampaignSummary {
@@ -206,8 +208,15 @@ const GET: [RegExp, Handler][] = [
     tiktok: [{ id: "demo-tiktok", name: "Sample TikTok account", connected: true, used_by: [{ name: "nova_plays", streamer: "Nova" }] }],
     youtube_shorts: [],
   })],
+  // Samma kopplade konto som under Settings, så att utkast och direkt publicering går att välja i demon.
   [/^\/campaign\/tiktok\/status$/, () => ({
-    configured: false, connected: false, display_name: null, avatar_url: null, scopes: [], refresh_expires_at: null, pending_24h: 0, pending_limit: 5, accounts: [],
+    configured: true, connected: true, display_name: "Sample TikTok account", avatar_url: null, scopes: TIKTOK_SCOPES, refresh_expires_at: null,
+    pending_24h: 0, pending_limit: 5,
+    accounts: [{ open_id: "demo-tiktok", display_name: "Sample TikTok account", avatar_url: null, scopes: TIKTOK_SCOPES, connected: true, refresh_expires_at: null, pending_24h: 0, can_publish: true }],
+  })],
+  [/^\/campaign\/tiktok\/accounts\/([^/]+)\/creator_info$/, ([openId]) => ({
+    open_id: decodeURIComponent(openId), nickname: "Sample TikTok account", username: "nova_plays", avatar_url: null,
+    privacy_level_options: ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "SELF_ONLY"], comment_disabled: false, duet_disabled: false, stitch_disabled: false, max_video_post_duration_sec: 600,
   })],
   [/^\/campaign\/youtube\/status$/, () => ({ configured: false, accounts: [], uploads_today: 0 })],
   [/^\/campaign\/live$/, () => []],
