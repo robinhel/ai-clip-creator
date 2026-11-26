@@ -390,6 +390,21 @@ def cmd_facit(args, settings: Settings) -> int:
     return 0
 
 
+def cmd_viral(args, settings: Settings) -> int:
+    from . import viral
+
+    vod_transcript = settings.work_dir / args.vod_id / "transcript.json"
+
+    def transcribe(mp4: Path, out: Path):
+        if not settings.berget_api_key:
+            raise SystemExit("Fyll i BERGET_API_KEY i .env först.")
+        language = viral.Transcript.from_json(vod_transcript.read_text(encoding="utf-8")).language  # som VOD:en
+        return transcribe_vod(mp4, out.parent.name, out, post=berget_post(settings.berget_api_key),
+                              model=settings.transcribe_model, language=language, budget=_budget(settings))
+
+    return viral.run(args.vod_id, args.sources, settings.work_dir, transcribe)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m campaign", description="Kampanjlagret ovanpå clipsmith.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -464,6 +479,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--vod")
     p.add_argument("--tolerance", type=float, default=10.0)
     p.set_defaults(func=cmd_facit)
+
+    p = sub.add_parser("viral", help="Hitta var i VOD:en virala klipp kommer ifrån och jämför med appens klipp")
+    p.add_argument("vod_id", help="VOD-id, samma som mappnamnet i work/")
+    p.add_argument("sources", nargs="+",
+                   help="mp4-fil, mapp med mp4-filer, Content Rewards-kampanjlänk eller länk till TikTok, Instagram, YouTube")
+    p.set_defaults(func=cmd_viral)
     return parser
 
 

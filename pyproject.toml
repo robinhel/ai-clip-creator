@@ -69,6 +69,9 @@ vision = [
 ollama = [
     "ollama>=0.3",
 ]
+viral = [
+    "yt-dlp>=2025.1",  # python -m campaign viral med länkar till TikTok, Instagram, YouTube
+]
 publish = [
     "google-api-python-client>=2",
     "google-auth-oauthlib>=1",

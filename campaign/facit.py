@@ -38,3 +38,20 @@ def score(moments: list[dict], clips: list[tuple[float, float]], tolerance: floa
         found = any(start - tolerance <= t <= end + tolerance for start, end in clips)
         (hit if found else missed).append(moment)
     return {"hits": len(hit), "total": len(moments), "hit": hit, "missed": missed}
+
+
+def compare(moments: list[dict], clips: list[tuple[float, float]], tolerance: float = 10.0) -> list[dict]:
+    """Jämför start och slut. Varje ögonblick har time, start och end. Ett klipp träffar som i score; av klippen som
+    träffar väljs det som täcker mest av ögonblicket. start_diff och end_diff är klippets tid minus ögonblickets:
+    minus betyder att klippet börjar eller slutar tidigare."""
+    result = []
+    for moment in moments:
+        t = moment["time"]
+        hits = [clip for clip in clips if clip[0] - tolerance <= t <= clip[1] + tolerance]
+        if not hits:
+            result.append({**moment, "found": False})
+            continue
+        start, end = max(hits, key=lambda c: min(c[1], moment["end"]) - max(c[0], moment["start"]))
+        result.append({**moment, "found": True, "clip": (start, end),
+                       "start_diff": round(start - moment["start"], 1), "end_diff": round(end - moment["end"], 1)})
+    return result
