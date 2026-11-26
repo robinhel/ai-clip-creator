@@ -7,6 +7,7 @@ där flest fönster pekar på samma start vinner.
 
 from __future__ import annotations
 
+import logging
 import re
 import tempfile
 from collections import defaultdict
@@ -17,6 +18,8 @@ from clipsmith.models.transcript import Transcript
 
 from .config import load_settings
 from .local_whisper import transcribe_local
+
+log = logging.getLogger(__name__)
 
 WINDOW = 4  # fyra ord: kort nog att tåla ett felstavat eller saknat ord, långt nog att sällan träffa av en slump
 MIN_WORDS = 8  # färre ord än så räcker inte för att skilja ett ställe från ett annat
@@ -137,3 +140,13 @@ def locate(
         "method": "transcript",
         "confidence": min(1.0, hits / len(clip_windows)),
     }
+
+
+def try_locate(clip: dict) -> dict | None:
+    """locate, men ett fel (till exempel i whisper) ger en varning och None i stället för att avbryta.
+    Platsen är en bonus; klippet och mätningen sparas ändå."""
+    try:
+        return locate(clip)
+    except Exception as error:
+        log.warning("Could not locate %s in the stream (%s)", clip.get("id"), type(error).__name__)
+        return None

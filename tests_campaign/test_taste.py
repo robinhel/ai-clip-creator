@@ -112,7 +112,8 @@ def _save_clips(root: Path) -> None:
                 "id": "a",
                 "outlier": 10.0,
                 "measured": False,
-                "video_path": str(_video(root)),
+                "source": "content_rewards",
+                "video_url": "https://cdn.contentrewards.com/v/a.mp4",
                 "location": {"vod_id": "2000", "start_s": 100.0, "end_s": 130.0},
             },
             {
@@ -126,7 +127,9 @@ def _save_clips(root: Path) -> None:
     )
 
 
-def test_analyse_bygger_smakfilen(root, settings, budget, fake_measure):
+@pytest.mark.usefixtures("fake_http")
+def test_analyse_bygger_smakfilen(root, settings, budget, fake_measure, monkeypatch):
+    monkeypatch.setattr(locate, "locate", lambda clip, vod_transcripts=None, words=None: None)
     _save_clips(root)
     brain = Brain(settings, budget, client=FakeClient(ANSWER))
     purposes: list[str] = []
@@ -418,12 +421,12 @@ def test_analyse_laddar_listan_pa_nytt_fore_sparning(settings, budget, monkeypat
         locked.append(viral.LOCK.locked())
         save(profile, clips)
 
-    monkeypatch.setattr(taste, "measure", measure)
-    monkeypatch.setattr(viral, "save", spy)
     viral.save(
         "testkamp",
         [{"id": "cdn", "source": "content_rewards", "outlier": 9.0, "views": 5, "video_url": CDN}],
     )
+    monkeypatch.setattr(taste, "measure", measure)
+    monkeypatch.setattr(viral, "save", spy)
     brain = Brain(settings, budget, client=FakeClient(ANSWER))
 
     taste.analyse("testkamp", brain=brain)

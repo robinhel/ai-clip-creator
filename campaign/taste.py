@@ -26,7 +26,6 @@ from clipsmith.models.transcript import Transcript
 
 from . import locate
 from .brain import Brain
-from .budget import budget_from_settings
 from .config import load_settings
 
 log = logging.getLogger(__name__)
@@ -60,8 +59,8 @@ def _name(profile) -> str:
     return str(getattr(profile, "name", profile))
 
 
-def _path(profile) -> Path:
-    return load_settings().data_dir / "smak" / f"{_name(profile)}.json"
+def _path(profile, data_dir: Path | None = None) -> Path:
+    return (data_dir or load_settings().data_dir) / "smak" / f"{_name(profile)}.json"
 
 
 def _position(y_pct: float | None) -> str | None:
@@ -115,7 +114,10 @@ def measure(video_path: Path | str) -> dict:
             "--model",
             load_settings().local_whisper_model,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError("measure.py took more than an hour and was stopped.") from error
         raw = wd / "measures.json"
         if result.returncode or not raw.exists():
             raise RuntimeError(
@@ -158,28 +160,22 @@ def _numbers(clips: list[dict], work_dir: Path) -> dict:
     }
 
 
-def _measure_missing(clips: list[dict]) -> bool:
-    """Mät de klipp som har en lokal video eller en CDN-video och inte är mätta. True om något mättes.
-    En CDN-video som inte går att hämta hoppas över."""
-    done = False
+def _measure_missing(clips: list[dict]) -> list[dict]:
+    """Mät de klipp som har en CDN-video och inte är mätta. Returnerar de som mättes nu.
+    Ett klipp som inte går att hämta eller mäta loggas och hoppas över."""
+    done = []
     for clip in [c for c in clips if _needs_measure(c)]:
         try:
             _measure_one(clip)
-        except httpx.HTTPError as error:
-            log.warning(
-                "Could not download %s (%s): not measured", clip["id"], type(error).__name__
-            )
+        except (httpx.HTTPError, RuntimeError) as error:
+            log.warning("Could not measure %s (%s): skipped", clip["id"], type(error).__name__)
             continue
-        done = True
+        done.append(clip)
     return done
 
 
 def _needs_measure(clip: dict) -> bool:
-    if clip.get("measured"):
-        return False
-    if clip.get("video_path"):
-        return Path(clip["video_path"]).exists()
-    return _cdn_url(clip) is not None
+    return not clip.get("measured") and _cdn_url(clip) is not None
 
 
 def _cdn_url(clip: dict) -> str | None:
@@ -190,31 +186,16 @@ def _cdn_url(clip: dict) -> str | None:
 
 
 def _measure_one(clip: dict) -> None:
-    if clip.get("video_path"):
-        clip["taste"] = measure(clip["video_path"])
-    else:
-        _measure_download(clip)
-    clip["measured"] = True
-
-
-def _measure_download(clip: dict) -> None:
     """Ladda ner CDN-videon, mät den, leta stället i strömmen och radera videon."""
     with tempfile.TemporaryDirectory(prefix="smak-cdn-") as tmp:  # videon raderas med mappen
         video = Path(tmp) / "video.mp4"
         _download(str(_cdn_url(clip)), video)
-        clip["taste"] = measure(video)
-        place = _try_locate({**clip, "path": str(video)})
-        if place:
-            clip["location"] = place
-
-
-def _try_locate(clip: dict) -> dict | None:
-    """locate.locate, men ett fel (till exempel i whisper) ger en varning och None i stället för att avbryta."""
-    try:
-        return locate.locate(clip)
-    except Exception as error:  # platsen är en bonus; mätningen ska sparas ändå
-        log.warning("Could not locate %s in the stream (%s)", clip.get("id"), type(error).__name__)
-        return None
+        taste = measure(video)
+        place = locate.try_locate({**clip, "path": str(video)})
+    clip["taste"] = taste
+    clip["measured"] = True
+    if place:
+        clip["location"] = place
 
 
 def _download(url: str, path: Path) -> None:
@@ -228,8 +209,17 @@ def _download(url: str, path: Path) -> None:
 
 
 def _top(clips: list[dict], top_n: int) -> list[dict]:
-    ranked = [c for c in clips if c.get("outlier") is not None]
-    return sorted(ranked, key=lambda c: -c["outlier"])[:top_n]
+    """De top_n största avvikarna, och Content Rewards-klipp utan datum efter dem rangordnade på
+    visningar. Mätta egna länkar tas alltid med."""
+    dated = sorted((c for c in clips if c.get("outlier") is not None), key=lambda c: -c["outlier"])
+    undated = sorted(
+        (c for c in clips if c.get("outlier") is None and c.get("source") == "content_rewards"),
+        key=lambda c: -(c.get("views") or 0),
+    )
+    top = (dated + undated)[:top_n]
+    ids = {c["id"] for c in top}
+    links = [c for c in clips if c.get("source") == "link" and c.get("measured")]
+    return top + [c for c in links if c["id"] not in ids]
 
 
 def _moments(clips: list[dict], top_n: int, work_dir: Path) -> list[dict]:
@@ -276,7 +266,7 @@ def _ask(brain: Brain, numbers: dict, measured: list[dict], moments: list[dict])
     )
 
 
-def analyse(profile, top_n: int = 5, brain: Brain | None = None) -> dict:
+def analyse(profile, top_n: int = 5, *, brain: Brain) -> dict:
     """Bygg smakfilen av de top_n största avvikarna som inte är Twitch-klipp, med de top_n största
     Twitch-avvikarna som ögonblick. Utan mätta klipp blir mätvärdena None och reglerna kommer från
     ögonblicken. Kastar ValueError när varken mätta klipp eller ögonblick finns."""
@@ -291,7 +281,6 @@ def analyse(profile, top_n: int = 5, brain: Brain | None = None) -> dict:
             "Inget av de största virala klippen är mätt än, och inga Twitch-klipp finns."
         )
     numbers = _numbers(measured, settings.work_dir)
-    brain = brain or Brain(settings, budget_from_settings(settings))
     answer = _ask(brain, numbers, measured, moments)
     result = {
         "updated": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -306,12 +295,29 @@ def analyse(profile, top_n: int = 5, brain: Brain | None = None) -> dict:
 
 def _measured_top(profile, clips: list[dict], top_n: int) -> list[dict]:
     """De top_n största avvikarna som inte är Twitch-klipp, mätta om det går. Bara de mätta returneras."""
-    from . import viral
 
     top = _top([c for c in clips if c.get("source") != "twitch"], top_n)
-    if _measure_missing(top):
-        viral.save(profile, clips)
+    done = _measure_missing(top)
+    if done:
+        _save_measured(profile, done)
     return [c for c in top if c.get("taste")]
+
+
+def _save_measured(profile, done: list[dict]) -> None:
+    """Skriv in mätningen i listan som den ser ut nu: mätningen tar lång tid, och under tiden kan
+    collect eller add_link ha sparat en nyare lista."""
+    from . import viral
+
+    fields = {
+        c["id"]: {"taste": c["taste"], "measured": True}
+        | ({"location": c["location"]} if c.get("location") else {})
+        for c in done
+    }
+    with viral.LOCK:
+        clips = viral.load(profile)
+        for clip in clips:
+            clip.update(fields.get(clip["id"], {}))
+        viral.save(profile, clips)
 
 
 def _answer(answer: dict) -> dict:
@@ -346,10 +352,13 @@ def _number_lines(numbers: dict) -> list[str]:
     ]
 
 
-def taste_text(profile) -> str:
-    """Smaken som kort engelsk text för Claudes val. Tom sträng utan smakfil."""
-    data = load_taste(profile)
-    if not data:
+def taste_text(profile, data_dir: Path) -> str:
+    """Smaken som kort engelsk text för Claudes val. Tom sträng utan smakfil eller när den är trasig."""
+    try:
+        data = json.loads(_path(profile, data_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(data, dict):
         return ""
     text = f"Viral clips taste: {data.get('summary_en', '')}".strip()
     typical = ", ".join(_number_lines(data.get("numbers") or {}))

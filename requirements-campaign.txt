@@ -9,6 +9,8 @@ mcp>=2.3,<3
 # Smak ur virala klipp (campaign/taste.py kör campaign/vendor/reverse_video/measure.py).
 # rapidocr läser text på bilden och drar med sig opencv-python-headless och Pillow. yt-dlp hämtar länkar.
 rapidocr>=3.10
+# rapidocr drar annars in OpenCV 5, som saknar CascadeClassifier (webbkameran i clipsmith).
+opencv-python-headless>=4.9,<5
 yt-dlp>=2026.11
 # measure.py:s ljuddelar (taktslag, ljudtoppar).
 scipy>=1.18

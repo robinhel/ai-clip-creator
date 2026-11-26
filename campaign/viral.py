@@ -15,9 +15,11 @@ import logging
 import re
 import statistics
 import tempfile
+import threading
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 from clipsmith.config.loaders import load_secrets
 from clipsmith.twitch.client import TwitchClient
@@ -33,6 +35,12 @@ DAY_S = 86400
 TWITCH_DAYS = 60  # VOD:er försvinner efter 7–60 dagar; äldre klipp går inte att hitta i strömmen
 # fält som en ny hämtning inte vet något om och som ska följa med från den sparade listan
 KEEP = ("measured", "taste")
+# fält som följer med från den sparade listan när den nya hämtningen saknar värde (CR-klippens plats)
+KEEP_IF_MISSING = ("location",)
+LINK_HOSTS = ("tiktok.com", "instagram.com", "youtube.com", "youtu.be")
+MAX_BYTES = 200 * 1024 * 1024  # yt-dlp hämtar inte större filer
+# en läs-ändra-skriv av listan i taget (collect, add_link och taste.analyse)
+LOCK = threading.Lock()
 
 
 def _now() -> datetime:
@@ -95,6 +103,7 @@ def _twitch(profile: Profile) -> list[dict]:
             raw = client.get_clips(
                 client.get_user_id(profile.streamer.lower()),
                 started_at=_now() - timedelta(days=TWITCH_DAYS),
+                ended_at=_now(),  # utan ended_at ger Helix bara en vecka
             )
     except (
         Exception
@@ -154,11 +163,11 @@ def _content_rewards(profile: Profile) -> list[dict]:
 
 def _set_outliers(clips: list[dict]) -> None:
     """Avvikartalet för klippen från en källa: visningar per dag delat med medianen. None utan datum."""
-    rates = [c["views_per_day"] for c in clips if c.get("views_per_day")]
+    rates = [c["views_per_day"] for c in clips if c.get("views_per_day") is not None]
     median = statistics.median(rates) if rates else 0
     for c in clips:
         rate = c.get("views_per_day")
-        c["outlier"] = rate / median if rate and median else None
+        c["outlier"] = rate / median if rate is not None and median else None
 
 
 def _with_outliers(clips: list[dict]) -> list[dict]:
@@ -173,14 +182,21 @@ def _with_outliers(clips: list[dict]) -> list[dict]:
 def collect(profile: Profile | str) -> list[dict]:
     """Hämta Twitch- och Content Rewards-klippen, räkna avvikare och spara. Länkar och mätningar behålls."""
     profile = _profile(profile)
-    old = {c["id"]: c for c in load(profile)}
     fresh = _twitch(profile) + _content_rewards(profile)
-    for clip in fresh:
-        clip.update({key: old[clip["id"]][key] for key in KEEP if key in old.get(clip["id"], {})})
-    links = [c for c in old.values() if c.get("source") == "link"]
-    clips = _with_outliers(fresh + links)
-    save(profile, clips)
+    with LOCK:
+        old = {c["id"]: c for c in load(profile)}
+        for clip in fresh:
+            _keep(clip, old.get(clip["id"], {}))
+        links = [c for c in old.values() if c.get("source") == "link"]
+        clips = _with_outliers(fresh + links)
+        save(profile, clips)
     return clips
+
+
+def _keep(clip: dict, saved: dict) -> None:
+    """Ta med det som bara den sparade listan vet: mätningen, och platsen när den nya saknar plats."""
+    clip.update({key: saved[key] for key in KEEP if key in saved})
+    clip.update({key: saved[key] for key in KEEP_IF_MISSING if clip.get(key) is None and saved.get(key)})
 
 
 def _posted(info: dict) -> datetime | None:
@@ -191,33 +207,18 @@ def _posted(info: dict) -> datetime | None:
     return None
 
 
-def _try_locate(clip: dict) -> dict | None:
-    """locate.locate, men ett fel (till exempel i whisper) ger en varning och None i stället för att avbryta."""
-    try:
-        return locate.locate(clip)
-    except Exception as error:  # platsen är en bonus; länken ska sparas ändå
-        log.warning("Could not locate %s in the stream (%s)", clip["id"], type(error).__name__)
-        return None
-
-
 def add_link(profile: Profile | str, url: str, views: int | None = None) -> dict:
     """Lägg till ett klipp från en länk som Robin ger: hämta fakta och video med yt-dlp, mät klippet, leta
     stället i strömmen och radera videon. views ersätter visningarna från sidan."""
-    if not url.startswith("https://"):
-        raise ValueError("The link must start with https://")
-    import yt_dlp
-
+    _check_link(url)
     from .taste import measure
 
     with (
         tempfile.TemporaryDirectory() as tmp
     ):  # videon raderas med mappen, även när mätningen misslyckas
-        opts = {"outtmpl": f"{tmp}/%(id)s.%(ext)s", "quiet": True, "noplaylist": True}
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            video = ydl.prepare_filename(info)
-            taste = measure(video)
-            place = _try_locate({"id": url, "path": video, "duration": info.get("duration")})
+        info, video = _download(url, tmp)
+        taste = measure(video)
+        place = locate.try_locate({"id": url, "path": video, "duration": info.get("duration")})
     count = views if views is not None else int(info.get("view_count") or 0)
     clip = _clip(
         url,
@@ -231,6 +232,40 @@ def add_link(profile: Profile | str, url: str, views: int | None = None) -> dict
         measured=True,
         taste=taste,
     )
-    clips = _with_outliers([c for c in load(profile) if c["id"] != url] + [clip])
-    save(profile, clips)
+    with LOCK:
+        clips = _with_outliers([c for c in load(profile) if c["id"] != url] + [clip])
+        save(profile, clips)
     return clip
+
+
+def _check_link(url: str) -> None:
+    """Bara https-länkar till TikTok, Instagram och YouTube, med underdomäner. Annars ValueError."""
+    parts = urlparse(url)
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "https" or not any(host == h or host.endswith(f".{h}") for h in LINK_HOSTS):
+        raise ValueError("The link must be an https link to TikTok, Instagram or YouTube.")
+
+
+def _download(url: str, folder: str) -> tuple[dict, str]:
+    """Fakta och video med yt-dlp: fakta först, så att en spellista nekas innan något hämtas."""
+    import yt_dlp
+    from yt_dlp.utils import DownloadError
+
+    opts = {
+        "outtmpl": f"{folder}/%(id)s.%(ext)s",
+        "quiet": True,
+        "noplaylist": True,
+        "max_filesize": MAX_BYTES,
+    }
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if info.get("_type") in ("playlist", "multi_video"):
+                raise ValueError("The link is a playlist. Add one video at a time.")
+            info = ydl.process_ie_result(info, download=True)
+            video = ydl.prepare_filename(info)
+    except DownloadError as error:
+        raise RuntimeError(f"Could not download the video from the link: {error}") from error
+    if not Path(video).exists():
+        raise RuntimeError("The video was not downloaded. It may be larger than 200 MB.")
+    return info, video

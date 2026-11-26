@@ -172,7 +172,7 @@ def _with_memory(focus: str, profile: Profile, settings: Settings) -> str:
     from .taste import taste_text
 
     memory = selection_memory(ClipLog(settings.data_dir / "klipp.db"), profile.name, profile.min_views or 2000)
-    return ", and ".join(part for part in (focus.strip(), memory, taste_text(profile)) if part)
+    return ", and ".join(part for part in (focus.strip(), memory, taste_text(profile, settings.data_dir)) if part)
 
 
 def make_clips(
