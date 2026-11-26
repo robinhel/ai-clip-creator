@@ -19,12 +19,25 @@ def con(tmp_path):
     return samling.connect(tmp_path / "samling.db")
 
 
-def post(con, url: str, account: str, age_h: float, views: tuple[int, int], gap_h: float = 3.0) -> None:
+def post(
+    con, url: str, account: str, age_h: float, views: tuple[int, int], gap_h: float = 3.0
+) -> None:
     """Ett inlägg skapat age_h timmar före NOW, mätt gap_h timmar före NOW och vid NOW."""
     created = NOW - timedelta(hours=age_h)
     for at, seen in ((NOW - timedelta(hours=gap_h), views[0]), (NOW, views[1])):
-        samling.record(con, {"url": url, "platform": "tiktok", "account": account, "created": created,
-                             "title": "", "source": "apify", "views": seen}, at)
+        samling.record(
+            con,
+            {
+                "url": url,
+                "platform": "tiktok",
+                "account": account,
+                "created": created,
+                "title": "",
+                "source": "apify",
+                "views": seen,
+            },
+            at,
+        )
 
 
 def rows(lines: list[str], url: str) -> str:
@@ -36,9 +49,17 @@ def test_a_post_growing_five_times_faster_than_its_account_is_picked(con, tmp_pa
         post(con, f"https://www.tiktok.com/@a/video/{n}", "a", 10 + n, (1000, 1000 + per_h * 3))
     post(con, "https://www.tiktok.com/@a/video/star", "a", 11, (1000, 1000 + 500 * 3))
     # mycket äldre inlägg från samma konto: får inte dra upp medianen
-    post(con, "https://www.tiktok.com/@a/video/gammal-snabb", "a", 300, (10_000, 10_000 + 10_000 * 3))
+    post(
+        con, "https://www.tiktok.com/@a/video/gammal-snabb", "a", 300, (10_000, 10_000 + 10_000 * 3)
+    )
     # massor av visningar men långsam fart
-    post(con, "https://www.tiktok.com/@a/video/gammal-stor", "a", 320, (5_000_000, 5_000_000 + 20 * 3))
+    post(
+        con,
+        "https://www.tiktok.com/@a/video/gammal-stor",
+        "a",
+        320,
+        (5_000_000, 5_000_000 + 20 * 3),
+    )
     out = tmp_path / "samling" / "utvalda.txt"
     lines = samling.lista(con, out, NOW, 3.0)
     ranked = [line for line in lines if "tiktok.com" in line]
@@ -57,7 +78,8 @@ def test_an_account_with_one_post_is_compared_with_the_whole_collection(con, tmp
     line = rows(lines, "@solo")
     assert "3,0×" in line and "hela samlingen" in line
     assert (tmp_path / "utvalda.txt").read_text(encoding="utf-8").split() == [
-        "https://www.tiktok.com/@solo/video/9"]
+        "https://www.tiktok.com/@solo/video/9"
+    ]
 
 
 def test_measurements_less_than_two_hours_apart_give_no_speed(con, tmp_path) -> None:
@@ -69,9 +91,18 @@ def test_measurements_less_than_two_hours_apart_give_no_speed(con, tmp_path) -> 
 
 
 def test_the_same_url_with_and_without_query_is_one_post(con) -> None:
-    samling.add_links(con, ["https://www.tiktok.com/@a/video/1?lang=en&is_from=x",
-                            "http://www.tiktok.com/@a/video/1", "https://www.tiktok.com/@a/video/1/"], NOW)
-    assert con.execute("SELECT url FROM posts").fetchall() == [("https://www.tiktok.com/@a/video/1",)]
+    samling.add_links(
+        con,
+        [
+            "https://www.tiktok.com/@a/video/1?lang=en&is_from=x",
+            "http://www.tiktok.com/@a/video/1",
+            "https://www.tiktok.com/@a/video/1/",
+        ],
+        NOW,
+    )
+    assert con.execute("SELECT url FROM posts").fetchall() == [
+        ("https://www.tiktok.com/@a/video/1",)
+    ]
 
 
 class FakeApify:
@@ -99,12 +130,25 @@ class FakeApify:
         return [r for r in self.requests if r.method == "POST"]
 
 
-CONFIG = {"content_rewards": [], "apify": {"hashtags": ["bodycam"], "search": [], "profiles": [], "per_query": 5}}
+CONFIG = {
+    "content_rewards": [],
+    "apify": {"hashtags": ["bodycam"], "search": [], "profiles": [], "per_query": 5},
+}
 ITEMS = [
-    {"webVideoUrl": "https://www.tiktok.com/@x/video/1?q=1", "playCount": 1000,
-     "createTimeISO": "2026-11-26T02:00:00.000Z", "authorMeta": {"name": "x"}, "text": "galet"},
-    {"webVideoUrl": "https://www.tiktok.com/@y/video/2", "playCount": 50, "createTime": 1795600000,
-     "authorMeta.name": "y", "text": "lugnt"},
+    {
+        "webVideoUrl": "https://www.tiktok.com/@x/video/1?q=1",
+        "playCount": 1000,
+        "createTimeISO": "2026-11-26T02:00:00.000Z",
+        "authorMeta": {"name": "x"},
+        "text": "galet",
+    },
+    {
+        "webVideoUrl": "https://www.tiktok.com/@y/video/2",
+        "playCount": 50,
+        "createTime": 1795600000,
+        "authorMeta.name": "y",
+        "text": "lugnt",
+    },
 ]
 
 
@@ -113,13 +157,22 @@ def measure(con, fake: FakeApify, now=NOW, cfg=CONFIG, token=TOKEN, **kwargs) ->
 
 
 def test_apify_is_not_run_when_apify_says_the_month_is_almost_used(con) -> None:
-    fake = FakeApify(4.40)
+    fake = FakeApify(4.46)
     text = measure(con, fake)
     assert not fake.runs() and "Apify körs inte" in text and TOKEN not in text
 
 
+def test_with_ten_cents_left_a_run_may_cost_at_most_ten_cents(con) -> None:
+    fake = FakeApify(4.40, ITEMS)
+    measure(con, fake)
+    assert float(fake.runs()[0].url.params["maxTotalChargeUsd"]) == 0.10
+
+
 def test_apify_is_not_run_when_our_own_count_is_higher_than_apifys(con) -> None:
-    con.execute("INSERT INTO apify_runs (at, cost_usd) VALUES (?, ?)", ((NOW - timedelta(days=1)).isoformat(), 4.46))
+    con.execute(
+        "INSERT INTO apify_runs (at, cost_usd) VALUES (?, ?)",
+        ((NOW - timedelta(days=1)).isoformat(), 4.46),
+    )
     fake = FakeApify(1.00)
     assert "Apify körs inte" in measure(con, fake)
     assert not fake.runs()
@@ -141,7 +194,10 @@ def test_a_run_is_capped_at_fifty_cents_and_its_cost_is_saved(con) -> None:
     assert all(body[key] is False for key in body if key.startswith("shouldDownload"))
     assert con.execute("SELECT SUM(cost_usd) FROM apify_runs").fetchone()[0] == pytest.approx(0.01)
     accounts = dict(con.execute("SELECT url, account FROM posts").fetchall())
-    assert accounts == {"https://www.tiktok.com/@x/video/1": "x", "https://www.tiktok.com/@y/video/2": "y"}
+    assert accounts == {
+        "https://www.tiktok.com/@x/video/1": "x",
+        "https://www.tiktok.com/@y/video/2": "y",
+    }
     assert "Apify: 2 inlägg" in text
 
 
@@ -153,15 +209,26 @@ def test_the_second_apify_measurement_reuses_the_post_urls_instead_of_searching(
     later = FakeApify(1.00, ITEMS)
     measure(con, later, now=NOW + timedelta(hours=3))
     body = json.loads(later.runs()[0].content)
-    assert sorted(body["postURLs"]) == ["https://www.tiktok.com/@x/video/1", "https://www.tiktok.com/@y/video/2"]
+    assert sorted(body["postURLs"]) == [
+        "https://www.tiktok.com/@x/video/1",
+        "https://www.tiktok.com/@y/video/2",
+    ]
     assert not body.get("hashtags")
     counts = con.execute("SELECT COUNT(*) FROM measurements GROUP BY url").fetchall()
     assert counts == [(2,), (2,)]
 
 
 def test_without_a_token_apify_is_skipped_and_content_rewards_is_measured(con) -> None:
-    clips = [{"post_url": "https://www.tiktok.com/@cr/video/7441234567890123456?x=1", "views": 9000,
-              "platform": "tiktok", "title": "topp", "video_url": None, "name": "crnamn"}]
+    clips = [
+        {
+            "post_url": "https://www.tiktok.com/@cr/video/7441234567890123456?x=1",
+            "views": 9000,
+            "platform": "tiktok",
+            "title": "topp",
+            "video_url": None,
+            "name": "crnamn",
+        }
+    ]
     cfg = {**CONFIG, "content_rewards": ["https://contentrewards.com/c/campaigns/abc"]}
     fake = FakeApify(1.00)
     text = measure(con, fake, cfg=cfg, token="", cr_fetch=lambda url: {"clips": clips})

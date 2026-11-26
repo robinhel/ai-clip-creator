@@ -1,0 +1,14 @@
+# Inställningar för python -m campaign samla. Kopiera till samling.yaml (checkas inte in) och fyll i.
+# Inget här är knutet till ett spel: lägg in det som passar kampanjen du klipper för.
+
+# Content Rewards-kampanjer vars toppklipp ska mätas (gratis, läser den publika kampanjsidan).
+content_rewards:
+  # - https://contentrewards.com/c/campaigns/<kampanj-id>
+
+# Apify (TikTok-sökning). Kräver APIFY_TOKEN i .env. Spärren stoppar vid 4,50 US$ i månaden
+# och en körning kostar högst 0,50 US$. Tomma listor: Apify söker inget.
+apify:
+  hashtags: []        # till exempel: [bodycamgame]  (utan #)
+  search: []          # sökord, till exempel: ["bodycam funny"]
+  profiles: []        # TikTok-konton, till exempel: [skiimasktimmy]  (utan @)
+  per_query: 20       # antal inlägg per hashtag, sökning eller konto

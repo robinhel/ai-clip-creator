@@ -31,6 +31,7 @@ class Settings:
     youtube_client_secret: str = ""
     youtube_redirect_uri: str = "http://127.0.0.1:8000/campaign/youtube/callback/"
     web_url: str = "http://localhost:3000"  # dit TikTok- och YouTube-inloggningen leder tillbaka
+    apify_token: str = ""  # för samla mat; tom: Apify hoppas över
 
     @property
     def work_dir(self) -> Path:
@@ -84,4 +85,5 @@ def load_settings(root: str | Path | None = None) -> Settings:
         youtube_redirect_uri=os.environ.get("YOUTUBE_REDIRECT_URI", "").strip()
         or "http://127.0.0.1:8000/campaign/youtube/callback/",
         web_url=os.environ.get("KLIPP_WEB_URL", "").strip().rstrip("/") or "http://localhost:3000",
+        apify_token=os.environ.get("APIFY_TOKEN", "").strip(),
     )

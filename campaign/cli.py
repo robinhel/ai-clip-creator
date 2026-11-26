@@ -411,6 +411,23 @@ def cmd_viral(args, settings: Settings) -> int:
     return viral.run(args.vod_id, args.sources, settings.work_dir, transcribe)
 
 
+def cmd_samla(args, settings: Settings) -> int:
+    from datetime import UTC, datetime
+
+    from . import samling
+
+    con = samling.connect(settings.data_dir / "samling.db")
+    now = datetime.now(UTC)
+    if args.samla == "lagg-till":
+        lines = samling.add_links(con, args.links, now)
+    elif args.samla == "mat":
+        lines = samling.measure(con, samling.load_config(settings.root), settings.apify_token, now)
+    else:
+        lines = samling.lista(con, settings.data_dir / "samling" / "utvalda.txt", now, args.min)
+    print("\n".join(lines))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m campaign", description="Kampanjlagret ovanpå clipsmith.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -491,6 +508,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("sources", nargs="+",
                    help="mp4-fil, mapp med mp4-filer, Content Rewards-kampanjlänk eller länk till TikTok, Instagram, YouTube")
     p.set_defaults(func=cmd_viral)
+
+    p = sub.add_parser("samla", help="Samla virala klipp, mät dem två gånger och välj ut de som växer snabbast")
+    samla = p.add_subparsers(dest="samla", required=True)
+    q = samla.add_parser("lagg-till", help="Lägg dina egna länkar i samlingen")
+    q.add_argument("links", nargs="+", help="länk till ett inlägg på TikTok, Instagram eller YouTube")
+    samla.add_parser("mat", help="Mät alla källor i samling.yaml och dina länkar en gång")
+    q = samla.add_parser("lista", help="Rangordna efter fart jämfört med liknande inlägg och spara utvalda.txt")
+    q.add_argument("--min", type=float, default=3.0, help="lägsta kvot för utvalda.txt (förval 3)")
+    p.set_defaults(func=cmd_samla)
     return parser
 
 

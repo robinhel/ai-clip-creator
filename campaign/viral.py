@@ -382,6 +382,15 @@ def collect(source: str, viral_dir: Path) -> list[dict]:
     path = Path(source)
     if not path.exists():
         raise SystemExit(f"Hittar inte {source}. Ange en mp4-fil, en mapp eller en länk.")
+    if path.suffix == ".txt":  # en lista med källor, till exempel utvalda.txt från samla lista
+        clips = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if (line := line.strip()) and not line.startswith("#"):
+                try:
+                    clips += collect(line, viral_dir)
+                except DownloadFailed as error:
+                    print(f"  Kunde inte hämta {_clean(line)}, hoppar över den: {error}", flush=True)
+        return clips
     return _local(path, viral_dir)
 
 

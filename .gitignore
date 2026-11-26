@@ -35,6 +35,7 @@ candidates.json
 
 # Kampanjlagret
 klippdata/
+samling.yaml
 profiles/.*.yaml.bak
 # Musik till egna videor: bara instruktionen checkas in
 musik/*
