@@ -4,7 +4,8 @@ Två källor hämtas av collect: kanalens Twitch-klipp (Helix) och kampanjens b�
 examples.fetch). Robin kan också lägga till en egen länk med add_link; bara då hämtas något från TikTok eller
 Instagram, med yt-dlp, och videon raderas direkt efter mätningen.
 
-Avvikare: visningar per dag delat med medianen av visningar per dag i samma källa. Bara klipp med datum räknas.
+Avvikare: visningar per dag delat med medianen av visningar per dag i samma källa. Bara klipp med datum räknas,
+och bara klipp med minst MIN_VIEWS visningar får ett avvikartal.
 Listan sparas i klippdata/viral/<profil>.json.
 """
 
@@ -34,6 +35,7 @@ log = logging.getLogger(__name__)
 TIKTOK_ID = re.compile(r"tiktok\.com/.*/video/(\d+)")
 DAY_S = 86400
 TWITCH_DAYS = 60  # VOD:er försvinner efter 7–60 dagar; äldre klipp går inte att hitta i strömmen
+MIN_VIEWS = 1000  # färre visningar än så räknas inte som avvikare (Robins val), men ingår i medianen
 # fält som en ny hämtning inte vet något om och som ska följa med från den sparade listan
 KEEP = ("measured", "taste")
 # fält som följer med från den sparade listan när den nya hämtningen saknar värde (CR-klippens plats)
@@ -166,12 +168,14 @@ def _content_rewards(profile: Profile) -> list[dict]:
 
 
 def _set_outliers(clips: list[dict], compared: list[dict]) -> None:
-    """Avvikartalet: visningar per dag delat med medianen i compared. None utan datum."""
+    """Avvikartalet: visningar per dag delat med medianen i compared. None utan datum och under MIN_VIEWS
+    visningar; de klippen räknas ändå in i medianen, som ska visa det vanliga."""
     rates = [c["views_per_day"] for c in compared if c.get("views_per_day") is not None]
     median = statistics.median(rates) if rates else 0
     for c in clips:
         rate = c.get("views_per_day")
-        c["outlier"] = rate / median if rate is not None and median else None
+        counts = median and (c.get("views") or 0) >= MIN_VIEWS
+        c["outlier"] = rate / median if rate is not None and counts else None
 
 
 def _with_outliers(clips: list[dict]) -> list[dict]:

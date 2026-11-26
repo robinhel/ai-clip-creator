@@ -100,26 +100,26 @@ def cr_page(clips: list[dict]) -> dict:
 
 def test_twitch_klipp_far_plats_och_avvikare(root, profile, monkeypatch):
     FakeTwitch.clips = [
-        twitch_clip("a", 1000, 10),
-        twitch_clip("b", 1000, 1),
-        twitch_clip("c", 100, 1),
+        twitch_clip("a", 10000, 10),
+        twitch_clip("b", 10000, 1),
+        twitch_clip("c", 1000, 1),
     ]
     monkeypatch.setattr(viral.examples, "fetch", lambda url: cr_page([]))
 
     clips = viral.collect(profile)
 
     assert FakeTwitch.logins == ["teststreamer"]
-    assert [c["id"] for c in clips] == ["b", "a", "c"]  # 1000/dag, sedan 100/dag i hämtad ordning
+    assert [c["id"] for c in clips] == ["b", "a", "c"]  # 10 000/dag, sedan 1 000/dag i hämtad ordning
     b = clips[0]
     assert b["source"] == "twitch" and b["url"] == "https://clips.twitch.tv/b"
-    assert b["views_per_day"] == pytest.approx(1000)
-    assert b["outlier"] == pytest.approx(10)  # median 100
+    assert b["views_per_day"] == pytest.approx(10000)
+    assert b["outlier"] == pytest.approx(10)  # median 1 000
     assert b["location"] == {
         "vod_id": "2000",
-        "start_s": 100,
-        "end_s": 130.0,
+        "start_s": 70.0,  # vod_offset är klippets slut
+        "end_s": 100.0,
         "method": "vod_offset",
-        "confidence": 1.0,
+        "confidence": 0.8,
     }
     assert b["measured"] is False and b["duration"] == 30.0 and b["creator"] == "tittare"
     assert b["posted_at"].startswith("2026-11-25")
@@ -190,7 +190,7 @@ def test_content_rewards_datum_ur_tiktok_id(root, profile, monkeypatch):
 
 
 def test_kallorna_raknas_var_for_sig(root, profile, monkeypatch):
-    FakeTwitch.clips = [twitch_clip("a", 10, 1), twitch_clip("b", 30, 1)]
+    FakeTwitch.clips = [twitch_clip("a", 1000, 1), twitch_clip("b", 3000, 1)]
     monkeypatch.setattr(
         viral.examples, "fetch", lambda url: cr_page([{"post_url": tiktok(1), "views": 50000}])
     )
@@ -201,8 +201,8 @@ def test_kallorna_raknas_var_for_sig(root, profile, monkeypatch):
     assert clips["b"]["outlier"] == pytest.approx(1.5)
 
 
-def rated(clip_id: str, source: str, per_day: float | None) -> dict:
-    return {"id": clip_id, "source": source, "views_per_day": per_day, "outlier": None}
+def rated(clip_id: str, source: str, per_day: float | None, views: int = 50000) -> dict:
+    return {"id": clip_id, "source": source, "views": views, "views_per_day": per_day, "outlier": None}
 
 
 def test_egen_lank_jamfors_med_alla_klipp():
@@ -337,13 +337,28 @@ def test_collect_behaller_sparad_plats_nar_den_nya_saknas(root, profile, monkeyp
 
 
 def test_noll_visningar_raknas_i_medianen(root, profile, monkeypatch):
-    FakeTwitch.clips = [twitch_clip("a", 0, 1), twitch_clip("b", 100, 1), twitch_clip("c", 300, 1)]
+    FakeTwitch.clips = [twitch_clip("a", 0, 1), twitch_clip("b", 1000, 1), twitch_clip("c", 3000, 1)]
     monkeypatch.setattr(viral.examples, "fetch", lambda url: cr_page([]))
 
     clips = {c["id"]: c for c in viral.collect(profile)}
 
-    assert clips["c"]["outlier"] == pytest.approx(3)  # median av 0, 100 och 300
-    assert clips["a"]["outlier"] == 0
+    assert clips["c"]["outlier"] == pytest.approx(3)  # median av 0, 1000 och 3000
+    assert clips["a"]["outlier"] is None  # under 1 000 visningar: ingen avvikare
+
+
+def test_under_1000_visningar_ar_ingen_avvikare_men_raknas_i_medianen():
+    clips = [
+        rated("a", "twitch", 999, views=999),
+        rated("b", "twitch", 1000, views=1000),
+        rated("c", "twitch", 3000, views=3000),
+    ]
+
+    by_id = {c["id"]: c for c in viral._with_outliers(clips)}
+
+    assert viral.MIN_VIEWS == 1000
+    assert by_id["a"]["outlier"] is None
+    assert by_id["b"]["outlier"] == pytest.approx(1)  # median av 999, 1000 och 3000
+    assert by_id["c"]["outlier"] == pytest.approx(3)  # utan 999 i medianen hade det blivit 1,5
 
 
 def test_collect_sparar_under_laset(root, profile, monkeypatch):

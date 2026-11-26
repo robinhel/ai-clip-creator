@@ -86,6 +86,20 @@ def test_transcribe_vod_sends_each_part_and_writes_clipsmiths_transcript(setting
     assert transcript.segments[1].words[0].start == 3.5
 
 
+@needs_ffmpeg
+def test_transcribe_vod_utan_sprak_skickar_inget_language(settings) -> None:
+    mp4 = make_clip(settings.work_dir / "123" / "123.mp4", size="320x180", seconds=2)
+    sent: list[dict] = []
+
+    def fake_post(audio: bytes, fields: dict) -> dict:
+        sent.append(fields)
+        return _answer([("hi", LEAD_S + 0.5, LEAD_S + 0.9)], [(LEAD_S + 0.2, LEAD_S + 1.0, "hej")])
+
+    transcribe_vod(mp4, "123", mp4.parent / "transcript.json", post=fake_post, model="m", language=None)
+
+    assert sent and "language" not in sent[0]  # utan språk gissar whisper det
+
+
 def _fake_send(statuses: list[int], headers: dict | None = None):
     """Svarar med statuskoderna i tur och ordning. Inga riktiga anrop."""
     calls: list[dict] = []

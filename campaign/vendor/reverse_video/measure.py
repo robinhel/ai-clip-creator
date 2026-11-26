@@ -654,7 +654,7 @@ def text_colours(events, frames, crops=None):
         for im, b in crops[:120]:
             glyph_pixels(im, b, pix)
     else:
-        for e in [e for e in events if e["kind"] == "caption"][:80]:
+        for e in [e for e in events if e["kind"] == "caption" and "frame" in e][:80]:  # campaign: see README.md
             im = cv2.imread(str(frames[min(len(frames) - 1, e["frame"])]))
             if im is not None:
                 glyph_pixels(im, e["box"], pix)

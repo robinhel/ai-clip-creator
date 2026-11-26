@@ -217,6 +217,17 @@ def test_cli_collect(run, fake, capsys) -> None:
     assert "Insane clutch" in out and "90,000" in out and "123" in out
 
 
+def test_cli_a_clip_without_outlier_shows_a_dash_and_a_real_zero_stays(run, fake, capsys) -> None:
+    fake.clips = [{**CLIP, "title": "No date", "outlier": None},
+                  {**CLIP, "title": "Zero views", "outlier": 0.0},
+                  {**CLIP, "title": "Normal", "outlier": 3.0}]
+    assert run(["viral", "collect", "skiimasktimmy"]) == 0
+    lines = capsys.readouterr().out.splitlines()[1:]
+    assert lines[0].startswith("     –  ") and "No date" in lines[0]
+    assert lines[1].startswith("  0.0x  ") and "Zero views" in lines[1]
+    assert lines[2].startswith("  3.0x  ") and "Normal" in lines[2]
+
+
 def test_cli_link(run, fake, capsys) -> None:
     assert run(["viral", "link", "skiimasktimmy", "https://x.com/1", "--views", "5000"]) == 0
     assert fake.calls == [("add_link", ("skiimasktimmy", "https://x.com/1"), {"views": 5000})]

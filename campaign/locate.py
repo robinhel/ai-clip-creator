@@ -16,8 +16,10 @@ from pathlib import Path
 from clipsmith.config.models import TranscribeConfig
 from clipsmith.models.transcript import Transcript
 
-from .config import load_settings
+from .budget import budget_from_settings
+from .config import BERGET_MISSING, load_settings
 from .local_whisper import transcribe_local
+from .transcribe import berget_post, transcribe_vod
 
 log = logging.getLogger(__name__)
 
@@ -31,13 +33,15 @@ def from_twitch(clip: dict) -> dict | None:
     """Helix-klippets plats i VOD:en. None när VOD:en är borta (tomt video_id) eller offset saknas."""
     if not clip.get("video_id") or clip.get("vod_offset") is None:
         return None
-    start = float(clip["vod_offset"])
+    # Helix ger klippets SLUT i vod_offset, trots dokumentationen. Kontrollen mot VOD:en visade det
+    # (4 av 5 klipp), och TwitchDownloader issue 1285 säger samma sak.
+    end = float(clip["vod_offset"])
     return {
         "vod_id": str(clip["video_id"]),
-        "start_s": start,
-        "end_s": start + float(clip.get("duration") or 0),
+        "start_s": max(0.0, end - float(clip.get("duration") or 0)),
+        "end_s": end,
         "method": "vod_offset",
-        "confidence": 1.0,
+        "confidence": 0.8,  # kontrollen mot VOD:en gav rätt plats för 4 av 5 klipp
     }
 
 
@@ -66,21 +70,31 @@ def _transcript_words(transcript: Transcript) -> list[dict]:
 
 
 def _transcribe_clip(clip: dict) -> list[dict]:
-    """Klippets ord med lokal whisper. Bara en lokal fil; en adress måste laddas ner först."""
+    """Klippets ord, med Berget eller lokal whisper som valt i Settings. Bara en lokal fil; en adress måste
+    laddas ner först."""
     source = clip.get("path") or clip.get("video_url") or ""
     if not source or not Path(source).is_file():
         return []
-    settings = load_settings()
     with tempfile.TemporaryDirectory() as tmp:
-        transcript = transcribe_local(
-            Path(source),
-            str(clip.get("id") or "klipp"),
-            Path(tmp) / "transcript.json",
-            TranscribeConfig(),
-            model=settings.local_whisper_model,
-            language=clip.get("language") or "auto",
-        )
+        transcript = _transcribe(Path(source), str(clip.get("id") or "klipp"), Path(tmp) / "transcript.json")
     return _transcript_words(transcript)
+
+
+def _transcribe(video: Path, video_id: str, out_path: Path) -> Transcript:
+    """Samma motorval som pipeline: Berget kostar och loggas i budgeten, lokal whisper är gratis.
+    Språket skickas inte (None), så att whisper gissar det; "auto" är ingen giltig språkkod."""
+    settings = load_settings()
+    if settings.engine == "local":
+        return transcribe_local(video, video_id, out_path, TranscribeConfig(),
+                                model=settings.local_whisper_model, language=None)
+    if not settings.berget_api_key:
+        raise ValueError(BERGET_MISSING)
+    post = berget_post(settings.berget_api_key)
+    return transcribe_vod(
+        video, video_id, out_path,
+        post=post,
+        model=settings.transcribe_model, language=None, budget=budget_from_settings(settings),
+    )
 
 
 def _windows(tokens: list[tuple[str, float]]) -> list[tuple[tuple[str, ...], float]]:
