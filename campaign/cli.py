@@ -427,7 +427,9 @@ def _print_viral(clips: list[dict]) -> None:
     for clip in clips:
         place = clip.get("location")
         where = f"VOD {place['vod_id']} at {place['start_s']:.0f} s" if place else "not found in the stream"
-        print(f"  {clip.get('outlier') or 0:.1f}x  {clip.get('views') or 0:,} views  {clip.get('title') or clip['url']}"
+        outlier = clip.get("outlier")
+        ratio = "–" if outlier is None else f"{outlier:.1f}x"
+        print(f"  {ratio:>4}  {clip.get('views') or 0:,} views  {clip.get('title') or clip['url']}"
               f"  ({clip.get('source')}, {where})")
 
 
