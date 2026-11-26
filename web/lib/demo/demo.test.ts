@@ -79,6 +79,7 @@ describe("demoFetch", () => {
     vi.stubGlobal("fetch", spy);
     const status = await demoFetch<TikTokStatus>("/campaign/tiktok/status");
     expect(status.configured).toBe(true);
+    expect(status.connected).toBe(true);
     const [account] = status.accounts ?? [];
     expect(account).toMatchObject({ open_id: "demo-tiktok", display_name: "Sample TikTok account", connected: true, can_publish: true });
     const keys = await demoFetch<{ groups: KeyGroup[] }>("/campaign/keys");

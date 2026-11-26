@@ -15,7 +15,7 @@ import { NEED_DISCLOSURE, PRIVATE_UNTIL_AUDITED, TIKTOK_AUDITED, TikTokFields, u
 import { draftWaiting, PICKED_TIKTOK, TIKTOK_STUDIO, tiktokUploadText, useTikTokUpload } from "@/components/TikTokSend";
 import { useYouTubeForm, useYouTubeUpload, YouTubeFields, youtubeUploadText } from "@/components/YouTubeSend";
 import { api } from "@/lib/api";
-import { accountCheck, type AccountCheck, chooseOption, PUBLISH_PREFS, readPrefs, type Way, type When } from "@/lib/publishPrefs";
+import { PUBLISH_PREFS, readPrefs, type Way, type When } from "@/lib/publishPrefs";
 import { allows, cn } from "@/lib/utils";
 import type {
   CampaignClip,
@@ -47,8 +47,8 @@ export interface Posting {
   tiktok: TikTokStatus | null;
   /** Statusanropet för TikTok misslyckades: läget är okänt, inte att inget konto är kopplat. */
   tiktokFailed?: boolean;
-  /** Fråga servern om TikTok-kontot igen. */
-  onRetryTikTok?: () => void;
+  /** Fråga servern om TikTok-kontot igen. Klart när svaret har kommit. */
+  onRetryTikTok?: () => Promise<void>;
   campaign: CampaignProfileDetail | null;
   request: PublishRequest | null;
   onRequestDone: () => void;
@@ -220,27 +220,47 @@ const TIKTOK_DIRECT = TIKTOK_AUDITED
   : { label: "Publish directly, becomes private", text: PRIVATE_UNTIL_AUDITED };
 
 /** Statusen för TikTok gick inte att läsa. Det är inte samma sak som att inget konto är kopplat. */
-function TikTokUnknown({ onRetry }: { onRetry?: () => void }) {
+function TikTokUnknown({ onRetry }: { onRetry?: () => Promise<void> }) {
+  const [checking, setChecking] = useState(false);
   return (
     <div role="alert" className={cn(errorBox, "flex flex-wrap items-center justify-between gap-2")}>
       <span>Couldn&apos;t check the TikTok account. Try again.</span>
       {onRetry && (
-        <Button size="sm" variant="outline" onClick={onRetry}>
-          <RefreshCw aria-hidden />
-          Try again
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={checking}
+          onClick={() => {
+            setChecking(true);
+            onRetry().finally(() => setChecking(false));
+          }}
+        >
+          {checking ? <Loader2 className="animate-spin" aria-hidden /> : <RefreshCw aria-hidden />}
+          {checking ? "Checking…" : "Try again"}
         </Button>
       )}
     </div>
   );
 }
 
-const NOT_CHECKED: Partial<Record<AccountCheck, string>> = {
-  checking: "Checking the TikTok account…",
-  unknown: "Couldn't check the TikTok account.",
-};
+interface TikTokState {
+  account?: TikTokAccount;
+  limit: number;
+  allPosted: boolean;
+  /** Statusen har kommit från servern. */
+  checked: boolean;
+  /** Statusanropet misslyckades: läget är okänt, inte att inget konto är kopplat. Beskedet står ovanför valen. */
+  failed: boolean;
+}
 
-function tiktokOptions(account: TikTokAccount | undefined, limit: number, allPosted: boolean, check: AccountCheck): Option[] {
-  const missing = NOT_CHECKED[check] ?? <ConnectLink name="TikTok" allPosted={allPosted} />;
+function tiktokOptions({ account, limit, allPosted, checked, failed }: TikTokState): Option[] {
+  const missing = checked ? (
+    <ConnectLink name="TikTok" allPosted={allPosted} />
+  ) : failed ? (
+    "Not available until the account can be checked."
+  ) : (
+    "Checking the TikTok account…"
+  );
   const full =
     account && account.pending_24h >= limit
       ? `${limit} drafts are already waiting in the inbox for ${accountName(account)}. Post or delete one in the TikTok app first.`
@@ -273,8 +293,8 @@ function youtubeOptions(channels: number): Option[] {
   ];
 }
 
-function optionsFor(platform: Platform | undefined, tiktok: { account?: TikTokAccount; limit: number; allPosted: boolean; check: AccountCheck }, channels: number): Option[] {
-  if (platform === "tiktok") return tiktokOptions(tiktok.account, tiktok.limit, tiktok.allPosted, tiktok.check);
+function optionsFor(platform: Platform | undefined, tiktok: TikTokState, channels: number): Option[] {
+  if (platform === "tiktok") return tiktokOptions(tiktok);
   if (platform === "youtube_shorts") return youtubeOptions(channels);
   return platform ? [selfOption(platform)] : [];
 }
@@ -740,12 +760,18 @@ function PublishDialog({ clip, preset, posting, tt, yt, onUpdate, onClose }: Dia
   const channels = youtube?.accounts.filter((c) => c.connected && !c.needs_login) ?? [];
   const ytForm = useYouTubeForm(clip, channels, ytInfo);
 
-  const check = accountCheck(tiktok, !!posting.tiktokFailed);
-  const ttState = { account: ttAcc.account, limit: tiktok?.pending_limit ?? 5, allPosted: ttAcc.accounts.length > 0 && !!ttInfo?.multi, check };
+  const tiktokFailed = !tiktok && !!posting.tiktokFailed;
+  const ttState: TikTokState = {
+    account: ttAcc.account,
+    limit: tiktok?.pending_limit ?? 5,
+    allPosted: ttAcc.accounts.length > 0 && !!ttInfo?.multi,
+    checked: !!tiktok,
+    failed: tiktokFailed,
+  };
   const options = optionsFor(platform, ttState, channels.length);
   const [wayChosen, setWay] = useState<Way | null>(preset.later && platform !== "instagram_reels" ? "direkt" : (prefs.way ?? null));
   // Ett sparat sätt som inte går nu, till exempel utkast utan kopplat konto, ger standardvalet.
-  const option = chooseOption(options, wayChosen);
+  const option = options.find((o) => o.way === wayChosen && !o.off) ?? options.find((o) => !o.off);
   const way = option?.way;
   // Senare: en uppladdning vid tiden, eller en påminnelse om att posta själv på TikTok.
   const schedulePlatform = platform ? SCHEDULE[platform] : undefined;
@@ -813,13 +839,19 @@ function PublishDialog({ clip, preset, posting, tt, yt, onUpdate, onClose }: Dia
   function go() {
     if (reason) return;
     if (!platform || !way) return;
-    localStorage.setItem(PUBLISH_PREFS, JSON.stringify({ platform, way, when, ...(when === "senare" ? { local } : {}) }));
+    // Valen sparas först när sändningen har lyckats.
+    const choice = JSON.stringify({ platform, way, when, ...(when === "senare" ? { local } : {}) });
+    const remember = (result: Done) => {
+      localStorage.setItem(PUBLISH_PREFS, choice);
+      return result;
+    };
     if (when === "senare") {
       const body = scheduleBody(at!, platform, ytForm.body, directTt ? ttForm.fields : null, ttAcc.openId);
-      return send(async () => ({ kind: "scheduled", post: await api.campaign.clips.schedule(clip.id, body) }));
+      return send(async () => remember({ kind: "scheduled", post: await api.campaign.clips.schedule(clip.id, body) }));
     }
-    if (way === "sjalv") return void postYourself(clip, platform).then(setDone);
-    return send(way === "utkast" ? sendDraft : sendDirect);
+    if (way === "sjalv") return void postYourself(clip, platform).then(remember).then(setDone);
+    const call = way === "utkast" ? sendDraft : sendDirect;
+    return send(async () => remember(await call()));
   }
 
   function saved(updated: CampaignClip) {
@@ -854,7 +886,7 @@ function PublishDialog({ clip, preset, posting, tt, yt, onUpdate, onClose }: Dia
             <fieldset disabled={!!done} className="space-y-4">
               <PlatformPicker clipId={clip.id} platforms={platforms} open={open} value={platform} onChoose={setChosen} />
               {platform && <ScheduleLines pending={pendingHere} onChange={posting.onChanged} />}
-              {platform === "tiktok" && check === "unknown" && <TikTokUnknown onRetry={posting.onRetryTikTok} />}
+              {platform === "tiktok" && tiktokFailed && <TikTokUnknown onRetry={posting.onRetryTikTok} />}
 
               <div role="radiogroup" aria-label="How" className="space-y-2">
                 {options.map((o) => (

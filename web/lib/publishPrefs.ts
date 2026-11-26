@@ -1,4 +1,4 @@
-import type { Platform, TikTokStatus } from "./types";
+import type { Platform } from "./types";
 
 /** Senaste valen i Publicera: plattform, sätt, när och tid. Sparas i localStorage. */
 export const PUBLISH_PREFS = "publicera-val";
@@ -35,18 +35,4 @@ export function readPrefs(raw: string | null, isFuture: (local: string) => boole
     prefs.local = d.local;
   }
   return prefs;
-}
-
-/** Det valda sättet om det går att använda nu, annars det första som går. */
-export function chooseOption<T extends { way: string; off: unknown }>(options: T[], chosen: string | null | undefined): T | undefined {
-  return options.find((o) => o.way === chosen && !o.off) ?? options.find((o) => !o.off);
-}
-
-/** Läget för TikTok-kontot. unknown: statusanropet misslyckades, det är inte samma sak som inget konto. */
-export type AccountCheck = "checking" | "unknown" | "missing" | "connected";
-
-export function accountCheck(status: TikTokStatus | null, failed: boolean): AccountCheck {
-  if (!status) return failed ? "unknown" : "checking";
-  const connected = status.accounts ? status.accounts.some((a) => a.connected) : status.connected;
-  return connected ? "connected" : "missing";
 }

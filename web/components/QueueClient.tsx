@@ -129,6 +129,8 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
   const [tiktok, setTiktok] = useState<TikTokStatus | null>(null);
   // Statusanropet misslyckades. Då är läget okänt, inte att inget konto är kopplat.
   const [tiktokFailed, setTiktokFailed] = useState(false);
+  const tiktokRef = useRef(tiktok);
+  tiktokRef.current = tiktok;
   // När listan senast lästes, och om senaste läsningen misslyckades.
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [offline, setOffline] = useState(false);
@@ -151,7 +153,7 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
   }, []);
 
   const loadTiktok = useCallback(() => {
-    api.campaign.tiktok
+    return api.campaign.tiktok
       .status()
       .then((status) => {
         setTiktok(status);
@@ -207,10 +209,12 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
           setClips(same<CampaignClip[] | null>(next));
           setLastUpdated(Date.now());
           setOffline(false);
+          // Första läsningen av TikTok-kontot misslyckades: fråga igen nu när servern svarar.
+          if (!tiktokRef.current) loadTiktok();
         })
         .catch(() => setOffline(true));
     }, POLL_MS);
-  }, []);
+  }, [loadTiktok]);
 
   const counts = useMemo(() => countByStatus(clips ?? []), [clips]);
   const order = stepOrder(counts);
@@ -275,6 +279,11 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
     try {
       const restored = await notice.undo();
       setClips((list) => list?.map((c) => (c.id === restored.id ? restored : c)) ?? null);
+      // Tillbaka i Att granska: klippet blir aktivt igen, så att nästa tangent gäller det.
+      if (tab === "granska" && STEP_STATUSES.granska.includes(restored.status)) {
+        setActiveId(restored.id);
+        setTimeout(() => document.getElementById(`klipp-${restored.id}`)?.scrollIntoView({ block: "start", behavior: "smooth" }), 50);
+      }
       window.dispatchEvent(new Event(SUMMARY_CHANGED));
       setNotice(null);
       setUndoError(null);
@@ -301,8 +310,9 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
     window.dispatchEvent(new Event(SUMMARY_CHANGED));
   }, [loadSchedule]);
   const onRequestDone = useCallback(() => setRequest(null), []);
-  const postingFor = (clip: CampaignClip): Posting => ({
-    pending: (schedule ?? []).filter((p) => p.clip_id === clip.id && PENDING.includes(p.status)),
+  const pendingFor = (clip: CampaignClip) => (schedule ?? []).filter((p) => p.clip_id === clip.id && PENDING.includes(p.status));
+  const postingFor = (clip: CampaignClip, pending = pendingFor(clip)): Posting => ({
+    pending,
     youtube,
     tiktok,
     tiktokFailed,
@@ -367,41 +377,44 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
   const publishClip = publishId != null ? clips?.find((c) => c.id === publishId && c.status === "godkand") : undefined;
 
   const minutesLeft = deadline != null ? Math.ceil((deadline - now) / 60_000) : null;
-  const row = (clip: CampaignClip) => (
-    <ClipResultRow
-      // Samma rad när servern har sparat, så att videon och öppna fönster står kvar. Raden följer det sparade själv.
-      key={clip.id}
-      clip={clip}
-      formats={profiles.find((p) => p.name === clip.profile)?.formats ?? []}
-      runId={runFor(clip)?.run_id}
-      source={sourceFor(clip)}
-      active={tab === "granska" && clip.id === activeId}
-      onUpdate={handleUpdate}
-      onReload={load}
-      onPublish={(c) => setPublishId(c.id)}
-      posting={postingFor(clip)}
-      approvedAction={
-        clip.status === "godkand" ? (
-          <RemoveFromQueue
-            clip={clip}
-            action="remove"
-            pending={(schedule ?? []).filter((p) => p.clip_id === clip.id && PENDING.includes(p.status))}
-            onRemoved={handleRemoved}
-          />
-        ) : undefined
-      }
-      moreAction={
-        clip.status === "godkand" ? (
-          <RemoveFromQueue
-            clip={clip}
-            action="posted"
-            pending={(schedule ?? []).filter((p) => p.clip_id === clip.id && PENDING.includes(p.status))}
-            onRemoved={handleRemoved}
-          />
-        ) : undefined
-      }
-    />
-  );
+  const row = (clip: CampaignClip) => {
+    const pending = pendingFor(clip);
+    return (
+      <ClipResultRow
+        // Samma rad när servern har sparat, så att videon och öppna fönster står kvar. Raden följer det sparade själv.
+        key={clip.id}
+        clip={clip}
+        formats={profiles.find((p) => p.name === clip.profile)?.formats ?? []}
+        runId={runFor(clip)?.run_id}
+        source={sourceFor(clip)}
+        active={tab === "granska" && clip.id === activeId}
+        onUpdate={handleUpdate}
+        onReload={load}
+        onPublish={(c) => setPublishId(c.id)}
+        posting={postingFor(clip, pending)}
+        approvedAction={
+          clip.status === "godkand" ? (
+            <RemoveFromQueue
+              clip={clip}
+              action="remove"
+              pending={pending}
+              onRemoved={handleRemoved}
+            />
+          ) : undefined
+        }
+        moreAction={
+          clip.status === "godkand" ? (
+            <RemoveFromQueue
+              clip={clip}
+              action="posted"
+              pending={pending}
+              onRemoved={handleRemoved}
+            />
+          ) : undefined
+        }
+      />
+    );
+  };
 
   const empty = (text: ReactNode) => (
     <div className="mt-4 rounded-2xl border border-dashed border-line px-4 py-8 text-center text-sm text-muted-foreground">{text}</div>
@@ -466,7 +479,7 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
       </div>
       <p className="mt-3 text-sm text-muted-foreground">{TABS[tab].description}</p>
       {tab === "granska" && !showRejected && (
-        <p aria-label="Keyboard shortcuts" className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <p aria-label="Keyboard shortcuts" className="mt-1.5 hidden flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground sm:flex">
           {SHORTCUTS.map(([keys, what]) => (
             <span key={keys}>
               <kbd className="rounded border border-line bg-panel px-1 font-sans text-foreground">{keys}</kbd> {what}
@@ -583,8 +596,8 @@ export function QueueClient({ tab: tabParam }: { tab?: string }) {
       {notice && (
         <div
           role="status"
-          // Nere till höger och smal, så att den inte täcker videons kontroller i raden.
-          className="fixed inset-x-3 bottom-3 z-40 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[#174a2a] bg-[#0d1a12] px-4 py-3 text-sm shadow-lg sm:left-auto sm:w-[26rem]"
+          // Nere till höger och smal på stor skärm. På mobil överst, så att den inte täcker videons tidslinje.
+          className="fixed inset-x-3 bottom-3 z-40 max-sm:top-16 max-sm:bottom-auto flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[#174a2a] bg-[#0d1a12] px-4 py-3 text-sm shadow-lg sm:left-auto sm:w-[26rem]"
         >
           <CheckCircle2 className="size-4 shrink-0 text-good" aria-hidden />
           {/* basis-48: på smal skärm hamnar knapparna på en egen rad, i stället för att texten blir en smal spalt. */}

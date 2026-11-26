@@ -15,7 +15,6 @@ import { CopyButton } from "@/components/CopyButton";
 import { CampaignRules, type Posting, PublishButton } from "@/components/PublishDialog";
 import { api } from "@/lib/api";
 import { HEADLINE_MAX, textEdit } from "@/lib/headline";
-import { formatForKey } from "@/lib/review";
 import { VersionButton } from "@/components/VersionDialog";
 import { englishProblem } from "@/lib/oldProblems";
 import { fixHint, rejectedFix } from "@/lib/steps";
@@ -450,7 +449,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
     setCaption(clip.caption ?? "");
     setTitle(clip.title ?? "");
     setHeadline(clip.headline ?? "");
-  }, [clip.updated, clip.caption, clip.title, clip.headline, editing]);
+  }, [clip.caption, clip.title, clip.headline, editing]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -560,7 +559,7 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
       return;
     }
     if (busy || opening) return;
-    const format = formatForKey(key, formats);
+    const format = formats[Number(key) - 1]?.id; // 1–9, andra tangenter ger inget
     if (format) {
       if (!canChooseFormat) return setKeyHint("The format cannot be changed in this status.");
       setKeyHint(null);
@@ -756,12 +755,8 @@ export function ClipResultRow({ clip, number, formats, runId, source, active = f
                 size="sm"
                 variant="ghost"
                 disabled={busy}
-                onClick={() => {
-                  setCaption(clip.caption ?? "");
-                  setTitle(clip.title ?? "");
-                  setHeadline(clip.headline ?? "");
-                  setEditing(false);
-                }}
+                // Effekten ovan lägger tillbaka det sparade när redigeringen är slut.
+                onClick={() => setEditing(false)}
               >
                 Undo
               </Button>
