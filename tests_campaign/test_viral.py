@@ -295,14 +295,23 @@ URL = "https://www.tiktok.com/@n/video/1"
 def test_add_link_mater_och_raderar_videon(root, profile, ydl, taste):
     clip = viral.add_link(profile, URL)
 
-    assert clip["source"] == "link" and clip["url"] == URL and clip["id"] == URL
-    assert clip["views"] == 4000 and clip["views_per_day"] == pytest.approx(1000)
-    assert (
-        clip["title"] == "Galet klipp" and clip["creator"] == "någon" and clip["duration"] == 21.5
-    )
-    assert clip["posted_at"].startswith("2026-11-22") and clip["location"] is None
-    assert clip["measured"] is True and clip["taste"] == {"cuts_per_10s": 2}
-    assert taste == ydl.files and not ydl.files[0].exists()
+    expected = {
+        "id": URL,
+        "source": "link",
+        "url": URL,
+        "views": 4000,
+        "title": "Galet klipp",
+        "creator": "någon",
+        "duration": 21.5,
+        "location": None,
+        "measured": True,
+        "taste": {"cuts_per_10s": 2},
+    }
+    assert {key: clip[key] for key in expected} == expected
+    assert clip["views_per_day"] == pytest.approx(1000)
+    assert clip["posted_at"].startswith("2026-11-22")
+    assert taste == ydl.files
+    assert not ydl.files[0].exists()
     assert viral.load(profile) == [clip]
 
 
