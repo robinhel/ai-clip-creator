@@ -62,6 +62,7 @@ class Profile:
     accounts_style: dict[str, dict] = field(default_factory=dict)
     search_default_scope: str = "latest"  # chatten letar i: latest = senaste materialet, all = allt
     style: str = ""  # smakfilen smak/<style>.md som går in i Claudes val; tom = ingen
+    max_candidates: int = 20  # så många kandidater som Claude får se (clip.max_candidates, 5-60)
     raw: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -140,6 +141,13 @@ def _number(section: dict, key: str, default: float, label: str, kind: type = fl
         raise SystemExit(f"{label} måste vara {what}, inte {value!r}.") from None
 
 
+def _max_candidates(clip: dict) -> int:
+    value = _number(clip, "max_candidates", 20, "clip.max_candidates", int)
+    if not 5 <= value <= 60:
+        raise SystemExit(f"clip.max_candidates måste vara mellan 5 och 60, inte {value}.")
+    return value
+
+
 def _accounts(data: dict) -> dict[str, list[str]]:
     value = data.get("accounts") or {}
     if not (isinstance(value, dict) and all(isinstance(v, list) for v in value.values())):
@@ -212,6 +220,7 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
         language=data.get("language", "en"),
         min_seconds=_number(clip, "min_seconds", 7, "clip.min_seconds"),
         max_seconds=_number(clip, "max_seconds", 60, "clip.max_seconds"),
+        max_candidates=_max_candidates(clip),
         formats=list(data.get("formats") or []),
         text=str(text.get("text") or ""),
         text_required=bool(text.get("required", False)),

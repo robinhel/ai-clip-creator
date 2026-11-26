@@ -274,6 +274,7 @@ def add_lines(
     brain: Brain,
     gap_s: float,
     slots: int = SLOTS,
+    max_n: int = 20,
 ) -> list[CandidateMoment]:
     """Kandidaterna med Haikus repliker (merge). Svaret sparas i `path` och används igen vid nästa körning, utan
     nya anrop. Ett fel från Haiku (också budgeten) blir en rad i loggen och körningen går vidare med replikerna
@@ -293,4 +294,4 @@ def add_lines(
         else:
             save(path, span, lines)
     lines = [line for line in lines if int(span[0]) <= line["t"] <= span[1]]  # t i hela sekunder
-    return merge(candidates, lines, gap_s, slots=slots)
+    return merge(candidates, lines, gap_s, max_n=max_n, slots=slots)

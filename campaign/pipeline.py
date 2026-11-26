@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from clipsmith.api.worker import _emit, _harvest_clips
-from clipsmith.candidates.builder import load_candidates
+from clipsmith.candidates.builder import load_candidates, save_candidates
 from clipsmith.config.loaders import load_config, load_secrets
 from clipsmith.db.models import Run, RunStatus
 from clipsmith.db.session import get_session
@@ -286,7 +286,9 @@ def make_clips(
         if isinstance(picker, AnthropicProvider) and repliker.enabled():  # Haiku letar repliker när Claude väljer
             stop()  # inget anrop till Haiku efter Avbryt
             candidates = repliker.add_lines(candidates, transcript.segments, mp4.parent / "repliker.json",
-                                            Brain(settings, budget_from_settings(settings)), cfg.clip.min_clip_gap_s)
+                                            Brain(settings, budget_from_settings(settings)), cfg.clip.min_clip_gap_s,
+                                            max_n=profile.max_candidates)
+        save_candidates(candidates, mp4.parent / "candidates.valda.json")  # det som gick in i valet, med repliker
 
         def ask(*args):
             nonlocal asked
@@ -305,7 +307,8 @@ def make_clips(
         video_end_s = probe(mp4)["duration"] if local else float(meta.get("duration_s") or 0)
         picks = select_clips(candidates, transcript,
                              SimpleNamespace(pick=ask, rank=rank if getattr(picker, "rank", None) else None),
-                             context, cfg.clip, video_end_s=video_end_s)
+                             context, cfg.clip, max_candidates=profile.max_candidates,
+                             video_end_s=video_end_s)
         for result in picks:
             if result.pick.format not in profile.format_ids:
                 result.pick.format = None  # ett id som kampanjen inte har blir inget format
