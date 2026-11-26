@@ -39,9 +39,12 @@ def build_candidates(
     for clip in existing_clips:
         if clip.vod_offset is None:
             continue
+        # Helix gives the clip's END in vod_offset despite its docs (TwitchDownloader #1285).
+        # t is a highlight with preroll/postroll around it, so use the clip's middle.
+        # Missing duration (0.0) leaves t at vod_offset.
         raw.append(
             (
-                float(clip.vod_offset),
+                max(0.0, clip.vod_offset - clip.duration / 2),
                 config.existing_clip_boost,
                 "existing_clip",
                 f"Twitch clip {clip.id!r} ({clip.view_count} views): {clip.title!r}",
