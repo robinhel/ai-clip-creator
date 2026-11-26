@@ -10,7 +10,7 @@ import threading
 import uuid
 from pathlib import Path
 from typing import Literal
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi import Path as PathParam
@@ -629,8 +629,12 @@ def _public(clip: dict, settings: Settings) -> dict:
         out["engagement_min"] = None
         out["min_views"] = None
         out["campaign_off"] = False  # en trasig profil räknas som påslagen, som i _turned_off
-    # ?v= byts när klippet ändras, så att webbläsaren inte visar en gammal version efter en redigering.
-    version = quote(clip.get("updated") or "")
+    # ?v= följer filen: en ny fil efter en redigering ger ny adress, men en sparad caption eller ett format gör det inte,
+    # så att videon inte börjar om. Saknas filen blir versionen 0.
+    try:
+        version = Path(clip["file"]).stat().st_mtime_ns if clip["file"] else 0
+    except OSError:
+        version = 0
     out["posts"] = _public_posts(clip, settings, log)
     out["video_url"] = f"/campaign/clips/{clip['id']}/file?v={version}"
     out["poster_url"] = f"/campaign/clips/{clip['id']}/poster?v={version}"

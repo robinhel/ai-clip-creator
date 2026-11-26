@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 
@@ -9,7 +10,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from campaign import api
+from campaign import api, cliplog
 from campaign.cliplog import ClipLog
 from campaign.rules import NO_FORMAT
 
@@ -178,6 +179,36 @@ def test_clip_list_has_engagement_and_can_filter_on_status(client, settings) -> 
     assert clips[0]["filename"] == "clip_01_a.mp4"
     assert clips[0]["video_url"].startswith(f"/campaign/clips/{clip_id}/file?v=")
     assert "file" not in clips[0]
+
+
+def test_video_url_follows_the_file_not_a_saved_caption_or_format(client, settings, monkeypatch) -> None:
+    # Varje sparning får en ny tid i updated, även inom samma sekund.
+    stamps = (f"2026-11-26T10:00:{i:02d}+00:00" for i in range(60))
+    monkeypatch.setattr(cliplog, "_now", lambda: next(stamps))
+    mp4 = settings.out_dir / "123" / "klara" / "clip_01_a.mp4"
+    mp4.parent.mkdir(parents=True, exist_ok=True)
+    mp4.write_bytes(b"video")
+    clip_id = _clip(settings, file=str(mp4))
+    before = client.get("/campaign/clips").json()[0]
+
+    client.patch(f"/campaign/clips/{clip_id}", json={"caption": CAPTION + " #new"}).raise_for_status()
+    client.patch(f"/campaign/clips/{clip_id}", json={"format": "funny"}).raise_for_status()
+    saved = client.get("/campaign/clips").json()[0]
+    assert (saved["caption"], saved["format"]) == (CAPTION + " #new", "funny")
+    assert saved["updated"] != before["updated"]
+    assert (saved["video_url"], saved["poster_url"]) == (before["video_url"], before["poster_url"])
+
+    stat = mp4.stat()
+    os.utime(mp4, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))  # en ny fil efter en redigering
+    changed = client.get("/campaign/clips").json()[0]
+    assert changed["video_url"] != before["video_url"]
+    assert changed["poster_url"] != before["poster_url"]
+
+
+def test_video_url_without_file_does_not_crash(client, settings) -> None:
+    _clip(settings)  # filen finns inte
+    (clip,) = client.get("/campaign/clips").json()
+    assert clip["video_url"].endswith("/file?v=0")
 
 
 @needs_ffmpeg
