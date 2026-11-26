@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 import campaign
 from campaign import api, cli, profiles_api, taste_api
+from campaign import viral as real_viral
 from campaign.budget import BudgetExceeded
 
 from .conftest import PAKET
@@ -44,6 +45,7 @@ def fake(monkeypatch) -> SimpleNamespace:
     viral.collect = lambda profile: call("collect", profile.name, result=state.clips)
     viral.add_link = lambda profile, url, views=None: call("add_link", profile.name, url, views=views, result=CLIP)
     viral.load = lambda profile: state.clips
+    viral.check_link = lambda url: real_viral.check_link(url)
     taste = types.ModuleType("campaign.taste")
     taste.analyse = lambda profile, top_n=5, brain=None: call("analyse", profile.name, top_n=top_n,
                                                              brain=brain is not None, result=state.taste)
@@ -69,6 +71,7 @@ def client(settings, fake, monkeypatch) -> TestClient:
 
 
 BASE = "/campaign/profiles/skiimasktimmy"
+LINK = "https://www.tiktok.com/@a/video/1"
 
 
 # ---------- API ----------
@@ -105,11 +108,28 @@ def test_link_runs_in_the_background_and_saves_the_url_and_the_views(client, fak
     assert fake.calls[-1][2] == {"views": None}
 
 
-@pytest.mark.parametrize(("path", "body"), [("viral/link", {"url": "https://x.com/1"}), ("taste/analyse", None)])
+@pytest.mark.parametrize(("path", "body"), [("viral/link", {"url": LINK}), ("taste/analyse", None)])
 def test_a_second_job_while_one_runs_is_409(client, fake, path, body) -> None:
     taste_api.JOBS["skiimasktimmy"] = {"running": True, "error": None}  # client lägger en ny JOBS per test
     assert client.post(f"{BASE}/{path}", json=body).status_code == 409
     assert client.get(f"{BASE}/taste").json()["running"] is True
+    assert fake.calls == []
+
+
+def test_a_link_to_another_site_is_400_and_starts_no_job(client, fake) -> None:
+    response = client.post(f"{BASE}/viral/link", json={"url": "https://x.com/1"})
+    assert response.status_code == 400 and "TikTok" in response.json()["detail"]
+    assert fake.calls == [] and taste_api.JOBS == {}
+
+
+def test_a_job_whose_start_fails_is_not_left_running(client, fake, monkeypatch) -> None:
+    def broken(profile):
+        raise OSError("The clip list could not be read.")
+
+    monkeypatch.setattr(sys.modules["campaign.viral"], "load", broken)
+    with pytest.raises(OSError):
+        client.post(f"{BASE}/taste/analyse")
+    assert taste_api.JOBS.get("skiimasktimmy", taste_api.IDLE)["running"] is False
     assert fake.calls == []
 
 
@@ -150,7 +170,7 @@ def test_collect_errors_come_back_as_plain_english(client, fake, error, status) 
 @pytest.mark.parametrize(("error", "status"), ERRORS)
 def test_job_errors_come_back_in_get_taste(client, fake, error, status) -> None:
     fake.error = error
-    for path, body in (("viral/link", {"url": "https://x.com/1"}), ("taste/analyse", None)):
+    for path, body in (("viral/link", {"url": LINK}), ("taste/analyse", None)):
         assert client.post(f"{BASE}/{path}", json=body).status_code == 202
         job = client.get(f"{BASE}/taste").json()
         assert job["running"] is False and job["error"].startswith(str(error))

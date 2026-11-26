@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -228,6 +229,30 @@ def test_sparas_och_laddas_per_profil(root, profile):
 
     assert (root / "klippdata" / "viral" / "testkamp.json").exists()
     assert viral.load("testkamp") == [{"id": "a"}]
+
+
+def test_save_skriver_atomiskt(root, profile, monkeypatch):
+    moved: list[tuple[Path, Path]] = []
+    replace = os.replace
+
+    def spy(src, dst):
+        moved.append((Path(src), Path(dst)))
+        replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy)
+
+    viral.save(profile, [{"id": "a"}])
+
+    path = root / "klippdata" / "viral" / "testkamp.json"
+    assert len(moved) == 1 and moved[0][1] == path and moved[0][0].parent == path.parent
+    assert sorted(path.parent.iterdir()) == [path]  # ingen tmp-fil kvar
+    assert viral.load(profile) == [{"id": "a"}]
+
+
+def test_check_link_nekar_andra_sidor():
+    with pytest.raises(ValueError):
+        viral.check_link("https://x.com/1")
+    viral.check_link(URL)
 
 
 def test_profil_som_namn(root, monkeypatch):
@@ -493,6 +518,13 @@ def test_add_link_hamtar_hogst_200_mb(profile, ydl, taste):
     viral.add_link(profile, URL)
 
     assert ydl.opts["max_filesize"] == 200 * 1024 * 1024
+
+
+@pytest.mark.usefixtures("root", "located")
+def test_add_link_listar_kanaler_och_spellistor_platt(profile, ydl, taste):
+    viral.add_link(profile, URL)
+
+    assert ydl.opts["extract_flat"] == "in_playlist"  # varje video i en spellista hämtas inte
 
 
 @pytest.mark.usefixtures("root", "located")

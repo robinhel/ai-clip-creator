@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -384,13 +385,14 @@ CDN2 = "https://cdn.contentrewards.com/v/b.mp4"
 
 
 @pytest.mark.usefixtures("root", "fake_http", "fake_locate")
-def test_analyse_hoppar_over_klipp_som_inte_gar_att_mata(settings, budget, monkeypatch):
+@pytest.mark.parametrize("error", [RuntimeError("measure.py misslyckades"), ValueError("trasig json"), OSError("disk")])
+def test_analyse_hoppar_over_klipp_som_inte_gar_att_mata(settings, budget, monkeypatch, error):
     measured: list[str] = []
 
     def measure(video):
         if not measured:
             measured.append("fel")
-            raise RuntimeError("measure.py misslyckades: trasig video")
+            raise error
         measured.append("ok")
         return PICKED
 
@@ -477,6 +479,24 @@ def test_write_skills_standard_ar_repots_rot(root, tmp_path, monkeypatch):
     paths = taste.write_skills("testkamp")
 
     assert all(p.is_relative_to(tmp_path / "repo-skills") for p in paths)
+
+
+def test_smakfilen_skrivs_atomiskt(root, monkeypatch):
+    moved: list[tuple[Path, Path]] = []
+    replace = os.replace
+
+    def spy(src, dst):
+        moved.append((Path(src), Path(dst)))
+        replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", spy)
+
+    taste._save_taste("testkamp", {"rules": ["R"]})
+
+    path = root / "klippdata" / "smak" / "testkamp.json"
+    assert len(moved) == 1 and moved[0][1] == path and moved[0][0].parent == path.parent
+    assert sorted(path.parent.iterdir()) == [path]  # ingen tmp-fil kvar
+    assert taste.load_taste("testkamp") == {"rules": ["R"]}
 
 
 def test_taste_text_tom_utan_fil(root, settings):
