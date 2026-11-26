@@ -130,6 +130,7 @@ def test_twitch_bara_senaste_60_dagarna(root, profile, monkeypatch):
     viral.collect(profile)
 
     assert FakeTwitch.kwargs["started_at"] == NOW - timedelta(days=60)
+    assert FakeTwitch.kwargs["ended_at"] == NOW  # utan ended_at ger Helix bara en vecka
 
 
 def test_twitch_plats_via_locate_from_twitch(root, profile, monkeypatch):
@@ -258,10 +259,63 @@ def test_collect_behaller_lankar_och_matning(root, profile, monkeypatch):
     assert {c["id"] for c in viral.load(profile)} == {"a", "https://x.com/v"}
 
 
+def test_collect_behaller_sparad_plats_nar_den_nya_saknas(root, profile, monkeypatch):
+    place = {"vod_id": "2000", "start_s": 50.0, "end_s": 71.0, "method": "transcript"}
+    viral.save(
+        profile,
+        [
+            {"id": tiktok(2), "source": "content_rewards", "location": place},
+            {"id": "a", "source": "twitch", "location": {"vod_id": "gammal"}},
+        ],
+    )
+    FakeTwitch.clips = [twitch_clip("a", 10, 1)]
+    monkeypatch.setattr(
+        viral.examples, "fetch", lambda url: cr_page([{"post_url": tiktok(2), "views": 10}])
+    )
+
+    clips = {c["id"]: c for c in viral.collect(profile)}
+
+    assert clips[tiktok(2)]["location"] == place  # CR-klippet har ingen plats i en ny hämtning
+    assert clips["a"]["location"]["vod_id"] == "2000"  # en ny plats ersätter den sparade
+
+
+def test_noll_visningar_raknas_i_medianen(root, profile, monkeypatch):
+    FakeTwitch.clips = [twitch_clip("a", 0, 1), twitch_clip("b", 100, 1), twitch_clip("c", 300, 1)]
+    monkeypatch.setattr(viral.examples, "fetch", lambda url: cr_page([]))
+
+    clips = {c["id"]: c for c in viral.collect(profile)}
+
+    assert clips["c"]["outlier"] == pytest.approx(3)  # median av 0, 100 och 300
+    assert clips["a"]["outlier"] == 0
+
+
+def test_collect_sparar_under_laset(root, profile, monkeypatch):
+    seen: list[bool] = []
+    save = viral.save
+
+    def spy(profile, clips):
+        seen.append(viral.LOCK.locked())
+        save(profile, clips)
+
+    monkeypatch.setattr(viral, "save", spy)
+    monkeypatch.setattr(viral.examples, "fetch", lambda url: cr_page([]))
+
+    viral.collect(profile)
+
+    assert seen == [True]
+
+
+class DownloadError(Exception):
+    """yt_dlp.utils.DownloadError i låtsasmodulen."""
+
+
 class FakeYDL:
+    """Låtsas-yt-dlp: extract_info läser bara fakta, process_ie_result skriver videon."""
+
     info: dict = {}
     opts: dict = {}
     files: list[Path] = []
+    error: Exception | None = None
 
     def __init__(self, opts):
         FakeYDL.opts = opts
@@ -273,11 +327,17 @@ class FakeYDL:
         return False
 
     def extract_info(self, url, download=True):
-        assert download
-        path = Path(self.prepare_filename(self.info))
+        assert download is False  # fakta först, nedladdningen efter kontrollen
+        if FakeYDL.error:
+            raise FakeYDL.error
+        return dict(self.info, webpage_url=url)
+
+    def process_ie_result(self, info, download=True):
+        assert download is True
+        path = Path(self.prepare_filename(info))
         path.write_bytes(b"video")
         FakeYDL.files.append(path)
-        return dict(self.info, webpage_url=url)
+        return info
 
     def prepare_filename(self, info):
         return FakeYDL.opts["outtmpl"].replace("%(id)s", info["id"]).replace("%(ext)s", "mp4")
@@ -287,8 +347,13 @@ class FakeYDL:
 def ydl(monkeypatch):
     module = ModuleType("yt_dlp")
     module.YoutubeDL = FakeYDL
+    module.utils = ModuleType("yt_dlp.utils")
+    module.utils.DownloadError = DownloadError
     monkeypatch.setitem(sys.modules, "yt_dlp", module)
+    monkeypatch.setitem(sys.modules, "yt_dlp.utils", module.utils)
     FakeYDL.files = []
+    FakeYDL.opts = {}
+    FakeYDL.error = None
     FakeYDL.info = {
         "id": "v1",
         "title": "Galet klipp",
@@ -392,10 +457,77 @@ def test_add_link_samma_lank_ersatts(profile, ydl, taste):
 
 
 @pytest.mark.usefixtures("root", "located")
-def test_add_link_kraver_https(profile, ydl, taste):
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///etc/passwd",
+        "http://www.tiktok.com/@n/video/1",
+        "https://tiktok.com.evil.io/x",
+        "https://localhost:1/x",
+        "https://eviltiktok.com/x",
+    ],
+)
+def test_add_link_bara_https_och_kanda_varden(profile, ydl, taste, url):
     with pytest.raises(ValueError):
-        viral.add_link(profile, "file:///etc/passwd")
-    assert ydl.files == []
+        viral.add_link(profile, url)
+    assert ydl.files == [] and ydl.opts == {}
+
+
+@pytest.mark.usefixtures("root", "located")
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://tiktok.com/@n/video/1",
+        "https://vm.tiktok.com/abc",
+        "https://www.instagram.com/reel/abc",
+        "https://m.youtube.com/shorts/abc",
+        "https://youtu.be/abc",
+    ],
+)
+def test_add_link_tillater_kanda_varden(profile, ydl, taste, url):
+    assert viral.add_link(profile, url)["url"] == url
+
+
+@pytest.mark.usefixtures("root", "located")
+def test_add_link_hamtar_hogst_200_mb(profile, ydl, taste):
+    viral.add_link(profile, URL)
+
+    assert ydl.opts["max_filesize"] == 200 * 1024 * 1024
+
+
+@pytest.mark.usefixtures("root", "located")
+@pytest.mark.parametrize("kind", ["playlist", "multi_video"])
+def test_add_link_spellista_nekas_innan_nedladdning(profile, ydl, taste, kind):
+    ydl.info["_type"] = kind
+
+    with pytest.raises(ValueError):
+        viral.add_link(profile, URL)
+    assert ydl.files == [] and taste == []
+
+
+@pytest.mark.usefixtures("root", "located")
+def test_add_link_downloaderror_blir_runtimeerror(profile, ydl, taste):
+    ydl.error = DownloadError("ERROR: [TikTok] 1: Video not available")
+
+    with pytest.raises(RuntimeError, match="Could not download"):
+        viral.add_link(profile, URL)
+    assert viral.load(profile) == []
+
+
+@pytest.mark.usefixtures("root", "located", "taste")
+def test_add_link_sparar_under_laset(profile, ydl, monkeypatch):
+    seen: list[bool] = []
+    save = viral.save
+
+    def spy(profile, clips):
+        seen.append(viral.LOCK.locked())
+        save(profile, clips)
+
+    monkeypatch.setattr(viral, "save", spy)
+
+    viral.add_link(profile, URL)
+
+    assert seen == [True]
 
 
 @pytest.mark.usefixtures("root", "taste")

@@ -88,6 +88,15 @@ def test_measure_fel_ger_runtimeerror(tmp_path, monkeypatch):
         taste.measure(_video(tmp_path))
 
 
+def test_measure_for_lang_tid_ger_runtimeerror(tmp_path, monkeypatch):
+    def slow(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+    monkeypatch.setattr(taste.subprocess, "run", slow)
+    with pytest.raises(RuntimeError):
+        taste.measure(_video(tmp_path))
+
+
 def _save_clips(root: Path) -> None:
     work = root / "work" / "2000"
     work.mkdir(parents=True)
@@ -362,6 +371,92 @@ def test_analyse_fortsatter_nar_locate_kastar(settings, budget, monkeypatch):
     assert len(seen) == 1 and not seen[0].exists()
 
 
+CDN2 = "https://cdn.contentrewards.com/v/b.mp4"
+
+
+@pytest.mark.usefixtures("root", "fake_http", "fake_locate")
+def test_analyse_hoppar_over_klipp_som_inte_gar_att_mata(settings, budget, monkeypatch):
+    measured: list[str] = []
+
+    def measure(video):
+        if not measured:
+            measured.append("fel")
+            raise RuntimeError("measure.py misslyckades: trasig video")
+        measured.append("ok")
+        return PICKED
+
+    monkeypatch.setattr(taste, "measure", measure)
+    viral.save(
+        "testkamp",
+        [
+            {"id": "trasig", "source": "content_rewards", "outlier": 9.0, "video_url": CDN},
+            {"id": "hel", "source": "content_rewards", "outlier": 8.0, "video_url": CDN2},
+        ],
+    )
+    brain = Brain(settings, budget, client=FakeClient(ANSWER))
+
+    result = taste.analyse("testkamp", brain=brain)
+
+    assert measured == ["fel", "ok"] and result["clip_ids"] == ["hel"]
+    saved = {c["id"]: c for c in viral.load("testkamp")}
+    assert not saved["trasig"].get("measured") and saved["hel"]["measured"] is True
+
+
+@pytest.mark.usefixtures("root", "fake_http", "fake_locate")
+def test_analyse_laddar_listan_pa_nytt_fore_sparning(settings, budget, monkeypatch):
+    """En insamling under mätningen ska inte skrivas över av analysens gamla lista."""
+    locked: list[bool] = []
+    save = viral.save
+
+    def measure(video):
+        clips = viral.load("testkamp")
+        clips[0]["views"] = 123
+        save("testkamp", [*clips, {"id": "ny", "source": "twitch", "outlier": 1.0}])
+        return PICKED
+
+    def spy(profile, clips):
+        locked.append(viral.LOCK.locked())
+        save(profile, clips)
+
+    monkeypatch.setattr(taste, "measure", measure)
+    monkeypatch.setattr(viral, "save", spy)
+    viral.save(
+        "testkamp",
+        [{"id": "cdn", "source": "content_rewards", "outlier": 9.0, "views": 5, "video_url": CDN}],
+    )
+    brain = Brain(settings, budget, client=FakeClient(ANSWER))
+
+    taste.analyse("testkamp", brain=brain)
+
+    saved = {c["id"]: c for c in viral.load("testkamp")}
+    assert set(saved) == {"cdn", "ny"}
+    assert saved["cdn"]["views"] == 123 and saved["cdn"]["measured"] is True
+    assert saved["cdn"]["taste"] == PICKED and saved["cdn"]["location"]["vod_id"] == "3000"
+    assert locked == [True]
+
+
+@pytest.mark.usefixtures("root")
+def test_analyse_tar_med_lankar_och_cr_klipp_utan_datum(settings, budget):
+    def clip(clip_id, source, outlier, views):
+        return {"id": clip_id, "source": source, "outlier": outlier, "views": views,
+                "measured": True, "taste": PICKED}
+
+    viral.save(
+        "testkamp",
+        [
+            clip("datum", "content_rewards", 9.0, 10),
+            clip("utan_lite", "content_rewards", None, 50),
+            clip("utan_mycket", "content_rewards", None, 1000),
+            clip("lank", "link", None, 5),
+        ],
+    )
+    brain = Brain(settings, budget, client=FakeClient(ANSWER))
+
+    result = taste.analyse("testkamp", top_n=2, brain=brain)
+
+    assert result["clip_ids"] == ["datum", "utan_mycket", "lank"]
+
+
 def test_write_skills_standard_ar_repots_rot(root, tmp_path, monkeypatch):
     assert taste.SKILLS_DIR == Path(taste.__file__).resolve().parents[1] / ".agents" / "skills"
     smak = root / "klippdata" / "smak"
@@ -375,12 +470,20 @@ def test_write_skills_standard_ar_repots_rot(root, tmp_path, monkeypatch):
     assert all(p.is_relative_to(tmp_path / "repo-skills") for p in paths)
 
 
-def test_taste_text_tom_utan_fil(root):
+def test_taste_text_tom_utan_fil(root, settings):
     assert taste.load_taste("testkamp") is None
-    assert taste.taste_text("testkamp") == ""
+    assert taste.taste_text("testkamp", settings.data_dir) == ""
 
 
-def test_taste_text_kort_med_fil(root):
+def test_taste_text_tom_vid_trasig_smakfil(settings):
+    smak = settings.data_dir / "smak"
+    smak.mkdir(parents=True)
+    (smak / "testkamp.json").write_text("{trasig", encoding="utf-8")
+
+    assert taste.taste_text("testkamp", settings.data_dir) == ""
+
+
+def test_taste_text_kort_med_fil(root, settings):
     smak = root / "klippdata" / "smak"
     smak.mkdir(parents=True)
     data = {
@@ -398,7 +501,7 @@ def test_taste_text_kort_med_fil(root):
     }
     (smak / "testkamp.json").write_text(json.dumps(data))
 
-    text = taste.taste_text("testkamp")
+    text = taste.taste_text("testkamp", settings.data_dir)
 
     assert "Short loud reactions" in text and "25" in text
     assert 0 < len(text) <= 600

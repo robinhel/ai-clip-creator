@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from campaign.cliplog import ClipLog
 from campaign.memory import selection_memory
 
@@ -61,21 +63,15 @@ def test_claude_gets_the_memory_after_the_focus(settings, vod) -> None:  # noqa:
     assert ctx.index("jump scares") < ctx.index("Huge clutch")
 
 
-def _fake_taste(monkeypatch, text: str) -> None:
-    """campaign/taste.py byggs av en annan del. Här en låtsasmodul med bara taste_text."""
-    import sys
-    import types
-
-    import campaign
-
-    fake = types.ModuleType("campaign.taste")
-    fake.taste_text = lambda profile: text
-    monkeypatch.setitem(sys.modules, "campaign.taste", fake)
-    monkeypatch.setattr(campaign, "taste", fake, raising=False)
+def _save_taste(data_dir, summary: str) -> None:
+    """En riktig smakfil (campaign/taste.py) i testets datamapp."""
+    path = data_dir / "smak" / "skiimasktimmy.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"profile": "skiimasktimmy", "numbers": {}, "rules": [], "summary_en": summary}))
 
 
-def test_claude_gets_the_taste_after_the_memory(settings, vod, monkeypatch) -> None:  # noqa: F811
-    _fake_taste(monkeypatch, "viral clips in this niche open on the payoff within 1 s")
+def test_claude_gets_the_taste_after_the_memory(settings, vod) -> None:  # noqa: F811
+    _save_taste(settings.data_dir, "viral clips in this niche open on the payoff within 1 s")
     log = ClipLog(settings.data_dir / "klipp.db")
     _add(log, "Huge clutch", "betald", 9000)
     vod.picker = FakePicker([_yes("clutch"), _no()])
@@ -84,11 +80,10 @@ def test_claude_gets_the_taste_after_the_memory(settings, vod, monkeypatch) -> N
     assert ctx.index("jump scares") < ctx.index("Huge clutch") < ctx.index("open on the payoff within 1 s")
 
 
-def test_an_empty_taste_changes_nothing(settings, monkeypatch) -> None:
+def test_no_taste_file_changes_nothing(settings) -> None:
     from campaign import pipeline
     from campaign.profile import load_profile
 
-    _fake_taste(monkeypatch, "")
     log = ClipLog(settings.data_dir / "klipp.db")
     _add(log, "Huge clutch", "betald", 9000)
     profile = load_profile("skiimasktimmy", settings.profiles_dir)

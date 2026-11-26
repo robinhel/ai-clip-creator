@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import campaign
-from campaign import api, cli, profiles_api
+from campaign import api, cli, profiles_api, taste_api
 from campaign.budget import BudgetExceeded
 
 from .conftest import PAKET
@@ -48,7 +48,7 @@ def fake(monkeypatch) -> SimpleNamespace:
     taste.analyse = lambda profile, top_n=5, brain=None: call("analyse", profile.name, top_n=top_n,
                                                              brain=brain is not None, result=state.taste)
     taste.load_taste = lambda profile: state.taste
-    taste.taste_text = lambda profile: ""
+    taste.taste_text = lambda profile, data_dir: "Viral clips taste: open on the payoff."
     taste.write_skills = lambda profile: call("write_skills", profile.name,
                                               result=[PAKET / "skills" / "hook.md"])
     for name, module in (("viral", viral), ("taste", taste)):
@@ -61,6 +61,7 @@ def fake(monkeypatch) -> SimpleNamespace:
 def client(settings, fake, monkeypatch) -> TestClient:
     shutil.copy(PAKET / "config.timmy.yaml", settings.root / "config.timmy.yaml")
     monkeypatch.delenv("CLIPSMITH_API_KEY", raising=False)
+    monkeypatch.setattr(taste_api, "JOBS", {}, raising=False)
     app = FastAPI()
     app.include_router(profiles_api.router)
     app.dependency_overrides[api.get_settings] = lambda: settings
@@ -73,29 +74,43 @@ BASE = "/campaign/profiles/skiimasktimmy"
 # ---------- API ----------
 
 
-def test_get_taste_gives_the_taste_and_the_clips(client, fake) -> None:
-    assert client.get(f"{BASE}/taste").json() == {"taste": TASTE, "clips": [CLIP]}
+TEXT = "Viral clips taste: open on the payoff."
+IDLE = {"taste": TASTE, "clips": [CLIP], "text": TEXT, "running": False, "error": None}
+
+
+def test_get_taste_gives_the_taste_the_clips_the_text_and_the_job(client, fake) -> None:
+    assert client.get(f"{BASE}/taste").json() == IDLE
 
 
 def test_without_analysis_the_taste_is_null(client, fake) -> None:
     fake.taste, fake.clips = None, []
-    assert client.get(f"{BASE}/taste").json() == {"taste": None, "clips": []}
+    assert client.get(f"{BASE}/taste").json()["taste"] is None
 
 
 def test_collect_fetches_the_clips_and_answers_with_the_list(client, fake) -> None:
     response = client.post(f"{BASE}/viral/collect")
     assert response.status_code == 200
-    assert response.json() == {"taste": TASTE, "clips": [CLIP]}
+    assert response.json() == IDLE
     assert fake.calls == [("collect", ("skiimasktimmy",), {})]
 
 
-def test_link_saves_the_url_and_the_views(client, fake) -> None:
+def test_link_runs_in_the_background_and_saves_the_url_and_the_views(client, fake) -> None:
     url = "https://www.tiktok.com/@a/video/1"
     response = client.post(f"{BASE}/viral/link", json={"url": url, "views": 90000})
-    assert response.status_code == 200 and response.json()["clips"] == [CLIP]
+    assert response.status_code == 202
+    assert response.json() == {"taste": TASTE, "clips": [CLIP], "running": True}
     assert fake.calls == [("add_link", ("skiimasktimmy", url), {"views": 90000})]
+    assert client.get(f"{BASE}/taste").json() == IDLE  # jobbet är klart
     client.post(f"{BASE}/viral/link", json={"url": url})
     assert fake.calls[-1][2] == {"views": None}
+
+
+@pytest.mark.parametrize(("path", "body"), [("viral/link", {"url": "https://x.com/1"}), ("taste/analyse", None)])
+def test_a_second_job_while_one_runs_is_409(client, fake, monkeypatch, path, body) -> None:
+    monkeypatch.setitem(taste_api.JOBS, "skiimasktimmy", {"running": True, "error": None})
+    assert client.post(f"{BASE}/{path}", json=body).status_code == 409
+    assert client.get(f"{BASE}/taste").json()["running"] is True
+    assert fake.calls == []
 
 
 def test_link_without_a_url_or_with_negative_views_is_refused(client, fake) -> None:
@@ -104,9 +119,9 @@ def test_link_without_a_url_or_with_negative_views_is_refused(client, fake) -> N
     assert fake.calls == []
 
 
-def test_analyse_asks_claude_through_the_brain(client, fake) -> None:
+def test_analyse_asks_claude_through_the_brain_in_the_background(client, fake) -> None:
     response = client.post(f"{BASE}/taste/analyse")
-    assert response.status_code == 200 and response.json()["taste"] == TASTE
+    assert response.status_code == 202 and response.json()["running"] is True
     assert fake.calls == [("analyse", ("skiimasktimmy",), {"top_n": 5, "brain": True})]
 
 
@@ -117,18 +132,38 @@ def test_analyse_without_a_claude_key_says_so(client, fake, settings) -> None:
     assert fake.calls == []
 
 
-@pytest.mark.parametrize(("error", "status"), [
+ERRORS = [
     (ValueError("The link is not a TikTok, YouTube or Instagram video."), 400),
     (RuntimeError("TikTok did not answer."), 502),
     (BudgetExceeded("The daily cap is reached: 10.00 of 10.00 dollars."), 402),
-])
-def test_errors_come_back_as_plain_english(client, fake, error, status) -> None:
+]
+
+
+@pytest.mark.parametrize(("error", "status"), ERRORS)
+def test_collect_errors_come_back_as_plain_english(client, fake, error, status) -> None:
     fake.error = error
-    for path, body in (("viral/collect", None), ("viral/link", {"url": "https://x.com/1"}),
-                       ("taste/analyse", None)):
-        response = client.post(f"{BASE}/{path}", json=body)
-        assert response.status_code == status
-        assert response.json()["detail"].startswith(str(error))
+    response = client.post(f"{BASE}/viral/collect")
+    assert response.status_code == status
+    assert response.json()["detail"].startswith(str(error))
+
+
+@pytest.mark.parametrize(("error", "status"), ERRORS)
+def test_job_errors_come_back_in_get_taste(client, fake, error, status) -> None:
+    fake.error = error
+    for path, body in (("viral/link", {"url": "https://x.com/1"}), ("taste/analyse", None)):
+        assert client.post(f"{BASE}/{path}", json=body).status_code == 202
+        job = client.get(f"{BASE}/taste").json()
+        assert job["running"] is False and job["error"].startswith(str(error))
+    fake.error = None
+    client.post(f"{BASE}/taste/analyse")
+    assert client.get(f"{BASE}/taste").json()["error"] is None  # ett nytt jobb tömmer felet
+
+
+def test_an_unexpected_job_error_does_not_leave_the_job_running(client, fake) -> None:
+    fake.error = KeyError("x")
+    client.post(f"{BASE}/taste/analyse")
+    job = client.get(f"{BASE}/taste").json()
+    assert job["running"] is False and job["error"]
 
 
 def test_an_unknown_campaign_is_404(client, fake) -> None:
