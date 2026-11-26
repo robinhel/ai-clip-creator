@@ -524,6 +524,24 @@ def test_analyse_tar_med_lankar_och_cr_klipp_utan_datum(settings, budget):
     assert result["clip_ids"] == ["datum", "utan_mycket", "lank"]
 
 
+@pytest.mark.usefixtures("root")
+def test_analyse_valjer_inte_daterade_cr_klipp_under_min_views(settings, budget):
+    base = {"source": "content_rewards", "outlier": None, "measured": True, "taste": PICKED}
+    viral.save(
+        "testkamp",
+        [
+            {**base, "id": "under", "views": viral.MIN_VIEWS - 1,
+             "posted_at": "2026-11-01T00:00:00+00:00", "views_per_day": 40.0},
+            {**base, "id": "utan_datum", "views": 50, "posted_at": None, "views_per_day": None},
+        ],
+    )
+    brain = Brain(settings, budget, client=FakeClient(ANSWER))
+
+    result = taste.analyse("testkamp", top_n=5, brain=brain)
+
+    assert result["clip_ids"] == ["utan_datum"]
+
+
 def test_write_skills_standard_ar_repots_rot(root, tmp_path, monkeypatch):
     assert taste.SKILLS_DIR == Path(taste.__file__).resolve().parents[1] / ".agents" / "skills"
     smak = root / "klippdata" / "smak"

@@ -40,15 +40,20 @@ def _clip_words(words: list[str], step: float = 0.5, lead: float = 1.0) -> list[
     ]
 
 
-def test_twitch_klipp_med_vod_offset_ger_platsen():
-    clip = {"id": "Abc", "video_id": "2222", "vod_offset": 3600, "duration": 28.5}
+def test_twitch_klipp_borjar_duration_fore_vod_offset():
+    clip = {"id": "Abc", "video_id": "2222", "vod_offset": 918, "duration": 21}
     assert locate.from_twitch(clip) == {
         "vod_id": "2222",
-        "start_s": 3600.0,
-        "end_s": 3628.5,
+        "start_s": 897.0,
+        "end_s": 918.0,
         "method": "vod_offset",
         "confidence": 1.0,
     }
+
+
+def test_twitch_klipp_nara_vodens_borjan_startar_pa_noll():
+    clip = {"id": "Abc", "video_id": "2222", "vod_offset": 5, "duration": 21}
+    assert locate.from_twitch(clip)["start_s"] == 0.0
 
 
 def test_borttagen_vod_ger_none():
