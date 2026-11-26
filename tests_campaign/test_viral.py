@@ -201,6 +201,38 @@ def test_kallorna_raknas_var_for_sig(root, profile, monkeypatch):
     assert clips["b"]["outlier"] == pytest.approx(1.5)
 
 
+def rated(clip_id: str, source: str, per_day: float | None) -> dict:
+    return {"id": clip_id, "source": source, "views_per_day": per_day, "outlier": None}
+
+
+def test_egen_lank_jamfors_med_alla_klipp():
+    clips = [
+        rated("t1", "twitch", 8000),
+        rated("t2", "twitch", 4200),
+        rated("t3", "twitch", 850),
+        rated("c1", "content_rewards", 7500),
+        rated("c2", "content_rewards", 2300),
+        rated("lank", "link", 21000),
+    ]
+
+    by_id = {c["id"]: c for c in viral._with_outliers(clips)}
+
+    # alla sex: 850, 2300, 4200, 7500, 8000, 21000 ger medianen (4200 + 7500) / 2 = 5850
+    assert by_id["lank"]["outlier"] == pytest.approx(21000 / 5850)
+    # Twitch och Content Rewards räknas som förut, per källa
+    assert by_id["t1"]["outlier"] == pytest.approx(8000 / 4200)
+    assert by_id["t3"]["outlier"] == pytest.approx(850 / 4200)
+    assert by_id["c1"]["outlier"] == pytest.approx(7500 / 4900)
+    assert by_id["c2"]["outlier"] == pytest.approx(2300 / 4900)
+
+
+def test_lank_utan_datum_och_ensam_lank():
+    clips = [rated("t1", "twitch", 100), rated("lank", "link", None)]
+    assert {c["id"]: c for c in viral._with_outliers(clips)}["lank"]["outlier"] is None
+
+    assert viral._with_outliers([rated("lank", "link", 500)])[0]["outlier"] == pytest.approx(1)
+
+
 def test_fel_och_saknade_nycklar_ger_tom_kalla(root, profile, monkeypatch):
     monkeypatch.setattr(
         viral, "load_secrets", lambda: SimpleNamespace(twitch_client_id="", twitch_client_secret="")
