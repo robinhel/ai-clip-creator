@@ -33,11 +33,13 @@ def from_twitch(clip: dict) -> dict | None:
     """Helix-klippets plats i VOD:en. None när VOD:en är borta (tomt video_id) eller offset saknas."""
     if not clip.get("video_id") or clip.get("vod_offset") is None:
         return None
-    start = float(clip["vod_offset"])
+    # Helix ger klippets SLUT i vod_offset, trots dokumentationen. Kontrollen mot VOD:en visade det
+    # (4 av 5 klipp), och TwitchDownloader issue 1285 säger samma sak.
+    end = float(clip["vod_offset"])
     return {
         "vod_id": str(clip["video_id"]),
-        "start_s": start,
-        "end_s": start + float(clip.get("duration") or 0),
+        "start_s": max(0.0, end - float(clip.get("duration") or 0)),
+        "end_s": end,
         "method": "vod_offset",
         "confidence": 1.0,
     }

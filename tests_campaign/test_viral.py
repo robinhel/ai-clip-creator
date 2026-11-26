@@ -116,8 +116,8 @@ def test_twitch_klipp_far_plats_och_avvikare(root, profile, monkeypatch):
     assert b["outlier"] == pytest.approx(10)  # median 1 000
     assert b["location"] == {
         "vod_id": "2000",
-        "start_s": 100,
-        "end_s": 130.0,
+        "start_s": 70.0,  # vod_offset är klippets slut
+        "end_s": 100.0,
         "method": "vod_offset",
         "confidence": 1.0,
     }
