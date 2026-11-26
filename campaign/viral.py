@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import statistics
 import tempfile
@@ -39,7 +40,8 @@ KEEP = ("measured", "taste")
 KEEP_IF_MISSING = ("location",)
 LINK_HOSTS = ("tiktok.com", "instagram.com", "youtube.com", "youtu.be")
 MAX_BYTES = 200 * 1024 * 1024  # yt-dlp hämtar inte större filer
-# en läs-ändra-skriv av listan i taget (collect, add_link och taste.analyse)
+# en läs-ändra-skriv av listan i taget (collect, add_link och taste.analyse). Låset gäller bara inom
+# serverns process; CLI:t i en annan process skyddas inte av det.
 LOCK = threading.Lock()
 
 
@@ -66,7 +68,9 @@ def load(profile: Profile | str) -> list[dict]:
 def save(profile: Profile | str, clips: list[dict]) -> None:
     path = _path(profile)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(clips, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp = path.with_name(path.name + ".tmp")  # ingen läser en halvskriven lista
+    tmp.write_text(json.dumps(clips, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def _clip(url: str, views: int, posted: datetime | None, **fields) -> dict:
@@ -210,7 +214,7 @@ def _posted(info: dict) -> datetime | None:
 def add_link(profile: Profile | str, url: str, views: int | None = None) -> dict:
     """Lägg till ett klipp från en länk som Robin ger: hämta fakta och video med yt-dlp, mät klippet, leta
     stället i strömmen och radera videon. views ersätter visningarna från sidan."""
-    _check_link(url)
+    check_link(url)
     from .taste import measure
 
     with (
@@ -238,7 +242,7 @@ def add_link(profile: Profile | str, url: str, views: int | None = None) -> dict
     return clip
 
 
-def _check_link(url: str) -> None:
+def check_link(url: str) -> None:
     """Bara https-länkar till TikTok, Instagram och YouTube, med underdomäner. Annars ValueError."""
     if not _allowed_link(urlparse(url)):
         raise ValueError("The link must be an https link to TikTok, Instagram or YouTube.")
@@ -260,6 +264,7 @@ def _download(url: str, folder: str) -> tuple[dict, str]:
         "outtmpl": f"{folder}/%(id)s.%(ext)s",
         "quiet": True,
         "noplaylist": True,
+        "extract_flat": "in_playlist",  # kanaler och spellistor nekas utan att varje video hämtas
         "max_filesize": MAX_BYTES,
     }
     try:

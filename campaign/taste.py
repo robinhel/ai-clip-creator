@@ -167,7 +167,7 @@ def _measure_missing(clips: list[dict]) -> list[dict]:
     for clip in [c for c in clips if _needs_measure(c)]:
         try:
             _measure_one(clip)
-        except (httpx.HTTPError, RuntimeError) as error:
+        except (httpx.HTTPError, RuntimeError, ValueError, OSError) as error:
             log.warning("Could not measure %s (%s): skipped", clip["id"], type(error).__name__)
             continue
         done.append(clip)
@@ -338,7 +338,9 @@ def _answer(answer: dict) -> dict:
 def _save_taste(profile, result: dict) -> None:
     path = _path(profile)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp = path.with_name(path.name + ".tmp")  # ingen läser en halvskriven smakfil
+    tmp.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def load_taste(profile) -> dict | None:

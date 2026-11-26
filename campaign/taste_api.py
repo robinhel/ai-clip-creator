@@ -59,12 +59,13 @@ def _state(profile: Profile, settings: Settings) -> dict:
 
 def _start(profile: Profile, tasks: BackgroundTasks, work: Callable[[], object]) -> dict:
     """Starta work som bakgrundsjobb. 409 när kampanjen redan har ett jobb igång."""
+    state = _data(profile)  # före låset: kastar den här står jobbet inte kvar som running
     with _jobs_lock:
         if JOBS.get(profile.name, IDLE)["running"]:
             raise HTTPException(409, "A job is already running for this campaign. Wait until it is done.")
         JOBS[profile.name] = {"running": True, "error": None}
     tasks.add_task(_run, profile.name, work)
-    return {**_data(profile), "running": True}
+    return {**state, "running": True}
 
 
 def _run(name: str, work: Callable[[], object]) -> None:
@@ -117,6 +118,8 @@ def add_viral_link(profile_id: str, body: ViralLink, tasks: BackgroundTasks,
 
     profile = _load(profile_id, settings)
     url = body.url.strip()
+    with _errors():
+        viral.check_link(url)
     return _start(profile, tasks, lambda: viral.add_link(profile, url, views=body.views))
 
 
