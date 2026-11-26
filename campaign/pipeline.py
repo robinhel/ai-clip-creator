@@ -20,6 +20,7 @@ from clipsmith.config.loaders import load_config, load_secrets
 from clipsmith.db.models import Run, RunStatus
 from clipsmith.db.session import get_session
 from clipsmith.llm import get_provider
+from clipsmith.llm.anthropic_provider import AnthropicProvider
 from clipsmith.llm.prompts import build_stream_context
 from clipsmith.models.transcript import Transcript
 from clipsmith.models.twitch import Video
@@ -28,6 +29,7 @@ from clipsmith.rendering.clipper import cut_all_clips
 from clipsmith.selection.selector import PickResult, select_clips
 from clipsmith.twitch.client import TwitchClient
 
+from . import repliker
 from .brain import Brain
 from .budget import budget_from_settings
 from .cliplog import ClipLog
@@ -281,6 +283,10 @@ def make_clips(
                                if s.start >= start_s and (not end_s or s.start <= end_s)]
         fast = cfg.clip.select == "signals"  # snabbläget: inget anrop till Claude och ingen Claude-budget
         picker = None if fast else get_provider(cfg, secrets, video=mp4)
+        if isinstance(picker, AnthropicProvider) and repliker.enabled():  # Haiku letar repliker när Claude väljer
+            stop()  # inget anrop till Haiku efter Avbryt
+            candidates = repliker.add_lines(candidates, transcript.segments, mp4.parent / "repliker.json",
+                                            Brain(settings, budget_from_settings(settings)), cfg.clip.min_clip_gap_s)
 
         def ask(*args):
             nonlocal asked
