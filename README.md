@@ -94,7 +94,7 @@ The dashboard's **How it works** page shows the same steps with your own numbers
 
 ## What the campaign layer adds
 
-The `campaign/` folder is built on top of clipsmith:
+The `campaign/` folder adds:
 
 - **Campaign profiles** (`profiles/*.yaml`): streamer, rules, overlay, text style and captions per campaign, editable in the app.
 - **Approve queue**: nothing is posted until the rule check is green and you have said yes.
@@ -128,8 +128,3 @@ cd web && pnpm exec vitest run        # dashboard unit tests
 ```
 
 More in [docs/getting-started.md](docs/getting-started.md).
-
-## Credits
-
-Built on [clipsmith](https://github.com/ricardogr07/clipsmith) by Ricardo García Ramírez (MIT).
-The campaign layer, the dashboard changes and the packaging are by Robin Hellgren. See [LICENSE](LICENSE).
