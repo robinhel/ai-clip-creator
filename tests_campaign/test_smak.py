@@ -102,3 +102,15 @@ def test_max_candidates_outside_10_to_60_names_the_field(settings) -> None:
                     encoding="utf-8")
     with pytest.raises(SystemExit, match=r"clip\.max_candidates"):
         load_profile("skiimasktimmy", settings.profiles_dir)
+
+
+def test_window_before_s_outside_30_to_120_names_the_field(settings) -> None:
+    assert _profile(settings, None).window_before_s == 60
+    path = settings.profiles_dir / "skiimasktimmy.yaml"
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace("clip:\n", "clip:\n  window_before_s: 90\n", 1), encoding="utf-8")
+    assert load_profile("skiimasktimmy", settings.profiles_dir).window_before_s == 90
+    for value in (29, 121, "lång"):
+        path.write_text(text.replace("clip:\n", f"clip:\n  window_before_s: {value}\n", 1), encoding="utf-8")
+        with pytest.raises(SystemExit, match=r"clip\.window_before_s"):
+            load_profile("skiimasktimmy", settings.profiles_dir)

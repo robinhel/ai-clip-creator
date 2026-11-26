@@ -6,12 +6,15 @@ from __future__ import annotations
 import json
 import re
 
+import pytest
+
 from campaign import pipeline, repliker
 from campaign.budget import BudgetExceeded
 from clipsmith.llm.anthropic_provider import AnthropicProvider
 from clipsmith.llm.base import ClipPick
 from clipsmith.models.candidates import CandidateMoment
 from clipsmith.models.transcript import Segment, Transcript
+from clipsmith.selection import selector
 from clipsmith.selection.selector import _spread_candidates
 
 from .test_natt_korning import _make, vod  # noqa: F401  (fixture)
@@ -392,3 +395,66 @@ def test_without_max_candidates_claude_sees_20(settings, vod, monkeypatch) -> No
     vod.picker = Picker()
     _make(settings, vod)
     assert len(vod.picker.seen) == 20
+
+
+# ---------- fönstret före mitten och den lyfta kandidatens mitt ----------
+
+
+def test_a_lifted_candidate_whose_window_has_the_line_keeps_its_center() -> None:
+    candidates = [CandidateMoment(t, 100.0 - t / 100, ["chat_density"], ["x"]) for t in range(3000, 9000, 200)]
+    covers = CandidateMoment(1040.0, 1.0, ["audio_energy"], ["loud"])  # fönstret 980-1070 har 1000
+    merged = repliker.merge(candidates + [covers], [_line(1000)], GAP)
+    lifted = next(c for c in merged if repliker.SOURCE in c.sources)
+    assert lifted.t_center == 1040.0 and lifted.score == 100.0 - 5800 / 100  # golvet som förut
+    assert "They know what I'm wearing" in lifted.reasons[-1]
+
+    far = CandidateMoment(1080.0, 1.0, ["audio_energy"], ["loud"])  # fönstret 1020-1110 saknar 1000
+    merged = repliker.merge(candidates + [far], [_line(1000)], GAP)
+    assert next(c for c in merged if repliker.SOURCE in c.sources).t_center == 1000.0
+
+
+class WindowPicker(Picker):
+    """Claude som minns transkriptet den fick per kandidat och kan kasta ett fel."""
+
+    def __init__(self, error: Exception | None = None):
+        super().__init__()
+        self.windows: dict[float, str] = {}
+        self.error = error
+
+    def pick(self, window, candidate, stream_context):
+        if self.error:
+            raise self.error
+        self.windows[candidate.t_center] = window
+        return super().pick(window, candidate, stream_context)
+
+
+def _window_run(settings, vod, monkeypatch, before: int | None, picker: WindowPicker) -> None:  # noqa: F811
+    """Kandidaten vid 400 s och en rad 80 s före mitten; kampanjens clip.window_before_s om before är satt."""
+    monkeypatch.setattr(pipeline, "Brain", lambda *a, **k: FakeBrain({"lines": []}))
+    segments = [Segment(start=320, end=324, text="the setup starts here", words=[]),
+                Segment(start=400, end=404, text="the reaction", words=[])]
+    (vod.mp4.parent / "transcript.json").write_text(Transcript("123", "en", segments).to_json(), encoding="utf-8")
+    if before is not None:
+        path = settings.profiles_dir / "skiimasktimmy.yaml"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(text.replace("clip:\n", f"clip:\n  window_before_s: {before}\n", 1), encoding="utf-8")
+    vod.picker = picker
+    _make(settings, vod)
+
+
+def test_window_before_s_90_gives_claude_the_line_80_s_before(settings, vod, monkeypatch) -> None:  # noqa: F811
+    _window_run(settings, vod, monkeypatch, 90, WindowPicker())
+    assert "[-80.0s] the setup starts here" in vod.picker.windows[400.0]
+    assert selector.WINDOW_PRE_S == 60.0
+
+
+def test_without_window_before_s_the_line_80_s_before_is_missing(settings, vod, monkeypatch) -> None:  # noqa: F811
+    _window_run(settings, vod, monkeypatch, None, WindowPicker())
+    assert "the reaction" in vod.picker.windows[400.0]
+    assert "the setup starts here" not in vod.picker.windows[400.0]
+
+
+def test_the_window_is_60_again_when_the_choice_fails(settings, vod, monkeypatch) -> None:  # noqa: F811
+    with pytest.raises(RuntimeError, match="claude broke"):
+        _window_run(settings, vod, monkeypatch, 90, WindowPicker(RuntimeError("claude broke")))
+    assert selector.WINDOW_PRE_S == 60.0
