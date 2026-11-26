@@ -37,6 +37,7 @@ from .media import probe
 from .memory import selection_memory
 from .profile import Profile, load_profile
 from .rules import NO_CAMPAIGN
+from .smak import load_taste
 from .subtitles import pick_words, save_words
 from .timemap import hook_span
 from .transcribe import berget_post, transcribe_vod
@@ -166,9 +167,13 @@ def _channel(cfg, profile: Profile, meta: dict) -> str:
 
 
 def _with_memory(focus: str, profile: Profile, settings: Settings) -> str:
-    """Körningens focus och minnet om kampanjens tidigare klipp (campaign/memory.py)."""
+    """Körningens focus, minnet om kampanjens tidigare klipp (campaign/memory.py) och sist smakfilen (campaign/smak.py)."""
     memory = selection_memory(ClipLog(settings.data_dir / "klipp.db"), profile.name, profile.min_views or 2000)
-    return ", and ".join(part for part in (focus.strip(), memory) if part)
+    text = ", and ".join(part for part in (focus.strip(), memory) if part)
+    taste = load_taste(profile.style, settings.root)
+    if not taste:
+        return text
+    return f"{text}\n\nWhat makes clips in this style spread:\n{taste}" if text else taste
 
 
 def make_clips(

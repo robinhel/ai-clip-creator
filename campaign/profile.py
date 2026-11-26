@@ -7,6 +7,8 @@ from pathlib import Path
 
 import yaml
 
+from .smak import check_style
+
 PLATFORMS = ("tiktok", "youtube_shorts", "instagram_reels")
 HOOK_STYLES = ("sans", "serif")
 
@@ -59,6 +61,7 @@ class Profile:
     # start_cut_s. Saknas kontot: standardvärden.
     accounts_style: dict[str, dict] = field(default_factory=dict)
     search_default_scope: str = "latest"  # chatten letar i: latest = senaste materialet, all = allt
+    style: str = ""  # smakfilen smak/<style>.md som går in i Claudes val; tom = ingen
     raw: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -178,6 +181,13 @@ def _search_scope(data: dict) -> str:
     return scope
 
 
+def _style(data: dict) -> str:
+    try:
+        return check_style(str(data.get("style") or "").strip())
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
+
+
 def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
     """Läs en profil. Ange namnet (skiimasktimmy) eller en sökväg till YAML-filen."""
     path = Path(name_or_path)
@@ -234,5 +244,6 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
         **_edit(data),
         accounts_style=_accounts_style(data),
         search_default_scope=_search_scope(data),
+        style=_style(data),
         raw=data,
     )
