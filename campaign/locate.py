@@ -16,8 +16,10 @@ from pathlib import Path
 from clipsmith.config.models import TranscribeConfig
 from clipsmith.models.transcript import Transcript
 
-from .config import load_settings
+from .budget import budget_from_settings
+from .config import BERGET_MISSING, load_settings
 from .local_whisper import transcribe_local
+from .transcribe import berget_post, transcribe_vod
 
 log = logging.getLogger(__name__)
 
@@ -66,21 +68,31 @@ def _transcript_words(transcript: Transcript) -> list[dict]:
 
 
 def _transcribe_clip(clip: dict) -> list[dict]:
-    """Klippets ord med lokal whisper. Bara en lokal fil; en adress måste laddas ner först."""
+    """Klippets ord, med Berget eller lokal whisper som valt i Settings. Bara en lokal fil; en adress måste
+    laddas ner först."""
     source = clip.get("path") or clip.get("video_url") or ""
     if not source or not Path(source).is_file():
         return []
-    settings = load_settings()
     with tempfile.TemporaryDirectory() as tmp:
-        transcript = transcribe_local(
-            Path(source),
-            str(clip.get("id") or "klipp"),
-            Path(tmp) / "transcript.json",
-            TranscribeConfig(),
-            model=settings.local_whisper_model,
-            language=None,  # whisper gissar språket; "auto" är ingen giltig språkkod för faster-whisper
-        )
+        transcript = _transcribe(Path(source), str(clip.get("id") or "klipp"), Path(tmp) / "transcript.json")
     return _transcript_words(transcript)
+
+
+def _transcribe(video: Path, video_id: str, out_path: Path) -> Transcript:
+    """Samma motorval som pipeline: Berget kostar och loggas i budgeten, lokal whisper är gratis.
+    Språket skickas inte (None), så att whisper gissar det; "auto" är ingen giltig språkkod."""
+    settings = load_settings()
+    if settings.engine == "local":
+        return transcribe_local(video, video_id, out_path, TranscribeConfig(),
+                                model=settings.local_whisper_model, language=None)
+    if not settings.berget_api_key:
+        raise ValueError(BERGET_MISSING)
+    post = berget_post(settings.berget_api_key)
+    return transcribe_vod(
+        video, video_id, out_path,
+        post=lambda audio, fields: post(audio, {k: v for k, v in fields.items() if v is not None}),
+        model=settings.transcribe_model, language=None, budget=budget_from_settings(settings),
+    )
 
 
 def _windows(tokens: list[tuple[str, float]]) -> list[tuple[tuple[str, ...], float]]:
