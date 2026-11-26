@@ -23,7 +23,7 @@ from twitchdl import twitch
 
 from clipsmith.api.deps import verify_api_key
 
-from . import chat, examples
+from . import chat, examples, taste_api
 from . import profile_edit as edit
 from .api import _describe_profile, _log, _profile_names, get_settings
 from .config import Settings
@@ -33,6 +33,7 @@ from .tiktok import TikTok
 from .youtube import YouTube
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
+router.include_router(taste_api.router)  # smaken från virala klipp
 _write_lock = threading.Lock()  # en ändring av kampanjfilerna i taget
 _frame_lock = threading.Lock()
 OVERLAY_MAX = 10 * 1024 * 1024

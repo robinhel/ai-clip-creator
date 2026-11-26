@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from campaign.cliplog import ClipLog
 from campaign.memory import selection_memory
 
@@ -59,3 +61,32 @@ def test_claude_gets_the_memory_after_the_focus(settings, vod) -> None:  # noqa:
     ctx = vod.picker.contexts[0]
     assert "especially looking for: jump scares" in ctx
     assert ctx.index("jump scares") < ctx.index("Huge clutch")
+
+
+def _save_taste(data_dir, summary: str) -> None:
+    """En riktig smakfil (campaign/taste.py) i testets datamapp."""
+    path = data_dir / "smak" / "skiimasktimmy.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"profile": "skiimasktimmy", "numbers": {}, "rules": [], "summary_en": summary}))
+
+
+def test_claude_gets_the_taste_after_the_memory(settings, vod) -> None:  # noqa: F811
+    _save_taste(settings.data_dir, "viral clips in this niche open on the payoff within 1 s")
+    log = ClipLog(settings.data_dir / "klipp.db")
+    _add(log, "Huge clutch", "betald", 9000)
+    vod.picker = FakePicker([_yes("clutch"), _no()])
+    _make(settings, vod, focus="jump scares")
+    ctx = vod.picker.contexts[0]
+    assert ctx.index("jump scares") < ctx.index("Huge clutch") < ctx.index("open on the payoff within 1 s")
+
+
+def test_no_taste_file_changes_nothing(settings) -> None:
+    from campaign import pipeline
+    from campaign.profile import load_profile
+
+    log = ClipLog(settings.data_dir / "klipp.db")
+    _add(log, "Huge clutch", "betald", 9000)
+    profile = load_profile("skiimasktimmy", settings.profiles_dir)
+    memory = selection_memory(log, "skiimasktimmy", min_views=profile.min_views or 2000)
+    assert pipeline._with_memory("jump scares", profile, settings) == f"jump scares, and {memory}"
+    assert pipeline._with_memory("", profile, settings) == memory
