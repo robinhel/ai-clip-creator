@@ -41,7 +41,7 @@ def from_twitch(clip: dict) -> dict | None:
         "start_s": max(0.0, end - float(clip.get("duration") or 0)),
         "end_s": end,
         "method": "vod_offset",
-        "confidence": 1.0,
+        "confidence": 0.8,  # kontrollen mot VOD:en gav rätt plats för 4 av 5 klipp
     }
 
 
@@ -92,7 +92,7 @@ def _transcribe(video: Path, video_id: str, out_path: Path) -> Transcript:
     post = berget_post(settings.berget_api_key)
     return transcribe_vod(
         video, video_id, out_path,
-        post=lambda audio, fields: post(audio, {k: v for k, v in fields.items() if v is not None}),
+        post=post,
         model=settings.transcribe_model, language=None, budget=budget_from_settings(settings),
     )
 

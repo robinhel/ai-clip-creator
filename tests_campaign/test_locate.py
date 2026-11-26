@@ -47,7 +47,7 @@ def test_twitch_klipp_borjar_duration_fore_vod_offset():
         "start_s": 897.0,
         "end_s": 918.0,
         "method": "vod_offset",
-        "confidence": 1.0,
+        "confidence": 0.8,
     }
 
 
@@ -149,15 +149,13 @@ def test_berget_valt_transkriberar_via_berget_och_loggar_kostnaden(tmp_path, mon
     path = _save(tmp_path, "111", FILLER + QUOTE)
     video = tmp_path / "klipp.mp4"
     video.write_bytes(b"")
-    sent: list[dict] = []
     seen: dict = {}
 
     def fake_berget_vod(mp4, video_id, out_path, *, post, model, language, budget=None, **kwargs):
-        seen.update(mp4=mp4, model=model, budget=budget)
-        post(b"ljud", {"model": model, "language": language, "response_format": "verbose_json"})
+        seen.update(mp4=mp4, model=model, language=language, budget=budget)
         return _transcript(video_id, QUOTE)
 
-    monkeypatch.setattr(locate, "berget_post", lambda key: lambda audio, fields: sent.append(fields))
+    monkeypatch.setattr(locate, "berget_post", lambda key: lambda audio, fields: {})
     monkeypatch.setattr(locate, "transcribe_vod", fake_berget_vod)
     monkeypatch.setattr(locate, "transcribe_local", lambda *a, **kw: pytest.fail("lokal whisper"))
 
@@ -166,7 +164,7 @@ def test_berget_valt_transkriberar_via_berget_och_loggar_kostnaden(tmp_path, mon
     assert found is not None and found["vod_id"] == "111"
     assert seen["mp4"] == video and seen["model"] == settings.transcribe_model
     assert seen["budget"].db_path == settings.data_dir / "budget.db"  # kostnaden loggas i budgeten
-    assert sent == [{"model": settings.transcribe_model, "response_format": "verbose_json"}]  # Berget gissar språket
+    assert seen["language"] is None  # Berget gissar språket
 
 
 def test_berget_valt_utan_nyckel_ger_valueerror(tmp_path, monkeypatch, engine):

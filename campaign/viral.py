@@ -174,8 +174,8 @@ def _set_outliers(clips: list[dict], compared: list[dict]) -> None:
     median = statistics.median(rates) if rates else 0
     for c in clips:
         rate = c.get("views_per_day")
-        counts = rate is not None and median and (c.get("views") or 0) >= MIN_VIEWS
-        c["outlier"] = rate / median if counts else None
+        counts = median and (c.get("views") or 0) >= MIN_VIEWS
+        c["outlier"] = rate / median if rate is not None and counts else None
 
 
 def _with_outliers(clips: list[dict]) -> list[dict]:

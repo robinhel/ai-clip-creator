@@ -119,7 +119,7 @@ def test_twitch_klipp_far_plats_och_avvikare(root, profile, monkeypatch):
         "start_s": 70.0,  # vod_offset är klippets slut
         "end_s": 100.0,
         "method": "vod_offset",
-        "confidence": 1.0,
+        "confidence": 0.8,
     }
     assert b["measured"] is False and b["duration"] == 30.0 and b["creator"] == "tittare"
     assert b["posted_at"].startswith("2026-11-25")

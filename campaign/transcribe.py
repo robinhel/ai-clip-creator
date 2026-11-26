@@ -129,7 +129,7 @@ def transcribe_vod(
     *,
     post: Post,
     model: str,
-    language: str,
+    language: str | None,
     chunk_s: float = 1800.0,
     on_part: Callable[[int, int], None] | None = None,
     budget: Budget | None = None,
@@ -140,7 +140,9 @@ def transcribe_vod(
     ett fel bara skickar de delar som saknas. Mappen tas bort när allt är klart.
     """
     duration = probe(mp4)["duration"]
-    fields = {"model": model, "language": language, "response_format": "verbose_json", "align": "true"}
+    fields = {"model": model, "response_format": "verbose_json", "align": "true"}
+    if language is not None:  # utan språk gissar whisper det
+        fields["language"] = language
     saved = out_path.parent / "berget"
     settings = {"model": model, "language": language, "chunk_s": chunk_s, "lead_s": LEAD_S}  # sparade delar utan tystnad gäller inte
     meta = saved / "inställningar.json"
