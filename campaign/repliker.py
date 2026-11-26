@@ -102,7 +102,9 @@ def find_lines(
     model: str = MODEL,
     problems: list[str] | None = None,
 ) -> list[dict]:
-    """Haikus repliker, {t, quote, why, funny}, sorterade på funny (högst först) och sedan tid. Ett anrop per
+    """Haikus repliker, {t, quote, why, funny}, fördelade mellan bitarna: först varje bits bästa, sedan varje
+    bits näst bästa och så vidare, och inom samma varv på funny (högst först) och sedan tid. Då avgör inte en
+    enda bits betyg alla platser. Ett anrop per
     bit på cirka CHUNK_CHARS tecken, högst MAX_LINES repliker per bit. En träff utanför bitens tider kastas.
 
     Ett fel i en bit hoppar över biten och skrivs i `problems`. Är budgeten slut (BudgetExceeded) görs inga
@@ -113,7 +115,7 @@ def find_lines(
         if s.text.strip()
     ]
     parts = _parts(rows) if rows else []
-    found: list[dict] = []
+    found: list[tuple[int, dict]] = []  # (varv, replik)
     for number, part in enumerate(parts, 1):
         low, high = int(part[0][1]), max(row[2] for row in part)  # t är radens hela sekunder
         try:
@@ -133,13 +135,14 @@ def find_lines(
             if isinstance(error, BudgetExceeded):
                 break
             continue
+        mine: list[dict] = []
         for line in (answer.get("lines") or [])[:MAX_LINES]:
             try:
                 t = float(line["t"])
             except (KeyError, TypeError, ValueError):
                 continue
             if low <= t <= high:
-                found.append(
+                mine.append(
                     {
                         "t": t,
                         "quote": str(line.get("quote") or "").strip(),
@@ -147,7 +150,10 @@ def find_lines(
                         "funny": _funny(line.get("funny")),
                     }
                 )
-    return sorted(found, key=lambda line: (-line["funny"], line["t"]))
+        mine.sort(key=lambda line: (-line["funny"], line["t"]))
+        found += list(enumerate(mine))
+    found.sort(key=lambda item: (item[0], -item[1]["funny"], item[1]["t"]))
+    return [line for _, line in found]
 
 
 def _covers(c: CandidateMoment, t: float) -> bool:
@@ -286,5 +292,5 @@ def add_lines(
             )
         else:
             save(path, span, lines)
-    lines = [line for line in lines if span[0] <= line["t"] <= span[1]]
+    lines = [line for line in lines if int(span[0]) <= line["t"] <= span[1]]  # t i hela sekunder
     return merge(candidates, lines, gap_s, slots=slots)

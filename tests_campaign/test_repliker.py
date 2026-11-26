@@ -223,6 +223,21 @@ def test_a_very_long_transcript_is_split_in_as_few_parts_as_possible() -> None:
     )  # högst en rad över
 
 
+def test_each_parts_best_line_comes_before_the_next_round() -> None:
+    def answer(content: str) -> dict:
+        start = int(content[1 : content.index("]")])
+        if start < 400:  # ett lugnt moment, bitens bästa
+            return {"lines": [_line(100, "calm", 7)]}
+        return {"lines": [_line(start + 10 + 90 * k, "loud", 8) for k in range(5)]}
+
+    brain = FakeBrain(answer)
+    lines = repliker.find_lines(_segments(1200, text="x" * 400), brain)  # tre bitar
+    assert len(brain.calls) == 3 and len(lines) == 11
+    merged = repliker.merge([], lines, GAP, slots=5)
+    assert any(c.t_center == 100 and repliker.SOURCE in c.sources for c in merged)
+    assert len(merged) == 5
+
+
 # ---------- add_lines ----------
 
 
@@ -246,6 +261,15 @@ def test_saved_lines_are_used_again_without_a_new_call(tmp_path) -> None:
     second = repliker.add_lines(candidates, _segments(600), path, brain, GAP)
     assert len(brain.calls) == 1 and first == second
     assert json.loads(path.read_text(encoding="utf-8"))["lines"][0]["t"] == 250
+
+
+def test_a_line_on_the_first_row_of_a_part_starting_mid_second_is_kept(tmp_path) -> None:
+    segments = [Segment(start=4509.9, end=4515.2, text=REAL[4509.9], words=[])]
+    segments += [Segment(start=t, end=t + 5, text="ok", words=[]) for t in range(4516, 4600, 5)]
+    brain = FakeBrain({"lines": [_line(4509, funny=9)]})
+    candidates = [CandidateMoment(100.0, 10.0, ["chat_density"], ["x"])]
+    got = repliker.add_lines(candidates, segments, tmp_path / "repliker.json", brain, GAP)
+    assert any(repliker.SOURCE in c.sources for c in got)
 
 
 def test_an_old_cache_without_version_is_not_used(tmp_path) -> None:
