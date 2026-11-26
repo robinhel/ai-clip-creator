@@ -225,7 +225,12 @@ def merge(
         ids = {id(c) for c in taken}
         free = [c for c in out if id(c) not in ids and abs(c.t_center - t) < gap_s]
         lifted = min(free, key=lambda c: abs(c.t_center - t), default=None)
-        if lifted and t <= lifted.t_center and _covers(lifted, t, pre_s) and all(abs(lifted.t_center - c.t_center) >= gap_s for c in taken):
+        if (
+            lifted is not None
+            and t <= lifted.t_center
+            and _covers(lifted, t, pre_s)
+            and all(abs(lifted.t_center - c.t_center) >= gap_s for c in taken)
+        ):
             pos = lifted.t_center  # repliken före mitten: fönstret har den och det som kommer efter
         else:
             pos = _place(t, taken, gap_s, pre_s)

@@ -308,6 +308,7 @@ def make_clips(
         # Filens längd: Claudes slut efter filens slut gav ett för kort klipp. Egen fil: exakt från ffprobe.
         video_end_s = probe(mp4)["duration"] if local else float(meta.get("duration_s") or 0)
         # kampanjens fönster före mitten (clip.window_before_s) under valet, sedan selector.py:s eget igen
+        # Värdet gäller hela processen: clipsmiths egen POST /runs ska inte köras samtidigt (den har inte _start_lock).
         window_pre_s, selector.WINDOW_PRE_S = selector.WINDOW_PRE_S, profile.window_before_s
         try:
             picks = select_clips(candidates, transcript,

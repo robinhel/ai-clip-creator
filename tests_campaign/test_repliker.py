@@ -90,7 +90,6 @@ def test_the_viral_line_reaches_claude_among_the_20() -> None:
     assert len(top) == 20 and _has_viral(top)
     lifted = next(c for c in top if repliker.SOURCE in c.sources)
     assert lifted.t_center == 4512.0  # repliken ligger efter 4486: mitten flyttas, så reaktionen efter 4516 finns med
-    lifted = next(c for c in top if repliker.SOURCE in c.sources)
     assert "They know what I'm wearing" in lifted.reasons[-1]
     assert lifted.t_center - 60 <= 4512 <= lifted.t_center + 30  # repliken är i Claudes fönster
     assert len(merged) == 132  # kandidaten vid 4486 lyftes, ingen ny lades till
