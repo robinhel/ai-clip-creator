@@ -201,7 +201,7 @@ def build_candidate_prompt(transcript_window: str, candidate: CandidateMoment) -
         f"Score: {candidate.score:.1f}\n"
         f"Signal sources: {', '.join(candidate.sources)}\n\n"
         f"### Viewer signals\n{signals}\n\n"
-        f"### Transcript window (±60s around center)\n"
+        f"### Transcript window around center\n"
         f"{transcript_window}\n\n"
         f"Respond with JSON only."
     )

@@ -63,6 +63,7 @@ class Profile:
     search_default_scope: str = "latest"  # chatten letar i: latest = senaste materialet, all = allt
     style: str = ""  # smakfilen smak/<style>.md som går in i Claudes val; tom = ingen
     max_candidates: int = 20  # så många kandidater som Claude får se (clip.max_candidates, 10-60; under 10 får replikerna inga platser)
+    window_before_s: float = 60  # sekunder transkript före kandidatens mitt till Claude (clip.window_before_s, 30-120)
     raw: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -148,6 +149,13 @@ def _max_candidates(clip: dict) -> int:
     return value
 
 
+def _window_before_s(clip: dict) -> float:
+    value = _number(clip, "window_before_s", 60, "clip.window_before_s")
+    if not 30 <= value <= 120:
+        raise SystemExit(f"clip.window_before_s måste vara mellan 30 och 120, inte {value:g}.")
+    return value
+
+
 def _accounts(data: dict) -> dict[str, list[str]]:
     value = data.get("accounts") or {}
     if not (isinstance(value, dict) and all(isinstance(v, list) for v in value.values())):
@@ -221,6 +229,7 @@ def load_profile(name_or_path: str | Path, profiles_dir: Path) -> Profile:
         min_seconds=_number(clip, "min_seconds", 7, "clip.min_seconds"),
         max_seconds=_number(clip, "max_seconds", 60, "clip.max_seconds"),
         max_candidates=_max_candidates(clip),
+        window_before_s=_window_before_s(clip),
         formats=list(data.get("formats") or []),
         text=str(text.get("text") or ""),
         text_required=bool(text.get("required", False)),

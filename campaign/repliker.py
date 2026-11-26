@@ -156,12 +156,12 @@ def find_lines(
     return [line for _, line in found]
 
 
-def _covers(c: CandidateMoment, t: float) -> bool:
-    """Ligger t i transkriptet som Claude får för kandidaten (selector.py: 60 s före, 30 s efter)?"""
-    return c.t_center - WINDOW_PRE_S <= t <= c.t_center + WINDOW_POST_S
+def _covers(c: CandidateMoment, t: float, pre_s: float = WINDOW_PRE_S) -> bool:
+    """Ligger t i transkriptet som Claude får för kandidaten (selector.py: pre_s före, 30 s efter)?"""
+    return c.t_center - pre_s <= t <= c.t_center + WINDOW_POST_S
 
 
-def _place(t: float, taken: list[CandidateMoment], gap_s: float) -> float | None:
+def _place(t: float, taken: list[CandidateMoment], gap_s: float, pre_s: float = WINDOW_PRE_S) -> float | None:
     """En mittpunkt minst gap_s från de tagna, vars fönster har repliken: repliken själv, annars precis utanför
     en tagen kandidats avstånd. None om ingen finns."""
     options = [t] + [c.t_center + side * (gap_s + 0.5) for c in taken for side in (-1, 1)]
@@ -169,7 +169,7 @@ def _place(t: float, taken: list[CandidateMoment], gap_s: float) -> float | None
         p
         for p in options
         if p >= 0
-        and p - WINDOW_PRE_S <= t <= p + WINDOW_POST_S
+        and p - pre_s <= t <= p + WINDOW_POST_S
         and all(abs(p - c.t_center) >= gap_s for c in taken)
     ]
     return min(fits, key=lambda p: abs(p - t), default=None)
@@ -178,8 +178,10 @@ def _place(t: float, taken: list[CandidateMoment], gap_s: float) -> float | None
 def _mark(c: CandidateMoment, line: dict) -> None:
     if SOURCE not in c.sources:
         c.sources.append(SOURCE)
-    why = f" ({line['why']})" if line.get("why") else ""
-    c.reasons.append(f'Funny line at {line["t"]:.0f}s: "{line["quote"]}"{why}')
+    c.reasons.append(
+        f'Hint (Haiku): possible funny line at {line["t"]:.0f}s: "{line["quote"]}". The viewers\' signals may '
+        "point at a different moment; clip that moment if it is stronger."
+    )
 
 
 def merge(
@@ -188,15 +190,18 @@ def merge(
     gap_s: float,
     max_n: int = 20,
     slots: int = SLOTS,
+    pre_s: float = WINDOW_PRE_S,
 ) -> list[CandidateMoment]:
     """Kandidaterna med replikerna inlagda. Högst `slots` av de `max_n` platserna efter selector.py:s spridning
     går till repliker; resten fylls av signalerna som förut.
 
     Så sätts poängen: signalernas topp `max_n - slots` efter spridningen (samma _spread_candidates) är skyddad,
     och golvet är den lägsta poängen bland dem. En replik som redan finns i Claudes fönster för en skyddad
-    kandidat (60 s före, 30 s efter mitten) lägger bara citatet på den kandidaten. Annars lyfts närmaste
-    kandidat inom `gap_s` från repliken (eller en ny läggs till): mitten flyttas till repliken (eller precis
-    utanför `gap_s` från en skyddad, så att repliken ändå är i fönstret) och poängen blir minst golvet. Listan
+    kandidat (`pre_s` före, 30 s efter mitten, som Claude får det) lägger bara citatet på den kandidaten. Annars
+    lyfts närmaste kandidat inom `gap_s` från repliken (eller en ny läggs till) och poängen blir minst golvet.
+    Har den lyftas fönster redan repliken och ligger dess mitt minst `gap_s` från alla tagna, behåller den sin
+    mitt: chatten och replikerna kommer efter händelsen, och fönstret före mitten har situationen. Annars flyttas
+    mitten till repliken (eller precis utanför `gap_s` från en skyddad, så att repliken ändå är i fönstret). Listan
     sorteras med de skyddade först, sedan replikerna och sist resten vid lika poäng. Eftersom de lyfta ligger
     minst `gap_s` från alla skyddade och från varandra och ingen annan kandidat kommer före dem i ordningen
     (de med högre poäng är redan spärrade av de skyddade), tar spridningen de skyddade, sedan replikerna och
@@ -211,18 +216,21 @@ def merge(
     added: list[CandidateMoment] = []
     for line in lines:  # den bästa först (find_lines sorterar på funny)
         t = float(line["t"])
-        near = [c for c in taken if _covers(c, t)]
+        near = [c for c in taken if _covers(c, t, pre_s)]
         if near:
             _mark(min(near, key=lambda c: abs(c.t_center - t)), line)
             continue
         if len(added) >= slots:
             continue
-        pos = _place(t, taken, gap_s)
-        if pos is None:
-            continue
         ids = {id(c) for c in taken}
         free = [c for c in out if id(c) not in ids and abs(c.t_center - t) < gap_s]
         lifted = min(free, key=lambda c: abs(c.t_center - t), default=None)
+        if lifted and _covers(lifted, t, pre_s) and all(abs(lifted.t_center - c.t_center) >= gap_s for c in taken):
+            pos = lifted.t_center  # fönstret har redan repliken; mitten flyttas inte i onödan
+        else:
+            pos = _place(t, taken, gap_s, pre_s)
+        if pos is None:
+            continue
         if lifted is None:
             lifted = CandidateMoment(t_center=pos, score=floor, sources=[], reasons=[])
             out.append(lifted)
@@ -275,8 +283,9 @@ def add_lines(
     gap_s: float,
     slots: int = SLOTS,
     max_n: int = 20,
+    pre_s: float = WINDOW_PRE_S,
 ) -> list[CandidateMoment]:
-    """Kandidaterna med Haikus repliker (merge). Svaret sparas i `path` och används igen vid nästa körning, utan
+    """Kandidaterna med Haikus repliker (merge, med `pre_s` s transkript före mitten som Claude får). Svaret sparas i `path` och används igen vid nästa körning, utan
     nya anrop. Ett fel från Haiku (också budgeten) blir en rad i loggen och körningen går vidare med replikerna
     från bitarna som gick bra. Svaret sparas bara när alla bitar gick bra, så att nästa körning frågar igen."""
     if not segments:
@@ -294,4 +303,4 @@ def add_lines(
         else:
             save(path, span, lines)
     lines = [line for line in lines if int(span[0]) <= line["t"] <= span[1]]  # t i hela sekunder
-    return merge(candidates, lines, gap_s, max_n=max_n, slots=slots)
+    return merge(candidates, lines, gap_s, max_n=max_n, slots=slots, pre_s=pre_s)

@@ -63,7 +63,8 @@ def _top(candidates: list[CandidateMoment]) -> list[CandidateMoment]:
 
 
 def _has_viral(top: list[CandidateMoment]) -> bool:
-    return any(VIRAL[0] - 10 <= c.t_center <= VIRAL[1] + 10 for c in top)
+    """Har Claudes fönster (60 s före, 30 s efter mitten) för någon kandidat hela momentet?"""
+    return any(c.t_center - 60 <= VIRAL[0] and VIRAL[1] <= c.t_center + 30 for c in top)
 
 
 def _segments(seconds: int, step: int = 5, text: str = "ok") -> list[Segment]:

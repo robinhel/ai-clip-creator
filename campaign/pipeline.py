@@ -26,6 +26,7 @@ from clipsmith.models.transcript import Transcript
 from clipsmith.models.twitch import Video
 from clipsmith.pipeline import process_vod, save_picks
 from clipsmith.rendering.clipper import cut_all_clips
+from clipsmith.selection import selector
 from clipsmith.selection.selector import PickResult, select_clips
 from clipsmith.twitch.client import TwitchClient
 
@@ -287,7 +288,7 @@ def make_clips(
             stop()  # inget anrop till Haiku efter Avbryt
             candidates = repliker.add_lines(candidates, transcript.segments, mp4.parent / "repliker.json",
                                             Brain(settings, budget_from_settings(settings)), cfg.clip.min_clip_gap_s,
-                                            max_n=profile.max_candidates)
+                                            max_n=profile.max_candidates, pre_s=profile.window_before_s)
         # alla kandidater efter replikerna, med poängen; Claude ser topp max_candidates
         save_candidates(candidates, mp4.parent / "candidates.valda.json")
 
@@ -306,10 +307,15 @@ def make_clips(
             game=game or "", language=profile.language, formats=profile.formats, mode=cfg.clip.selection_mode)
         # Filens längd: Claudes slut efter filens slut gav ett för kort klipp. Egen fil: exakt från ffprobe.
         video_end_s = probe(mp4)["duration"] if local else float(meta.get("duration_s") or 0)
-        picks = select_clips(candidates, transcript,
-                             SimpleNamespace(pick=ask, rank=rank if getattr(picker, "rank", None) else None),
-                             context, cfg.clip, max_candidates=profile.max_candidates,
-                             video_end_s=video_end_s)
+        # kampanjens fönster före mitten (clip.window_before_s) under valet, sedan selector.py:s eget igen
+        window_pre_s, selector.WINDOW_PRE_S = selector.WINDOW_PRE_S, profile.window_before_s
+        try:
+            picks = select_clips(candidates, transcript,
+                                 SimpleNamespace(pick=ask, rank=rank if getattr(picker, "rank", None) else None),
+                                 context, cfg.clip, max_candidates=profile.max_candidates,
+                                 video_end_s=video_end_s)
+        finally:
+            selector.WINDOW_PRE_S = window_pre_s
         for result in picks:
             if result.pick.format not in profile.format_ids:
                 result.pick.format = None  # ett id som kampanjen inte har blir inget format
