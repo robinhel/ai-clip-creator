@@ -6,3 +6,7 @@ python-dotenv>=1.0
 pytest>=8
 # MCP-servern för Claude Code (campaign/mcp_server.py). Version 2: FastMCP heter MCPServer.
 mcp>=2.3,<3
+# Smak ur virala klipp (campaign/taste.py kör campaign/vendor/reverse_video/measure.py).
+# rapidocr läser text på bilden och drar med sig opencv-python-headless och Pillow. yt-dlp hämtar länkar.
+rapidocr>=3.10
+yt-dlp>=2026.11
