@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 import yaml
 
@@ -204,6 +205,26 @@ def test_a_second_run_does_not_call_berget_again_and_facit_keeps_earlier_clips(
     facit = yaml.safe_load((vod_dir / "viral" / "facit.yaml").read_text(encoding="utf-8"))
     assert sorted(m["start"] for m in facit["moments"]) == [t(20), t(40)]
     assert "picks.json saknas" in capsys.readouterr().out
+
+
+@needs_ffmpeg
+def test_a_file_without_video_is_skipped_and_the_next_clip_is_read(settings, capsys) -> None:
+    vod_dir = settings.work_dir / "778"
+    vod_dir.mkdir(parents=True)
+    words = vod_words(VOD)
+    transcript = Transcript("778", "sv", [Segment(words[0].start, words[-1].end, TEXT, words)])
+    (vod_dir / "transcript.json").write_text(transcript.to_json(), encoding="utf-8")
+    mp3 = settings.root / "ljud" / "bildspel.mp3"
+    mp3.parent.mkdir(parents=True)
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440", "-t", "2", str(mp3)],
+        check=True,
+    )
+    mp4 = make_clip(settings.root / "klipp" / "viralt.mp4", size="320x180", seconds=3)
+    seen = []
+    viral.run("778", [str(mp3), str(mp4)], settings.work_dir, lambda path, out: seen.append(path))
+    assert [p.parent.name for p in seen] == [next((vod_dir / "viral").glob("fil-viralt-*")).name]
+    assert "hoppar över, filen har ingen video (bildspel eller bara ljud)" in capsys.readouterr().out
 
 
 def test_a_txt_file_is_a_list_of_sources(tmp_path, monkeypatch) -> None:

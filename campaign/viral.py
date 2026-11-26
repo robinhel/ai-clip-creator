@@ -425,7 +425,16 @@ def run(vod_id: str, sources: list[str], work_dir: Path, transcribe: Transcribe)
             if out.exists():
                 continue
             mp4 = clip["dir"] / clip["file"]
-            seconds = probe(mp4)["duration"]
+            try:
+                seconds = probe(mp4)["duration"]
+            except RuntimeError as error:  # TikTok-bildspel kommer som mp3 eller m4a
+                if "ingen videoström" not in str(error):
+                    raise
+                print(
+                    f"  {clip['dir'].name}: hoppar över, filen har ingen video (bildspel eller bara ljud).",
+                    flush=True,
+                )
+                continue
             if seconds > MAX_S:
                 print(
                     f"  Hoppar över {clip['dir'].name}: {seconds / 60:.0f} minuter är längre än 10 minuter.",
