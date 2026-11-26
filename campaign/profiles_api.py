@@ -23,11 +23,9 @@ from twitchdl import twitch
 
 from clipsmith.api.deps import verify_api_key
 
-from . import chat, examples
+from . import chat, examples, taste_api
 from . import profile_edit as edit
 from .api import _describe_profile, _log, _profile_names, get_settings
-from .brain import Brain
-from .budget import BudgetExceeded, budget_from_settings
 from .config import Settings
 from .media import need, probe, run
 from .profile import Profile, load_profile
@@ -35,6 +33,7 @@ from .tiktok import TikTok
 from .youtube import YouTube
 
 router = APIRouter(prefix="/campaign", tags=["campaign"])
+router.include_router(taste_api.router)  # smaken från virala klipp
 _write_lock = threading.Lock()  # en ändring av kampanjfilerna i taget
 _frame_lock = threading.Lock()
 OVERLAY_MAX = 10 * 1024 * 1024
@@ -320,74 +319,6 @@ def get_examples(profile_id: str, settings: Settings = Depends(get_settings)) ->
     except RuntimeError as error:
         raise HTTPException(502, str(error)) from error
     return {"source": url, "problem": None, **data}
-
-
-# ---------- smak från virala klipp ----------
-
-
-class ViralLink(BaseModel):
-    url: str = Field(min_length=1, max_length=2000)
-    views: int | None = Field(default=None, ge=0)
-
-
-def _taste_state(profile: Profile) -> dict:
-    from . import taste, viral
-
-    return {"taste": taste.load_taste(profile), "clips": viral.load(profile)}
-
-
-@contextmanager
-def _taste_errors() -> Iterator[None]:
-    """Felen från campaign/viral.py och taste.py som svar: fel i det skickade 400, budgettaket 402, nätet 502."""
-    try:
-        yield
-    except ValueError as error:
-        raise HTTPException(400, str(error)) from error
-    except BudgetExceeded as error:
-        raise HTTPException(402, f"{error} Nothing was saved.") from error
-    except RuntimeError as error:
-        raise HTTPException(502, str(error)) from error
-
-
-@router.get("/profiles/{profile_id}/taste", summary="The taste from viral clips, and the clips it comes from")
-def get_taste(profile_id: str, settings: Settings = Depends(get_settings)) -> dict:
-    return _taste_state(_load(profile_id, settings))
-
-
-@router.post("/profiles/{profile_id}/viral/collect", summary="Fetch the campaign's viral clips and find the outliers",
-             dependencies=[Depends(verify_api_key)])
-def collect_viral(profile_id: str, settings: Settings = Depends(get_settings)) -> dict:
-    from . import viral
-
-    profile = _load(profile_id, settings)
-    with _taste_errors():
-        viral.collect(profile)
-    return _taste_state(profile)
-
-
-@router.post("/profiles/{profile_id}/viral/link", summary="Add a viral clip from a link",
-             dependencies=[Depends(verify_api_key)])
-def add_viral_link(profile_id: str, body: ViralLink, settings: Settings = Depends(get_settings)) -> dict:
-    from . import viral
-
-    profile = _load(profile_id, settings)
-    with _taste_errors():
-        viral.add_link(profile, body.url.strip(), views=body.views)
-    return _taste_state(profile)
-
-
-@router.post("/profiles/{profile_id}/taste/analyse", summary="Ask Claude how the top outliers were made",
-             dependencies=[Depends(verify_api_key)])
-def analyse_taste(profile_id: str, settings: Settings = Depends(get_settings)) -> dict:
-    from . import taste
-
-    profile = _load(profile_id, settings)
-    brain = Brain(settings, budget_from_settings(settings))
-    if not brain.available:
-        raise HTTPException(400, "The Claude key is missing. Add it under Settings, then analyse again.")
-    with _taste_errors():
-        taste.analyse(profile, brain=brain)
-    return _taste_state(profile)
 
 
 # ---------- profilens YAML ----------
