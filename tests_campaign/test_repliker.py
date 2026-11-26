@@ -199,16 +199,16 @@ def test_a_line_outside_its_part_is_dropped() -> None:
 
 
 def test_budget_stop_keeps_earlier_parts_and_asks_no_more() -> None:
-    segments = _segments(1200, text="x" * 400)  # fyra bitar
+    segments = _segments(1800, text="x" * 400)  # fyra bitar
     brain = FakeBrain(
         RuntimeError("nätverk"),
-        {"lines": [_line(400)]},
+        {"lines": [_line(600)]},
         BudgetExceeded("Månadens budget är slut."),
-        {"lines": [_line(1100)]},
+        {"lines": [_line(1700)]},
     )
     problems: list[str] = []
     lines = repliker.find_lines(segments, brain, problems=problems)
-    assert len(brain.calls) == 3 and [line["t"] for line in lines] == [400.0]
+    assert len(brain.calls) == 3 and [line["t"] for line in lines] == [600.0]
     assert len(problems) == 2
 
 

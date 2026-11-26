@@ -1,6 +1,18 @@
-"""Roliga repliker: Haiku läser hela transkriptet och hittar repliker som en främling förstår och skulle dela.
-De blir kandidater, så att lugna roliga moment når Claude också när signalerna (chatt, hype-ord, ljud,
-tittarklipp) ger dem låg poäng. Antalet kandidater till Claude ändras inte."""
+"""Roliga repliker: Haiku läser transkriptet i bitar på cirka 40 000 tecken och hittar repliker som en främling
+förstår och skulle dela, med ett betyg 1-10. De bästa blir kandidater, så att lugna roliga moment når Claude
+också när signalerna (chatt, hype-ord, ljud, tittarklipp) ger dem låg poäng. Antalet kandidater till Claude
+ändras inte.
+
+Varför bitar: på Macen gav ett enda anrop för 3 timmar (45 470 tokens in) bara 2 repliker, men 1 timme
+(10 503 tokens) gav 15. En bit på 40 000 tecken är cirka 10 000 tokens.
+
+Kostnad med Haiku (0,10 dollar per miljon tokens in, 0,50 ut, priser.yaml). Systemtexten (cirka 300 tokens)
+skickas i varje anrop, och svaret är högst cirka 900 tokens (15 repliker):
+- 1 timme, cirka 10 500 tokens och 1-2 anrop: in cirka 11 000 tokens = 0,0011, ut högst 1 800 = 0,0009,
+  alltså högst cirka 0,002 dollar.
+- 3 timmar, cirka 45 500 tokens och 5 anrop: in cirka 47 000 = 0,0047, ut högst 4 500 = 0,0023,
+  alltså högst cirka 0,007 dollar.
+"""
 
 from __future__ import annotations
 
@@ -16,21 +28,26 @@ from clipsmith.models.transcript import Segment
 from clipsmith.selection.selector import WINDOW_POST_S, WINDOW_PRE_S, _spread_candidates
 
 from .brain import Brain
+from .budget import BudgetExceeded
 
 log = logging.getLogger(__name__)
 
 MODEL = "claude-haiku-5-5"
-MAX_LINES = 15
-CHUNK_CHARS = 240_000  # ungefär 60 000 tokens; ett transkript på 3 timmar ryms i ett anrop
+MAX_LINES = 15  # per bit
+CHUNK_CHARS = 40_000  # ungefär 10 000 tokens; ett stort anrop ger för få repliker
+SLOTS = 5  # högst så många av Claudes kandidater blir repliker
+VERSION = 2  # repliker.json med annan version (eller ingen) frågas om
 SOURCE = "funny_line"
 
-SYSTEM = """You read the full transcript of a livestream. Find the funniest, most absurd or most quotable lines: \
-lines that a stranger who never watched the stream understands right away and would share with a friend. \
+SYSTEM = """You read one part of the transcript of a livestream. Find the funniest, most absurd or most quotable \
+lines: lines that a stranger who never watched the stream understands right away and would share with a friend. \
 Calm, dry and deadpan lines count as much as loud ones. Do not pick hype, shouting, cheering or game callouts, \
 and do not pick lines that need earlier parts of the stream to be funny.
 Each transcript line starts with its time in seconds: [seconds] text.
-Return at most 15 lines, the best first. For each: t = the seconds of the transcript line where the quote is said, \
-quote = the words exactly as written in the transcript, why = a few words on why a stranger would share it."""
+Return up to 15 lines, the best first; give 15 when the part has that many worth a look. For each: \
+t = the seconds of the transcript line where the quote is said, quote = the words exactly as written in the \
+transcript, why = a few words on why a stranger would share it, funny = how funny it is to a stranger from 1 \
+(barely) to 10 (would share it right away)."""
 
 SCHEMA = {
     "type": "object",
@@ -44,8 +61,9 @@ SCHEMA = {
                     "t": {"type": "number"},
                     "quote": {"type": "string"},
                     "why": {"type": "string"},
+                    "funny": {"type": "integer", "minimum": 1, "maximum": 10},
                 },
-                "required": ["t", "quote", "why"],
+                "required": ["t", "quote", "why", "funny"],
             },
         }
     },
@@ -58,36 +76,63 @@ def enabled() -> bool:
     return os.environ.get("KLIPP_REPLIKER", "1").strip() != "0"
 
 
-def _parts(rows: list[str]) -> list[list[str]]:
-    """Raderna i så få lika stora bitar som möjligt, var och en högst cirka CHUNK_CHARS tecken (en rad till)."""
-    total = sum(len(row) + 1 for row in rows)
+def _parts(rows: list[tuple[str, float, float]]) -> list[list[tuple[str, float, float]]]:
+    """Raderna (text, start, slut) i så få lika stora bitar som möjligt, var och en högst cirka CHUNK_CHARS
+    tecken (en rad till)."""
+    total = sum(len(row[0]) + 1 for row in rows)
     count = math.ceil(total / CHUNK_CHARS)
-    parts: list[list[str]] = [[] for _ in range(count)]
+    parts: list[list[tuple[str, float, float]]] = [[] for _ in range(count)]
     used = 0
     for row in rows:  # raden hamnar i biten där den börjar
         parts[min(count - 1, used * count // total)].append(row)
-        used += len(row) + 1
+        used += len(row[0]) + 1
     return [part for part in parts if part]
 
 
-def find_lines(transcript_segments: list[Segment], brain: Brain, model: str = MODEL) -> list[dict]:
-    """Haikus repliker, {t, quote, why}, högst 15 per anrop. Ett anrop per bit av transkriptet (en bit upp till
-    cirka 60 000 tokens). En träff utanför transkriptets tider kastas."""
-    rows = [f"[{int(s.start)}] {s.text.strip()}" for s in transcript_segments if s.text.strip()]
-    if not rows:
-        return []
-    low = min(s.start for s in transcript_segments)
-    high = max(s.end for s in transcript_segments)
+def _funny(value) -> int:
+    try:
+        return max(0, min(10, int(value)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def find_lines(
+    transcript_segments: list[Segment],
+    brain: Brain,
+    model: str = MODEL,
+    problems: list[str] | None = None,
+) -> list[dict]:
+    """Haikus repliker, {t, quote, why, funny}, sorterade på funny (högst först) och sedan tid. Ett anrop per
+    bit på cirka CHUNK_CHARS tecken, högst MAX_LINES repliker per bit. En träff utanför bitens tider kastas.
+
+    Ett fel i en bit hoppar över biten och skrivs i `problems`. Är budgeten slut (BudgetExceeded) görs inga
+    fler anrop; replikerna från bitarna före finns kvar."""
+    rows = [
+        (f"[{int(s.start)}] {s.text.strip()}", s.start, s.end)
+        for s in transcript_segments
+        if s.text.strip()
+    ]
+    parts = _parts(rows) if rows else []
     found: list[dict] = []
-    for part in _parts(rows):
-        answer = brain.ask(
-            purpose="repliker",
-            model=model,
-            system=SYSTEM,
-            content="\n".join(part),
-            schema=SCHEMA,
-            max_tokens=2000,
-        )
+    for number, part in enumerate(parts, 1):
+        low, high = int(part[0][1]), max(row[2] for row in part)  # t är radens hela sekunder
+        try:
+            answer = brain.ask(
+                purpose="repliker",
+                model=model,
+                system=SYSTEM,
+                content="\n".join(row[0] for row in part),
+                schema=SCHEMA,
+                max_tokens=2000,
+            )
+        except Exception as error:  # budgeten, nätverket, nyckeln: biten hoppas över
+            text = f"Bit {number} av {len(parts)}: {type(error).__name__}: {error}"
+            log.warning("Haiku: %s", text)
+            if problems is not None:
+                problems.append(text)
+            if isinstance(error, BudgetExceeded):
+                break
+            continue
         for line in (answer.get("lines") or [])[:MAX_LINES]:
             try:
                 t = float(line["t"])
@@ -99,9 +144,10 @@ def find_lines(transcript_segments: list[Segment], brain: Brain, model: str = MO
                         "t": t,
                         "quote": str(line.get("quote") or "").strip(),
                         "why": str(line.get("why") or "").strip(),
+                        "funny": _funny(line.get("funny")),
                     }
                 )
-    return found
+    return sorted(found, key=lambda line: (-line["funny"], line["t"]))
 
 
 def _covers(c: CandidateMoment, t: float) -> bool:
@@ -135,7 +181,7 @@ def merge(
     lines: list[dict],
     gap_s: float,
     max_n: int = 20,
-    slots: int = 5,
+    slots: int = SLOTS,
 ) -> list[CandidateMoment]:
     """Kandidaterna med replikerna inlagda. Högst `slots` av de `max_n` platserna efter selector.py:s spridning
     går till repliker; resten fylls av signalerna som förut.
@@ -157,7 +203,7 @@ def merge(
     floor = min((c.score for c in kept), default=0.0)
     taken = list(kept)
     added: list[CandidateMoment] = []
-    for line in lines:  # Haikus ordning: den bästa först
+    for line in lines:  # den bästa först (find_lines sorterar på funny)
         t = float(line["t"])
         near = [c for c in taken if _covers(c, t)]
         if near:
@@ -183,14 +229,36 @@ def merge(
 
 
 def _cached(path: Path, span: list[float]) -> list[dict] | None:
-    """Sparade repliker om de gäller hela den här delen av VOD:en, annars None."""
+    """Sparade repliker om de har den här versionen och gäller hela den här delen av VOD:en, annars None.
+    En rad utan t eller citat hoppas över."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("version") != VERSION:
+            return None
         if data["span"][0] <= span[0] and data["span"][1] >= span[1]:
-            return list(data["lines"])
-    except (OSError, ValueError, KeyError, TypeError, IndexError):
+            return [
+                line
+                for line in data["lines"]
+                if isinstance(line, dict)
+                and isinstance(line.get("t"), (int, float))
+                and line.get("quote")
+            ]
+    except (OSError, ValueError, KeyError, TypeError, IndexError, AttributeError):
         pass
     return None
+
+
+def span_of(segments: list[Segment]) -> list[float]:
+    return [min(s.start for s in segments), max(s.end for s in segments)]
+
+
+def save(path: Path, span: list[float], lines: list[dict]) -> None:
+    path.write_text(
+        json.dumps(
+            {"version": VERSION, "span": span, "lines": lines}, ensure_ascii=False, indent=1
+        ),
+        encoding="utf-8",
+    )
 
 
 def add_lines(
@@ -199,28 +267,24 @@ def add_lines(
     path: Path,
     brain: Brain,
     gap_s: float,
+    slots: int = SLOTS,
 ) -> list[CandidateMoment]:
     """Kandidaterna med Haikus repliker (merge). Svaret sparas i `path` och används igen vid nästa körning, utan
-    nytt anrop. Ett fel från Haiku (också budgeten) blir en rad i loggen, och körningen går vidare utan repliker."""
+    nya anrop. Ett fel från Haiku (också budgeten) blir en rad i loggen och körningen går vidare med replikerna
+    från bitarna som gick bra. Svaret sparas bara när alla bitar gick bra, så att nästa körning frågar igen."""
     if not segments:
         return candidates
-    span = [min(s.start for s in segments), max(s.end for s in segments)]
+    span = span_of(segments)
     lines = _cached(path, span)
     if lines is None:
-        try:
-            lines = find_lines(segments, brain)
-        except (
-            Exception
-        ) as error:  # budgeten, nätverket, nyckeln: körningen klarar sig utan repliker
+        problems: list[str] = []
+        lines = find_lines(segments, brain, problems=problems)
+        if problems:
             log.warning(
-                "Haiku hittade inga repliker (%s: %s). Körningen går vidare utan dem.",
-                type(error).__name__,
-                error,
+                "Haiku gav repliker för en del av VOD:en (%d fel). Körningen går vidare.",
+                len(problems),
             )
-            return candidates
-        path.write_text(
-            json.dumps({"span": span, "lines": lines}, ensure_ascii=False, indent=1),
-            encoding="utf-8",
-        )
+        else:
+            save(path, span, lines)
     lines = [line for line in lines if span[0] <= line["t"] <= span[1]]
-    return merge(candidates, lines, gap_s)
+    return merge(candidates, lines, gap_s, slots=slots)

@@ -411,6 +411,41 @@ def cmd_viral(args, settings: Settings) -> int:
     return viral.run(args.vod_id, args.sources, settings.work_dir, transcribe)
 
 
+def cmd_repliker(args, settings: Settings) -> int:
+    """Bara Haikus repliker på work/<VOD>/transcript.json: inget Claude-val, repliker.json skrivs bara med --save."""
+    from clipsmith.models.transcript import Transcript
+
+    from . import repliker
+
+    path = settings.work_dir / args.vod_id / "transcript.json"
+    if not path.exists():
+        raise SystemExit(f"Transkriptet saknas: {path}")
+    if not settings.anthropic_api_key:
+        raise SystemExit("Fyll i ANTHROPIC_API_KEY i .env först.")
+    segments = [s for s in Transcript.from_json(path.read_text(encoding="utf-8")).segments
+                if s.start >= args.from_s and (args.to_s is None or s.start <= args.to_s)]
+    if not segments:
+        raise SystemExit("Inget tal i den delen av transkriptet.")
+    budget = _budget(settings)
+    before = budget.spent_month()
+    problems: list[str] = []
+    lines = repliker.find_lines(segments, Brain(settings, budget), problems=problems)
+    usd = budget.spent_month() - before
+    for line in lines:
+        minutes, seconds = divmod(int(line["t"]), 60)
+        print(f"{minutes // 60}:{minutes % 60:02d}:{seconds:02d}  {line['funny']:>2}/10  "
+              f"\"{line['quote']}\"  ({line['why']})")
+    for problem in problems:
+        print(f"FEL {problem}")
+    print(f"\n{len(lines)} repliker. Kostnad: {usd:.4f} dollar.")
+    if args.save and not problems:
+        repliker.save(path.parent / "repliker.json", repliker.span_of(segments), lines)
+        print(f"Sparat i {path.parent / 'repliker.json'}")
+    elif args.save:
+        print("Inte sparat, eftersom någon bit gav fel.")
+    return 1 if problems else 0
+
+
 def cmd_samla(args, settings: Settings) -> int:
     from datetime import UTC, datetime
 
@@ -508,6 +543,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("sources", nargs="+",
                    help="mp4-fil, mapp med mp4-filer, Content Rewards-kampanjlänk eller länk till TikTok, Instagram, YouTube")
     p.set_defaults(func=cmd_viral)
+
+    p = sub.add_parser("repliker", help="Prova bara Haikus roliga repliker på en VOD:s transkript")
+    p.add_argument("vod_id", help="VOD-id, samma som mappnamnet i work/")
+    p.add_argument("--from", dest="from_s", type=_decimal, default=0.0, help="från sekund")
+    p.add_argument("--to", dest="to_s", type=_decimal, help="till sekund")
+    p.add_argument("--save", action="store_true", help="Spara svaret i repliker.json för nästa körning")
+    p.set_defaults(func=cmd_repliker)
 
     p = sub.add_parser("samla", help="Samla virala klipp, mät dem två gånger och välj ut de som växer snabbast")
     samla = p.add_subparsers(dest="samla", required=True)
