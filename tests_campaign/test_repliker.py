@@ -380,7 +380,8 @@ def test_the_campaigns_max_candidates_decides_how_many_claude_sees(settings, vod
     _make(settings, vod)
     assert len(vod.picker.seen) == 30
     saved = json.loads((vod.mp4.parent / "candidates.valda.json").read_text(encoding="utf-8"))
-    assert any(repliker.SOURCE in c["sources"] and "I'm not even mad" in c["reasons"][-1] for c in saved)
+    line = [c for c in saved if repliker.SOURCE in c["sources"] and "I'm not even mad" in c["reasons"][-1]]
+    assert [c["score"] for c in line] == [60.0 - 24]  # golvet är signalernas 25:e (30 - 5), inte 15:e (20 - 5)
     assert not any(repliker.SOURCE in c["sources"] for c in json.loads(
         (vod.mp4.parent / "candidates.json").read_text(encoding="utf-8")))  # candidates.json är orörd
 

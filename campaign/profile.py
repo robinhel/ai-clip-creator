@@ -62,7 +62,7 @@ class Profile:
     accounts_style: dict[str, dict] = field(default_factory=dict)
     search_default_scope: str = "latest"  # chatten letar i: latest = senaste materialet, all = allt
     style: str = ""  # smakfilen smak/<style>.md som går in i Claudes val; tom = ingen
-    max_candidates: int = 20  # så många kandidater som Claude får se (clip.max_candidates, 5-60)
+    max_candidates: int = 20  # så många kandidater som Claude får se (clip.max_candidates, 10-60; under 10 får replikerna inga platser)
     raw: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -143,8 +143,8 @@ def _number(section: dict, key: str, default: float, label: str, kind: type = fl
 
 def _max_candidates(clip: dict) -> int:
     value = _number(clip, "max_candidates", 20, "clip.max_candidates", int)
-    if not 5 <= value <= 60:
-        raise SystemExit(f"clip.max_candidates måste vara mellan 5 och 60, inte {value}.")
+    if not 10 <= value <= 60:
+        raise SystemExit(f"clip.max_candidates måste vara mellan 10 och 60, inte {value}.")
     return value
 
 

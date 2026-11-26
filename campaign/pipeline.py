@@ -288,7 +288,8 @@ def make_clips(
             candidates = repliker.add_lines(candidates, transcript.segments, mp4.parent / "repliker.json",
                                             Brain(settings, budget_from_settings(settings)), cfg.clip.min_clip_gap_s,
                                             max_n=profile.max_candidates)
-        save_candidates(candidates, mp4.parent / "candidates.valda.json")  # det som gick in i valet, med repliker
+        # alla kandidater efter replikerna, med poängen; Claude ser topp max_candidates
+        save_candidates(candidates, mp4.parent / "candidates.valda.json")
 
         def ask(*args):
             nonlocal asked

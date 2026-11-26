@@ -95,10 +95,10 @@ def test_heading_comes_first_also_without_focus_and_memory(settings) -> None:
     assert load_taste("gta", settings.root) in focus
 
 
-def test_max_candidates_outside_5_to_60_names_the_field(settings) -> None:
+def test_max_candidates_outside_10_to_60_names_the_field(settings) -> None:
     assert _profile(settings, None).max_candidates == 20
     path = settings.profiles_dir / "skiimasktimmy.yaml"
-    path.write_text(path.read_text(encoding="utf-8").replace("clip:\n", "clip:\n  max_candidates: 3\n", 1),
+    path.write_text(path.read_text(encoding="utf-8").replace("clip:\n", "clip:\n  max_candidates: 9\n", 1),
                     encoding="utf-8")
     with pytest.raises(SystemExit, match=r"clip\.max_candidates"):
         load_profile("skiimasktimmy", settings.profiles_dir)
