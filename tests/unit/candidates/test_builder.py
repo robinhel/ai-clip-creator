@@ -28,7 +28,7 @@ def _chat(messages: list[ChatMessage]) -> ChatLog:
     return ChatLog(video_id="v1", messages=messages)
 
 
-def _clip(offset: int, clip_id: str = "c1", views: int = 100) -> Clip:
+def _clip(offset: int, clip_id: str = "c1", views: int = 100, duration: float = 25.0) -> Clip:
     return Clip(
         id=clip_id,
         url="https://twitch.tv/clip/x",
@@ -36,7 +36,7 @@ def _clip(offset: int, clip_id: str = "c1", views: int = 100) -> Clip:
         creator_name="creator",
         video_id="v1",
         vod_offset=offset,
-        duration=25.0,
+        duration=duration,
         view_count=views,
         created_at="2026-04-27T20:30:00Z",
     )
@@ -169,9 +169,34 @@ def test_existing_clip_gets_boost():
     candidates = build_candidates(chat, clips, cfg)
     assert candidates, "expected at least one candidate"
     top = candidates[0]
-    assert top.t_center == pytest.approx(300.0)
+    assert top.t_center == pytest.approx(287.5)  # mitten av klippet: 300 - 25/2
     assert "existing_clip" in top.sources
     assert 1.0 <= top.score <= 100.0
+
+
+# Helix ger klippets slut i vod_offset, så kandidaten ligger i klippets mitt.
+@pytest.mark.parametrize(
+    ("offset", "duration", "expected"),
+    [(918, 21.0, 907.5), (5, 21.0, 0.0), (918, 0.0, 918.0)],
+    ids=["mitten", "nara-borjan", "utan-duration"],
+)
+def test_existing_clip_time_is_clip_middle(offset, duration, expected):
+    clips = [_clip(offset=offset, duration=duration)]
+    candidates = build_candidates(_chat([]), clips, _cfg(density_peak_multiplier=99.0))
+    assert [c.t_center for c in candidates] == [pytest.approx(expected)]
+
+
+def test_existing_clip_fix_leaves_other_signals():
+    cfg = _cfg(density_peak_multiplier=99.0, dedupe_window_s=5.0)
+    chat = _chat([_msg(150.0, "!clip this", "viewer1")])
+    tr = _transcript([(120.0, 123.0, " jajaja qué bueno!")])
+    clips = [_clip(offset=918, duration=21.0)]
+
+    candidates = build_candidates(chat, clips, cfg, transcript=tr)
+    by_source = {c.sources[0]: c.t_center for c in candidates}
+    assert by_source["existing_clip"] == pytest.approx(907.5)
+    assert by_source["clip_command"] == pytest.approx(150.0)
+    assert 120.0 <= by_source["transcript_hype"] <= 123.0
 
 
 def test_clip_command_creates_candidate():
