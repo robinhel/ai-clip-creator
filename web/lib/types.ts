@@ -733,7 +733,19 @@ export interface ViralClip {
   duration: number | null;
   /** Var i originalströmmen klippet kommer ifrån, eller null när det inte hittades. */
   location: { vod_id: string; start_s: number; end_s: number; method: string; confidence: number } | null;
-  measured: Record<string, unknown> | null;
+  /** true när klippet är mätt med measure.py. */
+  measured: boolean;
+  /** Mätningen (campaign/taste.py pick), eller saknas när klippet inte är mätt. */
+  taste?: {
+    length_s: number | null;
+    first_cut_s: number | null;
+    cuts_per_min: number | null;
+    caption_words: number | null;
+    caption_position: string | null;
+    hook_text: boolean;
+    has_face: boolean | null;
+    words_per_min: number | null;
+  } | null;
 }
 
 /** Smaken från de virala klippen (campaign/taste.py). */
@@ -750,14 +762,20 @@ export interface Taste {
     payoff_s: number | null;
   };
   rules: string[];
-  /** Texten Claude får när den väljer klipp. */
   summary_en: string;
 }
 
-/** GET /campaign/profiles/{id}/taste, och svaret från smakens POST-vägar. */
+/** GET /campaign/profiles/{id}/taste, och svaret från smakens POST-vägar. Länk och analys svarar 202 med bara
+ * taste, clips och running: true; GET visar sedan running och error tills jobbet är klart. */
 export interface CampaignTaste {
   taste: Taste | null;
   clips: ViralClip[];
+  /** Hela texten Claude får när den väljer klipp (taste_text). Saknas i 202-svaren. */
+  text?: string;
+  /** true medan en länk eller en analys körs i bakgrunden. */
+  running?: boolean;
+  /** Felet från det senaste bakgrundsjobbet, eller null. */
+  error?: string | null;
 }
 
 /** [x, y, bredd, höjd] i källbildens pixlar (1920x1080). */
