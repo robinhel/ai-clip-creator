@@ -203,9 +203,18 @@ def _measure_download(clip: dict) -> None:
         video = Path(tmp) / "video.mp4"
         _download(str(_cdn_url(clip)), video)
         clip["taste"] = measure(video)
-        place = locate.locate({**clip, "path": str(video)})
+        place = _try_locate({**clip, "path": str(video)})
         if place:
             clip["location"] = place
+
+
+def _try_locate(clip: dict) -> dict | None:
+    """locate.locate, men ett fel (till exempel i whisper) ger en varning och None i stället för att avbryta."""
+    try:
+        return locate.locate(clip)
+    except Exception as error:  # platsen är en bonus; mätningen ska sparas ändå
+        log.warning("Could not locate %s in the stream (%s)", clip.get("id"), type(error).__name__)
+        return None
 
 
 def _download(url: str, path: Path) -> None:
@@ -269,19 +278,19 @@ def _ask(brain: Brain, numbers: dict, measured: list[dict], moments: list[dict])
 
 def analyse(profile, top_n: int = 5, brain: Brain | None = None) -> dict:
     """Bygg smakfilen av de top_n största avvikarna som inte är Twitch-klipp, med de top_n största
-    Twitch-avvikarna som ögonblick. Kastar ValueError när inget klipp är mätt."""
+    Twitch-avvikarna som ögonblick. Utan mätta klipp blir mätvärdena None och reglerna kommer från
+    ögonblicken. Kastar ValueError när varken mätta klipp eller ögonblick finns."""
     from . import viral
 
     settings = load_settings()
     clips = viral.load(profile)
-    top = _top([c for c in clips if c.get("source") != "twitch"], top_n)
-    if _measure_missing(top):
-        viral.save(profile, clips)
-    measured = [c for c in top if c.get("taste")]
-    if not measured:
-        raise ValueError("Inget av de största virala klippen är mätt än.")
-    numbers = _numbers(measured, settings.work_dir)
+    measured = _measured_top(profile, clips, top_n)
     moments = _moments(clips, top_n, settings.work_dir)
+    if not measured and not moments:
+        raise ValueError(
+            "Inget av de största virala klippen är mätt än, och inga Twitch-klipp finns."
+        )
+    numbers = _numbers(measured, settings.work_dir)
     brain = brain or Brain(settings, budget_from_settings(settings))
     answer = _ask(brain, numbers, measured, moments)
     result = {
@@ -293,6 +302,16 @@ def analyse(profile, top_n: int = 5, brain: Brain | None = None) -> dict:
     }
     _save_taste(profile, result)
     return result
+
+
+def _measured_top(profile, clips: list[dict], top_n: int) -> list[dict]:
+    """De top_n största avvikarna som inte är Twitch-klipp, mätta om det går. Bara de mätta returneras."""
+    from . import viral
+
+    top = _top([c for c in clips if c.get("source") != "twitch"], top_n)
+    if _measure_missing(top):
+        viral.save(profile, clips)
+    return [c for c in top if c.get("taste")]
 
 
 def _answer(answer: dict) -> dict:
@@ -390,7 +409,7 @@ def write_skills(profile, root: Path | None = None) -> list[Path]:
                 "",
                 "## Numbers",
                 "",
-                *[f"- {line}" for line in _number_lines(numbers)],
+                *(_number_lines_or_missing(numbers)),
                 "",
                 "## Rules",
                 "",
@@ -399,6 +418,11 @@ def write_skills(profile, root: Path | None = None) -> list[Path]:
         ),
     }
     return _write(skills, Path(root or SKILLS_DIR))
+
+
+def _number_lines_or_missing(numbers: dict) -> list[str]:
+    lines = [f"- {line}" for line in _number_lines(numbers)]
+    return lines or ["No editing data yet: no edited viral clip has been measured."]
 
 
 def _write(skills: dict[str, str], root: Path) -> list[Path]:

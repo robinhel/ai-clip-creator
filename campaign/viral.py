@@ -191,6 +191,15 @@ def _posted(info: dict) -> datetime | None:
     return None
 
 
+def _try_locate(clip: dict) -> dict | None:
+    """locate.locate, men ett fel (till exempel i whisper) ger en varning och None i stället för att avbryta."""
+    try:
+        return locate.locate(clip)
+    except Exception as error:  # platsen är en bonus; länken ska sparas ändå
+        log.warning("Could not locate %s in the stream (%s)", clip["id"], type(error).__name__)
+        return None
+
+
 def add_link(profile: Profile | str, url: str, views: int | None = None) -> dict:
     """Lägg till ett klipp från en länk som Robin ger: hämta fakta och video med yt-dlp, mät klippet, leta
     stället i strömmen och radera videon. views ersätter visningarna från sidan."""
@@ -208,7 +217,7 @@ def add_link(profile: Profile | str, url: str, views: int | None = None) -> dict
             info = ydl.extract_info(url, download=True)
             video = ydl.prepare_filename(info)
             taste = measure(video)
-            place = locate.locate({"id": url, "path": video, "duration": info.get("duration")})
+            place = _try_locate({"id": url, "path": video, "duration": info.get("duration")})
     count = views if views is not None else int(info.get("view_count") or 0)
     clip = _clip(
         url,
