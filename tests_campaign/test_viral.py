@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -41,6 +41,7 @@ def twitch_clip(clip_id: str, views: int, days_ago: float, vod_offset: int | Non
 class FakeTwitch:
     clips: list[Clip] = []
     logins: list[str] = []
+    kwargs: dict = {}
 
     def __init__(self, client_id: str, client_secret: str):
         pass
@@ -56,6 +57,7 @@ class FakeTwitch:
         return "42"
 
     def get_clips(self, broadcaster_id: str, **kwargs) -> list[Clip]:
+        FakeTwitch.kwargs = kwargs
         return list(FakeTwitch.clips)
 
 
@@ -71,6 +73,7 @@ def root(settings, monkeypatch) -> Path:
     )
     FakeTwitch.clips = []
     FakeTwitch.logins = []
+    FakeTwitch.kwargs = {}
     return settings.root
 
 
@@ -119,6 +122,29 @@ def test_twitch_klipp_far_plats_och_avvikare(root, profile, monkeypatch):
     }
     assert b["measured"] is False and b["duration"] == 30.0 and b["creator"] == "tittare"
     assert b["posted_at"].startswith("2026-11-25")
+
+
+def test_twitch_bara_senaste_60_dagarna(root, profile, monkeypatch):
+    monkeypatch.setattr(viral.examples, "fetch", lambda url: cr_page([]))
+
+    viral.collect(profile)
+
+    assert FakeTwitch.kwargs["started_at"] == NOW - timedelta(days=60)
+
+
+def test_twitch_plats_via_locate_from_twitch(root, profile, monkeypatch):
+    seen: list[dict] = []
+
+    def from_twitch(clip: dict):
+        seen.append(clip)
+        return {"vod_id": "spy"}
+
+    monkeypatch.setattr(viral.locate, "from_twitch", from_twitch)
+    FakeTwitch.clips = [twitch_clip("a", 10, 2)]
+    monkeypatch.setattr(viral.examples, "fetch", lambda url: cr_page([]))
+
+    assert viral.collect(profile)[0]["location"] == {"vod_id": "spy"}
+    assert seen[0]["video_id"] == "2000" and seen[0]["vod_offset"] == 100
 
 
 def test_twitch_klipp_utan_vod_saknar_plats(root, profile, monkeypatch):
@@ -289,10 +315,25 @@ def taste(monkeypatch):
     return seen
 
 
+@pytest.fixture
+def located(monkeypatch):
+    """Låtsas hitta stället i strömmen: sparar filen som locate fick och om den fanns då."""
+    calls: list[tuple[Path, bool]] = []
+    answer: dict = {"place": None}
+
+    def fake_locate(clip, vod_transcripts=None, words=None):
+        path = Path(clip["path"])
+        calls.append((path, path.exists()))
+        return answer["place"]
+
+    monkeypatch.setattr(viral.locate, "locate", fake_locate)
+    return calls, answer
+
+
 URL = "https://www.tiktok.com/@n/video/1"
 
 
-def test_add_link_mater_och_raderar_videon(root, profile, ydl, taste):
+def test_add_link_mater_och_raderar_videon(root, profile, ydl, taste, located):
     clip = viral.add_link(profile, URL)
 
     expected = {
@@ -315,7 +356,7 @@ def test_add_link_mater_och_raderar_videon(root, profile, ydl, taste):
     assert viral.load(profile) == [clip]
 
 
-def test_add_link_egna_visningar_och_upload_date(root, profile, ydl, taste):
+def test_add_link_egna_visningar_och_upload_date(root, profile, ydl, taste, located):
     del ydl.info["timestamp"]
     ydl.info["upload_date"] = "20261116"
 
@@ -325,7 +366,7 @@ def test_add_link_egna_visningar_och_upload_date(root, profile, ydl, taste):
     assert clip["views_per_day"] == pytest.approx(500 / 10.5)
 
 
-def test_add_link_raderar_videon_vid_fel(root, profile, ydl, monkeypatch):
+def test_add_link_raderar_videon_vid_fel(root, profile, ydl, located, monkeypatch):
     module = ModuleType("campaign.taste")
 
     def measure(video_path):
@@ -339,14 +380,26 @@ def test_add_link_raderar_videon_vid_fel(root, profile, ydl, monkeypatch):
     assert not ydl.files[0].exists()
 
 
-def test_add_link_samma_lank_ersatts(root, profile, ydl, taste):
+def test_add_link_samma_lank_ersatts(root, profile, ydl, taste, located):
     viral.add_link(profile, URL)
     viral.add_link(profile, URL, views=8000)
 
     assert [c["views"] for c in viral.load(profile)] == [8000]
 
 
-def test_add_link_kraver_https(root, profile, ydl, taste):
+def test_add_link_kraver_https(root, profile, ydl, taste, located):
     with pytest.raises(ValueError):
         viral.add_link(profile, "file:///etc/passwd")
     assert ydl.files == []
+
+
+def test_add_link_hittar_stallet_innan_videon_raderas(root, profile, ydl, taste, located):
+    calls, answer = located
+    place = {"vod_id": "2000", "start_s": 50.0, "end_s": 71.5, "method": "transcript"}
+    answer["place"] = place
+
+    clip = viral.add_link(profile, URL)
+
+    assert clip["location"] == place
+    assert calls == [(ydl.files[0], True)]  # filen fanns när locate körde
+    assert not ydl.files[0].exists()

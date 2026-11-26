@@ -8,8 +8,9 @@ from pathlib import Path
 
 import pytest
 import yaml
+from clipsmith.models.transcript import Segment, Transcript, Word
 
-from campaign import taste, viral
+from campaign import locate, taste, viral
 from campaign.brain import Brain
 from tests_campaign.conftest import FakeClient
 
@@ -147,6 +148,161 @@ def test_analyse_bygger_smakfilen(root, settings, budget, fake_measure):
     clip_a = next(c for c in viral.load("testkamp") if c["id"] == "a")
     assert clip_a["measured"] is True and clip_a["taste"] == PICKED
     assert len(fake_measure) == 1  # bara a mättes
+
+
+CDN = "https://cdn.contentrewards.com/v/a.mp4"
+
+
+@pytest.fixture
+def fake_http(monkeypatch):
+    """Låtsas-httpx: svarar b"video" och sparar adresserna som hämtades."""
+    urls: list[str] = []
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def iter_bytes(self):
+            yield b"vid"
+            yield b"eo"
+
+    class Stream:
+        def __enter__(self):
+            return Response()
+
+        def __exit__(self, *exc):
+            return False
+
+    def stream(method, url, **kwargs):
+        assert method == "GET" and not kwargs.get("follow_redirects")
+        urls.append(url)
+        return Stream()
+
+    monkeypatch.setattr(taste.httpx, "stream", stream)
+    return urls
+
+
+@pytest.fixture
+def fake_locate(monkeypatch):
+    """Låtsas hitta stället: sparar filen locate fick och om den fanns då."""
+    calls: list[tuple[Path, bool]] = []
+
+    def run(clip, vod_transcripts=None, words=None):
+        path = Path(clip["path"])
+        calls.append((path, path.exists()))
+        return {"vod_id": "3000", "start_s": 10.0, "end_s": 31.5, "method": "transcript"}
+
+    monkeypatch.setattr(locate, "locate", run)
+    return calls
+
+
+def test_analyse_laddar_ner_bara_fran_contentrewards_cdn(
+    root, settings, budget, fake_measure, fake_http, fake_locate
+):
+    viral.save(
+        "testkamp",
+        [
+            {"id": "cdn", "source": "content_rewards", "outlier": 9.0, "video_url": CDN},
+            {"id": "http", "outlier": 8.0, "video_url": "http://cdn.contentrewards.com/b.mp4"},
+            {"id": "annan", "outlier": 7.0, "video_url": "https://evil.example.com/c.mp4"},
+            {"id": "lur", "outlier": 6.0, "video_url": "https://cdn.contentrewards.com.evil.io/d"},
+        ],
+    )
+    brain = Brain(settings, budget, client=FakeClient(ANSWER))
+
+    result = taste.analyse("testkamp", top_n=4, brain=brain)
+
+    assert fake_http == [CDN]
+    assert result["clip_ids"] == ["cdn"]
+    assert len(fake_locate) == 1 and fake_locate[0][1] is True  # filen fanns när locate körde
+    assert not fake_locate[0][0].exists()  # och är raderad efteråt
+    saved = {c["id"]: c for c in viral.load("testkamp")}
+    assert saved["cdn"]["measured"] is True and saved["cdn"]["taste"] == PICKED
+    assert saved["cdn"]["location"]["vod_id"] == "3000"
+    assert not saved["annan"].get("measured")
+
+
+def _vod_transcript(root: Path, vod_id: str, seconds: int) -> None:
+    """Ett ord per sekund: ordet heter w<sekund>."""
+    words = [
+        Word(start=float(i), end=i + 0.5, word=f" w{i}", probability=0.9) for i in range(seconds)
+    ]
+    transcript = Transcript(
+        video_id=vod_id,
+        language="en",
+        segments=[Segment(start=0.0, end=float(seconds), text="", words=words)],
+    )
+    path = root / "work" / vod_id / "transcript.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(transcript.to_json(), encoding="utf-8")
+
+
+def test_analyse_ger_haiku_twitch_avvikarnas_ord(root, settings, budget, fake_measure):
+    _vod_transcript(root, "2000", 400)
+    place = {"vod_id": "2000", "start_s": 100.0, "end_s": 130.0, "method": "vod_offset"}
+    long_place = {"vod_id": "2000", "start_s": 200.0, "end_s": 300.0, "method": "vod_offset"}
+    viral.save(
+        "testkamp",
+        [
+            {
+                "id": "t1",
+                "source": "twitch",
+                "title": "Granaten",
+                "outlier": 20.0,
+                "views_per_day": 900.0,
+                "location": place,
+            },
+            {
+                "id": "t2",
+                "source": "twitch",
+                "title": "Långt",
+                "outlier": 15.0,
+                "views_per_day": 500.0,
+                "location": long_place,
+            },
+            {
+                "id": "t3",
+                "source": "twitch",
+                "title": "Utan VOD",
+                "outlier": 12.0,
+                "views_per_day": 400.0,
+                "location": None,
+            },
+            {
+                "id": "b",
+                "source": "content_rewards",
+                "outlier": 5.0,
+                "measured": True,
+                "taste": PICKED,
+            },
+        ],
+    )
+    brain = Brain(settings, budget, client=FakeClient(ANSWER))
+
+    result = taste.analyse("testkamp", top_n=3, brain=brain)
+
+    assert result["clip_ids"] == ["b"]  # Twitch-klippen mäts inte och tar inga platser
+    sent = json.loads(brain._client.messages.calls[0]["messages"][0]["content"])
+    moments = sent["moments"]
+    assert [m["title"] for m in moments] == ["Granaten", "Långt", "Utan VOD"]
+    assert moments[0]["views_per_day"] == 900.0
+    assert moments[0]["words"] == " ".join(f"w{i}" for i in range(100, 131))
+    assert len(moments[1]["words"].split()) == 60
+    assert "words" not in moments[2]
+    assert not any(c.get("measured") for c in viral.load("testkamp") if c["source"] == "twitch")
+
+
+def test_write_skills_standard_ar_repots_rot(root, tmp_path, monkeypatch):
+    assert taste.SKILLS_DIR == Path(taste.__file__).resolve().parents[1] / ".agents" / "skills"
+    smak = root / "klippdata" / "smak"
+    smak.mkdir(parents=True)
+    (smak / "testkamp.json").write_text(json.dumps({"rules": ["R"], "summary_en": "S"}))
+    monkeypatch.setattr(taste, "SKILLS_DIR", tmp_path / "repo-skills")
+    monkeypatch.chdir(tmp_path)
+
+    paths = taste.write_skills("testkamp")
+
+    assert all(p.is_relative_to(tmp_path / "repo-skills") for p in paths)
 
 
 def test_taste_text_tom_utan_fil(root):
