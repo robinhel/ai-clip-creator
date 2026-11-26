@@ -1,13 +1,15 @@
 """Smak ur virala klipp: mät hur klippen är gjorda och spara det som Claude ska använda när den väljer.
 
 measure kör reverse-videos measure.py (campaign/vendor/reverse_video) på en lokal video och behåller bara några
-siffror. analyse mäter de största avvikarna i klippdata/viral/<profil>.json, jämför med stället i strömmen och
-ber Haiku om regler. Resultatet sparas i klippdata/smak/<profil>.json. write_skills gör två Amp-skills av det.
+siffror. analyse mäter de största avvikarna i klippdata/viral/<profil>.json (Content Rewards-videor laddas ner
+från deras CDN och raderas efter mätningen), jämför med stället i strömmen och ber Haiku om regler. Twitch-klipp
+är oredigerade och mäts inte; deras titlar och ord i strömmen visar Haiku vilka ögonblick som blir virala. Resultatet sparas i klippdata/smak/<profil>.json. write_skills gör två Amp-skills av det.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import statistics
@@ -16,14 +18,23 @@ import sys
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
+import httpx
 import yaml
+from clipsmith.models.transcript import Transcript
 
+from . import locate
 from .brain import Brain
 from .budget import budget_from_settings
 from .config import load_settings
 
+log = logging.getLogger(__name__)
+
 MEASURE = Path(__file__).resolve().parent / "vendor" / "reverse_video" / "measure.py"
+SKILLS_DIR = Path(__file__).resolve().parents[1] / ".agents" / "skills"
+CDN_HOST = "cdn.contentrewards.com"  # den enda värden som analyse laddar ner från
+MOMENT_WORDS = 60  # så många ord ur strömmen per Twitch-klipp till Haiku
 HOOK_S = 3.0  # text på bilden före så här många sekunder räknas som hook-text
 HOOK_KINDS = ("title", "caption", "text")
 TEXT_MAX = 600
@@ -31,7 +42,9 @@ TEXT_MAX = 600
 SYSTEM = (
     "You study measurements of viral gaming clips (short vertical videos cut from Twitch streams). "
     "Write short, concrete rules a clipper can follow: which moments to pick and how to cut them "
-    "(length, first cut, hook, captions). Base every rule on the numbers. Answer in English."
+    "(length, first cut, hook, captions). Base every rule on the numbers. "
+    "The moments are raw, unedited Twitch clips that went viral, with the words said in the stream: "
+    "use them for rules about which moments to pick. Answer in English."
 )
 SCHEMA = {
     "type": "object",
@@ -146,17 +159,63 @@ def _numbers(clips: list[dict], work_dir: Path) -> dict:
 
 
 def _measure_missing(clips: list[dict]) -> bool:
-    """Mät de klipp som har en lokal video och inte är mätta. True om något mättes."""
-    todo = [c for c in clips if _needs_measure(c)]
-    for clip in todo:
-        clip["taste"], clip["measured"] = measure(clip["video_path"]), True
-    return bool(todo)
+    """Mät de klipp som har en lokal video eller en CDN-video och inte är mätta. True om något mättes.
+    En CDN-video som inte går att hämta hoppas över."""
+    done = False
+    for clip in [c for c in clips if _needs_measure(c)]:
+        try:
+            _measure_one(clip)
+        except httpx.HTTPError as error:
+            log.warning(
+                "Could not download %s (%s): not measured", clip["id"], type(error).__name__
+            )
+            continue
+        done = True
+    return done
 
 
 def _needs_measure(clip: dict) -> bool:
-    if clip.get("measured") or not clip.get("video_path"):
+    if clip.get("measured"):
         return False
-    return Path(clip["video_path"]).exists()
+    if clip.get("video_path"):
+        return Path(clip["video_path"]).exists()
+    return _cdn_url(clip) is not None
+
+
+def _cdn_url(clip: dict) -> str | None:
+    """video_url när den ligger på Content Rewards CDN över https, annars None."""
+    url = clip.get("video_url") or ""
+    parts = urlparse(url)
+    return url if parts.scheme == "https" and parts.hostname == CDN_HOST else None
+
+
+def _measure_one(clip: dict) -> None:
+    if clip.get("video_path"):
+        clip["taste"] = measure(clip["video_path"])
+    else:
+        _measure_download(clip)
+    clip["measured"] = True
+
+
+def _measure_download(clip: dict) -> None:
+    """Ladda ner CDN-videon, mät den, leta stället i strömmen och radera videon."""
+    with tempfile.TemporaryDirectory(prefix="smak-cdn-") as tmp:  # videon raderas med mappen
+        video = Path(tmp) / "video.mp4"
+        _download(str(_cdn_url(clip)), video)
+        clip["taste"] = measure(video)
+        place = locate.locate({**clip, "path": str(video)})
+        if place:
+            clip["location"] = place
+
+
+def _download(url: str, path: Path) -> None:
+    with httpx.stream(
+        "GET", url, timeout=120
+    ) as response:  # följer inte omdirigeringar till andra värdar
+        response.raise_for_status()
+        with path.open("wb") as file:
+            for chunk in response.iter_bytes():
+                file.write(chunk)
 
 
 def _top(clips: list[dict], top_n: int) -> list[dict]:
@@ -164,10 +223,41 @@ def _top(clips: list[dict], top_n: int) -> list[dict]:
     return sorted(ranked, key=lambda c: -c["outlier"])[:top_n]
 
 
-def _ask(brain: Brain, numbers: dict, measured: list[dict]) -> dict:
-    """Haikus regler och sammanfattning ur siffrorna."""
+def _moments(clips: list[dict], top_n: int, work_dir: Path) -> list[dict]:
+    """De största Twitch-avvikarna: titel, visningar per dag och orden i strömmen när transkriptet finns."""
+    twitch = _top([c for c in clips if c.get("source") == "twitch"], top_n)
+    return [_moment(c, work_dir) for c in twitch]
+
+
+def _moment(clip: dict, work_dir: Path) -> dict:
+    moment = {"title": clip.get("title"), "views_per_day": clip.get("views_per_day")}
+    words = _span_words(clip.get("location"), work_dir)
+    if words:
+        moment["words"] = words
+    return moment
+
+
+def _span_words(location: dict | None, work_dir: Path) -> str:
+    """Högst MOMENT_WORDS ord ur work/<vod>/transcript.json inom klippets tidsspann."""
+    if not location:
+        return ""
+    path = work_dir / str(location.get("vod_id")) / "transcript.json"
+    if not path.exists():
+        return ""
+    transcript = Transcript.from_json(path.read_text(encoding="utf-8"))
+    start, end = float(location["start_s"]), float(location["end_s"])
+    words = [
+        w.word.strip() for seg in transcript.segments for w in seg.words if start <= w.start <= end
+    ]
+    return " ".join(words[:MOMENT_WORDS])
+
+
+def _ask(brain: Brain, numbers: dict, measured: list[dict], moments: list[dict]) -> dict:
+    """Haikus regler och sammanfattning ur siffrorna och Twitch-ögonblicken."""
     clips = [{"title": c.get("title"), "outlier": c["outlier"], **c["taste"]} for c in measured]
-    content = json.dumps({"average": numbers, "clips": clips}, ensure_ascii=False)
+    content = json.dumps(
+        {"average": numbers, "clips": clips, "moments": moments}, ensure_ascii=False
+    )
     return brain.ask(
         purpose="smak",
         model=brain.settings.review_model,
@@ -178,19 +268,22 @@ def _ask(brain: Brain, numbers: dict, measured: list[dict]) -> dict:
 
 
 def analyse(profile, top_n: int = 5, brain: Brain | None = None) -> dict:
-    """Bygg smakfilen av de top_n största avvikarna. Kastar ValueError när inget klipp är mätt."""
+    """Bygg smakfilen av de top_n största avvikarna som inte är Twitch-klipp, med de top_n största
+    Twitch-avvikarna som ögonblick. Kastar ValueError när inget klipp är mätt."""
     from . import viral
 
     settings = load_settings()
     clips = viral.load(profile)
-    top = _top(clips, top_n)
+    top = _top([c for c in clips if c.get("source") != "twitch"], top_n)
     if _measure_missing(top):
         viral.save(profile, clips)
     measured = [c for c in top if c.get("taste")]
     if not measured:
         raise ValueError("Inget av de största virala klippen är mätt än.")
     numbers = _numbers(measured, settings.work_dir)
-    answer = _ask(brain or Brain(settings, budget_from_settings(settings)), numbers, measured)
+    moments = _moments(clips, top_n, settings.work_dir)
+    brain = brain or Brain(settings, budget_from_settings(settings))
+    answer = _ask(brain, numbers, measured, moments)
     result = {
         "updated": datetime.now(UTC).isoformat(timespec="seconds"),
         "profile": _name(profile),
@@ -258,8 +351,9 @@ def _skill(name: str, description: str, title: str, body: list[str]) -> str:
     return f"---\n{front}---\n\n# {title}\n\n" + "\n".join(body) + "\n"
 
 
-def write_skills(profile, root: Path = Path(".agents/skills")) -> list[Path]:
-    """Skriv <profil>-moment-scout och <profil>-clip-editor från smakfilen. Kastar ValueError utan smakfil."""
+def write_skills(profile, root: Path | None = None) -> list[Path]:
+    """Skriv <profil>-moment-scout och <profil>-clip-editor från smakfilen, som standard i repots
+    .agents/skills. Kastar ValueError utan smakfil."""
     data = load_taste(profile)
     if not data:
         raise ValueError("Smakfilen saknas. Kör analyse först.")
@@ -304,9 +398,13 @@ def write_skills(profile, root: Path = Path(".agents/skills")) -> list[Path]:
             ],
         ),
     }
+    return _write(skills, Path(root or SKILLS_DIR))
+
+
+def _write(skills: dict[str, str], root: Path) -> list[Path]:
     paths = []
     for folder, text in skills.items():
-        path = Path(root) / folder / "SKILL.md"
+        path = root / folder / "SKILL.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
         paths.append(path)

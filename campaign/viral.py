@@ -15,13 +15,14 @@ import logging
 import re
 import statistics
 import tempfile
-from datetime import UTC, datetime
+from dataclasses import asdict
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from clipsmith.config.loaders import load_secrets
 from clipsmith.twitch.client import TwitchClient
 
-from . import examples
+from . import examples, locate
 from .config import load_settings
 from .profile import Profile, load_profile
 
@@ -29,6 +30,7 @@ log = logging.getLogger(__name__)
 
 TIKTOK_ID = re.compile(r"tiktok\.com/.*/video/(\d+)")
 DAY_S = 86400
+TWITCH_DAYS = 60  # VOD:er försvinner efter 7–60 dagar; äldre klipp går inte att hitta i strömmen
 # fält som en ny hämtning inte vet något om och som ska följa med från den sparade listan
 KEEP = ("measured", "taste")
 
@@ -79,19 +81,6 @@ def _clip(url: str, views: int, posted: datetime | None, **fields) -> dict:
     }
 
 
-def _location(clip) -> dict | None:
-    """Var Twitch-klippet ligger i VOD:en, ur Helix vod_offset."""
-    if not clip.video_id or clip.vod_offset is None:
-        return None
-    return {
-        "vod_id": clip.video_id,
-        "start_s": clip.vod_offset,
-        "end_s": clip.vod_offset + clip.duration,
-        "method": "vod_offset",
-        "confidence": 1.0,
-    }
-
-
 def _twitch(profile: Profile) -> list[dict]:
     """Kanalens klipp ur Helix. Tom lista utan nycklar och vid fel."""
     secrets = load_secrets()
@@ -103,7 +92,10 @@ def _twitch(profile: Profile) -> list[dict]:
         return []
     try:
         with TwitchClient(secrets.twitch_client_id, secrets.twitch_client_secret) as client:
-            raw = client.get_clips(client.get_user_id(profile.streamer.lower()))
+            raw = client.get_clips(
+                client.get_user_id(profile.streamer.lower()),
+                started_at=_now() - timedelta(days=TWITCH_DAYS),
+            )
     except (
         Exception
     ) as error:  # nätverk, nycklar, kanalen finns inte: insamlingen går vidare utan Twitch
@@ -123,7 +115,7 @@ def _twitch(profile: Profile) -> list[dict]:
             title=c.title,
             creator=c.creator_name,
             duration=c.duration,
-            location=_location(c),
+            location=locate.from_twitch(asdict(c)),
         )
         for c in raw
     ]
@@ -200,8 +192,8 @@ def _posted(info: dict) -> datetime | None:
 
 
 def add_link(profile: Profile | str, url: str, views: int | None = None) -> dict:
-    """Lägg till ett klipp från en länk som Robin ger: hämta fakta och video med yt-dlp, mät klippet och radera
-    videon. views ersätter visningarna från sidan."""
+    """Lägg till ett klipp från en länk som Robin ger: hämta fakta och video med yt-dlp, mät klippet, leta
+    stället i strömmen och radera videon. views ersätter visningarna från sidan."""
     if not url.startswith("https://"):
         raise ValueError("The link must start with https://")
     import yt_dlp
@@ -214,7 +206,9 @@ def add_link(profile: Profile | str, url: str, views: int | None = None) -> dict
         opts = {"outtmpl": f"{tmp}/%(id)s.%(ext)s", "quiet": True, "noplaylist": True}
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
-            taste = measure(ydl.prepare_filename(info))
+            video = ydl.prepare_filename(info)
+            taste = measure(video)
+            place = locate.locate({"id": url, "path": video, "duration": info.get("duration")})
     count = views if views is not None else int(info.get("view_count") or 0)
     clip = _clip(
         url,
@@ -224,6 +218,7 @@ def add_link(profile: Profile | str, url: str, views: int | None = None) -> dict
         title=info.get("title") or "",
         creator=info.get("uploader"),
         duration=info.get("duration"),
+        location=place,
         measured=True,
         taste=taste,
     )

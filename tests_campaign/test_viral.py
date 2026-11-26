@@ -333,7 +333,8 @@ def located(monkeypatch):
 URL = "https://www.tiktok.com/@n/video/1"
 
 
-def test_add_link_mater_och_raderar_videon(root, profile, ydl, taste, located):
+@pytest.mark.usefixtures("root", "located")
+def test_add_link_mater_och_raderar_videon(profile, ydl, taste):
     clip = viral.add_link(profile, URL)
 
     expected = {
@@ -356,7 +357,8 @@ def test_add_link_mater_och_raderar_videon(root, profile, ydl, taste, located):
     assert viral.load(profile) == [clip]
 
 
-def test_add_link_egna_visningar_och_upload_date(root, profile, ydl, taste, located):
+@pytest.mark.usefixtures("root", "located")
+def test_add_link_egna_visningar_och_upload_date(profile, ydl, taste):
     del ydl.info["timestamp"]
     ydl.info["upload_date"] = "20261116"
 
@@ -366,7 +368,8 @@ def test_add_link_egna_visningar_och_upload_date(root, profile, ydl, taste, loca
     assert clip["views_per_day"] == pytest.approx(500 / 10.5)
 
 
-def test_add_link_raderar_videon_vid_fel(root, profile, ydl, located, monkeypatch):
+@pytest.mark.usefixtures("root", "located")
+def test_add_link_raderar_videon_vid_fel(profile, ydl, monkeypatch):
     module = ModuleType("campaign.taste")
 
     def measure(video_path):
@@ -380,20 +383,23 @@ def test_add_link_raderar_videon_vid_fel(root, profile, ydl, located, monkeypatc
     assert not ydl.files[0].exists()
 
 
-def test_add_link_samma_lank_ersatts(root, profile, ydl, taste, located):
+@pytest.mark.usefixtures("root", "located")
+def test_add_link_samma_lank_ersatts(profile, ydl, taste):
     viral.add_link(profile, URL)
     viral.add_link(profile, URL, views=8000)
 
     assert [c["views"] for c in viral.load(profile)] == [8000]
 
 
-def test_add_link_kraver_https(root, profile, ydl, taste, located):
+@pytest.mark.usefixtures("root", "located")
+def test_add_link_kraver_https(profile, ydl, taste):
     with pytest.raises(ValueError):
         viral.add_link(profile, "file:///etc/passwd")
     assert ydl.files == []
 
 
-def test_add_link_hittar_stallet_innan_videon_raderas(root, profile, ydl, taste, located):
+@pytest.mark.usefixtures("root", "taste")
+def test_add_link_hittar_stallet_innan_videon_raderas(profile, ydl, located):
     calls, answer = located
     place = {"vod_id": "2000", "start_s": 50.0, "end_s": 71.5, "method": "transcript"}
     answer["place"] = place

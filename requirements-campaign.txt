@@ -10,3 +10,5 @@ mcp>=2.3,<3
 # rapidocr läser text på bilden och drar med sig opencv-python-headless och Pillow. yt-dlp hämtar länkar.
 rapidocr>=3.10
 yt-dlp>=2026.11
+# measure.py:s ljuddelar (taktslag, ljudtoppar).
+scipy>=1.18

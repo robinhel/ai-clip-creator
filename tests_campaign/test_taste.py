@@ -196,9 +196,8 @@ def fake_locate(monkeypatch):
     return calls
 
 
-def test_analyse_laddar_ner_bara_fran_contentrewards_cdn(
-    root, settings, budget, fake_measure, fake_http, fake_locate
-):
+@pytest.mark.usefixtures("root", "fake_measure")
+def test_analyse_laddar_ner_bara_fran_contentrewards_cdn(settings, budget, fake_http, fake_locate):
     viral.save(
         "testkamp",
         [
