@@ -167,9 +167,12 @@ def _channel(cfg, profile: Profile, meta: dict) -> str:
 
 
 def _with_memory(focus: str, profile: Profile, settings: Settings) -> str:
-    """Körningens focus och minnet om kampanjens tidigare klipp (campaign/memory.py)."""
+    """Körningens focus, minnet om kampanjens tidigare klipp (campaign/memory.py) och smaken från virala klipp
+    (campaign/taste.py)."""
+    from .taste import taste_text
+
     memory = selection_memory(ClipLog(settings.data_dir / "klipp.db"), profile.name, profile.min_views or 2000)
-    return ", and ".join(part for part in (focus.strip(), memory) if part)
+    return ", and ".join(part for part in (focus.strip(), memory, taste_text(profile)) if part)
 
 
 def make_clips(

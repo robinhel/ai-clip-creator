@@ -423,6 +423,43 @@ def cmd_facit(args, settings: Settings) -> int:
     return 0
 
 
+def _print_viral(clips: list[dict]) -> None:
+    for clip in clips:
+        place = clip.get("location")
+        where = (f"VOD {place['vod_id']} at {place['start_s']:.0f} s" if place else "not found in the stream")
+        print(f"  {clip.get('outlier') or 0:.1f}x  {clip.get('views') or 0:,} views  {clip.get('title') or clip['url']}"
+              f"  ({clip.get('source')}, {where})")
+
+
+def cmd_viral(args, settings: Settings) -> int:
+    """Smaken från virala klipp: hämta, lägg till en länk, analysera och skriv skills (campaign/viral.py, taste.py)."""
+    from . import taste, viral
+
+    profile = _profile(settings, args.profile)
+    try:
+        if args.viral_command == "collect":
+            clips = viral.collect(profile)
+            print(f"{len(clips)} viral {'clip' if len(clips) == 1 else 'clips'} for {profile.name}:")
+            _print_viral(clips)
+        elif args.viral_command == "link":
+            _print_viral([viral.add_link(profile, args.url, views=args.views)])
+        elif args.viral_command == "analyse":
+            brain = Brain(settings, _budget(settings))
+            if not brain.available:
+                raise ValueError("ANTHROPIC_API_KEY is missing in .env. Add it and analyse again.")
+            found = taste.analyse(profile, top_n=args.top, brain=brain)
+            for rule in found.get("rules", []):
+                print(f"  - {rule}")
+            print(found.get("summary_en", ""))
+        else:
+            for path in taste.write_skills(profile):
+                print(f"Wrote {path}")
+    except (ValueError, RuntimeError) as error:
+        print(f"ERROR: {error}")
+        return 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m campaign", description="The campaign layer on top of clipsmith.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -497,6 +534,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--vod")
     p.add_argument("--tolerance", type=float, default=10.0)
     p.set_defaults(func=cmd_facit)
+
+    p = sub.add_parser("viral", help="Learn the taste from other people's viral clips")
+    viral = p.add_subparsers(dest="viral_command", required=True)
+    v = viral.add_parser("collect", help="Fetch the campaign's viral clips and find the outliers")
+    v.add_argument("profile")
+    v = viral.add_parser("link", help="Add a viral clip from a link")
+    v.add_argument("profile")
+    v.add_argument("url")
+    v.add_argument("--views", type=_count, help="The clip's views, if the page does not show them")
+    v = viral.add_parser("analyse", help="Ask Claude how the top outliers were made and save it as the taste")
+    v.add_argument("profile")
+    v.add_argument("--top", type=_count, default=5, help="How many outliers to analyse (default 5)")
+    v = viral.add_parser("skills", help="Write the taste as skills files")
+    v.add_argument("profile")
+    p.set_defaults(func=cmd_viral)
     return parser
 
 
