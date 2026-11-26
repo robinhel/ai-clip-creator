@@ -36,6 +36,8 @@ CDN_HOST = "cdn.contentrewards.com"  # den enda värden som analyse laddar ner f
 MOMENT_WORDS = 60  # så många ord ur strömmen per Twitch-klipp till Haiku
 HOOK_S = 3.0  # text på bilden före så här många sekunder räknas som hook-text
 HOOK_KINDS = ("title", "caption", "text")
+# delar av värdnamnet och plattformen de betyder, för källan som Haiku får (youtu täcker youtu.be)
+PLATFORMS = {"tiktok": "tiktok", "youtu": "youtube", "instagram": "instagram", "twitch": "twitch"}
 TEXT_MAX = 600
 
 SYSTEM = (
@@ -43,7 +45,11 @@ SYSTEM = (
     "Write short, concrete rules a clipper can follow: which moments to pick and how to cut them "
     "(length, first cut, hook, captions). Base every rule on the numbers. "
     "The moments are raw, unedited Twitch clips that went viral, with the words said in the stream: "
-    "use them for rules about which moments to pick. Answer in English."
+    "use them for rules about which moments to pick. "
+    "Each clip and moment has a source: twitch (a raw clip from the streamer's own Twitch channel), "
+    "content_rewards (an edited clip another clipper posted for the campaign) or link (a clip added by hand), "
+    "and the platform it was posted on. Name the source and platform correctly: a content_rewards clip on "
+    "TikTok is a TikTok clip, not a Twitch clip. Answer in English."
 )
 SCHEMA = {
     "type": "object",
@@ -237,7 +243,7 @@ def _moments(clips: list[dict], top_n: int, work_dir: Path) -> list[dict]:
 
 
 def _moment(clip: dict, work_dir: Path) -> dict:
-    moment = {"title": clip.get("title"), "views_per_day": clip.get("views_per_day")}
+    moment = {"title": clip.get("title"), **_origin(clip), "views_per_day": clip.get("views_per_day")}
     words = _span_words(clip.get("location"), work_dir)
     if words:
         moment["words"] = words
@@ -259,9 +265,17 @@ def _span_words(location: dict | None, work_dir: Path) -> str:
     return " ".join(words[:MOMENT_WORDS])
 
 
+def _origin(clip: dict) -> dict:
+    """Källan (twitch, content_rewards eller link) och plattformen ur länkens värdnamn, så att Haiku vet
+    var klippet kommer ifrån."""
+    host = (urlparse(clip.get("url") or clip.get("id") or "").hostname or "").lower()
+    platform = next((name for part, name in PLATFORMS.items() if part in host), "other")
+    return {"source": clip.get("source"), "platform": platform}
+
+
 def _ask(brain: Brain, numbers: dict, measured: list[dict], moments: list[dict]) -> dict:
     """Haikus regler och sammanfattning ur siffrorna och Twitch-ögonblicken."""
-    clips = [{"title": c.get("title"), "outlier": c["outlier"], **c["taste"]} for c in measured]
+    clips = [{"title": c.get("title"), **_origin(c), "outlier": c["outlier"], **c["taste"]} for c in measured]
     content = json.dumps(
         {"average": numbers, "clips": clips, "moments": moments}, ensure_ascii=False
     )
