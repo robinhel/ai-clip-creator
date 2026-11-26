@@ -61,11 +61,11 @@ def transcribe_local(
     config: TranscribeConfig,
     *,
     model: str,
-    language: str,
+    language: str | None,
     on_part: Callable[[int, int], None] | None = None,
 ) -> Transcript:
     """Transkribera med kampanjens transcribe-inställningar (compute_type, bitar, trådar), den valda modellen
-    och kampanjens språk. on_part(n, total) anropas när del n börjar, som för Berget.
+    och kampanjens språk (None: whisper gissar). on_part(n, total) anropas när del n börjar, som för Berget.
 
     Delarna överlappar inte: clipsmith tar inte bort det dubbla talet i ett överlapp."""
     settings = config.model_copy(update={"model": _model_path(model), "language": language, "chunk_overlap_s": 0})

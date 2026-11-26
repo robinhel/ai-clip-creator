@@ -78,7 +78,7 @@ def _transcribe_clip(clip: dict) -> list[dict]:
             Path(tmp) / "transcript.json",
             TranscribeConfig(),
             model=settings.local_whisper_model,
-            language=clip.get("language") or "auto",
+            language=None,  # whisper gissar språket; "auto" är ingen giltig språkkod för faster-whisper
         )
     return _transcript_words(transcript)
 
