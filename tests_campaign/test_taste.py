@@ -127,9 +127,15 @@ def _save_clips(root: Path) -> None:
     )
 
 
-@pytest.mark.usefixtures("fake_http")
-def test_analyse_bygger_smakfilen(root, settings, budget, fake_measure, monkeypatch):
+@pytest.fixture
+def no_place(monkeypatch):
+    """Låtsas att stället i strömmen inte hittas, så att den sparade platsen står kvar."""
     monkeypatch.setattr(locate, "locate", lambda clip, vod_transcripts=None, words=None: None)
+
+
+@pytest.mark.usefixtures("root", "fake_http", "no_place")
+def test_analyse_bygger_smakfilen(settings, budget, fake_measure):
+    root = settings.root
     _save_clips(root)
     brain = Brain(settings, budget, client=FakeClient(ANSWER))
     purposes: list[str] = []

@@ -211,15 +211,23 @@ def _download(url: str, path: Path) -> None:
 def _top(clips: list[dict], top_n: int) -> list[dict]:
     """De top_n största avvikarna, och Content Rewards-klipp utan datum efter dem rangordnade på
     visningar. Mätta egna länkar tas alltid med."""
-    dated = sorted((c for c in clips if c.get("outlier") is not None), key=lambda c: -c["outlier"])
-    undated = sorted(
-        (c for c in clips if c.get("outlier") is None and c.get("source") == "content_rewards"),
-        key=lambda c: -(c.get("views") or 0),
-    )
-    top = (dated + undated)[:top_n]
+    top = (_dated(clips) + _undated(clips))[:top_n]
     ids = {c["id"] for c in top}
-    links = [c for c in clips if c.get("source") == "link" and c.get("measured")]
-    return top + [c for c in links if c["id"] not in ids]
+    return top + [c for c in _measured_links(clips) if c["id"] not in ids]
+
+
+def _dated(clips: list[dict]) -> list[dict]:
+    return sorted((c for c in clips if c.get("outlier") is not None), key=lambda c: -c["outlier"])
+
+
+def _undated(clips: list[dict]) -> list[dict]:
+    """Content Rewards-klipp utan datum (inget avvikartal), flest visningar först."""
+    undated = [c for c in clips if c.get("outlier") is None and c.get("source") == "content_rewards"]
+    return sorted(undated, key=lambda c: -(c.get("views") or 0))
+
+
+def _measured_links(clips: list[dict]) -> list[dict]:
+    return [c for c in clips if c.get("source") == "link" and c.get("measured")]
 
 
 def _moments(clips: list[dict], top_n: int, work_dir: Path) -> list[dict]:

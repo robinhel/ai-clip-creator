@@ -97,7 +97,7 @@ export function CampaignTaste({ id }: { id: string }) {
   if (!data) return <Loading error={loadError} onRetry={retry} />;
 
   const spin = (kind: Busy) => busy === kind && <Loader2 className="animate-spin" aria-hidden />;
-  const { taste, clips, text, running = false, error: jobError } = data;
+  const { taste, clips, text, running = false } = data;
   const blocked = busy !== null || running;
 
   return (
@@ -126,21 +126,29 @@ export function CampaignTaste({ id }: { id: string }) {
           Analyse
         </Button>
       </section>
-      {running && (
-        <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" aria-hidden /> Working… Downloading and measuring can take several
-          minutes.
-        </p>
-      )}
-      {(error || (!running && jobError)) && (
-        <p role="alert" className="max-w-[640px] text-sm text-bad">
-          {error || jobError}
-        </p>
-      )}
+      <JobStatus running={running} error={error ?? data.error ?? null} />
 
       <Outliers clips={clips} />
       <TasteRules taste={taste} text={text} />
     </div>
+  );
+}
+
+/** Working… medan ett bakgrundsjobb körs, annars felet från anropet eller jobbet. */
+function JobStatus({ running, error }: { running: boolean; error: string | null }) {
+  if (running) {
+    return (
+      <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" aria-hidden /> Working… Downloading and measuring can take several
+        minutes.
+      </p>
+    );
+  }
+  if (!error) return null;
+  return (
+    <p role="alert" className="max-w-[640px] text-sm text-bad">
+      {error}
+    </p>
   );
 }
 

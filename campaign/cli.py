@@ -431,51 +431,40 @@ def _print_viral(clips: list[dict]) -> None:
               f"  ({clip.get('source')}, {where})")
 
 
-def _viral_collect(args, profile: Profile, settings: Settings) -> None:
-    from . import viral
-
-    clips = viral.collect(profile)
-    print(f"{len(clips)} viral {'clip' if len(clips) == 1 else 'clips'} for {profile.name}:")
-    _print_viral(clips)
-
-
-def _viral_link(args, profile: Profile, settings: Settings) -> None:
-    from . import viral
-
-    _print_viral([viral.add_link(profile, args.url, views=args.views)])
-
-
-def _viral_analyse(args, profile: Profile, settings: Settings) -> None:
-    from . import taste
-
-    brain = Brain(settings, _budget(settings))
-    if not brain.available:
-        raise ValueError("ANTHROPIC_API_KEY is missing in .env. Add it and analyse again.")
-    found = taste.analyse(profile, top_n=args.top, brain=brain)
-    for rule in found.get("rules", []):
-        print(f"  - {rule}")
-    print(found.get("summary_en", ""))
-
-
-def _viral_skills(args, profile: Profile, settings: Settings) -> None:
-    from . import taste
-
-    for path in taste.write_skills(profile):
-        print(f"Wrote {path}")
-
-
-VIRAL = {"collect": _viral_collect, "link": _viral_link, "analyse": _viral_analyse, "skills": _viral_skills}
-
-
 def cmd_viral(args, settings: Settings) -> int:
     """Smaken från virala klipp: hämta, lägg till en länk, analysera och skriv skills (campaign/viral.py, taste.py)."""
+    from . import taste, viral
+
     profile = _profile(settings, args.profile)
     try:
-        VIRAL[args.viral_command](args, profile, settings)
+        if args.viral_command == "collect":
+            clips = viral.collect(profile)
+            print(f"{len(clips)} viral {'clip' if len(clips) == 1 else 'clips'} for {profile.name}:")
+            _print_viral(clips)
+        elif args.viral_command == "link":
+            _print_viral([viral.add_link(profile, args.url, views=args.views)])
+        elif args.viral_command == "analyse":
+            _print_taste(taste.analyse(profile, top_n=args.top, brain=_viral_brain(settings)))
+        else:
+            for path in taste.write_skills(profile):
+                print(f"Wrote {path}")
     except (ValueError, RuntimeError) as error:
         print(f"ERROR: {error}")
         return 1
     return 0
+
+
+def _viral_brain(settings: Settings) -> Brain:
+    brain = Brain(settings, _budget(settings))
+    if not brain.available:
+        raise ValueError("ANTHROPIC_API_KEY is missing in .env. Add it and analyse again.")
+    return brain
+
+
+def _print_taste(found: dict) -> None:
+    for rule in found.get("rules", []):
+        print(f"  - {rule}")
+    print(found.get("summary_en", ""))
 
 
 def _add_viral(sub) -> None:

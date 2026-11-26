@@ -240,10 +240,15 @@ def add_link(profile: Profile | str, url: str, views: int | None = None) -> dict
 
 def _check_link(url: str) -> None:
     """Bara https-länkar till TikTok, Instagram och YouTube, med underdomäner. Annars ValueError."""
-    parts = urlparse(url)
-    host = (parts.hostname or "").lower()
-    if parts.scheme != "https" or not any(host == h or host.endswith(f".{h}") for h in LINK_HOSTS):
+    if not _allowed_link(urlparse(url)):
         raise ValueError("The link must be an https link to TikTok, Instagram or YouTube.")
+
+
+def _allowed_link(parts) -> bool:
+    if parts.scheme != "https":
+        return False
+    host = (parts.hostname or "").lower()
+    return host in LINK_HOSTS or host.endswith(tuple(f".{allowed}" for allowed in LINK_HOSTS))
 
 
 def _download(url: str, folder: str) -> tuple[dict, str]:

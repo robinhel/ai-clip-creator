@@ -106,8 +106,8 @@ def test_link_runs_in_the_background_and_saves_the_url_and_the_views(client, fak
 
 
 @pytest.mark.parametrize(("path", "body"), [("viral/link", {"url": "https://x.com/1"}), ("taste/analyse", None)])
-def test_a_second_job_while_one_runs_is_409(client, fake, monkeypatch, path, body) -> None:
-    monkeypatch.setitem(taste_api.JOBS, "skiimasktimmy", {"running": True, "error": None})
+def test_a_second_job_while_one_runs_is_409(client, fake, path, body) -> None:
+    taste_api.JOBS["skiimasktimmy"] = {"running": True, "error": None}  # client lägger en ny JOBS per test
     assert client.post(f"{BASE}/{path}", json=body).status_code == 409
     assert client.get(f"{BASE}/taste").json()["running"] is True
     assert fake.calls == []
