@@ -291,6 +291,77 @@ def test_analyse_ger_haiku_twitch_avvikarnas_ord(root, settings, budget, fake_me
     assert not any(c.get("measured") for c in viral.load("testkamp") if c["source"] == "twitch")
 
 
+@pytest.mark.usefixtures("root")
+def test_analyse_bara_twitch_ger_smakfil_och_skills(settings, budget, tmp_path):
+    place = {"vod_id": "2000", "start_s": 100.0, "end_s": 130.0, "method": "vod_offset"}
+    viral.save(
+        "testkamp",
+        [
+            {
+                "id": "t1",
+                "source": "twitch",
+                "title": "Granaten",
+                "outlier": 20.0,
+                "views_per_day": 900.0,
+                "location": place,
+            }
+        ],
+    )
+    brain = Brain(settings, budget, client=FakeClient(ANSWER))
+
+    result = taste.analyse("testkamp", brain=brain)
+
+    assert result["clip_ids"] == []
+    assert set(result["numbers"].values()) == {None}
+    assert result["rules"] == ANSWER["rules"] and result["summary_en"] == ANSWER["summary_en"]
+    sent = json.loads(brain._client.messages.calls[0]["messages"][0]["content"])
+    assert sent["clips"] == [] and sent["moments"][0]["title"] == "Granaten"
+    paths = taste.write_skills("testkamp", tmp_path / "skills")
+    editor = next(p for p in paths if p.parent.name == "testkamp-clip-editor").read_text()
+    assert "No editing data yet" in editor and "Cut within the first second." in editor
+
+
+@pytest.mark.usefixtures("root")
+def test_analyse_utan_matta_klipp_och_ogonblick_ger_valueerror(settings, budget):
+    viral.save("testkamp", [{"id": "d", "source": "content_rewards", "outlier": None}])
+    brain = Brain(settings, budget, client=FakeClient(ANSWER))
+
+    with pytest.raises(ValueError):
+        taste.analyse("testkamp", brain=brain)
+    assert brain._client.messages.calls == []
+
+
+@pytest.mark.usefixtures("root", "fake_measure", "fake_http")
+def test_analyse_fortsatter_nar_locate_kastar(settings, budget, monkeypatch):
+    seen: list[Path] = []
+
+    def broken(clip, vod_transcripts=None, words=None):
+        seen.append(Path(clip["path"]))
+        raise RuntimeError("whisper kraschade")
+
+    monkeypatch.setattr(locate, "locate", broken)
+    viral.save(
+        "testkamp",
+        [
+            {
+                "id": "cdn",
+                "source": "content_rewards",
+                "outlier": 9.0,
+                "video_url": CDN,
+                "location": None,
+            }
+        ],
+    )
+    brain = Brain(settings, budget, client=FakeClient(ANSWER))
+
+    result = taste.analyse("testkamp", brain=brain)
+
+    assert result["clip_ids"] == ["cdn"]
+    saved = viral.load("testkamp")[0]
+    assert saved["measured"] is True and saved["location"] is None
+    assert len(seen) == 1 and not seen[0].exists()
+
+
 def test_write_skills_standard_ar_repots_rot(root, tmp_path, monkeypatch):
     assert taste.SKILLS_DIR == Path(taste.__file__).resolve().parents[1] / ".agents" / "skills"
     smak = root / "klippdata" / "smak"

@@ -409,3 +409,17 @@ def test_add_link_hittar_stallet_innan_videon_raderas(profile, ydl, located):
     assert clip["location"] == place
     assert calls == [(ydl.files[0], True)]  # filen fanns när locate körde
     assert not ydl.files[0].exists()
+
+
+@pytest.mark.usefixtures("root", "taste")
+def test_add_link_fortsatter_nar_locate_kastar(profile, ydl, monkeypatch):
+    def broken(clip, vod_transcripts=None, words=None):
+        raise RuntimeError("whisper kraschade")
+
+    monkeypatch.setattr(viral.locate, "locate", broken)
+
+    clip = viral.add_link(profile, URL)
+
+    assert clip["location"] is None and clip["measured"] is True
+    assert not ydl.files[0].exists()
+    assert viral.load(profile) == [clip]
