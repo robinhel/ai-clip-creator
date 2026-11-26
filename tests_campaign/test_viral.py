@@ -204,3 +204,14 @@ def test_a_second_run_does_not_call_berget_again_and_facit_keeps_earlier_clips(
     facit = yaml.safe_load((vod_dir / "viral" / "facit.yaml").read_text(encoding="utf-8"))
     assert sorted(m["start"] for m in facit["moments"]) == [t(20), t(40)]
     assert "picks.json saknas" in capsys.readouterr().out
+
+
+def test_a_txt_file_is_a_list_of_sources(tmp_path, monkeypatch) -> None:
+    lista = tmp_path / "utvalda.txt"
+    lista.write_text("# från samla lista\nhttps://www.tiktok.com/@a/video/1\n\nhttps://www.tiktok.com/@b/video/2\n",
+                     encoding="utf-8")
+    seen = []
+    monkeypatch.setattr(viral, "_ytdlp", lambda url, folder: seen.append(url) or [{"url": url}])
+    clips = viral.collect(str(lista), tmp_path / "viral")
+    assert seen == ["https://www.tiktok.com/@a/video/1", "https://www.tiktok.com/@b/video/2"]
+    assert len(clips) == 2
