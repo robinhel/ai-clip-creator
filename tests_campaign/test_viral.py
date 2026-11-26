@@ -137,11 +137,35 @@ def test_report_says_found_missed_and_the_total() -> None:
     text = "\n".join(viral.report(results, picks))
     assert "börjar 6,0 s tidigare" in text and "slutar 3,5 s senare" in text
     assert "missade" in text and "Ingen träff i VOD:en" in text
-    assert text.endswith("Appen hittade 1 av 2 virala klipp.")
+    assert text.endswith(
+        "Appen hittade 1 av 2 virala klipp från den här VOD:en (1 fanns inte i den)."
+    )
+
+
+def test_a_common_phrase_from_another_stream_gives_no_match() -> None:
+    other = (
+        "helt andra ord om något annat".split()
+        + VOD[30:36]
+        + "och sen pratar han om helt andra saker".split()
+    )
+    assert viral.find(clip_words(other), vod_words(VOD)) == []
+
+
+def test_a_cold_open_counts_as_found_when_the_app_covers_the_main_piece() -> None:
+    pieces = [
+        {"start": 1100.0, "end": 1110.0, "hits": 8},
+        {"start": 1000.0, "end": 1030.0, "hits": 14},
+    ]
+    text = "\n".join(
+        viral.report([{"title": "a", "pieces": pieces}], [{"start": 995.0, "end": 1035.0}])
+    )
+    assert "Appen hittade 1 av 1 virala klipp." in text
 
 
 @needs_ffmpeg
-def test_a_second_run_does_not_call_berget_again(settings, budget, capsys) -> None:
+def test_a_second_run_does_not_call_berget_again_and_facit_keeps_earlier_clips(
+    settings, budget, capsys
+) -> None:
     vod_dir = settings.work_dir / "777"
     vod_dir.mkdir(parents=True)
     words = vod_words(VOD)
@@ -152,12 +176,13 @@ def test_a_second_run_does_not_call_berget_again(settings, budget, capsys) -> No
 
     def post(audio: bytes, fields: dict) -> dict:
         calls.append(fields)
+        said = VOD[20:30] if len(calls) == 1 else VOD[40:50]
         clip = [
             {"word": w, "start": 1.0 + i * 0.2, "end": 1.1 + i * 0.2, "score": 0.9}
-            for i, w in enumerate(VOD[20:30])
+            for i, w in enumerate(said)
         ]
         return {
-            "segments": [{"start": 0.0, "end": 4.0, "text": " ".join(VOD[20:30])}],
+            "segments": [{"start": 0.0, "end": 4.0, "text": " ".join(said)}],
             "words": clip,
         }
 
@@ -173,4 +198,9 @@ def test_a_second_run_does_not_call_berget_again(settings, budget, capsys) -> No
     assert facit["vod"] == "777" and facit["moments"][0]["start"] == t(20)
     meta = json.loads(next((vod_dir / "viral").glob("*/meta.json")).read_text(encoding="utf-8"))
     assert meta["source"] == "fil"
+    other = make_clip(settings.root / "annat" / "andra.mp4", size="320x180", seconds=3)
+    viral.run("777", [str(other)], settings.work_dir, transcribe)
+    assert len(calls) == 2
+    facit = yaml.safe_load((vod_dir / "viral" / "facit.yaml").read_text(encoding="utf-8"))
+    assert sorted(m["start"] for m in facit["moments"]) == [t(20), t(40)]
     assert "picks.json saknas" in capsys.readouterr().out

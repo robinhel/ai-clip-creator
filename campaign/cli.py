@@ -392,15 +392,21 @@ def cmd_facit(args, settings: Settings) -> int:
 
 def cmd_viral(args, settings: Settings) -> int:
     from . import viral
+    from .budget import BudgetExceeded
 
     vod_transcript = settings.work_dir / args.vod_id / "transcript.json"
 
     def transcribe(mp4: Path, out: Path):
         if not settings.berget_api_key:
             raise SystemExit("Fyll i BERGET_API_KEY i .env först.")
+        budget = _budget(settings)
+        try:
+            budget.check()
+        except BudgetExceeded as error:
+            raise SystemExit(str(error)) from None
         language = viral.Transcript.from_json(vod_transcript.read_text(encoding="utf-8")).language  # som VOD:en
         return transcribe_vod(mp4, out.parent.name, out, post=berget_post(settings.berget_api_key),
-                              model=settings.transcribe_model, language=language, budget=_budget(settings))
+                              model=settings.transcribe_model, language=language, budget=budget)
 
     return viral.run(args.vod_id, args.sources, settings.work_dir, transcribe)
 

@@ -19,17 +19,31 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from urllib.parse import urlparse
 
+import httpx
 import yaml
 
 from clipsmith.models.transcript import Transcript, Word
 
 from . import examples
 from .facit import compare
+from .media import probe
 from .workflow import load_picks
 
 MIN_WORDS = 6  # så många ord i rad krävs för en bit; fyra-fem ord i rad finns i varje lång stream
 GAP = 2  # så många felhörda eller extra ord i rad hoppas över utan att biten delas
+MIN_SHARE = 0.4  # minst så stor del av klippets ord ska stämma; annars är det en annan stream med en vanlig fras
+MAX_S = 600  # längre klipp än 10 minuter är inga korta klipp och transkriberas inte
+MAX_BYTES = 300_000_000  # största fil som hämtas
 Transcribe = Callable[[Path, Path], Transcript]
+
+
+class DownloadFailed(Exception):
+    """Ett klipp eller en källa gick inte att hämta. Körningen fortsätter med nästa."""
+
+
+def _clean(text: object) -> str:
+    """Text utan styrtecken, så att en titel inte kan ändra terminalen."""
+    return re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", str(text or ""))
 
 
 def _norm(word: str) -> str:
@@ -90,7 +104,8 @@ def _extend(clip: list[str], vod: list[str], piece: list[int], lo: int, hi: int)
 
 def find(clip_words: list[Word], vod_words: list[Word]) -> list[dict]:
     """Bitarna i VOD:en som klippet består av, i klippets ordning: start, slut (sekunder i VOD:en) och hits (ord som
-    stämmer). Tom lista när inget stämmer i minst MIN_WORDS ord i rad: då gissas inget."""
+    stämmer). Tom lista när inget stämmer i minst MIN_WORDS ord i rad, eller när färre än MIN_SHARE av klippets ord
+    stämmer: då gissas inget."""
     cw, vw = _words(clip_words), _words(vod_words)
     clip, vod = [_norm(w.word) for w in cw], [_norm(w.word) for w in vw]
     matcher = SequenceMatcher(None, vod, clip, autojunk=False)
@@ -106,6 +121,8 @@ def find(clip_words: list[Word], vod_words: list[Word]) -> list[dict]:
             last[1], last[3], last[4] = piece[1], piece[3], last[4] + piece[4]
         else:
             merged.append(piece)
+    if sum(p[4] for p in merged) < MIN_SHARE * len(clip):
+        return []
     return [{"start": vw[p[2]].start, "end": vw[p[3] - 1].end, "hits": p[4]} for p in merged]
 
 
@@ -120,9 +137,17 @@ def clock(seconds: float) -> str:
 
 
 def _moment(result: dict) -> dict:
+    """Hela spannet i VOD:en, och huvudbiten (den med flest ord som stämmer). time är mitten av huvudbiten."""
+    main = max(result["pieces"], key=lambda p: p["hits"])
     start = min(p["start"] for p in result["pieces"])
     end = max(p["end"] for p in result["pieces"])
-    return {"time": (start + end) / 2, "start": start, "end": end}
+    return {
+        "time": (main["start"] + main["end"]) / 2,
+        "start": start,
+        "end": end,
+        "main_start": main["start"],
+        "main_end": main["end"],
+    }
 
 
 def _diff(seconds: float, verb: str) -> str:
@@ -136,17 +161,17 @@ def report(results: list[dict], picks: list[dict] | None) -> list[str]:
     """Rader att skriva ut per viralt klipp. Med picks: hittat eller inte och skillnaden i start och slut."""
     lines: list[str] = []
     clips = [(p["start"], p["end"]) for p in picks or [] if p.get("start") is not None]
-    found = total = 0
+    found = total = elsewhere = 0
     for n, result in enumerate(results, 1):
         views = (
             ", " + f"{result['views']:,}".replace(",", " ") + " visningar"
             if result.get("views")
             else ""
         )
-        lines.append(
-            f"{n}. {result.get('title') or 'Utan titel'}{views}  {result.get('url') or ''}".rstrip()
-        )
+        title = _clean(result.get("title")).strip() or "Utan titel"
+        lines.append(f"{n}. {title}{views}  {_clean(result.get('url'))}".rstrip())
         if not result["pieces"]:
+            elsewhere += 1
             lines.append(
                 "   Ingen träff i VOD:en. Klippet kommer nog från en annan stream, eller är för kort."
             )
@@ -170,7 +195,8 @@ def report(results: list[dict], picks: list[dict] | None) -> list[str]:
         else:
             lines.append("   Appen missade det.")
     if picks is not None:
-        lines.append(f"Appen hittade {found} av {total} virala klipp.")
+        tail = f" från den här VOD:en ({elsewhere} fanns inte i den)" if elsewhere else ""
+        lines.append(f"Appen hittade {found} av {total} virala klipp{tail}.")
     return lines
 
 
@@ -222,12 +248,37 @@ def _local(path: Path, viral_dir: Path) -> list[dict]:
     return clips
 
 
+def _download(url: str, file: Path) -> None:
+    """Hämta en mp4 från Content Rewards CDN. Avbryter över MAX_BYTES."""
+    size = 0
+    try:
+        with examples.http_client() as http, http.stream("GET", url) as response:
+            if response.status_code != 200:
+                raise DownloadFailed(f"Content Rewards svarade {response.status_code}.")
+            with file.open("wb") as out:
+                for chunk in response.iter_bytes():
+                    size += len(chunk)
+                    if size > MAX_BYTES:
+                        raise DownloadFailed("filen är större än 300 MB.")
+                    out.write(chunk)
+    except (httpx.HTTPError, DownloadFailed) as error:
+        file.unlink(missing_ok=True)
+        if isinstance(error, DownloadFailed):
+            raise
+        raise DownloadFailed(f"nätverksfel ({type(error).__name__}).") from error
+
+
 def _content_rewards(url: str, viral_dir: Path) -> list[dict]:
+    try:
+        found = examples.fetch(url)["clips"]
+    except RuntimeError as error:
+        raise DownloadFailed(str(error)) from error
     clips = []
-    for clip in examples.fetch(url)["clips"]:
+    for clip in found:
         if not clip["video_url"]:
             continue
-        folder = viral_dir / f"cr-{_hash(clip['video_url'])}"
+        # post_url är stabil; CDN-länken kan vara signerad och ändras
+        folder = viral_dir / f"cr-{_hash(clip['post_url'] or clip['video_url'])}"
         meta = {
             "source": "contentrewards",
             "campaign": url,
@@ -241,15 +292,12 @@ def _content_rewards(url: str, viral_dir: Path) -> list[dict]:
         }
         if not _cached(folder):
             folder.mkdir(parents=True, exist_ok=True)
-            print(f"  hämtar {clip['video_url']}", flush=True)
-            with examples.http_client() as http, http.stream("GET", clip["video_url"]) as response:
-                if response.status_code != 200:
-                    raise RuntimeError(
-                        f"Content Rewards svarade {response.status_code} för {clip['video_url']}."
-                    )
-                with (folder / "video.mp4").open("wb") as out:
-                    for chunk in response.iter_bytes():
-                        out.write(chunk)
+            print(f"  hämtar {_clean(clip['post_url'] or clip['video_url'])}", flush=True)
+            try:
+                _download(clip["video_url"], folder / "video.mp4")
+            except DownloadFailed as error:
+                print(f"  Kunde inte hämta klippet, hoppar över det: {error}", flush=True)
+                continue
         clips.append(_save(folder, meta))  # visningarna uppdateras vid varje körning
     return clips
 
@@ -259,6 +307,13 @@ def _date(info: dict) -> str | None:
         return datetime.fromtimestamp(info["timestamp"], UTC).date().isoformat()
     raw = info.get("upload_date")
     return f"{raw[:4]}-{raw[4:6]}-{raw[6:]}" if raw else None
+
+
+class _Silent:
+    def debug(self, msg: str) -> None:
+        pass
+
+    warning = error = debug
 
 
 def _ytdlp(url: str, viral_dir: Path) -> list[dict]:
@@ -276,11 +331,33 @@ def _ytdlp(url: str, viral_dir: Path) -> list[dict]:
         "merge_output_format": "mp4",
         "quiet": True,
         "noprogress": True,
+        "noplaylist": True,
+        "logger": _Silent(),  # felet blir en kort rad från oss i stället
+        "max_filesize": MAX_BYTES,
+        "match_filter": yt_dlp.utils.match_filter_func(f"duration <? {MAX_S}"),
     }
-    print(f"  hämtar {url}", flush=True)
-    with yt_dlp.YoutubeDL(options) as ydl:
-        info = ydl.extract_info(url, download=True)
-    file = next(folder.glob("video.*"))
+    print(f"  hämtar {_clean(url)}", flush=True)
+    try:
+        with yt_dlp.YoutubeDL(options) as ydl:
+            if ydl.extract_info(url, download=False, process=False).get("_type") == "playlist":
+                raise DownloadFailed(
+                    "länken är en spellista eller kanal. Ange länken till ett enda klipp."
+                )
+            info = ydl.extract_info(url, download=True)
+    except yt_dlp.utils.DownloadError as error:
+        raise DownloadFailed(
+            _clean(error).replace("ERROR: ", "").split(" (caused by")[0][:200]
+        ) from error
+    downloads = info.get("requested_downloads") or []
+    if (
+        info.get("_type") == "playlist"
+        or not downloads
+        or not Path(downloads[0]["filepath"]).exists()
+    ):
+        raise DownloadFailed(
+            "klippet hämtades inte. Det är längre än 10 minuter, större än 300 MB eller en spellista."
+        )
+    file = Path(downloads[0]["filepath"])
     return [
         _save(
             folder,
@@ -324,15 +401,33 @@ def run(vod_id: str, sources: list[str], work_dir: Path, transcribe: Transcribe)
     viral_dir = vod_dir / "viral"
     viral_dir.mkdir(parents=True, exist_ok=True)
 
-    results = []
-    for clip in [c for source in sources for c in collect(source, viral_dir)]:
-        out = clip["dir"] / "transcript.json"
+    for source in sources:
+        try:
+            clips = collect(source, viral_dir)
+        except DownloadFailed as error:
+            print(f"  Kunde inte hämta {_clean(source)}, hoppar över den: {error}", flush=True)
+            continue
+        for clip in clips:
+            out = clip["dir"] / "transcript.json"
+            if out.exists():
+                continue
+            mp4 = clip["dir"] / clip["file"]
+            seconds = probe(mp4)["duration"]
+            if seconds > MAX_S:
+                print(
+                    f"  Hoppar över {clip['dir'].name}: {seconds / 60:.0f} minuter är längre än 10 minuter.",
+                    flush=True,
+                )
+                continue
+            print(f"  transkriberar {clip['dir'].name}", flush=True)
+            transcribe(mp4, out)
+
+    results = []  # alla klipp som någon körning har hämtat och transkriberat för den här VOD:en
+    for meta in sorted(viral_dir.glob("*/meta.json")):
+        out = meta.parent / "transcript.json"
         if out.exists():
             transcript = Transcript.from_json(out.read_text(encoding="utf-8"))
-        else:
-            print(f"  transkriberar {clip['dir'].name}", flush=True)
-            transcript = transcribe(clip["dir"] / clip["file"], out)
-        results.append({**clip, "pieces": find(_all_words(transcript), vod)})
+            results.append({**_cached(meta.parent), "pieces": find(_all_words(transcript), vod)})
 
     moments = [
         {
@@ -342,7 +437,7 @@ def run(vod_id: str, sources: list[str], work_dir: Path, transcribe: Transcribe)
             "note": " ".join(
                 str(x)
                 for x in (
-                    r.get("title"),
+                    _clean(r.get("title")).strip(),
                     r.get("views") and f"({r['views']} visningar)",
                     r.get("url"),
                 )
