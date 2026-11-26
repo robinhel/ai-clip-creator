@@ -126,6 +126,10 @@ def test_tiktok_with_and_without_www_is_one_post_and_two_youtube_ids_are_two(con
     ]
 
 
+def _iso(at: datetime) -> str:
+    return at.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
 class FakeApify:
     """Låtsas-Apify. limits är månadens förbrukning, eller ett tal som är svarskoden när det är ett fel."""
 
@@ -136,9 +140,13 @@ class FakeApify:
         status: int = 200,
         run_error: int | Exception | None = None,
         start: str | None = None,
+        cost: float | None = None,
+        old_run: bool = False,
     ):
+        """cost är körningens usageTotalUsd i körningsinfon; None ger fel när körningarna läses. old_run lägger
+        bara en körning som startade en timme före vårt anrop i listan."""
         self.usage, self.items, self.status = usage, items or [], status
-        self.run_error, self.start = run_error, start
+        self.run_error, self.start, self.cost, self.old_run = run_error, start, cost, old_run
         self.requests: list[httpx.Request] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -155,6 +163,18 @@ class FakeApify:
                     "endAt": "2026-12-20T00:00:00.000Z",
                 }
             return httpx.Response(200, json={"data": data})
+        if request.url.path == "/v2/acts/clockworks~tiktok-scraper/runs":
+            assert request.url.params["desc"] == "1" and request.url.params["limit"] == "5"
+            if self.cost is None:
+                return httpx.Response(500, json={"error": {"message": "nej"}})
+            now = datetime.now(UTC)
+            runs = [{"id": "gammal", "startedAt": _iso(now - timedelta(hours=1))}]
+            if not self.old_run:
+                runs.insert(0, {"id": "var", "startedAt": _iso(now)})
+            return httpx.Response(200, json={"data": {"items": runs}})
+        if request.url.path.startswith("/v2/actor-runs/"):
+            assert request.url.path == "/v2/actor-runs/var"
+            return httpx.Response(200, json={"data": {"id": "var", "usageTotalUsd": self.cost}})
         assert request.url.path == "/v2/acts/clockworks~tiktok-scraper/run-sync-get-dataset-items"
         if isinstance(self.run_error, Exception):
             raise self.run_error
@@ -201,10 +221,45 @@ def test_apify_is_not_run_when_apify_says_the_month_is_almost_used(con) -> None:
     assert not fake.runs() and "Apify körs inte" in text and TOKEN not in text
 
 
-def test_with_ten_cents_left_a_run_may_cost_at_most_ten_cents(con) -> None:
+def test_with_ten_cents_left_no_run_starts_since_the_actor_needs_fifty(con) -> None:
     fake = FakeApify(4.40, ITEMS)
+    text = measure(con, fake)
+    assert not fake.runs() and "mindre än 0.50 US$ är kvar under månadens tak" in text
+    assert not con.execute("SELECT COUNT(*) FROM apify_runs").fetchone()[0]
+
+
+@pytest.mark.parametrize(("spent", "runs"), [(4.00, 1), (4.01, 0)])
+def test_a_run_starts_only_when_fifty_cents_are_left(con, spent, runs) -> None:
+    fake = FakeApify(spent, ITEMS)
     measure(con, fake)
-    assert float(fake.runs()[0].url.params["maxTotalChargeUsd"]) == 0.10
+    assert len(fake.runs()) == runs
+    assert all(float(r.url.params["maxTotalChargeUsd"]) == 0.5 for r in fake.runs())
+
+
+def many_items(n: int) -> list[dict]:
+    return [{**ITEMS[0], "webVideoUrl": f"https://www.tiktok.com/@x/video/{i}"} for i in range(n)]
+
+
+def test_the_real_cost_from_apify_is_saved_instead_of_the_estimate(con) -> None:
+    fake = FakeApify(1.00, many_items(134), cost=0.4968)
+    text = measure(con, fake)
+    assert con.execute("SELECT cost_usd, done FROM apify_runs").fetchall() == [(0.4968, 1)]
+    assert "Apify: 134 inlägg" in text and TOKEN not in text
+
+
+def test_when_the_run_info_cannot_be_read_the_cost_is_at_most_the_cap(con) -> None:
+    fake = FakeApify(1.00, many_items(134))  # 134 × 0,005 = 0,67, men taket är 0,50
+    text = measure(con, fake)
+    assert con.execute("SELECT cost_usd, done FROM apify_runs").fetchall() == [(0.5, 1)]
+    assert con.execute("SELECT COUNT(*) FROM posts").fetchone()[0] == 134
+    assert "Apify: 134 inlägg" in text
+
+
+def test_a_run_that_started_before_ours_is_not_used(con) -> None:
+    fake = FakeApify(1.00, ITEMS, cost=9.99, old_run=True)
+    measure(con, fake)
+    assert not [r for r in fake.requests if r.url.path.startswith("/v2/actor-runs/")]
+    assert con.execute("SELECT cost_usd, done FROM apify_runs").fetchall() == [(0.01, 1)]
 
 
 def test_apify_is_not_run_when_our_own_count_is_higher_than_apifys(con) -> None:
@@ -311,10 +366,11 @@ def test_two_reservations_in_a_row_never_go_over_the_cap(con) -> None:
     assert 4.00 + con.execute("SELECT SUM(cost_usd) FROM apify_runs").fetchone()[0] <= 4.50
 
 
-def test_the_second_reservation_only_gets_what_is_left(con) -> None:
+def test_a_second_reservation_is_stopped_when_less_than_fifty_cents_are_left(con) -> None:
     assert samling.reserve(con, 3.80, None, NOW)[1] == 0.5
-    assert samling.reserve(con, 3.80, None, NOW)[1] == 0.2
-    assert 3.80 + con.execute("SELECT SUM(cost_usd) FROM apify_runs").fetchone()[0] <= 4.50
+    with pytest.raises(apify.Stopped, match="mindre än 0.50"):  # 0,20 kvar räcker inte för aktören
+        samling.reserve(con, 3.80, None, NOW)
+    assert con.execute("SELECT SUM(cost_usd) FROM apify_runs").fetchone()[0] == 0.5
 
 
 @pytest.mark.parametrize("error", [500, httpx.ReadTimeout("väntade för länge")])
