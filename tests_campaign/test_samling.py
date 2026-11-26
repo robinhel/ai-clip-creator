@@ -351,7 +351,8 @@ def test_apify_that_is_not_a_mapping_gives_a_clear_message(tmp_path) -> None:
 def test_a_playlist_or_channel_link_gives_a_short_error_without_reading_it(
     con, monkeypatch
 ) -> None:
-    import yt_dlp
+    import sys
+    import types
 
     processed = []
 
@@ -370,7 +371,8 @@ def test_a_playlist_or_channel_link_gives_a_short_error_without_reading_it(
                 processed.append(url)
             return {"_type": "playlist", "entries": []}
 
-    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYDL)
+    # en falsk modul, så att testet går också där yt-dlp (extrat viral) inte är installerat, som i CI
+    monkeypatch.setitem(sys.modules, "yt_dlp", types.SimpleNamespace(YoutubeDL=FakeYDL))
     samling.add_links(con, ["https://www.youtube.com/@kanal"], NOW)
     text = measure(con, FakeApify(1.00, ITEMS))
     assert "spellista eller kanal" in text and not processed
