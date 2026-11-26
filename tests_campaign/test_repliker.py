@@ -4,6 +4,7 @@ Påhittad Haiku och Claude. Inga riktiga anrop."""
 from __future__ import annotations
 
 import json
+import re
 
 from campaign import pipeline, repliker
 from campaign.budget import BudgetExceeded
@@ -20,7 +21,7 @@ VIRAL = (4509.9, 4515.2)  # Laurens moment i körning 47: "They know what I'm we
 
 
 class FakeBrain:
-    """Låtsas-Haiku. answers tas i tur och ordning; ett undantag kastas."""
+    """Låtsas-Haiku. answers tas i tur och ordning; ett undantag kastas, en funktion får anropets text."""
 
     def __init__(self, *answers):
         self.answers = list(answers)
@@ -31,11 +32,11 @@ class FakeBrain:
         answer = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
         if isinstance(answer, Exception):
             raise answer
-        return answer
+        return answer(kwargs["content"]) if callable(answer) else answer
 
 
-def _line(t: float, quote: str = "They know what I'm wearing") -> dict:
-    return {"t": t, "quote": quote, "why": "absurd"}
+def _line(t: float, quote: str = "They know what I'm wearing", funny: int = 5) -> dict:
+    return {"t": t, "quote": quote, "why": "absurd", "funny": funny}
 
 
 def _run47() -> list[CandidateMoment]:
@@ -132,28 +133,83 @@ def test_a_line_inside_a_top_candidates_window_only_adds_the_quote() -> None:
 # ---------- find_lines ----------
 
 
-def test_lines_outside_the_transcript_are_dropped() -> None:
-    brain = FakeBrain(
-        {"lines": [_line(250), _line(99999), _line(-3), {"t": "x", "quote": "q", "why": ""}]}
+TALK = "honestly I have no idea what this guy is doing over there but we are going in anyway chat"
+REAL = {  # Laurens moment i VOD 2932652958, riktig transkripttext
+    4509.9: "They know what I'm wearing and they know what my car looks like.",
+    4515.2: "How do I get changed?",
+}
+
+
+def _long_stream() -> list[Segment]:
+    """3 timmar snabbt prat (18 ord på 6 s) med den riktiga texten runt 4512 s."""
+    segments = [s for s in _segments(3 * 3600, step=6, text=TALK) if not 4506 <= s.start <= 4518]
+    segments += [Segment(start=t, end=t + 5.3, text=text, words=[]) for t, text in REAL.items()]
+    return sorted(segments, key=lambda s: s.start)
+
+
+def _like_haiku(content: str) -> dict:
+    """Som den riktiga Haiku på Macen: högst 2 repliker per anrop, hur långt anropet än är. Momentet först
+    när det finns i texten."""
+    rows = [(int(m[1]), m[2]) for m in re.finditer(r"^\[(\d+)\] (.*)$", content, re.M)]
+    lines = (
+        [_line(4512, "They know what I'm wearing", 9)]
+        if "They know what I'm wearing" in content
+        else []
     )
-    lines = repliker.find_lines(_segments(600), brain)
-    assert [line["t"] for line in lines] == [250.0]
+    lines += [_line(t, text[:30], 3) for t, text in rows[:: max(1, len(rows) // 2)]]
+    return {"lines": lines[:2]}
+
+
+def test_a_long_stream_gives_many_lines_and_the_real_moment() -> None:
+    brain = FakeBrain(_like_haiku)
+    lines = repliker.find_lines(_long_stream(), brain)
+    assert len(brain.calls) >= 4  # bitar på cirka 40 000 tecken, inte ett enda anrop
+    assert len(lines) >= len(brain.calls)  # minst en replik per bit med tal
+    assert lines[0]["t"] == 4512 and lines[0]["funny"] == 9  # högst betyg först
+    call = next(c for c in brain.calls if "They know what I'm wearing" in c["content"])
+    assert (
+        "[4509] They know what I'm wearing and they know what my car looks like." in call["content"]
+    )
+    assert "[4515] How do I get changed?" in call["content"]
+
+
+def test_the_real_moment_reaches_claude_among_the_20_with_run_47() -> None:
+    lines = repliker.find_lines(_long_stream(), FakeBrain(_like_haiku))
+    top = _top(repliker.merge(_run47(), lines, GAP))
+    assert len(top) == 20 and _has_viral(top)
+    assert any("They know what I'm wearing" in r for c in top for r in c.reasons)
+
+
+def test_a_line_outside_its_part_is_dropped() -> None:
+    segments = _segments(600, text="x" * 400)  # 120 rader på 400 tecken: två bitar
+    brain = FakeBrain(
+        {
+            "lines": [
+                _line(250),
+                _line(99999),
+                _line(-3),
+                {"t": "x", "quote": "q", "why": "", "funny": 5},
+            ]
+        }
+    )
+    lines = repliker.find_lines(segments, brain)
+    assert len(brain.calls) == 2 and [line["t"] for line in lines] == [250.0]  # bara i första biten
     call = brain.calls[0]
     assert call["model"] == "claude-haiku-5-5" and call["purpose"] == "repliker"
-    assert "[250] ok" in call["content"]
 
 
-def test_a_three_hour_transcript_is_one_call() -> None:
-    text = (
-        "honestly I have no idea what this guy is doing over there but we are going in anyway chat"
+def test_budget_stop_keeps_earlier_parts_and_asks_no_more() -> None:
+    segments = _segments(1200, text="x" * 400)  # fyra bitar
+    brain = FakeBrain(
+        RuntimeError("nätverk"),
+        {"lines": [_line(400)]},
+        BudgetExceeded("Månadens budget är slut."),
+        {"lines": [_line(1100)]},
     )
-    segments = _segments(
-        3 * 3600, step=6, text=text
-    )  # 18 ord på 6 s: 180 ord i minuten, snabbt prat
-    brain = FakeBrain({"lines": []})
-    repliker.find_lines(segments, brain)
-    size = sum(len(call["content"]) for call in brain.calls)
-    assert len(brain.calls) == 1 and size < repliker.CHUNK_CHARS
+    problems: list[str] = []
+    lines = repliker.find_lines(segments, brain, problems=problems)
+    assert len(brain.calls) == 3 and [line["t"] for line in lines] == [400.0]
+    assert len(problems) == 2
 
 
 def test_a_very_long_transcript_is_split_in_as_few_parts_as_possible() -> None:
@@ -190,6 +246,20 @@ def test_saved_lines_are_used_again_without_a_new_call(tmp_path) -> None:
     second = repliker.add_lines(candidates, _segments(600), path, brain, GAP)
     assert len(brain.calls) == 1 and first == second
     assert json.loads(path.read_text(encoding="utf-8"))["lines"][0]["t"] == 250
+
+
+def test_an_old_cache_without_version_is_not_used(tmp_path) -> None:
+    path = tmp_path / "repliker.json"
+    old = {"span": [0, 600], "lines": [_line(100), _line(300)]}  # Macens gamla svar
+    path.write_text(json.dumps(old), encoding="utf-8")
+    brain = FakeBrain({"lines": [_line(250)]})
+    candidates = [CandidateMoment(100.0, 10.0, ["chat_density"], ["x"])]
+    repliker.add_lines(candidates, _segments(600), path, brain, GAP)
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert len(brain.calls) == 1 and saved["version"] == repliker.VERSION
+    saved["lines"] += [{"t": 300, "why": "utan citat"}, {"quote": "utan tid"}]
+    path.write_text(json.dumps(saved), encoding="utf-8")
+    assert [line["t"] for line in repliker._cached(path, [0, 600])] == [250]
 
 
 # ---------- make_clips ----------
