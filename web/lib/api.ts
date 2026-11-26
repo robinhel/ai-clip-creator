@@ -2,6 +2,7 @@ import type {
   CampaignClip,
   CampaignClipPatch,
   CampaignExamples,
+  CampaignTaste,
   CampaignProfile,
   CampaignProfileCreate,
   CampaignProfileDetail,
@@ -140,6 +141,15 @@ export const api = {
           body: JSON.stringify({ yaml }),
         }),
       examples: (id: string) => apiFetch<CampaignExamples>(`/campaign/profiles/${id}/examples`),
+      // Smaken från virala klipp: alla vägar svarar med smaken och klippen.
+      taste: (id: string) => apiFetch<CampaignTaste>(`/campaign/profiles/${id}/taste`),
+      collectViral: (id: string) => apiFetch<CampaignTaste>(`/campaign/profiles/${id}/viral/collect`, { method: "POST" }),
+      addViralLink: (id: string, url: string, views?: number) =>
+        apiFetch<CampaignTaste>(`/campaign/profiles/${id}/viral/link`, {
+          method: "POST",
+          body: JSON.stringify({ url, views: views ?? null }),
+        }),
+      analyseTaste: (id: string) => apiFetch<CampaignTaste>(`/campaign/profiles/${id}/taste/analyse`, { method: "POST" }),
       reframe: (id: string) => apiFetch<ReframeInfo>(`/campaign/profiles/${id}/reframe`),
       saveReframe: (id: string, body: { webcam_rects: Rect[]; gameplay_rect: Rect; split_ratio: number }) =>
         apiFetch<ReframeInfo>(`/campaign/profiles/${id}/reframe`, { method: "PUT", body: JSON.stringify(body) }),

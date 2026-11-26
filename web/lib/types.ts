@@ -717,6 +717,49 @@ export interface CampaignExamples {
   earners: { rank: number; name: string; earned_usd: number; views: number; approved: number }[];
 }
 
+/** Ett viralt klipp från någon annan (campaign/viral.py). */
+export interface ViralClip {
+  id: string;
+  source: "twitch" | "content_rewards" | "link";
+  url: string;
+  video_url: string | null;
+  title: string | null;
+  creator: string | null;
+  views: number | null;
+  posted_at: string | null;
+  views_per_day: number | null;
+  /** Hur många gånger fler visningar än kanalens vanliga klipp. */
+  outlier: number | null;
+  duration: number | null;
+  /** Var i originalströmmen klippet kommer ifrån, eller null när det inte hittades. */
+  location: { vod_id: string; start_s: number; end_s: number; method: string; confidence: number } | null;
+  measured: Record<string, unknown> | null;
+}
+
+/** Smaken från de virala klippen (campaign/taste.py). */
+export interface Taste {
+  updated: string;
+  profile: string;
+  clip_ids: string[];
+  numbers: {
+    length_s: number | null;
+    first_cut_s: number | null;
+    cuts_per_min: number | null;
+    caption_words: number | null;
+    hook_text_share: number | null;
+    payoff_s: number | null;
+  };
+  rules: string[];
+  /** Texten Claude får när den väljer klipp. */
+  summary_en: string;
+}
+
+/** GET /campaign/profiles/{id}/taste, och svaret från smakens POST-vägar. */
+export interface CampaignTaste {
+  taste: Taste | null;
+  clips: ViralClip[];
+}
+
 /** [x, y, bredd, höjd] i källbildens pixlar (1920x1080). */
 export type Rect = [number, number, number, number];
 

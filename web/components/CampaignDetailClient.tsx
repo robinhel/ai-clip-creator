@@ -14,6 +14,7 @@ import { CampaignOverlay } from "@/components/CampaignOverlay";
 import { CampaignMaterial } from "@/components/CampaignMaterial";
 import { CampaignRules } from "@/components/CampaignRules";
 import { CampaignSettingsForm } from "@/components/CampaignSettingsForm";
+import { CampaignTaste } from "@/components/CampaignTaste";
 import { CampaignYaml } from "@/components/CampaignYaml";
 import { LiveWatch } from "@/components/LiveWatch";
 import { MissingKeys, ProblemFix, ReadyBadge, keyProblems, lengthText, ownProblems, sourceText } from "@/components/CampaignsClient";
@@ -25,6 +26,7 @@ const TABS = [
   { id: "skapa", label: "Create clips" },
   { id: "klipp", label: "Clips" },
   { id: "exempel", label: "Example clips" },
+  { id: "smak", label: "Taste" },
   { id: "material", label: "Material" },
   { id: "installningar", label: "Set up" },
 ] as const;
@@ -265,6 +267,7 @@ export function CampaignDetailClient({ id, tab: tabParam, part: partParam, chat,
       {tab === "skapa" && <CampaignChat profile={profile} material={material} chatId={chat} onOpen={openChat} />}
       {tab === "klipp" && <CampaignClips profile={profile} material={material} />}
       {tab === "exempel" && <CampaignExampleClips id={profile.name} link={profile.links.content_rewards} />}
+      {tab === "smak" && <CampaignTaste id={profile.name} />}
       {tab === "material" && <CampaignMaterial profile={profile} material={material} error={materialError} />}
       {tab === "installningar" && (
         <>
