@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEMO_OFF, demoFetch, resetDemo } from "./index";
-import type { CampaignClip, CampaignProfile, CampaignProject, CampaignRunInfo, CampaignSummary, TranscriptionSetting } from "../types";
+import type { CampaignClip, CampaignProfile, CampaignProject, CampaignRunInfo, CampaignSummary, KeyGroup, TikTokCreatorInfo, TikTokStatus, TranscriptionSetting } from "../types";
 import type { Timeline } from "../timeline";
 
 afterEach(() => {
@@ -72,6 +72,21 @@ describe("demoFetch", () => {
     expect(timeline.picks.length).toBe(clips.length);
     expect(timeline.chat_density).toEqual([]);
     await expect(demoFetch("/campaign/projects/9999")).rejects.toThrow("The project does not exist.");
+  });
+
+  it("shows the same connected TikTok account everywhere", async () => {
+    const spy = vi.fn();
+    vi.stubGlobal("fetch", spy);
+    const status = await demoFetch<TikTokStatus>("/campaign/tiktok/status");
+    expect(status.configured).toBe(true);
+    const [account] = status.accounts ?? [];
+    expect(account).toMatchObject({ open_id: "demo-tiktok", display_name: "Sample TikTok account", connected: true, can_publish: true });
+    const keys = await demoFetch<{ groups: KeyGroup[] }>("/campaign/keys");
+    expect(keys.groups.find((g) => g.id === "tiktok")?.keys.every((k) => k.set)).toBe(true);
+    const creator = await demoFetch<TikTokCreatorInfo>("/campaign/tiktok/accounts/demo-tiktok/creator_info");
+    expect(creator.open_id).toBe("demo-tiktok");
+    expect(creator.privacy_level_options.length).toBeGreaterThan(0);
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it("answers 404 for an unknown run", async () => {
