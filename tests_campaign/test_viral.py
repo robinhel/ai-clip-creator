@@ -215,3 +215,16 @@ def test_a_txt_file_is_a_list_of_sources(tmp_path, monkeypatch) -> None:
     clips = viral.collect(str(lista), tmp_path / "viral")
     assert seen == ["https://www.tiktok.com/@a/video/1", "https://www.tiktok.com/@b/video/2"]
     assert len(clips) == 2
+
+
+def test_a_bad_line_in_a_txt_file_is_skipped_and_the_next_line_is_read(tmp_path, monkeypatch, capsys) -> None:
+    (tmp_path / "annan.txt").write_text("https://www.tiktok.com/@c/video/3\n", encoding="utf-8")
+    lista = tmp_path / "utvalda.txt"
+    lista.write_text(f"{tmp_path / 'finns-inte.mp4'}\n{tmp_path / 'annan.txt'}\nhttps://www.tiktok.com/@a/video/1\n",
+                     encoding="utf-8")
+    seen = []
+    monkeypatch.setattr(viral, "_ytdlp", lambda url, folder: seen.append(url) or [{"url": url}])
+    viral.collect(str(lista), tmp_path / "viral")
+    assert seen == ["https://www.tiktok.com/@a/video/1"]
+    out = capsys.readouterr().out
+    assert "finns-inte.mp4, hoppar över den" in out and "en .txt-lista i en .txt-lista läses inte" in out

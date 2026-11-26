@@ -1,8 +1,9 @@
 """Apify: hämta TikTok-inlägg med aktören clockworks~tiktok-scraper, med en hård spärr på gratisnivån.
 
-Spärren har tre lager. Före varje körning läses månadens förbrukning hos Apify; går den inte att läsa körs inget.
-Samma månads kostnader i samling.db räknas också, och det största av de två gäller. En körning får kosta högst
-RUN_CAP_USD och aldrig mer än det som är kvar under MONTH_CAP_USD (maxTotalChargeUsd). Token skickas bara i headern.
+Spärren har tre lager. Före varje körning läses förbrukningen i Apifys period; går den inte att läsa körs inget.
+Samma periods kostnader i samling.db räknas också, och det största av de två gäller. En körning får kosta högst
+RUN_CAP_USD och aldrig mer än det som är kvar under MONTH_CAP_USD (maxTotalChargeUsd). Taket reserveras i samling.db
+innan anropet, så att två körningar samtidigt eller ett avbrott inte kan gå förbi spärren. Token skickas bara i headern.
 Inga videor laddas ner.
 """
 
@@ -19,6 +20,7 @@ ACTOR = "clockworks~tiktok-scraper"
 MONTH_CAP_USD = 4.50  # gratisnivån ger 5 US$ i månaden
 RUN_CAP_USD = 0.50
 MIN_LEFT_USD = 0.05
+MIN_RUN_USD = 0.01  # lägsta kostnad som sparas för en körning, också utan resultat
 USD_PER_RESULT = 0.005  # säker uppskattning när svaret inte säger vad körningen kostade
 NO_DOWNLOADS = {
     "shouldDownloadVideos": False,
@@ -38,8 +40,8 @@ def _headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def month_usage(http: httpx.Client, token: str) -> float:
-    """Månadens förbrukning enligt Apify, i US$."""
+def limits(http: httpx.Client, token: str) -> tuple[float, datetime | None]:
+    """Förbrukningen i Apifys period enligt Apify, i US$, och när perioden började (None om svaret inte säger det)."""
     try:
         response = http.get(f"{BASE}/users/me/limits", headers=_headers(token), timeout=30)
     except httpx.HTTPError as error:
@@ -51,14 +53,31 @@ def month_usage(http: httpx.Client, token: str) -> float:
             f"kunde inte läsa månadens förbrukning hos Apify (svar {response.status_code})."
         )
     try:
-        usage = response.json()["data"]["current"]["monthlyUsageUsd"]
+        data = response.json()["data"]
+        usage = data["current"]["monthlyUsageUsd"]
     except (ValueError, KeyError, TypeError):
-        usage = None
+        data, usage = {}, None
     if not isinstance(usage, (int, float)):
         raise Stopped(
             "kunde inte läsa månadens förbrukning hos Apify (svaret saknar monthlyUsageUsd)."
         )
-    return float(usage)
+    cycle = data.get("monthlyUsageCycle")
+    start = cycle.get("startAt") if isinstance(cycle, dict) else None
+    try:
+        start = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(UTC)
+    except (AttributeError, ValueError):
+        start = None
+    return float(usage), start
+
+
+def charge_for(spent_usd: float) -> float:
+    """Det mesta en körning får kosta när spent_usd är förbrukat: hela cent, nedåt. Stopped när för lite är kvar."""
+    left = MONTH_CAP_USD - spent_usd
+    if left < MIN_LEFT_USD:
+        raise Stopped(
+            f"månadens tak {MONTH_CAP_USD:.2f} US$ är nått ({spent_usd:.2f} US$ förbrukat eller reserverat)."
+        )
+    return math.floor(round(min(RUN_CAP_USD, left) * 100, 6)) / 100
 
 
 def _created(item: dict) -> datetime | None:
@@ -102,15 +121,15 @@ def run(
     http: httpx.Client,
     token: str,
     run_input: dict,
-    own_spent_usd: float,
-    record_cost: Callable[[float], None],
+    reserve: Callable[[float, datetime | None], float],
+    finish: Callable[[float], None],
 ) -> list[dict]:
-    """Kör aktören en gång inom spärren och ge inläggen. record_cost får kostnaden, även när körningen går fel."""
-    spent = max(month_usage(http, token), own_spent_usd)
-    left = MONTH_CAP_USD - spent
-    if left < MIN_LEFT_USD:
-        raise Stopped(f"månadens tak {MONTH_CAP_USD:.2f} US$ är nått ({spent:.2f} US$ förbrukat).")
-    charge = math.floor(round(min(RUN_CAP_USD, left) * 100, 6)) / 100  # hela cent, nedåt
+    """Kör aktören en gång inom spärren och ge inläggen.
+
+    reserve får Apifys förbrukning och periodens start, sparar hela körningens tak som kostnad och ger taket (eller
+    Stopped). finish får den uppskattade kostnaden när svaret har kommit. Utan svar, vid fel eller avbrott står taket
+    kvar som kostnad."""
+    charge = reserve(*limits(http, token))
     try:
         response = http.post(
             f"{BASE}/acts/{ACTOR}/run-sync-get-dataset-items",
@@ -120,7 +139,6 @@ def run(
             timeout=320,
         )
     except httpx.HTTPError as error:
-        record_cost(charge)  # körningen kan ha startat; räkna med det högsta den fick kosta
         raise Stopped(
             f"Apify svarade inte ({type(error).__name__}). Räknar med {charge:.2f} US$."
         ) from error
@@ -133,8 +151,8 @@ def run(
     elif isinstance(data, list):
         items = data
     else:
-        record_cost(charge)
         raise Stopped(f"Apify svarade {response.status_code}. Räknar med {charge:.2f} US$.")
     usage = data.get("usageTotalUsd") if isinstance(data, dict) else None
-    record_cost(float(usage) if isinstance(usage, (int, float)) else len(items) * USD_PER_RESULT)
+    cost = float(usage) if isinstance(usage, (int, float)) else len(items) * USD_PER_RESULT
+    finish(max(MIN_RUN_USD, cost))
     return parse(items)

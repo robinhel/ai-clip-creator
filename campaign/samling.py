@@ -16,7 +16,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from statistics import median
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import httpx
 import yaml
@@ -32,7 +32,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS posts (url TEXT PRIMARY KEY, platform TEXT, account TEXT, created TEXT, title TEXT,
                                   source TEXT);
 CREATE TABLE IF NOT EXISTS measurements (url TEXT NOT NULL, at TEXT NOT NULL, views INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS apify_runs (at TEXT NOT NULL, cost_usd REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS apify_runs (at TEXT NOT NULL, cost_usd REAL NOT NULL, done INTEGER NOT NULL DEFAULT 1);
 """
 
 
@@ -44,9 +44,16 @@ def connect(path: Path) -> sqlite3.Connection:
 
 
 def normalize(url: str) -> str:
-    """https, utan query och fragment och utan / på slutet, så att samma inlägg inte sparas två gånger."""
+    """https, utan www., query och fragment och utan / på slutet, så att samma inlägg inte sparas två gånger.
+    YouTube behåller v=, som är klippets id."""
     parts = urlparse(url.strip())
-    return urlunparse(("https", parts.netloc.lower(), parts.path.rstrip("/"), "", "", ""))
+    host = parts.netloc.lower().removeprefix("www.")
+    path = parts.path.rstrip("/")
+    query = ""
+    if host.endswith("youtube.com") and path == "/watch":
+        video = parse_qs(parts.query).get("v")
+        query = urlencode({"v": video[0]}) if video else ""
+    return urlunparse(("https", host, path, "", query, ""))
 
 
 def _iso(when: datetime) -> str:
@@ -123,11 +130,16 @@ def load_config(root: Path) -> dict:
             "samling.yaml ska ha fälten content_rewards och apify, se samling.exempel.yaml."
         )
     cfg = {"content_rewards": data.get("content_rewards") or [], "apify": data.get("apify") or {}}
+    if not isinstance(cfg["apify"], dict):
+        raise SystemExit(
+            "I samling.yaml ska apify ha fälten hashtags, search, profiles och per_query på egna rader, "
+            "se samling.exempel.yaml."
+        )
     lists = [
         cfg["content_rewards"],
         *(cfg["apify"].get(k) or [] for k in ("hashtags", "search", "profiles")),
     ]
-    if not isinstance(cfg["apify"], dict) or not all(isinstance(x, list) for x in lists):
+    if not all(isinstance(x, list) for x in lists):
         raise SystemExit(
             "I samling.yaml ska content_rewards, hashtags, search och profiles vara listor."
         )
@@ -150,6 +162,10 @@ def _info(url: str) -> dict:
         "logger": _Silent(),
     }
     with yt_dlp.YoutubeDL(options) as ydl:
+        if ydl.extract_info(url, download=False, process=False).get("_type") == "playlist":
+            raise ValueError(
+                "länken är en spellista eller kanal. Ange länken till ett enda inlägg."
+            )
         return ydl.extract_info(url, download=False)
 
 
@@ -216,11 +232,32 @@ def _own_links(con, now: datetime, info: Callable) -> list[str]:
     return [f"Egna länkar: {measured} inlägg", *lines]
 
 
-def _apify_spent(con, now: datetime) -> float:
-    start = now.astimezone(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+def _apify_spent(con, now: datetime, start: datetime | None) -> tuple[float, float]:
+    """Allt sparat i perioden (kostnader och reservationer) och det som fortfarande är reserverat. Utan start från
+    Apify gäller kalendermånaden i UTC."""
+    start = start or now.astimezone(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     return con.execute(
-        "SELECT COALESCE(SUM(cost_usd), 0) FROM apify_runs WHERE at >= ?", (_iso(start),)
-    ).fetchone()[0]
+        "SELECT COALESCE(SUM(cost_usd), 0), COALESCE(SUM(CASE WHEN done = 0 THEN cost_usd END), 0) "
+        "FROM apify_runs WHERE at >= ?",
+        (_iso(start),),
+    ).fetchone()
+
+
+def reserve(con, apify_usage: float, start: datetime | None, now: datetime) -> tuple[int, float]:
+    """Spara hela körningens tak som kostnad innan anropet, i en låst transaktion. Ger radens id och taket.
+    apify.Stopped när för lite är kvar. Reservationer som inte är klara läggs på Apifys siffra, som inte vet om dem."""
+    con.execute("BEGIN IMMEDIATE")
+    try:
+        total, pending = _apify_spent(con, now, start)
+        charge = apify.charge_for(max(apify_usage + pending, total))
+        row = con.execute(
+            "INSERT INTO apify_runs (at, cost_usd, done) VALUES (?, ?, 0)", (_iso(now), charge)
+        ).lastrowid
+    except BaseException:
+        con.execute("ROLLBACK")
+        raise
+    con.execute("COMMIT")
+    return row, charge
 
 
 def _apify(con, settings: dict, token: str, now: datetime, http: httpx.Client) -> list[str]:
@@ -250,11 +287,19 @@ def _apify(con, settings: dict, token: str, now: datetime, http: httpx.Client) -
         if not any(run_input[k] for k in ("hashtags", "searchQueries", "profiles")):
             return ["Apify: inga hashtags, sökningar eller konton i samling.yaml."]
 
-    def save_cost(cost: float) -> None:
-        con.execute("INSERT INTO apify_runs (at, cost_usd) VALUES (?, ?)", (_iso(now), cost))
+    rows, cycle = [], []
+
+    def book(usage: float, start: datetime | None) -> float:
+        cycle.append(start)
+        row, charge = reserve(con, usage, start, now)
+        rows.append(row)
+        return charge
+
+    def finish(cost: float) -> None:
+        con.execute("UPDATE apify_runs SET cost_usd = ?, done = 1 WHERE rowid = ?", (cost, rows[0]))
 
     try:
-        posts = apify.run(http, token, run_input, _apify_spent(con, now), save_cost)
+        posts = apify.run(http, token, run_input, book, finish)
     except apify.Stopped as error:
         return [f"Apify körs inte: {error}"]
     if ready:  # bara de inlägg som skulle mätas igen
@@ -264,7 +309,7 @@ def _apify(con, settings: dict, token: str, now: datetime, http: httpx.Client) -
         record(con, post, now)
     what = "mätta igen" if ready else "nya eller mätta"
     return [
-        f"Apify: {len(posts)} inlägg {what} (månaden: {_apify_spent(con, now):.2f} av {apify.MONTH_CAP_USD:.2f} US$)"
+        f"Apify: {len(posts)} inlägg {what} (månaden: {_apify_spent(con, now, cycle[0])[0]:.2f} av {apify.MONTH_CAP_USD:.2f} US$)"
     ]
 
 
