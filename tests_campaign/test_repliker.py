@@ -11,7 +11,7 @@ from campaign.budget import BudgetExceeded
 from clipsmith.llm.anthropic_provider import AnthropicProvider
 from clipsmith.llm.base import ClipPick
 from clipsmith.models.candidates import CandidateMoment
-from clipsmith.models.transcript import Segment
+from clipsmith.models.transcript import Segment, Transcript
 from clipsmith.selection.selector import _spread_candidates
 
 from .test_natt_korning import _make, vod  # noqa: F401  (fixture)
@@ -342,3 +342,52 @@ def test_a_broken_haiku_does_not_stop_the_run(settings, vod, monkeypatch) -> Non
     vod.picker = Picker()
     _, message = _make(settings, vod)
     assert len(brain.calls) == 1 and message == "Claude valde inga av 2 kandidater."
+
+
+# ---------- clip.max_candidates ----------
+
+
+def test_merge_with_30_keeps_the_signals_top_25_and_at_most_5_lines() -> None:
+    candidates = _run47()
+    signals_top = _spread_candidates(sorted(candidates, key=lambda c: c.score, reverse=True), GAP, 25)
+    lines = [_line(t) for t in (4512, 5300, 6020, 1000, 2000, 3200, 6800, 9000, 9600)]
+    top = _spread_candidates(
+        sorted(repliker.merge(candidates, lines, GAP, max_n=30), key=lambda c: c.score, reverse=True), GAP, 30
+    )
+    assert len(top) == 30
+    kept = {(c.t_center, c.score) for c in signals_top}
+    assert kept <= {(c.t_center, c.score) for c in top}
+    added = [c for c in top if (c.t_center, c.score) not in kept]
+    assert len(added) == 5 and all(repliker.SOURCE in c.sources for c in added)
+
+
+def _forty(settings, vod, max_candidates: int | None) -> None:  # noqa: F811
+    """40 kandidater med 100 s mellan, ett transkript som täcker dem och kampanjens max_candidates."""
+    vod.candidates = [CandidateMoment(50.0 + 100 * k, 60.0 - k, ["chat_density"], ["x"]) for k in range(40)]
+    segments = [Segment(start=t, end=t + 5, text="wow", words=[]) for t in range(0, 4100, 5)]
+    (vod.mp4.parent / "transcript.json").write_text(Transcript("123", "en", segments).to_json(), encoding="utf-8")
+    if max_candidates is not None:
+        path = settings.profiles_dir / "skiimasktimmy.yaml"
+        text = path.read_text(encoding="utf-8")
+        path.write_text(text.replace("clip:\n", f"clip:\n  max_candidates: {max_candidates}\n", 1), encoding="utf-8")
+
+
+def test_the_campaigns_max_candidates_decides_how_many_claude_sees(settings, vod, monkeypatch) -> None:  # noqa: F811
+    brain = FakeBrain({"lines": [_line(3333, "I'm not even mad")]})
+    monkeypatch.setattr(pipeline, "Brain", lambda *a, **k: brain)
+    _forty(settings, vod, 30)
+    vod.picker = Picker()
+    _make(settings, vod)
+    assert len(vod.picker.seen) == 30
+    saved = json.loads((vod.mp4.parent / "candidates.valda.json").read_text(encoding="utf-8"))
+    assert any(repliker.SOURCE in c["sources"] and "I'm not even mad" in c["reasons"][-1] for c in saved)
+    assert not any(repliker.SOURCE in c["sources"] for c in json.loads(
+        (vod.mp4.parent / "candidates.json").read_text(encoding="utf-8")))  # candidates.json är orörd
+
+
+def test_without_max_candidates_claude_sees_20(settings, vod, monkeypatch) -> None:  # noqa: F811
+    monkeypatch.setattr(pipeline, "Brain", lambda *a, **k: FakeBrain({"lines": []}))
+    _forty(settings, vod, None)
+    vod.picker = Picker()
+    _make(settings, vod)
+    assert len(vod.picker.seen) == 20
