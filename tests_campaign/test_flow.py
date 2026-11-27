@@ -729,3 +729,158 @@ def test_the_cost_is_split_into_berget_and_claude_and_berget_follows_the_price_l
     transcript.write_text("{}")
     cost = client.get(f"/campaign/vod/{VOD}").json()["estimate"]["cost"]
     assert (cost["berget_usd"], cost["usd"]) == (0.0, 0.30)
+
+
+# ---------- Twitchs klipplista per VOD (work/<vod>/twitch_clips.json) ----------
+# Inom 48 timmar efter streamen läggs nya klipp till och inget tas bort. Efter 48 timmar är listan låst.
+
+
+class _FakeTwitch:
+    """Låtsas-TwitchClient: svarar med answer (en lista eller ett fel) och räknar anropen."""
+
+    answer: object = []
+    calls = 0
+
+    def __init__(self, *a) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a) -> None:
+        pass
+
+    def get_clips_for_vod(self, *a, **k):
+        type(self).calls += 1
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return list(self.answer)
+
+
+def _twitch_clip(clip_id: str, offset: int, views: int = 10):
+    from clipsmith.models.twitch import Clip
+
+    return Clip(id=clip_id, url="", title=clip_id, creator_name="tittare", video_id=VOD, vod_offset=offset,
+                duration=30.0, view_count=views, created_at="2026-11-20T20:00:00Z")
+
+
+@pytest.fixture
+def clip_list_run(tmp_path, monkeypatch):
+    """process_vod på en nedladdad VOD (start 20 nov 18:00, 1h0m0s lång). run(now) kör vid tiden now."""
+    from types import SimpleNamespace
+
+    from clipsmith import pipeline as cs_pipeline
+    from clipsmith.models.chat import ChatLog
+    from clipsmith.models.transcript import Segment, Transcript
+    from clipsmith.models.twitch import Video
+    from clipsmith.settings import AppConfig
+
+    vod = tmp_path / VOD
+    vod.mkdir()
+    (vod / f"{VOD}.mp4").touch()
+    (vod / "transcript.json").write_text(Transcript(video_id=VOD, language="en", segments=[
+        Segment(start=float(t), end=t + 5.0, text="hej", words=[]) for t in range(0, 3600, 60)]).to_json(),
+        encoding="utf-8")
+    (vod / "chat.json").write_text(ChatLog(video_id=VOD, messages=[]).to_json(), encoding="utf-8")
+    cfg = AppConfig(work_dir=tmp_path)
+    cfg.candidates.audio_energy_enabled = False
+    cfg.candidates.scene_enabled = False
+    monkeypatch.setattr(cs_pipeline, "load_or_detect_webcam_rect", lambda *a: None)
+    _FakeTwitch.answer, _FakeTwitch.calls = [], 0
+    monkeypatch.setattr(cs_pipeline, "TwitchClient", _FakeTwitch)
+    secrets = SimpleNamespace(twitch_client_id="id", twitch_client_secret="hemlig")
+
+    def run(now: datetime, user_id: str = "123", created_at: str = "2026-11-20T18:00:00Z") -> None:
+        monkeypatch.setattr(cs_pipeline, "_now", lambda: now)
+        video = Video(id=VOD, user_id=user_id, user_login="timmy", title="t", created_at=created_at,
+                      published_at="", url="", duration="1h0m0s", type="archive")
+        cs_pipeline.process_vod(video, cfg, secrets, skip_download=True, skip_transcribe=True,
+                                skip_chat=True, skip_select=True)
+
+    return run, vod / "twitch_clips.json"
+
+
+SOON = datetime(2026, 11, 21, 12, 0, tzinfo=UTC)  # 18 timmar efter streamens slut (19:00)
+LATE = datetime(2026, 11, 23, 12, 0, tzinfo=UTC)  # 65 timmar efter
+
+
+def _saved(path) -> dict[str, int]:
+    return {d["id"]: d["view_count"] for d in json.loads(path.read_text(encoding="utf-8"))}
+
+
+def test_within_48_hours_new_clips_are_added_and_none_are_removed(clip_list_run) -> None:
+    run, path = clip_list_run
+    _FakeTwitch.answer = [_twitch_clip("a", 600, views=5), _twitch_clip("b", 1200)]
+    run(SOON)
+    assert _saved(path) == {"a": 5, "b": 10}
+    _FakeTwitch.answer = [_twitch_clip("a", 600, views=50), _twitch_clip("c", 1800)]  # b är borta hos Twitch
+    run(SOON + timedelta(hours=10))
+    assert _FakeTwitch.calls == 2
+    assert _saved(path) == {"a": 50, "b": 10, "c": 10}
+
+
+def test_after_48_hours_the_saved_list_is_used_without_asking_twitch(clip_list_run) -> None:
+    run, path = clip_list_run
+    _FakeTwitch.answer = [_twitch_clip("a", 600), _twitch_clip("b", 1200)]
+    run(SOON)
+    first = (path.parent / "candidates.json").read_text(encoding="utf-8")
+    assert "Twitch clip 'b'" in first
+    _FakeTwitch.answer = [_twitch_clip("x", 3000)]  # Twitch har en helt annan lista nu
+    run(LATE)
+    assert _FakeTwitch.calls == 1
+    assert (path.parent / "candidates.json").read_text(encoding="utf-8") == first
+    assert _saved(path) == {"a": 10, "b": 10}
+
+
+def test_after_48_hours_without_a_file_the_list_is_fetched_and_saved_once(clip_list_run) -> None:
+    run, path = clip_list_run
+    _FakeTwitch.answer = [_twitch_clip("a", 600)]
+    run(LATE)
+    run(LATE)
+    assert _FakeTwitch.calls == 1
+    assert _saved(path) == {"a": 10}
+
+
+def test_unknown_stream_end_counts_as_within_48_hours(clip_list_run) -> None:
+    run, path = clip_list_run
+    _FakeTwitch.answer = [_twitch_clip("a", 600)]
+    run(LATE, created_at="")
+    _FakeTwitch.answer = [_twitch_clip("b", 1200)]
+    run(LATE, created_at="")
+    assert _FakeTwitch.calls == 2
+    assert _saved(path) == {"a": 10, "b": 10}
+
+
+def test_empty_answer_or_error_within_48_hours_leaves_the_file_alone(clip_list_run) -> None:
+    run, path = clip_list_run
+    run(SOON)  # tom lista och ingen fil: ingen fil skrivs
+    assert not path.exists()
+    _FakeTwitch.answer = RuntimeError("Twitch svarar inte")
+    with pytest.raises(RuntimeError):  # ingen fil: som förut
+        run(SOON)
+    assert not path.exists()
+    _FakeTwitch.answer = [_twitch_clip("a", 600)]
+    run(SOON)
+    before = path.read_text(encoding="utf-8")
+    for answer in ([], RuntimeError("Twitch svarar inte")):
+        _FakeTwitch.answer = answer
+        run(SOON)  # filen finns: den används som den är
+        assert path.read_text(encoding="utf-8") == before
+
+
+def test_a_broken_file_is_fetched_again(clip_list_run) -> None:
+    run, path = clip_list_run
+    path.write_text("{trasig", encoding="utf-8")
+    _FakeTwitch.answer = [_twitch_clip("a", 600)]
+    run(LATE)
+    assert _FakeTwitch.calls == 1
+    assert _saved(path) == {"a": 10}
+
+
+def test_a_live_run_saves_no_clip_list(clip_list_run) -> None:
+    # Live-klipparen kör med local=True; då är user_id tomt och Twitch frågas inte om klipp.
+    run, path = clip_list_run
+    _FakeTwitch.answer = [_twitch_clip("a", 600)]
+    run(SOON, user_id="")
+    assert _FakeTwitch.calls == 0
+    assert not path.exists()
