@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 import time
-from datetime import datetime
+from dataclasses import asdict
+from datetime import UTC, datetime, timedelta
 from typing import Callable
 
 import structlog
@@ -22,7 +24,7 @@ from .twitch.downloader import download_vod
 from .llm import get_provider
 from .llm.prompts import build_stream_context
 from .models.candidates import CandidateMoment
-from .models.twitch import Video
+from .models.twitch import Clip, Video
 from .selection.selector import PickResult, select_clips
 from .settings import AppConfig, Secrets
 from .transcription.transcriber import transcribe
@@ -46,6 +48,61 @@ def _parse_time(value: str) -> datetime | None:
         return datetime.fromisoformat(value) if value else None
     except ValueError:
         return None
+
+
+# The saved Twitch clip list (work/<vod>/twitch_clips.json) stops changing this long after the stream.
+CLIP_LIST_LOCKED_AFTER = timedelta(hours=48)
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _stream_end(video: Video) -> datetime | None:
+    """created_at plus duration ("3h2m1s"), or None when either is missing or unreadable."""
+    start = _parse_time(video.created_at)
+    length = re.fullmatch(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?", video.duration)
+    if start is None or not video.duration or length is None:
+        return None
+    h, m, s = (int(part or 0) for part in length.groups())
+    return start.replace(tzinfo=start.tzinfo or UTC) + timedelta(hours=h, minutes=m, seconds=s)
+
+
+def _existing_clips(video: Video, secrets: Secrets, path: Path) -> list[Clip]:
+    """Twitch's clips of the VOD, kept in path. Within 48 h of the stream's end (or when the end
+    is unknown) new clips are merged in by id and none are removed; after that the saved list is
+    used as it is."""
+    saved = None
+    if path.exists():
+        try:
+            saved = [Clip(**d) for d in json.loads(path.read_text(encoding="utf-8"))]
+        except (ValueError, TypeError):
+            log.warning("unreadable saved Twitch clip list, fetching again", path=str(path))
+    end = _stream_end(video)
+    if saved is not None and end is not None and _now() - end > CLIP_LIST_LOCKED_AFTER:
+        log.info("using saved Twitch clip list (locked)", clips=len(saved))
+        return saved
+    if not (secrets.twitch_client_id and secrets.twitch_client_secret and video.user_id):
+        log.info("skipping existing-clips fetch (no Twitch credentials or local mode)")
+        return saved or []  # live runs come here (no user_id), and nothing is written
+    try:
+        with TwitchClient(secrets.twitch_client_id, secrets.twitch_client_secret) as tc:
+            fetched = tc.get_clips_for_vod(
+                video.user_id, video.id, started_at=_parse_time(video.created_at)
+            )
+    except Exception:
+        if saved is None:
+            raise  # as before: no saved list to fall back on
+        log.warning("Twitch clip fetch failed, using saved list", exc_info=True)
+        return saved
+    if not fetched:
+        return saved or []
+    merged = {c.id: c for c in saved or []} | {c.id: c for c in fetched}
+    path.write_text(
+        json.dumps([asdict(c) for c in merged.values()], ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return list(merged.values())
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -82,14 +139,7 @@ def process_vod(
 
     ckpt = CheckpointManager(cfg.work_dir.expanduser() / cfg.checkpoint.dir, video_id)
 
-    if secrets.twitch_client_id and secrets.twitch_client_secret and video.user_id:
-        with TwitchClient(secrets.twitch_client_id, secrets.twitch_client_secret) as tc:
-            existing_clips = tc.get_clips_for_vod(
-                video.user_id, video_id, started_at=_parse_time(video.created_at)
-            )
-    else:
-        existing_clips = []
-        log.info("skipping existing-clips fetch (no Twitch credentials or local mode)")
+    existing_clips = _existing_clips(video, secrets, vod_dir / "twitch_clips.json")
 
     console.print(
         f"VOD [bold]{video_id}[/bold]: {video.title!r} by {video.user_login} "
