@@ -12,6 +12,7 @@ import structlog
 from rich.console import Console
 
 import json
+import os
 from pathlib import Path
 
 from .candidates.builder import build_candidates, save_candidates
@@ -98,10 +99,12 @@ def _existing_clips(video: Video, secrets: Secrets, path: Path) -> list[Clip]:
     if not fetched:
         return saved or []
     merged = {c.id: c for c in saved or []} | {c.id: c for c in fetched}
-    path.write_text(
+    tmp = path.with_suffix(".tmp")  # a broken file would lose the clips Twitch has since removed
+    tmp.write_text(
         json.dumps([asdict(c) for c in merged.values()], ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    os.replace(tmp, path)
     return list(merged.values())
 
 

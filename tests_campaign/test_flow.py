@@ -790,10 +790,11 @@ def clip_list_run(tmp_path, monkeypatch):
     monkeypatch.setattr(cs_pipeline, "TwitchClient", _FakeTwitch)
     secrets = SimpleNamespace(twitch_client_id="id", twitch_client_secret="hemlig")
 
-    def run(now: datetime, user_id: str = "123", created_at: str = "2026-11-20T18:00:00Z") -> None:
+    def run(now: datetime, user_id: str = "123", created_at: str = "2026-11-20T18:00:00Z",
+            duration: str = "1h0m0s") -> None:
         monkeypatch.setattr(cs_pipeline, "_now", lambda: now)
         video = Video(id=VOD, user_id=user_id, user_login="timmy", title="t", created_at=created_at,
-                      published_at="", url="", duration="1h0m0s", type="archive")
+                      published_at="", url="", duration=duration, type="archive")
         cs_pipeline.process_vod(video, cfg, secrets, skip_download=True, skip_transcribe=True,
                                 skip_chat=True, skip_select=True)
 
@@ -829,6 +830,16 @@ def test_after_48_hours_the_saved_list_is_used_without_asking_twitch(clip_list_r
     run(LATE)
     assert _FakeTwitch.calls == 1
     assert (path.parent / "candidates.json").read_text(encoding="utf-8") == first
+    assert _saved(path) == {"a": 10, "b": 10}
+
+
+def test_the_48_hours_count_from_the_streams_end_not_its_start(clip_list_run) -> None:
+    run, path = clip_list_run
+    _FakeTwitch.answer = [_twitch_clip("a", 600)]
+    run(SOON, duration="3h0m0s")
+    _FakeTwitch.answer = [_twitch_clip("b", 1200)]
+    run(datetime(2026, 11, 22, 19, 0, tzinfo=UTC), duration="3h0m0s")  # 49 h efter start, 46 h efter slut
+    assert _FakeTwitch.calls == 2
     assert _saved(path) == {"a": 10, "b": 10}
 
 
